@@ -4,8 +4,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import sessionAttributionQuery from '../../../mocks/fixtures/api/projects/team_id/query/sessionAttributionQuery.json?url'
-import sessionAttributionQueryStatus from '../../../mocks/fixtures/api/projects/team_id/query/sessionAttributionQueryStatus.json?url'
+import sessionAttributionQuery from '../../../mocks/fixtures/api/projects/team_id/query/sessionAttributionQuery.json'
+import sessionAttributionQueryStatus from '../../../mocks/fixtures/api/projects/team_id/query/sessionAttributionQueryStatus.json'
 
 const meta: Meta = {
     component: App,

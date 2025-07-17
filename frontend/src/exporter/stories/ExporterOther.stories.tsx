@@ -5,12 +5,12 @@ import { ExportType } from '~/exporter/types'
 
 import { Exporter } from '../Exporter'
 
-import retentionInsight from '../../mocks/fixtures/api/projects/team_id/insights/retention.json?url'
-import lifecycleInsight from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json?url'
-import stickinessInsight from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json?url'
-import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json?url'
-import eventTableInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json?url'
-import sqlInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json?url'
+import retentionInsight from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import lifecycleInsight from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import stickinessInsight from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+import eventTableInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
+import sqlInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {

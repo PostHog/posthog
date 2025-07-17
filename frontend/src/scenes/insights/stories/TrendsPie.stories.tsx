@@ -5,9 +5,9 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
-import trendsPieInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json?url'
-import trendsPieBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json?url'
-import trendsWorldMapInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json?url'
+import trendsPieInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import trendsPieBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import trendsWorldMapInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
