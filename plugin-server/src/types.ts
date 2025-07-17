@@ -28,6 +28,7 @@ import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
+import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
@@ -240,7 +241,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
-    PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
     HTTP_SERVER_PORT: number
@@ -408,6 +408,7 @@ export interface Hub extends PluginsServerConfig {
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
+    pubSub: PubSub
 }
 
 export interface PluginServerCapabilities {

@@ -60,13 +60,12 @@ export class CdpApi {
         }
     }
 
-    async start() {
-        await this.hogFunctionManager.start()
+    async start(): Promise<void> {
         await this.cdpSourceWebhooksConsumer.start()
     }
 
-    async stop() {
-        await Promise.all([this.hogFunctionManager.stop(), this.cdpSourceWebhooksConsumer.stop()])
+    async stop(): Promise<void> {
+        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy() {
