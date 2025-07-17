@@ -301,8 +301,9 @@ export class IngestionConsumer {
             this.parseKafkaBatch(filteredMessages)
         )
 
+        const eventsWithPersonOverrides = this.applyPersonProcessingRestrictions(parsedMessages)
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
-            return this.resolveTeams(parsedMessages)
+            return this.resolveTeams(eventsWithPersonOverrides)
         })
 
         const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
@@ -615,17 +616,22 @@ export class IngestionConsumer {
                 ...combinedEvent,
             })
 
+            batch.push({ message, event })
+        }
+
+        return Promise.resolve(batch)
+    }
+
+    private applyPersonProcessingRestrictions(messages: IncomingEvent[]): IncomingEvent[] {
+        for (const { event } of messages) {
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
                 }
             }
-
-            batch.push({ message, event })
         }
-
-        return Promise.resolve(batch)
+        return messages
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
