@@ -436,7 +436,7 @@ class FeatureFlagSerializer(
         # We need to iteratively fetch flags because dependencies may reference flags
         # not in the initial set
         refs_to_fetch = set(all_references)
-        refs_fetched = set()
+        refs_fetched: set[str] = set()
 
         while refs_to_fetch - refs_fetched:
             current_refs = refs_to_fetch - refs_fetched
@@ -488,7 +488,7 @@ class FeatureFlagSerializer(
         for flag_id, flag_data in id_to_flag.items():
             deps = extract_flag_references(flag_data["filters"])
             # Convert to IDs, only include deps that we actually found
-            dep_ids = {key_to_id.get(dep) for dep in deps if key_to_id.get(dep)}
+            dep_ids = {key_to_id[dep] for dep in deps if dep in key_to_id}
             dependency_graph[flag_id] = dep_ids
 
         def has_cycle_in_graph(start_id: str, graph: dict[str, set[str]]) -> bool:
@@ -515,7 +515,7 @@ class FeatureFlagSerializer(
             return dfs(start_id)
 
         # 4. Check each new dependency for cycles
-        current_flag_id = str(self.instance.id) if self.instance else current_flag_key
+        current_flag_id = str(self.instance.id) if self.instance and hasattr(self.instance, "id") else current_flag_key
 
         for ref in initial_references:
             dep_id = key_to_id.get(ref, ref)
