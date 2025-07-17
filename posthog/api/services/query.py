@@ -3,6 +3,7 @@ import pydantic_core
 from posthog.schema_migrations.upgrade import upgrade
 import structlog
 from typing import Optional
+from posthog.exceptions_capture import capture_exception
 
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -53,6 +54,25 @@ def process_query_dict(
     try:
         model = QuerySchemaRoot.model_validate(upgraded_query_json)
     except pydantic_core.ValidationError as e:
+        logger.exception(
+            "query_validation_error",
+            team_id=team.id,
+            dashboard_id=dashboard_id,
+            insight_id=insight_id,
+            query_id=query_id,
+            validation_error=str(e),
+        )
+        capture_exception(
+            e,
+            {
+                "team_id": team.id,
+                "dashboard_id": dashboard_id,
+                "insight_id": insight_id,
+                "query_id": query_id,
+                "error_type": "query_validation_error",
+            },
+        )
+
         if dashboard_id:
             raise
 
