@@ -418,7 +418,7 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
             "blob_v2": 1,
         }
 
-        divisor = divisors.get(self.source, 1)
+        divisor: int = divisors.get(self.source if self.source else "", 1)
         return num_requests / divisor, duration
 
     def allow_request(self, request, view):
