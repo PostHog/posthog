@@ -80,10 +80,6 @@ CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE
 BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS", "")
 )
-# The percentage of teams that will use the internal stage for S3 batch exports.
-BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE: int = get_from_env(
-    "BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE", 0, type_cast=int
-)
 BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
     "BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000"
 )
