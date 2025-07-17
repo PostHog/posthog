@@ -298,8 +298,10 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const preprocessedEvents = await this.preprocessEvents(messages)
-        const postCookielessMessages = await this.hub.cookielessManager.doBatch(preprocessedEvents)
+        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
+        const postCookielessMessages = await this.runInstrumented('cookielessProcessing', () =>
+            this.hub.cookielessManager.doBatch(preprocessedEvents)
+        )
         const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
