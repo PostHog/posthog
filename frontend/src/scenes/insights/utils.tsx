@@ -622,3 +622,82 @@ export function parseDraftQueryFromURL(query: string): Node<Record<string, any>>
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
     return JSON.stringify(query)
 }
+
+const TOP_LEVEL_LABELS: Record<string, string> = {
+    kind: 'Insight Type',
+    source: 'Query Settings',
+}
+
+const SOURCE_FIELD_LABELS: Record<string, string> = {
+    breakdownFilter: 'Breakdowns',
+    compareFilter: 'Compare Filter',
+    dateRange: 'Date Range',
+    filterTestAccounts: 'Test Account Filtering',
+    interval: 'Interval',
+    kind: 'Query Kind',
+    properties: 'Global Property Filters',
+    samplingFactor: 'Sampling',
+    series: 'Series',
+    trendsFilter: 'Display Options',
+}
+
+function isObject(value: any): value is Record<string, any> {
+    return value !== null && typeof value === 'object'
+}
+
+function deepEqual(a: any, b: any): boolean {
+    if (a === b) {
+        return true
+    }
+
+    if (Array.isArray(a) && Array.isArray(b)) {
+        if (a.length !== b.length) {
+            return false
+        }
+        const bUsed = new Array(b.length).fill(false)
+        return a.every((itemA) => b.some((itemB, i) => !bUsed[i] && deepEqual(itemA, itemB) && (bUsed[i] = true)))
+    }
+
+    if (isObject(a) && isObject(b)) {
+        const keysA = Object.keys(a)
+        const keysB = Object.keys(b)
+        if (keysA.length !== keysB.length) {
+            return false
+        }
+        return keysA.every((key) => deepEqual(a[key], b[key]))
+    }
+
+    return false
+}
+
+export function compareTopLevelSections(obj1: any, obj2: any): string[] {
+    const changedLabels: string[] = []
+
+    // Top-level keys (e.g. kind, source)
+    const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
+
+    for (const key of keys) {
+        const val1 = obj1?.[key]
+        const val2 = obj2?.[key]
+
+        if (!deepEqual(val1, val2)) {
+            if (key === 'source' && isObject(val1) && isObject(val2)) {
+                // Compare one level deeper in 'source'
+                const innerKeys = new Set([...Object.keys(val1), ...Object.keys(val2)])
+                for (const innerKey of innerKeys) {
+                    const subVal1 = val1[innerKey]
+                    const subVal2 = val2[innerKey]
+                    if (!deepEqual(subVal1, subVal2)) {
+                        const label = SOURCE_FIELD_LABELS[innerKey] || `source.${innerKey}`
+                        changedLabels.push(label)
+                    }
+                }
+            } else {
+                const label = TOP_LEVEL_LABELS[key] || key
+                changedLabels.push(label)
+            }
+        }
+    }
+
+    return changedLabels
+}

@@ -43,6 +43,7 @@ import { insightDataLogic } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
+import { sidePanelMaxAILogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelMaxAILogic'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -128,6 +129,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         onReapplySuggestedInsight: true,
         setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
         setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
+        addRejectionMessageToChat: true,
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -530,6 +532,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     insightDataLogicInstance.actions.setQuery(values.previousQuery)
                 }
             }
+            // Add dummy message to chat indicating the insight change was rejected
+            actions.addRejectionMessageToChat()
         },
         handleInsightSuggested: ({ suggestedInsight }) => {
             if (suggestedInsight) {
@@ -548,6 +552,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 if (insightDataLogicInstance) {
                     insightDataLogicInstance.actions.setQuery(values.suggestedQuery)
                 }
+            }
+        },
+        addRejectionMessageToChat: () => {
+            // Add a dummy message to the chat indicating the insight change was rejected
+            const mountedSidePanelMaxAILogic = sidePanelMaxAILogic.findMounted()
+            if (mountedSidePanelMaxAILogic) {
+                mountedSidePanelMaxAILogic.actions.appendAssistantMessage(
+                    "I've reverted the insight changes as requested. The previous query has been restored."
+                )
             }
         },
     })),
