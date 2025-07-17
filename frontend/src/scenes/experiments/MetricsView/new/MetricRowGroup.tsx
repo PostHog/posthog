@@ -161,7 +161,7 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r border-border-bold p-3 align-top relative overflow-hidden ${
+                    className={`w-1/5 border-border-bold p-3 align-top relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalRows}
