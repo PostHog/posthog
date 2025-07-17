@@ -16,7 +16,7 @@ catalogs:
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
-  '@posthog/icons': 0.24.0
+  '@posthog/icons': 0.26.0
 
 patchedDependencies:
   dayjs@1.11.11:
@@ -25,9 +25,6 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
-  node-rdkafka@2.17.0:
-    hash: bugorwxdhlhl2utknko2c5ibqm
-    path: patches/node-rdkafka@2.17.0.patch
 
 importers:
 
@@ -515,8 +512,8 @@ importers:
         specifier: ^3.4.7
         version: 3.4.7(react@18.2.0)
       '@medv/finder':
-        specifier: ^3.1.0
-        version: 3.1.0
+        specifier: ^4.0.2
+        version: 4.0.2
       '@microlink/react-json-view':
         specifier: ^1.26.2
         version: 1.26.2(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -536,8 +533,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -670,6 +667,9 @@ importers:
       '@tiptap/extension-placeholder':
         specifier: ^2.1.16
         version: 2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)
+      '@tiptap/extension-table-of-contents':
+        specifier: ^2.25.0
+        version: 2.25.0(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)
       '@tiptap/extension-task-item':
         specifier: ^2.1.16
         version: 2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)
@@ -764,8 +764,8 @@ importers:
         specifier: 1.11.11
         version: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
       dompurify:
-        specifier: ^3.0.6
-        version: 3.0.6
+        specifier: ^3.2.6
+        version: 3.2.6
       elkjs:
         specifier: ^0.10.0
         version: 0.10.0
@@ -787,6 +787,9 @@ importers:
       fflate:
         specifier: ^0.7.4
         version: 0.7.4
+      frimousse:
+        specifier: ^0.3.0
+        version: 0.3.0(react@18.2.0)(typescript@5.2.2)
       fuse.js:
         specifier: ^6.6.2
         version: 6.6.2
@@ -1357,8 +1360,8 @@ importers:
         specifier: ^2.6.1
         version: 2.6.9(encoding@0.1.13)
       node-rdkafka:
-        specifier: ^2.17.0
-        version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
+        specifier: ^3.4.1
+        version: 3.4.1
       node-schedule:
         specifier: ^2.1.0
         version: 2.1.1
@@ -1574,8 +1577,8 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1601,8 +1604,8 @@ importers:
   products/cohorts:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1628,8 +1631,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1655,8 +1658,8 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1685,8 +1688,8 @@ importers:
   products/error_tracking:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/addon-actions':
         specifier: '*'
         version: 7.6.4
@@ -1751,8 +1754,8 @@ importers:
   products/experiments:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1778,8 +1781,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1805,8 +1808,8 @@ importers:
   products/games:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1832,8 +1835,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1859,8 +1862,8 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1892,8 +1895,8 @@ importers:
   products/llm_observability:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1937,8 +1940,8 @@ importers:
   products/logs:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
@@ -1994,8 +1997,8 @@ importers:
   products/managed_migrations:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.2.1(kea@3.1.5(react@18.2.0)))(kea@3.1.5(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -2021,8 +2024,8 @@ importers:
   products/messaging:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2069,8 +2072,8 @@ importers:
   products/notebooks:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2096,8 +2099,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2123,8 +2126,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2150,8 +2153,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2177,8 +2180,8 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2207,8 +2210,8 @@ importers:
   products/surveys:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2234,8 +2237,8 @@ importers:
   products/user_interviews:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2261,8 +2264,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.24.0
-        version: 0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -4328,8 +4331,8 @@ packages:
     peerDependencies:
       react: '>=16'
 
-  '@medv/finder@3.1.0':
-    resolution: {integrity: sha512-ojkXjR3K0Zz3jnCR80tqPL+0yvbZk/lEodb6RIVjLz7W8RVA2wrw8ym/CzCpXO9SYVUIKHFUpc7jvf8UKfIM3w==}
+  '@medv/finder@4.0.2':
+    resolution: {integrity: sha512-RraNY9SCcx4KZV0Dh6BEW6XEW2swkqYca74pkFFRw6hHItSHiy+O/xMnpbofjYbzXj0tSpBGthUF1hHTsr3vIQ==}
 
   '@microlink/react-json-view@1.26.2':
     resolution: {integrity: sha512-NamaHDT21njvbg2RZQq+rnu+owlPyj5lnUdVH5ZtChfTX+75QD2EGnccB1gs0De42jdPj77UQHYLr7d4J46IYA==}
@@ -4986,8 +4989,8 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/icons@0.24.0':
-    resolution: {integrity: sha512-Lf/xac+TFAkM5y/WkpZQI8m7JP1PULI1HHCXoYtUv59y4vFA7D5pYQQkN0r8HIwMLxdCgzAJ1J5hh1vKHVcCOw==}
+  '@posthog/icons@0.26.0':
+    resolution: {integrity: sha512-Ig0B7AM3HzJpUbcmXxXVPlCvq8a+C8xlhs117ieBfwb9Q9Kp12p3ptz0CoolIRTvcJZeCGriTLx1PQYcmo2Saw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -7262,6 +7265,12 @@ packages:
     peerDependencies:
       '@tiptap/core': ^2.0.0
 
+  '@tiptap/extension-table-of-contents@2.25.0':
+    resolution: {integrity: sha512-Hkd5kAVmlSD+WEFi35gSqfUVr0Y6gmcgGImPc2C7wIldhQirzNsZVC+reTm5IY9GA+esAdAZcyJuGSx/k8NdUA==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+      '@tiptap/pm': ^2.7.0
+
   '@tiptap/extension-task-item@2.1.16':
     resolution: {integrity: sha512-kqeoAPAh3TGhAiJMkFlVcRzI765MB4KzGL9fJEQY7oeZF8FG9mYcMlqD7SkpdmV5UOJ+uWByIca4yWwHoyBIUg==}
     peerDependencies:
@@ -7858,6 +7867,9 @@ packages:
 
   '@types/trusted-types@2.0.4':
     resolution: {integrity: sha512-IDaobHimLQhjwsQ/NMwRVfa/yL7L/wriQPMhw1ZJall0KX6E1oxk29XMDeilW5qTIg5aoiqf5Udy8U/51aNoQQ==}
+
+  '@types/trusted-types@2.0.7':
+    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
   '@types/unist@2.0.6':
     resolution: {integrity: sha512-PBjIUxZHOuj0R15/xuwJYjFi+KZdNFrehocChv4g5hu6aFroHue8m0lBP0POdK2nKzbw0cgV1mws8+V/JAcEkQ==}
@@ -9665,9 +9677,6 @@ packages:
   dayjs@1.11.11:
     resolution: {integrity: sha512-okzr3f11N6WuqYtZSvm+F776mB41wRZMhKP+hc34YdW+KmtYYK9iqvHSwo2k9FEH3fhGXvOPV6yz2IcSrfRUDg==}
 
-  dayjs@1.11.13:
-    resolution: {integrity: sha512-oaMBel6gjolK862uaPQOVTA7q3TZhuSvuMQAAglQDOWYO9A91IrAOUJEyKVlqJlHE0vq5p5UXxzdPfMH/x6xNg==}
-
   debounce@1.2.1:
     resolution: {integrity: sha512-XRRe6Glud4rd/ZGQfiV1ruXSfbvfJedlV9Y6zOlP+2K04vBYiJEte6stfFkCP03aMnY5tsipamumUjL14fofug==}
 
@@ -9923,8 +9932,8 @@ packages:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
 
-  dompurify@3.0.6:
-    resolution: {integrity: sha512-ilkD8YEnnGh1zJ240uJsW7AzE+2qpbOUYjacomn3AvJ6J4JhKGSZ2nh4wUIXPZrEPppaCLx5jFe8T89Rk8tQ7w==}
+  dompurify@3.2.6:
+    resolution: {integrity: sha512-/2GogDQlohXPZe6D6NOgQvXLPSYBqIWMnZ8zzOhn09REE4eyAzb+Hed3jhoM9OkuaJ8P6ZGTTVWQKAi8ieIzfQ==}
 
   domutils@1.7.0:
     resolution: {integrity: sha512-Lgd2XcJ/NjEw+7tFvfKxOzCYKZsdct5lczQ2ZaQY8Djz7pfAD3Gbp8ySJWtreII/vDlMVmxwa6pHmdxIYgttDg==}
@@ -10687,6 +10696,15 @@ packages:
   fresh@0.5.2:
     resolution: {integrity: sha512-zJ2mQYM18rEFOudeV4GShTGIQ7RbzA7ozbU9I/XBpm7kqgMywgmylMwXHxZJmkVoYkna9d2pVXVXPdYTP9ej8Q==}
     engines: {node: '>= 0.6'}
+
+  frimousse@0.3.0:
+    resolution: {integrity: sha512-kO6LMoKY/cLAYEhXXtqLRaLIE6L/DagpFPrUZaLv3LsUa1/8Iza3HhwZcgN8eZ+weXnhv69eoclNUPohcCa/IQ==}
+    peerDependencies:
+      react: ^18 || ^19
+      typescript: 5.2.2
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   fromentries@1.3.2:
     resolution: {integrity: sha512-cHEpEQHUg0f8XdtZCc2ZAhrHzKzT0MrFUTcvx+hfxYu7rGMDc5SKoXFh+n4YigxsHXRzc6OrCshdR1bWH6HHyg==}
@@ -13111,9 +13129,9 @@ packages:
     resolution: {integrity: sha512-RM5oyBy45cLEoHqCeh+MNuFAxO0vTFBLskvQbOKnEE7YTTSN4tbN8QWDIPQ6L+WvKsB/qLEGpYe2ZZ9d4W9OIQ==}
     engines: {node: '>=8'}
 
-  node-rdkafka@2.17.0:
-    resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
-    engines: {node: '>=6.0.0'}
+  node-rdkafka@3.4.1:
+    resolution: {integrity: sha512-qWEjyeZmCNtc7MVUucl9xRsSSXdmMS3lQOiQU15fXIFaLK0K3OZr5T6VTjAAIgz+yoATvaCBDXmMc4RiK65eTg==}
+    engines: {node: '>=16'}
 
   node-releases@2.0.19:
     resolution: {integrity: sha512-xxOWJsBKtzAq7DY0J+DTzuz58K8e7sJbdgwkbMWQe8UYB6ekmsQ45q0M/tJDsGaZmbC+l7n57UV8Hl5tHxO9uw==}
@@ -16567,8 +16585,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.279.0:
-    resolution: {integrity: sha512-J8cYUsH2tdBtVoF+n9wIELToNle738hE+mJtGQiTo9G2LOSOt7P6OO4IKVZwx3x7Ir9sbBLOwy2ik9rMiKuvPw==}
+  unlayer-types@1.281.0:
+    resolution: {integrity: sha512-YbsljFNAwwzvU+l7ulXZJ83+FpBNi9gd3fT9+nqSLMGPs9BF4Di1AEdNcnMyDH9CJsJfSpcuIOYHuymqnp2+Gw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -20069,7 +20087,7 @@ snapshots:
       '@types/react': 17.0.52
       react: 18.2.0
 
-  '@medv/finder@3.1.0': {}
+  '@medv/finder@4.0.2': {}
 
   '@microlink/react-json-view@1.26.2(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -21050,7 +21068,7 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/icons@0.24.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -24090,6 +24108,12 @@ snapshots:
     dependencies:
       '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
 
+  '@tiptap/extension-table-of-contents@2.25.0(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)':
+    dependencies:
+      '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
+      '@tiptap/pm': 2.1.16
+      uuid: 10.0.0
+
   '@tiptap/extension-task-item@2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)':
     dependencies:
       '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
@@ -24794,6 +24818,9 @@ snapshots:
 
   '@types/trusted-types@2.0.4': {}
 
+  '@types/trusted-types@2.0.7':
+    optional: true
+
   '@types/unist@2.0.6': {}
 
   '@types/uuid@10.0.0': {}
@@ -25243,7 +25270,7 @@ snapshots:
       '@rc-component/trigger': 2.2.7(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       classnames: 2.5.1
       copy-to-clipboard: 3.3.3
-      dayjs: 1.11.13
+      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
       rc-cascader: 3.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-checkbox: 3.5.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-collapse: 3.9.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -25259,7 +25286,7 @@ snapshots:
       rc-motion: 2.9.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-notification: 5.6.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-pagination: 5.1.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      rc-picker: 4.11.3(date-fns@2.29.3)(dayjs@1.11.13)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      rc-picker: 4.11.3(date-fns@2.29.3)(dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq))(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-progress: 4.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-rate: 2.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-resize-observer: 1.4.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -27139,8 +27166,6 @@ snapshots:
 
   dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq): {}
 
-  dayjs@1.11.13: {}
-
   debounce@1.2.1: {}
 
   debug@2.6.9:
@@ -27394,7 +27419,9 @@ snapshots:
     dependencies:
       domelementtype: 2.3.0
 
-  dompurify@3.0.6: {}
+  dompurify@3.2.6:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
 
   domutils@1.7.0:
     dependencies:
@@ -28362,6 +28389,12 @@ snapshots:
   fraction.js@4.3.7: {}
 
   fresh@0.5.2: {}
+
+  frimousse@0.3.0(react@18.2.0)(typescript@5.2.2):
+    dependencies:
+      react: 18.2.0
+    optionalDependencies:
+      typescript: 5.2.2
 
   fromentries@1.3.2: {}
 
@@ -31322,10 +31355,10 @@ snapshots:
     dependencies:
       process-on-spawn: 1.0.0
 
-  node-rdkafka@2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm):
+  node-rdkafka@3.4.1:
     dependencies:
       bindings: 1.5.0
-      nan: 2.17.0
+      nan: 2.22.0
 
   node-releases@2.0.19: {}
 
@@ -33252,7 +33285,7 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  rc-picker@4.11.3(date-fns@2.29.3)(dayjs@1.11.13)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
+  rc-picker@4.11.3(date-fns@2.29.3)(dayjs@1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq))(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
       '@babel/runtime': 7.27.6
       '@rc-component/trigger': 2.2.7(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -33264,7 +33297,7 @@ snapshots:
       react-dom: 18.2.0(react@18.2.0)
     optionalDependencies:
       date-fns: 2.29.3
-      dayjs: 1.11.13
+      dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
       luxon: 3.5.0
       moment: 2.29.4
 
@@ -33524,7 +33557,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.279.0
+      unlayer-types: 1.281.0
 
   react-error-overlay@6.0.9: {}
 
@@ -35527,7 +35560,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.279.0: {}
+  unlayer-types@1.281.0: {}
 
   unpipe@1.0.0: {}
 

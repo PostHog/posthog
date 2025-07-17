@@ -1,4 +1,3 @@
-import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
@@ -20,6 +19,7 @@ import { VM } from 'vm2'
 import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -28,6 +28,7 @@ import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
+import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
@@ -156,9 +157,8 @@ export type IngestionConsumerConfig = {
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
  * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
  */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
@@ -241,17 +241,15 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
-    PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
-    DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
-    SITE_URL: string | null
+    SITE_URL: string
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -268,6 +266,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -399,7 +398,6 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     celery: Celery
     // geoip database, setup in workers
-    mmdb?: ReaderModel
     geoipService: GeoIPService
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
@@ -408,6 +406,8 @@ export interface Hub extends PluginsServerConfig {
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
+    pubSub: PubSub
+    integrationManager: IntegrationManagerService
 }
 
 export interface PluginServerCapabilities {
@@ -427,9 +427,9 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
+    cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
-    mmdb?: boolean
 }
 
 export interface EnqueuedPluginJob {
@@ -690,6 +690,7 @@ export interface Team {
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
+    drop_events_older_than_seconds: number | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

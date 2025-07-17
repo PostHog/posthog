@@ -31,9 +31,11 @@ export function Dashboards(): JSX.Element {
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
-            key: DashboardsTab.Dashboards,
-            label: 'Dashboards',
+            key: DashboardsTab.All,
+            label: 'All dashboards',
         },
+        { key: DashboardsTab.Yours, label: 'My dashboards' },
+        { key: DashboardsTab.Pinned, label: 'Pinned' },
         {
             key: DashboardsTab.Templates,
             label: 'Templates',

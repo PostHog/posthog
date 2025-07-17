@@ -63,7 +63,9 @@ def get_external_logger():
 
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
-        logger.propagate = False
+
+        if not settings.TEST:
+            logger.propagate = False
 
     return structlog.get_logger(EXTERNAL_LOGGER_NAME)
 
@@ -92,7 +94,9 @@ def configure_stdlib_logger(logger: logging.Logger) -> None:
 
     logger.addHandler(handler)
     logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
-    logger.propagate = False
+
+    if not settings.TEST:
+        logger.propagate = False
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
@@ -263,7 +267,7 @@ def configure_logger_async(
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
     ]
 
-    log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
+    log_queue = queue if queue is not None else asyncio.Queue(maxsize=settings.TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE)
     log_producer = None
     log_producer_error = None
 

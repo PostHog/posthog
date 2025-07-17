@@ -57,7 +57,7 @@ impl FlagService {
                         (Ok(token), false)
                     }
                     Err(e) => {
-                        tracing::error!("Token validation failed for token '{}': {:?}", token, e);
+                        tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
                         inc(
                             TOKEN_VALIDATION_ERRORS_COUNTER,
                             &[("reason".to_string(), "token_not_found".to_string())],
@@ -116,18 +116,18 @@ impl FlagService {
     }
 
     /// Fetches the flags from the cache or the database. Returns a tuple containing
-    /// the flags and a boolean indicating whether the flags came from cache.  Also, it
-    /// tracks cache hits and misses for a given project_id.
+    /// the flags and a boolean indicating whether there were deserialization errors.
+    /// Also tracks cache hits and misses for a given project_id.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         project_id: i64,
-    ) -> Result<FeatureFlagList, FlagError> {
+    ) -> Result<(FeatureFlagList, bool), FlagError> {
         let (flags_result, cache_hit) =
             match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id).await {
-                Ok(flags) => (Ok(flags), true),
+                Ok(flags) => (Ok((flags, false)), true),
                 Err(_) => {
                     match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
-                        Ok(flags) => {
+                        Ok((flags, had_errors)) => {
                             inc(DB_FLAG_READS_COUNTER, &[], 1);
                             if (FeatureFlagList::update_flags_in_redis(
                                 self.redis_writer.clone(),
@@ -143,7 +143,7 @@ impl FlagService {
                                     1,
                                 );
                             }
-                            (Ok(flags), false)
+                            (Ok((flags, had_errors)), false)
                         }
                         Err(e) => (Err(e), false),
                     }
@@ -296,7 +296,7 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
                 FeatureFlag {
@@ -314,7 +314,7 @@ mod tests {
                     },
                     deleted: false,
                     active: false,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
                 FeatureFlag {
@@ -343,7 +343,7 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
             ],
@@ -364,7 +364,7 @@ mod tests {
             .get_flags_from_cache_or_pg(team.project_id)
             .await;
         assert!(result.is_ok());
-        let fetched_flags = result.unwrap();
+        let (fetched_flags, _) = result.unwrap();
         assert_eq!(fetched_flags.flags.len(), mock_flags.flags.len());
 
         // Verify the contents of the fetched flags
