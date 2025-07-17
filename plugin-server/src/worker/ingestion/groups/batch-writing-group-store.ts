@@ -264,13 +264,6 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {
-        logger.info('🔁', 'Adding to batch', {
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            properties,
-            timestamp,
-        })
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
 
         if (!group) {
