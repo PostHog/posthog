@@ -4,10 +4,16 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
+import { QueryBasedInsightModel } from '~/types'
 
-import trendsPieInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import trendsPieBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
-import trendsWorldMapInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import trendsPieInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import trendsPieBreakdownInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import trendsWorldMapInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+
+// Type assertions for JSON fixtures
+const trendsPieInsight = trendsPieInsightData as unknown as QueryBasedInsightModel
+const trendsPieBreakdownInsight = trendsPieBreakdownInsightData as unknown as QueryBasedInsightModel
+const trendsWorldMapInsight = trendsWorldMapInsightData as unknown as QueryBasedInsightModel
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

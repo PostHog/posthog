@@ -2,13 +2,22 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
-import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
-import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
-import funnelTopToBottomInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
-import funnelTopToBottomBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
-import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
-import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
+import { InsightModel } from '~/types'
+import funnelLeftToRightInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import funnelLeftToRightBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
+import funnelTopToBottomInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
+import funnelTopToBottomBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import funnelHistoricalTrendsInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelTimeToConvertInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import { Exporter } from '../Exporter'
+
+// Type assertions for JSON fixtures
+const funnelLeftToRightInsight = funnelLeftToRightInsightData as unknown as InsightModel
+const funnelLeftToRightBreakdownInsight = funnelLeftToRightBreakdownInsightData as unknown as InsightModel
+const funnelTopToBottomInsight = funnelTopToBottomInsightData as unknown as InsightModel
+const funnelTopToBottomBreakdownInsight = funnelTopToBottomBreakdownInsightData as unknown as InsightModel
+const funnelHistoricalTrendsInsight = funnelHistoricalTrendsInsightData as unknown as InsightModel
+const funnelTimeToConvertInsight = funnelTimeToConvertInsightData as unknown as InsightModel
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {

@@ -4,8 +4,12 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
+import { QueryBasedInsightModel } from '~/types'
 
-import lifecycleInsight from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import lifecycleInsightData from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+
+// Type assertion for JSON fixture
+const lifecycleInsight = lifecycleInsightData as unknown as QueryBasedInsightModel
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

@@ -4,14 +4,24 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
+import { QueryBasedInsightModel } from '~/types'
 
-import trendsValueInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
-import trendsValueBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
-import trendsAreaInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
-import trendsAreaBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
-import trendsNumberInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
-import trendsTableInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
-import trendsTableBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
+import trendsValueInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import trendsValueBreakdownInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
+import trendsAreaInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import trendsAreaBreakdownInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
+import trendsNumberInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import trendsTableInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import trendsTableBreakdownInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
+
+// Type assertions for JSON fixtures
+const trendsValueInsight = trendsValueInsightData as unknown as QueryBasedInsightModel
+const trendsValueBreakdownInsight = trendsValueBreakdownInsightData as unknown as QueryBasedInsightModel
+const trendsAreaInsight = trendsAreaInsightData as unknown as QueryBasedInsightModel
+const trendsAreaBreakdownInsight = trendsAreaBreakdownInsightData as unknown as QueryBasedInsightModel
+const trendsNumberInsight = trendsNumberInsightData as unknown as QueryBasedInsightModel
+const trendsTableInsight = trendsTableInsightData as unknown as QueryBasedInsightModel
+const trendsTableBreakdownInsight = trendsTableBreakdownInsightData as unknown as QueryBasedInsightModel
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

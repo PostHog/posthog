@@ -5,10 +5,17 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
-import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
-import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
-import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
-import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
+import funnelLeftToRightInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import funnelLeftToRightBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
+import funnelHistoricalTrendsInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelTimeToConvertInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
+import { QueryBasedInsightModel } from '~/types'
+
+// Type assertions for JSON fixtures
+const funnelLeftToRightInsight = funnelLeftToRightInsightData as unknown as QueryBasedInsightModel
+const funnelLeftToRightBreakdownInsight = funnelLeftToRightBreakdownInsightData as unknown as QueryBasedInsightModel
+const funnelHistoricalTrendsInsight = funnelHistoricalTrendsInsightData as unknown as QueryBasedInsightModel
+const funnelTimeToConvertInsight = funnelTimeToConvertInsightData as unknown as QueryBasedInsightModel
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
