@@ -142,35 +142,6 @@ describe('ActionManagerCDP()', () => {
         })
     })
 
-    describe('markTeamForRefresh()', () => {
-        it('forces refresh of cached actions', async () => {
-            const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-
-            await createAction(postgres, teamId, 'Initial Action', bytecode)
-
-            // First call
-            const result1 = await actionManager.getActionsForTeam(teamId)
-            expect(result1).toHaveLength(1)
-            expect(fetchActionsSpy).toHaveBeenCalledTimes(1)
-
-            // Add another action
-            await createAction(postgres, teamId, 'New Action', bytecode)
-
-            // Without refresh, still returns cached result
-            const result2 = await actionManager.getActionsForTeam(teamId)
-            expect(result2).toHaveLength(1)
-            expect(fetchActionsSpy).toHaveBeenCalledTimes(1)
-
-            // Mark for refresh
-            actionManager.markTeamForRefresh(teamId)
-
-            // Now should fetch fresh data
-            const result3 = await actionManager.getActionsForTeam(teamId)
-            expect(result3).toHaveLength(2)
-            expect(fetchActionsSpy).toHaveBeenCalledTimes(2)
-        })
-    })
-
     describe('fetchActions()', () => {
         it('handles empty team ID array', async () => {
             const result = await (actionManager as any).fetchActions([])

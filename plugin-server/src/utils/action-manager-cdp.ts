@@ -36,10 +36,6 @@ export class ActionManagerCDP {
         return this.lazyLoader.getMany(teamIds.map(String))
     }
 
-    public markTeamForRefresh(teamId: number): void {
-        this.lazyLoader.markForRefresh(String(teamId))
-    }
-
     private async fetchActions(teamIds: string[]): Promise<Record<string, Action[]>> {
         const teamIdNumbers = teamIds.map(Number).filter((id) => !isNaN(id))
 
