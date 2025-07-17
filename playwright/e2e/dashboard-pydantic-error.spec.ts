@@ -8,60 +8,60 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
     let validInsightName: string
     let invalidInsightName: string
 
-    test.beforeEach(async () => {
+    test.beforeEach(async ({ page }) => {
         dashboardName = randomString('Dashboard with Pydantic Error')
         validInsightName = randomString('Valid Insight')
         invalidInsightName = randomString('Invalid Insight with Pydantic Error')
-    })
 
-    test('Dashboard loads with pydantic error displayed in insight card', async ({ page }) => {
-        // Create dashboard
+        // Create dashboard through UI
         const dashboardPage = new DashboardPage(page)
         await dashboardPage.createNew(dashboardName)
 
-        // Create and add valid insight
+        // Create valid insight through UI
         const validInsightPage = new InsightPage(page)
         await validInsightPage.createNew(validInsightName)
         await validInsightPage.addToDashboard(dashboardName)
 
-        // Create invalid insight with extra pydantic field
+        // Create another valid insight through UI that we'll corrupt later
         const invalidInsightPage = new InsightPage(page)
-        await invalidInsightPage.goToNew()
-        await invalidInsightPage.rename(invalidInsightName)
-
-        // Switch to JSON mode to manually edit the query
-        await page.getByTestId('insight-json-tab').click()
-
-        // Create an invalid query with extra field that will cause pydantic error
-        const invalidQuery = JSON.stringify(
-            {
-                kind: 'TrendsQuery',
-                series: [
-                    {
-                        kind: 'EventsNode',
-                        event: '$pageview',
-                        math: 'total',
-                    },
-                ],
-                trendsFilter: {},
-                invalidExtraField: 'this will cause pydantic error', // This extra field will trigger validation error
-            },
-            null,
-            2
-        )
-
-        // Clear and update the query editor
-        await page.getByTestId('query-editor').locator('textarea').fill(invalidQuery)
-        await page.getByTestId('query-editor-save').click()
-
-        // Save the invalid insight
-        await invalidInsightPage.save()
-
-        // Add the invalid insight to dashboard
+        await invalidInsightPage.createNew(invalidInsightName)
         await invalidInsightPage.addToDashboard(dashboardName)
 
-        // Navigate back to dashboard
-        await page.goto(`/dashboard`)
+        // Now corrupt the second insight's query field via Django admin interface
+        // This simulates how bad data gets into production through migrations/deployments
+
+        // Navigate to Django admin to edit the insight directly
+        await page.goto('/admin/posthog/insight/')
+
+        // Search for our insight
+        await page.getByPlaceholder('Search').fill(invalidInsightName)
+        await page.keyboard.press('Enter')
+        await page.waitForLoadState('networkidle')
+
+        // Click on the insight to edit it
+        await page.getByText(invalidInsightName).first().click()
+        await page.waitForLoadState('networkidle')
+
+        // Find and edit the query field (it's a JSONField in Django admin)
+        const queryTextarea = page.locator('textarea[name="query"]')
+        await queryTextarea.waitFor()
+
+        // Get the current query JSON and add an invalid field
+        const currentQuery = await queryTextarea.inputValue()
+        const queryObj = JSON.parse(currentQuery)
+        queryObj.invalidExtraField = 'this will cause pydantic error'
+
+        // Update the query field with corrupted data
+        await queryTextarea.fill(JSON.stringify(queryObj, null, 2))
+
+        // Save the changes
+        await page.getByRole('button', { name: 'Save' }).click()
+        await page.waitForLoadState('networkidle')
+    })
+
+    test('Dashboard loads with pydantic error displayed in insight card', async ({ page }) => {
+        // Navigate to the dashboard (we should already be there, but let's be explicit)
+        await page.goto('/dashboard')
         await page.getByPlaceholder('Search for dashboards').fill(dashboardName)
         await page.getByText(dashboardName).click()
 
@@ -79,44 +79,12 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
     })
 
     test('Invalid insight loads directly with pydantic error displayed', async ({ page }) => {
-        // Create invalid insight
-        const invalidInsightPage = new InsightPage(page)
-        await invalidInsightPage.goToNew()
-        await invalidInsightPage.rename(invalidInsightName)
+        // First we need to get the insight ID by navigating to insights list
+        await page.goto('/insights')
+        await page.getByPlaceholder('Search for insights').fill(invalidInsightName)
 
-        // Switch to JSON mode
-        await page.getByTestId('insight-json-tab').click()
-
-        // Create invalid query
-        const invalidQuery = JSON.stringify(
-            {
-                kind: 'TrendsQuery',
-                series: [
-                    {
-                        kind: 'EventsNode',
-                        event: '$pageview',
-                        math: 'total',
-                    },
-                ],
-                trendsFilter: {},
-                invalidExtraField: 'this will cause pydantic error',
-            },
-            null,
-            2
-        )
-
-        await page.getByTestId('query-editor').locator('textarea').fill(invalidQuery)
-        await page.getByTestId('query-editor-save').click()
-
-        // Save the insight
-        await invalidInsightPage.save()
-
-        // Get current URL to extract insight ID
-        const currentUrl = page.url()
-        const insightId = currentUrl.split('/').pop()
-
-        // Visit the insight directly
-        await page.goto(`/insights/${insightId}`)
+        // Click on the insight to navigate to it
+        await page.getByText(invalidInsightName).click()
 
         // Check that the insight page loads with validation error
         await expect(page.getByTestId('insight-empty-state')).toBeVisible()
@@ -125,46 +93,8 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
     })
 
     test('Clicking invalid insight from dashboard navigates correctly and shows error', async ({ page }) => {
-        // Create dashboard
-        const dashboardPage = new DashboardPage(page)
-        await dashboardPage.createNew(dashboardName)
-
-        // Create valid insight
-        const validInsightPage = new InsightPage(page)
-        await validInsightPage.createNew(validInsightName)
-        await validInsightPage.addToDashboard(dashboardName)
-
-        // Create invalid insight
-        const invalidInsightPage = new InsightPage(page)
-        await invalidInsightPage.goToNew()
-        await invalidInsightPage.rename(invalidInsightName)
-
-        await page.getByTestId('insight-json-tab').click()
-
-        const invalidQuery = JSON.stringify(
-            {
-                kind: 'TrendsQuery',
-                series: [
-                    {
-                        kind: 'EventsNode',
-                        event: '$pageview',
-                        math: 'total',
-                    },
-                ],
-                trendsFilter: {},
-                invalidExtraField: 'this will cause pydantic error',
-            },
-            null,
-            2
-        )
-
-        await page.getByTestId('query-editor').locator('textarea').fill(invalidQuery)
-        await page.getByTestId('query-editor-save').click()
-        await invalidInsightPage.save()
-        await invalidInsightPage.addToDashboard(dashboardName)
-
-        // Navigate to dashboard
-        await page.goto(`/dashboard`)
+        // Navigate to the dashboard
+        await page.goto('/dashboard')
         await page.getByPlaceholder('Search for dashboards').fill(dashboardName)
         await page.getByText(dashboardName).click()
 
