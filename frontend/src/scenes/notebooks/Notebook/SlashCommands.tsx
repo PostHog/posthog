@@ -269,7 +269,7 @@ order by count() desc
             ),
     },
     {
-        title: 'Calendar Heatmap',
+        title: 'Calendar heatmap (BETA)',
         search: 'calendar heatmap insight',
         icon: <IconRetentionHeatmap />,
         command: (chain, pos) =>
@@ -380,7 +380,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
     const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
     const slashCommands = SLASH_COMMANDS.filter(
-        (command) => calendarHeatmapInsightEnabled || command.title !== 'Calendar Heatmap'
+        (command) => calendarHeatmapInsightEnabled || command.title !== 'Calendar heatmap (BETA)'
     )
 
     const allCommmands = [...TEXT_CONTROLS, ...slashCommands]

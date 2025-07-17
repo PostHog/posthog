@@ -1045,3 +1045,95 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:write" in response.json()["detail"]
+
+    def test_notebook_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to notebook access_controls endpoint succeed with access_control:write scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_write",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:write"],  # Write scope required for PUT
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_project_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to project access_controls endpoint fail with only access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_project_read",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],  # Only read scope, no write permissions
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/access_controls",
+            {"access_level": "editor"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:write" in response.json()["detail"]
+
+    def test_project_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to project access_controls endpoint succeed with access_control:write scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_project_write",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:write"],  # Write scope required for PUT
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/access_controls",
+            {"access_level": "admin", "resource": "project", "resource_id": str(self.team.id)},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_global_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to global_access_controls endpoint fail with only access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_global_read",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],  # Only read scope, no write permissions
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/global_access_controls",
+            {"access_level": "editor", "resource": "notebook"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:write" in response.json()["detail"]
+
+    def test_global_access_controls_put_succeeds_with_write_scope(self):
+        """Test that PUT requests to global_access_controls endpoint succeed with access_control:write scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key_global_write",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:write"],  # Write scope required for PUT
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/global_access_controls",
+            {"access_level": "editor", "resource": "dashboard"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK

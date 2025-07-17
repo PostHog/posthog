@@ -1,5 +1,7 @@
 lexer grammar HogQLLexer;
 
+// NB! We cat either HogQLLexter.cpp.g4 or HogQLLexter.python.g4 when generating the grammar.
+
 // NOTE: don't forget to add new keywords to the parser rule "keyword"!
 
 // Keywords
@@ -200,7 +202,10 @@ LBRACE: '{' -> pushMode(DEFAULT_MODE);
 LBRACKET: '[';
 LPAREN: '(';
 LT_EQ: '<=';
+TAG_LT_SLASH: '</' -> type(LT_SLASH), pushMode(HOGQLX_TAG_CLOSE);
+TAG_LT_OPEN: '<' {isOpeningTag()}? -> type(LT), pushMode(HOGQLX_TAG_OPEN);
 LT: '<';
+LT_SLASH: '</';
 NOT_EQ: '!=' | '<>';
 NOT_IREGEX: '!~*';
 NOT_REGEX: '!~';
@@ -220,23 +225,65 @@ RBRACKET: ']';
 RPAREN: ')';
 SEMICOLON: ';';
 SLASH: '/';
+SLASH_GT: '/>';
 UNDERSCORE: '_';
 
 // Comments and whitespace
-
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
 SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
 
-// regular f' template strings
+// ───────── f' TEMPLATE STRING MODE ─────────
 mode IN_TEMPLATE_STRING;
 STRING_TEXT: ((~([\\'{])) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_SINGLE | (BACKSLASH LBRACE) | (QUOTE_SINGLE QUOTE_SINGLE))+;
 STRING_ESCAPE_TRIGGER: LBRACE -> pushMode(DEFAULT_MODE);
 STRING_QUOTE_SINGLE: QUOTE_SINGLE -> type(QUOTE_SINGLE), popMode;
 
+// ───────── F' FULL TEMPLATE STRING MODE ─────────
 // a magic F' takes us to "full template strings" mode, where we don't need to escape single quotes and parse until EOF
 // this can't be used within a normal columnExpr, but has to be parsed for separately
 mode IN_FULL_TEMPLATE_STRING;
 FULL_STRING_TEXT: ((~([{])) | ESCAPE_CHAR_COMMON | (BACKSLASH LBRACE))+;
 FULL_STRING_ESCAPE_TRIGGER: LBRACE -> pushMode(DEFAULT_MODE);
+
+// ───────── HOGQLX TAG MODE for opening/self-closing tags ─────────
+mode HOGQLX_TAG_OPEN;
+
+TAG_SELF_CLOSE_GT : '/>' -> type(SLASH_GT), popMode;   // <tag …/>
+TAG_OPEN_GT       :  '>' -> type(GT), popMode, pushMode(HOGQLX_TEXT);   // <tag …>
+
+// minimal token set; map everything back to the default token types
+TAG_IDENT   : [a-zA-Z_][a-zA-Z0-9_-]* -> type(IDENTIFIER);
+TAG_EQ      : '='                     -> type(EQ_SINGLE);
+TAG_STRING  : STRING_LITERAL          -> type(STRING_LITERAL);
+TAG_WS      : [ \t\r\n]+              -> channel(HIDDEN);
+TAG_LBRACE  : '{'                     -> type(LBRACE), pushMode(DEFAULT_MODE);
+
+
+// ───────── HOGQLX TAG MODE for closing tags ─────────
+mode HOGQLX_TAG_CLOSE;
+
+TAGC_GT     :  '>' -> type(GT), popMode;                // *** no TEXT push ***
+TAGC_IDENT  : [a-zA-Z_][a-zA-Z0-9_-]* -> type(IDENTIFIER);
+TAGC_WS     : [ \t\r\n]+              -> channel(HIDDEN);
+
+
+// ───────── HOGQLX TEXT MODE ─────────
+mode HOGQLX_TEXT;
+
+HOGQLX_TEXT_TEXT
+    : ~[<{]+ ; // everything except “{” or “<”
+
+HOGQLX_TEXT_LBRACE
+    : '{' -> type(LBRACE), pushMode(DEFAULT_MODE);
+
+HOGQLX_TEXT_LT_SLASH
+    : '</' -> type(LT_SLASH), popMode, pushMode(HOGQLX_TAG_CLOSE);
+
+HOGQLX_TEXT_LT
+    : '<' -> type(LT), pushMode(HOGQLX_TAG_OPEN);
+
+HOGQLX_TEXT_WS
+    : [ \t\r\n]+ -> channel(HIDDEN);
+

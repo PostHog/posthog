@@ -161,6 +161,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "users_with_access",
         ]:
             return ["access_control:read"]
+        elif request.method == "PUT" and self.action in [
+            "access_controls",
+            "global_access_controls",
+        ]:
+            return ["access_control:write"]
 
         return None
 

@@ -28,6 +28,7 @@ from posthog.schema import (
     DateRange,
 )
 from .data import WebAnalyticsDataFactory
+from .query_adapter import ExternalWebAnalyticsQueryAdapter
 
 TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [2]
 
@@ -83,8 +84,9 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsOverviewRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_overview_data(serializer.validated_data)
-        return Response(mock_data)
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        data = adapter.get_overview_data(serializer)
+        return Response(data)
 
     @extend_schema(
         parameters=[WebAnalyticsTrendRequestSerializer],
