@@ -25,13 +25,15 @@ class EditCurrentInsightArgs(BaseModel):
     Edits the insight visualization the user is currently working on, by creating a query or iterating on a previous query.
     """
 
-    query_description: str = Field(description="The new query to edit the current insight.")
+    query_description: str = Field(description=ROOT_INSIGHT_EDITING_PROMPT)
     query_kind: str = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class EditCurrentInsightTool(MaxTool):
     name: str = "create_and_query_insight"  # this is the same name as the "insights" tool in the backend, as this overwrites that tool's functionality to be able to send the result to the frontend
-    description: str = ROOT_INSIGHT_EDITING_PROMPT
+    description: str = (
+        "Update the insight the user is currently working on, based on the current insight's JSON schema."
+    )
     thinking_message: str = "Editing your insight"
     root_system_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
 
@@ -39,8 +41,7 @@ class EditCurrentInsightTool(MaxTool):
 {current_query}
 ```
 
-IMPORTANT: YOU MUST ALWAYS describe the most recent state of the insight to the tool and the most recent change the user has requested.
-THE CURRENT INSIGHT DEFINITION IS YOUR SOURCE OF TRUTH.
+IMPORTANT: THE CURRENT INSIGHT DEFINITION IS YOUR SOURCE OF TRUTH.
 
 """.strip()
 
