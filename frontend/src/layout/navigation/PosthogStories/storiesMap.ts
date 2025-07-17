@@ -77,6 +77,11 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_kit_657f1da249.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
                 type: StoryType.Image,
             },
             {
@@ -85,6 +90,11 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_colors_84c91ae075.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
                 type: StoryType.Image,
             },
             {
