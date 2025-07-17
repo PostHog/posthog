@@ -13,6 +13,42 @@ from parameterized import parameterized
 
 
 class TestPreaggregatedTables(BaseTest):
+    @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
+    def test_all_event_properties_on_events_supported(self, property_name, field_name):
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
+        )
+        query = self._parse_and_transform(original_query)
+        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
+        assert query == expected
+
+    @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
+    def test_all_session_properties_on_events_unsupported(self, property_name, field_name):
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
+        )
+        query = self._parse_and_transform(original_query)
+        # Query is preserved - no transformation, these are invalid event properties
+        assert query == self._normalize(original_query)
+
+    @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
+    def test_all_event_properties_on_session_unsupported(self, property_name, field_name):
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
+        )
+        query = self._parse_and_transform(original_query)
+        # Query is preserved - no transformation, these are invalid session properties
+        assert query == self._normalize(original_query)
+
+    @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
+    def test_all_session_properties_on_sessions_unsupported(self, property_name, field_name):
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
+        )
+        query = self._parse_and_transform(original_query)
+        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
+        assert query == expected
+
     def _parse_and_transform(self, query: str):
         node = parse_select(query)
         context = HogQLContext(team_id=self.team.pk)
@@ -163,42 +199,6 @@ class TestPreaggregatedTables(BaseTest):
         expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m FROM web_stats_combined GROUP BY m)"""
         assert query == expected
 
-    @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
-    def test_all_event_properties_on_events_supported(self, property_name, field_name):
-        original_query = (
-            f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
-        )
-        query = self._parse_and_transform(original_query)
-        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
-        assert query == expected
-
-    @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
-    def test_all_session_properties_on_events_unsupported(self, property_name, field_name):
-        original_query = (
-            f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
-        )
-        query = self._parse_and_transform(original_query)
-        # Query is preserved - no transformation, these are invalid event properties
-        assert query == self._normalize(original_query)
-
-    @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
-    def test_all_event_properties_on_session_unsupported(self, property_name, field_name):
-        original_query = (
-            f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
-        )
-        query = self._parse_and_transform(original_query)
-        # Query is preserved - no transformation, these are invalid session properties
-        assert query == self._normalize(original_query)
-
-    @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
-    def test_all_session_properties_on_sessions_unsupported(self, property_name, field_name):
-        original_query = (
-            f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
-        )
-        query = self._parse_and_transform(original_query)
-        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
-        assert query == expected
-
     def test_all_supported_event_properties_are_in_taxonomy(self):
         for property_name in EVENT_PROPERTY_TO_FIELD.keys():
             assert property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys()
@@ -287,3 +287,226 @@ class TestPreaggregatedTables(BaseTest):
         assert "pageview_stats.pageviews" in main_query_str
         assert "regular_events.total_events" in main_query_str
         assert "another_pageview_cte.more_pageviews" in main_query_str
+
+    def test_nested_select_queries(self):
+        """Test that nested SELECT queries within SELECT clauses are handled correctly."""
+        original_query = """
+            SELECT
+                count() as total,
+                (SELECT count() FROM events WHERE event = '$pageview') as pageviews
+            FROM events
+            WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        # The main query should transform, nested one should also transform
+        assert "sumMerge(pageviews_count_state)" in query
+        assert "web_stats_combined" in query
+
+    def test_union_queries(self):
+        """Test that UNION queries are handled properly."""
+        original_query = """
+            SELECT count() FROM events WHERE event = '$pageview'
+            UNION ALL
+            SELECT count() FROM events WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        # Both parts of the union should be transformed
+        assert query.count("sumMerge(pageviews_count_state)") == 2
+        assert query.count("web_stats_combined") == 2
+
+    def test_mixed_aggregations_with_unsupported(self):
+        """Test queries with both supported and unsupported aggregation functions."""
+        original_query = """
+            SELECT
+                count() as pageviews,
+                avg(person_id) as avg_person,
+                uniq(person_id) as users
+            FROM events
+            WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform because avg(person_id) is not supported
+        assert query == self._normalize(original_query)
+
+    def test_having_clause_preservation(self):
+        """Test that HAVING clauses are preserved in transformations."""
+        original_query = """
+            SELECT count() as c, uniq(person_id) as u
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY properties.utm_source
+            HAVING c > 100
+        """
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_combined GROUP BY utm_source HAVING greater(c, 100))"""
+        assert query == expected
+
+    def test_order_by_preservation(self):
+        """Test that ORDER BY clauses are preserved."""
+        original_query = """
+            SELECT count() as c, uniq(person_id) as u
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY properties.utm_source
+            ORDER BY c DESC
+        """
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_combined GROUP BY utm_source ORDER BY c DESC)"""
+        assert query == expected
+
+    def test_limit_offset_preservation(self):
+        """Test that LIMIT and OFFSET clauses are preserved."""
+        original_query = """
+            SELECT count(), uniq(person_id)
+            FROM events
+            WHERE event = '$pageview'
+            LIMIT 10 OFFSET 5
+        """
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined LIMIT 10 OFFSET 5)"""
+        assert query == expected
+
+    def test_complex_where_clause_with_and_or(self):
+        """Test complex WHERE clauses with AND/OR that include pageview filter."""
+        original_query = """
+            SELECT count()
+            FROM events
+            WHERE (event = '$pageview' AND properties.utm_source IS NOT NULL)
+               OR (event = '$pageview' AND properties.utm_medium = 'email')
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to complex OR logic with unsupported conditions
+        assert query == self._normalize(original_query)
+
+    def test_simple_and_condition_transforms(self):
+        """Test that simple AND conditions with only pageview filter transform correctly."""
+        original_query = """
+            SELECT count()
+            FROM events
+            WHERE event = '$pageview' AND 1 = 1
+        """
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_combined)"""
+        assert query == expected
+
+    def test_distinct_queries(self):
+        """Test that DISTINCT is preserved in transformations."""
+        original_query = """
+            SELECT DISTINCT count(), uniq(person_id)
+            FROM events
+            WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT DISTINCT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
+        assert query == expected
+
+    def test_empty_select_query(self):
+        """Test edge case with minimal SELECT query."""
+        original_query = """
+            SELECT count()
+            FROM events
+            WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_combined)"""
+        assert query == expected
+
+    def test_transformation_with_table_alias(self):
+        """Test that table aliases are preserved correctly."""
+        original_query = """
+            SELECT count(), uniq(e.person_id)
+            FROM events e
+            WHERE e.event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        # The alias should be preserved even though we change the table
+        assert "sumMerge(pageviews_count_state)" in query
+        assert "uniqMerge(persons_uniq_state)" in query
+
+    def test_unsupported_group_by_session_property(self):
+        """Test that unsupported session properties prevent transformation."""
+        original_query = """
+            SELECT count(), uniq(person_id)
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY session.unsupported_property
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to unsupported session property
+        assert query == self._normalize(original_query)
+
+    def test_mixed_supported_unsupported_properties_in_select(self):
+        """Test queries that mix supported and unsupported properties in SELECT."""
+        original_query = """
+            SELECT
+                count() as pageviews,
+                properties.utm_source as source,
+                properties.unsupported_prop as unsupported
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY properties.utm_source, properties.unsupported_prop
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to unsupported property in GROUP BY
+        assert query == self._normalize(original_query)
+
+    def test_window_functions_unsupported(self):
+        """Test that window functions prevent transformation."""
+        original_query = """
+            SELECT
+                count(),
+                row_number() OVER (ORDER BY person_id) as row_num
+            FROM events
+            WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to window function
+        assert query == self._normalize(original_query)
+
+    def test_subquery_in_where_clause(self):
+        """Test that subqueries in WHERE clause are handled properly."""
+        original_query = """
+            SELECT count()
+            FROM events
+            WHERE event = '$pageview'
+              AND person_id IN (SELECT id FROM persons WHERE created_at > '2023-01-01')
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to complex WHERE clause with subquery
+        assert query == self._normalize(original_query)
+
+    def test_case_when_expressions(self):
+        """Test that CASE WHEN expressions are handled correctly."""
+        original_query = """
+            SELECT
+                count(),
+                CASE WHEN properties.utm_source = 'google' THEN 'search' ELSE 'other' END as source_type
+            FROM events
+            WHERE event = '$pageview'
+            GROUP BY source_type
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to CASE expression with properties
+        assert query == self._normalize(original_query)
+
+    def test_arithmetic_in_select(self):
+        """Test that arithmetic expressions with aggregations are not supported."""
+        original_query = """
+            SELECT count() * 2 as double_count
+            FROM events
+            WHERE event = '$pageview'
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to arithmetic operations with aggregations being unsupported
+        assert query == self._normalize(original_query)
+
+    def test_null_comparisons_unsupported(self):
+        """Test that NULL comparisons beyond simple constants are unsupported."""
+        original_query = """
+            SELECT count()
+            FROM events
+            WHERE event = '$pageview' AND person_id IS NOT NULL
+        """
+        query = self._parse_and_transform(original_query)
+        # Should not transform due to IS NOT NULL comparison
+        assert query == self._normalize(original_query)
