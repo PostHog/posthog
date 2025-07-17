@@ -114,8 +114,9 @@ def capture_batch_internal(
     event submission is not supported.
 
     Args:
-        events: List of event dictionaries to capture. The payloads MUST include well-formed
-                distinct_id, timestamp, and optional properties map.
+        events: List of event dictionaries to capture. The payloads MUST include
+                well-formed distinct_id, timestamp, and optional properties map
+        event_source: observability tag for error logging
         token: Optional API token to use for all events (overrides individual event tokens)
         process_person_profile: if FALSE (default) specifically disable person processing on each event
 
