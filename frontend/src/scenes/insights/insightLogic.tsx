@@ -533,7 +533,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 }
             }
             // Add dummy message to chat indicating the insight change was rejected
-            actions.addRejectionMessageToChat()
+            // actions.addRejectionMessageToChat()
         },
         handleInsightSuggested: ({ suggestedInsight }) => {
             if (suggestedInsight) {
