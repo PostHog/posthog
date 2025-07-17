@@ -65,7 +65,7 @@ export function MetricsTable({
 
     if (metrics.length === 0) {
         return (
-            <div className="p-8 text-center border border-border-bold rounded-md bg-bg-table">
+            <div className="p-8 text-center border rounded-md">
                 <div className="text-muted">No {isSecondary ? 'secondary' : 'primary'} metrics configured</div>
             </div>
         )
@@ -73,14 +73,14 @@ export function MetricsTable({
 
     if (resultsLoading) {
         return (
-            <div className="p-8 text-center border border-border-bold rounded-md bg-bg-table">
+            <div className="p-8 text-center border rounded-md">
                 <ChartLoadingState height={200} />
             </div>
         )
     }
 
     return (
-        <div className="w-full overflow-x-auto rounded-md border border-border-bold bg-bg-table">
+        <div className="w-full overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
                 <TableHeader results={results} chartRadius={chartRadius} />
                 <tbody>
