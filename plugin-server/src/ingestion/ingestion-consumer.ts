@@ -296,7 +296,7 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const filteredMessages = this.filterDroppedEvents(messages)
+        const filteredMessages = this.applyDropEventsRestrictions(messages)
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () =>
             this.parseKafkaBatch(filteredMessages)
         )
@@ -577,7 +577,7 @@ export class IngestionConsumer {
         )
     }
 
-    private filterDroppedEvents(messages: Message[]): Message[] {
+    private applyDropEventsRestrictions(messages: Message[]): Message[] {
         const filteredMessages: Message[] = []
 
         for (const message of messages) {
