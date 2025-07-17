@@ -462,6 +462,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
             return super().update(property_definition, changed_fields)
         else:
+            # Delegate to TaggedItemSerializerMixin.update() which calls ModelSerializer.update()
             return super().update(property_definition, validated_data)
 
 
