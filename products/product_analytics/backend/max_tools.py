@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT, ROOT_INSIGHT_EDITING_PROMPT
+from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import (
@@ -25,7 +25,9 @@ class EditCurrentInsightArgs(BaseModel):
     Edits the insight visualization the user is currently working on, by creating a query or iterating on a previous query.
     """
 
-    query_description: str = Field(description=ROOT_INSIGHT_EDITING_PROMPT)
+    query_description: str = Field(
+        description="The new query to edit the current insight. Must include all details from the current insight plus any change on top of them. Include any relevant information from the current conversation, as the tool does not have access to the conversation."
+    )
     query_kind: str = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
