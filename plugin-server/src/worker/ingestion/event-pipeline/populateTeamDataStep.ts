@@ -1,8 +1,6 @@
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { Hub, PipelineEvent, Team } from '../../../types'
 import { sanitizeString } from '../../../utils/db/utils'
-import { UUID } from '../../../utils/utils'
-import { captureIngestionWarning } from '../utils'
 import { tokenOrTeamPresentCounter } from './metrics'
 
 export async function populateTeamDataStep(
@@ -16,8 +14,6 @@ export async function populateTeamDataStep(
      * Events captured by apps are directed injected in kafka with a team_id and not token, bypassing capture.
      * For these, we trust the team_id field value.
      */
-
-    const { db } = hub
 
     // Collect statistics on the shape of events we are ingesting.
     tokenOrTeamPresentCounter
@@ -53,20 +49,6 @@ export async function populateTeamDataStep(
             .labels({
                 event_type: 'analytics',
                 drop_cause: 'invalid_token',
-            })
-            .inc()
-        return null
-    }
-
-    // Check for an invalid UUID, which should be blocked by capture, when team_id is present
-    if (!UUID.validateString(event.uuid, false)) {
-        await captureIngestionWarning(db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
-            eventUuid: JSON.stringify(event.uuid),
-        })
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
             })
             .inc()
         return null

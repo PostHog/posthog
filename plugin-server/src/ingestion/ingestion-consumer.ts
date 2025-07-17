@@ -31,6 +31,7 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
+import { UUID } from '../utils/utils'
 import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populateTeamDataStep'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
@@ -38,6 +39,7 @@ import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-b
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { captureIngestionWarning } from '../worker/ingestion/utils'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -305,8 +307,9 @@ export class IngestionConsumer {
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(eventsWithPersonOverrides)
         })
+        const eventsWithValidUuids = await this.validateEventUuids(eventsWithTeams)
 
-        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
+        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithValidUuids)
 
         const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
 
@@ -632,6 +635,30 @@ export class IngestionConsumer {
             }
         }
         return messages
+    }
+
+    private async validateEventUuids(messages: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
+        const validMessages: IncomingEventWithTeam[] = []
+
+        for (const { event, message, team } of messages) {
+            // Check for an invalid UUID, which should be blocked by capture, when team_id is present
+            if (!UUID.validateString(event.uuid, false)) {
+                await captureIngestionWarning(this.hub.db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
+                    eventUuid: JSON.stringify(event.uuid),
+                })
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
+                    })
+                    .inc()
+                continue
+            }
+
+            validMessages.push({ event, message, team })
+        }
+
+        return validMessages
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
