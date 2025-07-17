@@ -56,13 +56,6 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
         help_text="Property to break down by",
     )
 
-    metrics = serializers.CharField(
-        default=",".join(EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS),
-        help_text="Comma-separated list of metrics to include",
-        required=False,
-        style={"placeholder": "visitors,views,sessions"},
-    )
-
     apply_path_cleaning = serializers.BooleanField(default=True, help_text="Apply URL path cleaning", required=False)
 
     limit = serializers.IntegerField(
@@ -74,22 +67,6 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
     )
 
     offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of results to skip", required=False)
-
-    def validate_metrics(self, value):
-        valid_choices = EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS
-
-        if isinstance(value, str):
-            metrics = [m.strip() for m in value.split(",")]
-        else:
-            metrics = value
-
-        for metric in metrics:
-            if metric not in valid_choices:
-                raise serializers.ValidationError(
-                    f"Invalid metric: {metric}. Valid choices: {', '.join(valid_choices)}"
-                )
-
-        return metrics
 
 
 # Response serializers
