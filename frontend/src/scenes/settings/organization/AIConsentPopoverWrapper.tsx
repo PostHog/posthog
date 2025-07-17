@@ -1,7 +1,8 @@
-import { LemonButton, Popover, PopoverProps, Tooltip, Link } from '@posthog/lemon-ui'
 import { IconArrowRight, IconLock } from '@posthog/icons'
-import { useAsyncActions, useValues } from 'kea'
+import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
+import { useAsyncActions, useValues } from 'kea'
+import { Link } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 export function AIConsentPopoverWrapper({
@@ -29,21 +30,23 @@ export function AIConsentPopoverWrapper({
             overlay={
                 <div className="flex flex-col items-end m-1.5">
                     <p className="font-medium text-pretty mb-1.5">
-                        Max needs your approval to potentially process
-                        <br />
-                        identifying user data using{' '}
+                        Max needs your approval to potentially process and share identifying data with{' '}
                         <Tooltip
                             title={`As of ${dayjs().format(
                                 'MMMM YYYY'
                             )}: OpenAI for core analysis, Perplexity for fetching product information`}
                         >
-                            <dfn>external AI services</dfn>
+                            <dfn>external AI providers</dfn>
                         </Tooltip>
-                        , which can mean identifying data is shared with these services. We recommend{' '}
-                        <Link to="https://posthog.com/dpa" target="_blank" targetBlankIcon>
-                            signing a DPA
-                        </Link>{' '}
-                        if needed, but data is never used for training models.
+                        .{' '}
+                        <span className="text-muted-foreground">
+                            If your organization requires a Data Processing Agreement (DPA) for GDPR compliance – and
+                            your existing DPA doesn't already cover LLM subprocessors – you can request one at{' '}
+                            <Link to="https://posthog.com/dpa" target="_blank">
+                                https://posthog.com/dpa
+                            </Link>
+                            .
+                        </span>
                     </p>
                     <div className="flex gap-1.5">
                         <LemonButton type="secondary" size="xsmall" onClick={onDismiss}>
