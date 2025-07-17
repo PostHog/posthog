@@ -28,7 +28,6 @@ async def execute_batch_export_using_internal_stage(
     activity: BatchExportActivity,
     inputs,
     non_retryable_error_types: list[str],
-    finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 180,
     maximum_attempts: int = 0,
@@ -60,6 +59,13 @@ async def execute_batch_export_using_internal_stage(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=inputs.run_id,
+        batch_export_id=inputs.batch_export_id,
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=inputs.team_id,
+    )
 
     if TEST:
         maximum_attempts = 1
