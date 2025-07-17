@@ -58,9 +58,9 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
     listeners(({ actions, values }) => ({
         loadTemplateSuccess: ({ template }) => {
             // Set the inputs to be the defaults if not already set
-            if (template && !values.configuration.inputs) {
+            if (template && Object.keys(values.configuration.inputs ?? {}).length === 0) {
                 actions.setConfigurationValues({
-                    inputs: templateToConfiguration(template).inputs,
+                    inputs: templateToConfiguration(template).inputs ?? {},
                 })
             }
         },
