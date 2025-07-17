@@ -3,7 +3,6 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
-
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics

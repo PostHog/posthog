@@ -2000,7 +2000,6 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     error?: {
         type: string
         message: string
-        tile_id: number
     }
 }
 
