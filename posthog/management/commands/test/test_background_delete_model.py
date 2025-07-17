@@ -45,7 +45,8 @@ class TestBackgroundDeleteModel(BaseTest):
             self.assertIn("does not have a team_id or team field", str(context.exception))
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
-    def test_valid_model_with_team_id_field(self, mock_task):
+    @patch("builtins.input", return_value="DELETE")
+    def test_valid_model_with_team_id_field(self, mock_input, mock_task):
         """Test that valid model with team_id field starts background task"""
         mock_task.delay.return_value = MagicMock(id="test-task-id")
 
@@ -59,7 +60,8 @@ class TestBackgroundDeleteModel(BaseTest):
         mock_task.delay.assert_called_once_with(model_name="posthog.Person", team_id=self.team.id, batch_size=10000)
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
-    def test_custom_batch_size(self, mock_task):
+    @patch("builtins.input", return_value="DELETE")
+    def test_custom_batch_size(self, mock_input, mock_task):
         """Test that custom batch size is passed to task"""
         mock_task.delay.return_value = MagicMock(id="test-task-id")
 
@@ -79,7 +81,8 @@ class TestBackgroundDeleteModel(BaseTest):
         mock_task.delay.assert_not_called()
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
-    def test_model_with_team_foreign_key(self, mock_task):
+    @patch("builtins.input", return_value="DELETE")
+    def test_model_with_team_foreign_key(self, mock_input, mock_task):
         """Test that model with team ForeignKey works"""
         mock_task.delay.return_value = MagicMock(id="test-task-id")
 
@@ -100,3 +103,63 @@ class TestBackgroundDeleteModel(BaseTest):
 
             # Verify task was called
             mock_task.delay.assert_called_once_with(model_name="test.TestModel", team_id=1, batch_size=10000)
+
+    @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
+    @patch("builtins.input", return_value="CANCEL")
+    def test_confirmation_cancelled(self, mock_input, mock_task):
+        """Test that task is not started when confirmation is cancelled"""
+        # Create some test persons
+        Person.objects.create(team=self.team, properties={})
+
+        self.command.handle("posthog.Person", team_id=self.team.id)
+
+        # Verify task was not called
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
+    @patch("builtins.input", return_value="DELETE 1,000,000 RECORDS")
+    def test_large_deletion_confirmation(self, mock_input, mock_task):
+        """Test that large deletions require specific confirmation"""
+        mock_task.delay.return_value = MagicMock(id="test-task-id")
+
+        # Create a mock model with many records
+        with patch("django.apps.apps.get_model") as mock_get_model:
+            mock_model = MagicMock()
+            mock_model.__name__ = "TestModel"
+
+            # Mock the _meta.get_fields() to return a field with name 'team_id'
+            mock_field = MagicMock()
+            mock_field.name = "team_id"
+            mock_model._meta.get_fields.return_value = [mock_field]
+
+            # Mock a large count
+            mock_model.objects.filter.return_value.count.return_value = 1000000
+            mock_get_model.return_value = mock_model
+
+            self.command.handle("test.TestModel", team_id=1)
+
+            # Verify task was called
+            mock_task.delay.assert_called_once_with(model_name="test.TestModel", team_id=1, batch_size=10000)
+
+    def test_zero_records_exits_early(self):
+        """Test that command exits early when no records found"""
+        # Don't create any persons, so count will be 0
+
+        self.command.handle("posthog.Person", team_id=self.team.id)
+
+        # No need to mock task since it should never be called
+
+    def test_batch_size_limit(self):
+        """Test that batch size is limited to maximum"""
+        with patch("posthog.management.commands.background_delete_model.background_delete_model_task") as mock_task:
+            mock_task.delay.return_value = MagicMock(id="test-task-id")
+
+            # Create some test persons
+            Person.objects.create(team=self.team, properties={})
+
+            # Try to use a batch size larger than the limit
+            with patch("builtins.input", return_value="DELETE"):
+                self.command.handle("posthog.Person", team_id=self.team.id, batch_size=100000)
+
+            # Verify task was called with the limited batch size
+            mock_task.delay.assert_called_once_with(model_name="posthog.Person", team_id=self.team.id, batch_size=50000)
