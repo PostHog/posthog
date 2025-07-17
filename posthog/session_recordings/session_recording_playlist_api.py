@@ -383,6 +383,14 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         return paginated_response
 
+    def retrieve(self, request, *args, **kwargs):
+        if kwargs.get("short_id", None) == "history":
+            return response.Response(synthetic_history_list(self.team, cast(User, request.user)))
+
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return response.Response(serializer.data)
+
     @staticmethod
     def _should_include_synthetic_history(request) -> bool:
         """Check if synthetic history item should be included based on current filters"""

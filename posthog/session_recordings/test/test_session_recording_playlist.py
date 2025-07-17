@@ -11,12 +11,12 @@ from django.db import transaction
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
 from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.user import User
-from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
@@ -1083,3 +1083,99 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # Check that watched count is 2 (distinct session_1 and session_2 for this user)
         assert history_item["recordings_counts"]["collection"]["count"] == 2
         assert history_item["recordings_counts"]["collection"]["watched_count"] == 2
+
+    def test_retrieve_history_playlist_returns_synthetic_item(self):
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="session_1",
+        )
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="session_2",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history")
+        assert response.status_code == status.HTTP_200_OK
+
+        history_item = response.json()
+
+        # Verify it's the synthetic history item
+        assert history_item["id"] == "history"
+        assert history_item["short_id"] == "history"
+        assert history_item["name"] == "History"
+        assert history_item["derived_name"] == "History"
+        assert history_item["type"] == "collection"
+        assert not history_item["pinned"]
+        assert not history_item["deleted"]
+        assert history_item["created_at"] is None
+        assert history_item["created_by"] is None
+        assert history_item["last_modified_at"] is None
+        assert history_item["last_modified_by"] is None
+        assert history_item["filters"] == {}
+        assert history_item["description"] == ""
+
+        # Verify the watched counts are correct
+        assert history_item["recordings_counts"]["collection"]["count"] == 2
+        assert history_item["recordings_counts"]["collection"]["watched_count"] == 2
+
+        # Verify saved_filters section is null
+        assert history_item["recordings_counts"]["saved_filters"]["count"] is None
+        assert history_item["recordings_counts"]["saved_filters"]["has_more"] is None
+        assert history_item["recordings_counts"]["saved_filters"]["watched_count"] is None
+        assert history_item["recordings_counts"]["saved_filters"]["increased"] is None
+        assert history_item["recordings_counts"]["saved_filters"]["last_refreshed_at"] is None
+
+    def test_retrieve_history_playlist_with_different_users(self):
+        """Test that retrieving the history playlist shows user-specific counts"""
+        from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+
+        # Create views for the current user
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="session_1",
+        )
+
+        # Create another user and views for them
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id="session_2",
+        )
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id="session_3",
+        )
+
+        # Test retrieving history as the first user
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history")
+        assert response.status_code == status.HTTP_200_OK
+
+        history_item = response.json()
+        assert history_item["id"] == "history"
+        assert history_item["recordings_counts"]["collection"]["count"] == 1  # Only current user's views
+        assert history_item["recordings_counts"]["collection"]["watched_count"] == 1
+
+        # Test retrieving history as the other user
+        self.client.force_login(other_user)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history")
+        assert response.status_code == status.HTTP_200_OK
+
+        history_item = response.json()
+        assert history_item["id"] == "history"
+        assert history_item["recordings_counts"]["collection"]["count"] == 2  # Other user's views
+        assert history_item["recordings_counts"]["collection"]["watched_count"] == 2
+
+    def test_retrieve_history_playlist_with_no_views(self):
+        """Test that retrieving the history playlist works even with no session views"""
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history")
+        assert response.status_code == status.HTTP_200_OK
+
+        history_item = response.json()
+        assert history_item["id"] == "history"
+        assert history_item["recordings_counts"]["collection"]["count"] == 0
+        assert history_item["recordings_counts"]["collection"]["watched_count"] == 0
