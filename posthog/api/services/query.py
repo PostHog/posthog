@@ -47,7 +47,15 @@ def process_query_dict(
     is_query_service: bool = False,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
-    model = QuerySchemaRoot.model_validate(upgraded_query_json)
+    try:
+        model = QuerySchemaRoot.model_validate(upgraded_query_json)
+    except Exception as e:
+        if dashboard_id:
+            raise
+        from posthog.hogql_queries.query_runner import QueryResponse
+
+        return QueryResponse(results=None, error=str(e))
+
     tag_queries(query=upgraded_query_json)
 
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None

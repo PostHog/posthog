@@ -3,7 +3,6 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
-import pydantic_core
 
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -651,32 +650,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        try:
-            representation = super().to_representation(instance)
-        except pydantic_core.ValidationError as e:
-            if dashboard is not None:
-                raise e
-            representation = InsightResult(
-                result=None,
-                last_refresh=now(),
-                is_cached=False,
-                query_status=dict(
-                    QueryStatus(
-                        id=self.context["request"].query_params.get("client_query_id") or "id",
-                        team_id=instance.team_id,
-                        insight_id=str(instance.id),
-                        dashboard_id=str(dashboard.id) if dashboard else None,
-                        error_message="concurrency_limit_exceeded",
-                        error=True,
-                    )
-                ),
-                cache_key=None,
-                hogql=None,
-                columns=None,
-                has_more=None,
-                timezone=self.context["get_team"]().timezone,
-            )
+        representation = super().to_representation(instance)
 
         # the ORM doesn't know about deleted dashboard tiles
         # when they have just been updated
@@ -689,6 +663,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         else:
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request) if request else None
         dashboard_variables_override = variables_override_requested_by_client(request) if request else None
@@ -1111,12 +1086,12 @@ When set, the specified dashboard's filters and date range override will be appl
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response[
-                "Content-Disposition"
-            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                name=slugify(request.GET.get("export_name", "export")),
-                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
-                date_to=filter.date_to.strftime("%Y-%m-%d"),
+            response["Content-Disposition"] = (
+                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                    name=slugify(request.GET.get("export_name", "export")),
+                    date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                    date_to=filter.date_to.strftime("%Y-%m-%d"),
+                )
             )
             return response
 
