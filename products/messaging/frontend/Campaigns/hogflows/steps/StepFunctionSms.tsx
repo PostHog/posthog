@@ -22,7 +22,6 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
                 on_error: 'continue',
                 config: {
                     template_id: 'template-twilio',
-                    inputs: {},
                 },
             },
         }

@@ -22,7 +22,6 @@ export const StepFunctionEmail: HogFlowStep<'function_email'> = {
                 on_error: 'continue',
                 config: {
                     template_id: 'template-hogflow-send-email-native',
-                    inputs: {},
                 },
             },
         }
