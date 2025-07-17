@@ -74,7 +74,7 @@ import {
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
 } from './utils'
-import { addProductIntent, ProductIntentContext } from 'lib/utils/product-intents'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null

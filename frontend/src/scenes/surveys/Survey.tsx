@@ -12,12 +12,14 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
+import { FeatureFlagFilters, ProductKey, Survey, SurveyMatchType } from '~/types'
 
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
 import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
+import { teamLogic } from 'scenes/teamLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -64,6 +66,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     const handleCancelClick = (): void => {
         editingSurvey(false)
@@ -71,6 +74,13 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             router.actions.push(urls.surveys())
         } else {
             loadSurvey()
+            addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_VIEWED,
+                metadata: {
+                    survey_id: survey.id,
+                },
+            })
         }
     }
 

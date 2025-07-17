@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey, TeamBasicType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
-import { addProductIntent, ProductIntentContext } from 'lib/utils/product-intents'
+import {  ProductIntentContext } from 'lib/utils/product-intents'
 
 export function DuplicateToProjectTrigger(): JSX.Element {
     const { setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
@@ -21,6 +21,7 @@ export function DuplicateToProjectTrigger(): JSX.Element {
 
 export function DuplicateToProjectModal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { addProductIntent } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { duplicatedToProjectSurveyLoading } = useValues(surveyLogic)
     const { duplicateToProject, setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)

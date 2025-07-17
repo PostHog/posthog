@@ -35,7 +35,8 @@ import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
-import { addProductIntent, ProductIntentContext } from 'lib/utils/product-intents'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -59,6 +60,7 @@ export function Surveys(): JSX.Element {
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
         useActions(surveysLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
