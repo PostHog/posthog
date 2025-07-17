@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Buffer } from 'buffer'
 
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
@@ -645,7 +646,9 @@ export const STL: Record<string, STLFunction> = {
     },
     lower: {
         fn: (args) => {
-            if (args[0] === null || args[0] === undefined) return null
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].toLowerCase()
         },
         description: 'Converts a string to lowercase',
@@ -772,7 +775,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof current === 'string') {
                     try {
                         currentParsed = JSON.parse(current)
-                    } catch (e) {
+                    } catch {
                         return false
                     }
                 }
@@ -819,7 +822,7 @@ export const STL: Record<string, STLFunction> = {
             try {
                 JSON.parse(str)
                 return true
-            } catch (e) {
+            } catch {
                 return false
             }
         },
@@ -834,7 +837,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof obj === 'string') {
                     obj = JSON.parse(obj)
                 }
-            } catch (e) {
+            } catch {
                 return 0
             }
             if (typeof obj === 'object') {
@@ -859,7 +862,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof obj === 'string') {
                     obj = JSON.parse(obj)
                 }
-            } catch (e) {
+            } catch {
                 return false
             }
             if (path.length > 0) {
@@ -885,7 +888,11 @@ export const STL: Record<string, STLFunction> = {
     },
     base64Decode: {
         fn: (args) => {
-            return Buffer.from(args[0], 'base64').toString()
+            try {
+                return Buffer.from(args[0], 'base64').toString()
+            } catch {
+                return ''
+            }
         },
         description: 'Decodes a base64 string',
         example: 'base64Decode($1)',
@@ -896,7 +903,7 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             try {
                 return Buffer.from(args[0], 'base64').toString()
-            } catch (e) {
+            } catch {
                 return ''
             }
         },

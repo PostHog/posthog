@@ -41,15 +41,28 @@ const config: StorybookConfig = {
                     public: resolve(__dirname, '../../../frontend/src/assets'),
                     products: resolve(__dirname, '../../../products'),
                     cypress: resolve(__dirname, '../../../cypress'),
-                    buffer: 'buffer',
+                    // Node.js polyfills for browser
+                    buffer: require.resolve('buffer'),
+                    crypto: require.resolve('crypto-browserify'),
                 },
             },
             define: {
                 global: 'globalThis',
                 'process.env.NODE_ENV': '"development"',
+                // Add Buffer global for browser compatibility
+                'process.env': '{}',
+                process: JSON.stringify({ env: {}, browser: true }),
             },
             optimizeDeps: {
-                include: ['buffer'],
+                include: ['buffer', 'crypto-browserify'],
+                // Exclude hogvm from optimization to avoid import issues
+                exclude: ['@posthog/hogvm'],
+            },
+            // Add explicit polyfills for Node.js modules
+            build: {
+                rollupOptions: {
+                    external: ['@storybook/blocks'],
+                },
             },
         })
     },
