@@ -2,6 +2,9 @@
   "tsConfigPath": "./tsconfig.json",
   "rootPath": "./frontend/src",
   "typesPath": "./frontend/src",
-  "writePaths": true
+  "writePaths": true,
+  "ignoreImportPaths": [
+    "frontend/src/scenes/data-warehouse/editor/multitabEditorLogic.test.ts"
+  ]
 }
 

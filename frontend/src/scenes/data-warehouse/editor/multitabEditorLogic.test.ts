@@ -2,6 +2,17 @@ import { kea, resetContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { multitabEditorLogic } from './multitabEditorLogic'
 
+import type { logicType } from './multitabEditorLogic.testType'
+
+// helper to create a kea logic stub
+function makeLogicStub(actionNames: string[] = [], defaults: Record<string, any> = {}): ReturnType<typeof kea> {
+    return kea({
+        path: () => ['tests', 'mocks', Math.random().toString()], // unique, safe dummy path
+        actions: Object.fromEntries(actionNames.map((name) => [name, (p: any) => p])),
+        reducers: Object.fromEntries(Object.entries(defaults).map(([k, v]) => [k, [() => v]])),
+    })
+}
+
 jest.mock('./db', () => ({ get: jest.fn(), set: jest.fn() }))
 
 // silence project-related log noise
@@ -29,28 +40,24 @@ jest.mock('./editorSceneLogic', () => ({
 jest.mock('scenes/userLogic', () => ({ userLogic: makeLogicStub([], { user: { uuid: 'test-user' } }) }))
 jest.mock('kea-subscriptions', () => ({ subscriptions: () => ({}) }))
 
-// helper to create a kea logic stub
-function makeLogicStub(actionNames: string[] = [], defaults: Record<string, any> = {}): ReturnType<typeof kea> {
-    return kea({
-        actions: Object.fromEntries(actionNames.map((name) => [name, (p: any) => p])),
-        reducers: Object.fromEntries(Object.entries(defaults).map(([k, v]) => [k, [() => v]])),
-    })
-}
-
 // mock parts of codeEditorLogic spesifically the APIs used by multitabEditorLogic
-const mockedCodeEditorLogic = {
-    actions: {
-        createModel: jest.fn((...args: unknown[]) => {
-            const [query, path, name] = args as [string, string, string]
-            return { query, path, name }
-        }),
-    },
-    values: {
-        editorModelQueries: [{ id: 'mock-id', path: 'mock-id', query: TEST_VALUE, name: 'Mock Tab' }],
-    },
-    mount: jest.fn(),
-    unmount: jest.fn(),
-}
+jest.mock('lib/monaco/codeEditorLogic', () => {
+    const codeEditorLogic = {
+        actions: {
+            createModel: jest.fn((...args: unknown[]) => {
+                const [query, path, name] = args as [string, string, string]
+                return { query, path, name }
+            }),
+        },
+        values: {
+            editorModelQueries: [{ id: 'mock-id', path: 'mock-id', query: TEST_VALUE, name: 'Mock Tab' }],
+        },
+        mount: jest.fn(),
+        unmount: jest.fn(),
+    }
+    return { codeEditorLogic }
+})
+
 // mock the parts of monaco which are used by multitabEditorLogic
 const mockMonaco = {
     Uri: { parse: (p: string) => ({ path: p, toString: () => p }) },
@@ -69,8 +76,7 @@ const mockMonaco = {
 beforeEach(() => {
     resetContext({ createStore: true })
     _models.clear()
-    jest.mock('lib/monaco/codeEditorLogic', () => ({ codeEditorLogic: mockedCodeEditorLogic }))
-    mockedCodeEditorLogic.mount()
+    require('lib/monaco/codeEditorLogic').codeEditorLogic.mount()
 
     // mock localStorage
     Object.defineProperty(window, 'localStorage', {
@@ -80,11 +86,11 @@ beforeEach(() => {
     jest.clearAllMocks()
 })
 
-describe('Tabs storage', () => {
+describe('Tab storage', () => {
     it('migrates tab state from localStorage to IndexedDB', async () => {
         const localStorage = window.localStorage as any
         localStorage.getItem.mockReturnValue(JSON.stringify([{ id: '1', name: 'Mock Tab', query: TEST_VALUE }]))
-        // mocks a successful write to IndexedDB
+        // mocks a write to IndexedDB
         mockDb.set.mockResolvedValue(undefined)
 
         const logic = multitabEditorLogic({ key: 't', monaco: mockMonaco, editor: null })
@@ -105,15 +111,15 @@ describe('Tabs storage', () => {
         const logic = multitabEditorLogic({ key: 't', monaco: mockMonaco, editor: null })
         logic.mount()
         logic.actions.createTab(TEST_VALUE)
-
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockDb.set).toHaveBeenCalledWith(
             expect.stringMatching(/editorModelQueries/),
             expect.stringContaining(TEST_VALUE)
         )
-        expect(logic.values.allTabs.length).toEqual(1)
+        expect(logic.values.allTabs.length).toBe(1)
     })
+
     it('removes tabs and updates IndexedDB', async () => {
         const logic = multitabEditorLogic({ key: 't', monaco: mockMonaco, editor: null })
         logic.mount()
@@ -124,14 +130,14 @@ describe('Tabs storage', () => {
         logic.actions.deleteTab(tabToDelete)
         await expectLogic(logic).toFinishAllListeners()
 
-        // make sure that the tab was removed from logic state
-        expect(logic.values.allTabs).toHaveLength(0)
+        // make sure that the tab was removed
+        expect(logic.values.allTabs.length).toBe(0)
 
-        // make sure that the storage was updated after deletion
+        // make sure that IndexedDB was updated after deletion
         expect(mockDb.set).toHaveBeenCalled()
     })
 
-    it('falls back to localStorage when IndexedDB fails', async () => {
+    it('falls back to localStorage if IndexedDB write fails', async () => {
         mockDb.set.mockRejectedValue(new Error('Storage quota exceeded'))
 
         const logic = multitabEditorLogic({ key: 't', monaco: mockMonaco, editor: null })
@@ -139,7 +145,6 @@ describe('Tabs storage', () => {
         logic.actions.createTab(TEST_VALUE)
         await expectLogic(logic).toFinishAllListeners()
 
-        // Should fall back to localStorage if writing to IndexedDB fails
         expect(window.localStorage.setItem).toHaveBeenCalled()
     })
 })
