@@ -120,6 +120,7 @@ describe('Hogflow Executor', () => {
                                         bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
                                     },
                                 },
+                                message_category_id: 'test-category-id',
                             },
                         },
 
