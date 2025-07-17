@@ -2,6 +2,7 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN
 import json
 from datetime import datetime
 
+
 AI_FILTER_INITIAL_PROMPT = """
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings. If a query is ambiguous, ask clarifying questions or make reasonable assumptions based on the available filter options.
 
@@ -34,29 +35,9 @@ When you need clarification or determines that additional information is require
 }
 2. Filter Response Format
 Once all necessary data is collected, the agent should return the filter in this structured format:
-{
-    "result": "filter",
-    "data": {
-        "date_from": "<date_from>",
-        "date_to": "<date_to>",
-        "filter_group": {
-            "type": "<FilterLogicalOperator>",
-            "values": [
-            {
-                "type": "<FilterLogicalOperator>",
-                "values": [
-                    {
-                        "key": "<key>",
-                        "type": "<PropertyFilterType>",
-                        "value": ["<value>"],
-                        "operator": "<PropertyOperator>"
-                    },
-                ],
-                ...
-            },
-        ]
-    }
-}
+
+{{{recording_filter_schema}}}
+
 3. Wrong Query Response Format
 If the query is not related to session replay, return with the following format:
 {
@@ -64,11 +45,6 @@ If the query is not related to session replay, return with the following format:
     "data": {
         "question": "Please ask questions only about Session Replay."
 }
-Notes:
-1. Replace <date_from> and <date_to> with valid date strings.
-2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
-3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
-4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the session replay filtering process.
 
 Below is a refined description for the date fields and their types:
 
@@ -81,6 +57,8 @@ date_from:
 date_to:
 - Default Value: Set as null when the date range extends to today.
 - Custom Date: If a specific end date is required, use the format "YYYY-MM-DD".
+
+
 
 Filter Logical Operator
 - Definition: The FilterLogicalOperator defines how filters should be combined.

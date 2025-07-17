@@ -1840,23 +1840,42 @@ class PersonType(BaseModel):
 
 
 class PropertyFilterType(StrEnum):
+    """The PropertyFilterType specifies the type of property to filter on."""
+
     META = "meta"
+    """Filter by meta properties"""
     EVENT = "event"
+    """Filter by event properties"""
     EVENT_METADATA = "event_metadata"
+    """Filter by event metadata properties"""
     PERSON = "person"
+    """Filter by person properties"""
     ELEMENT = "element"
+    """Filter by element properties"""
     FEATURE = "feature"
+    """Filter by feature properties"""
     SESSION = "session"
+    """Filter by session properties"""
     COHORT = "cohort"
+    """Filter by cohort properties"""
     RECORDING = "recording"
+    """Filter by recording properties"""
     LOG_ENTRY = "log_entry"
+    """Filter by log entry properties"""
     GROUP = "group"
+    """Filter by group properties"""
     HOGQL = "hogql"
+    """Filter by HogQL properties"""
     DATA_WAREHOUSE = "data_warehouse"
+    """Filter by data warehouse properties"""
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    """Filter by data warehouse person properties"""
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    """Filter by error tracking issue properties"""
     REVENUE_ANALYTICS = "revenue_analytics"
+    """Filter by revenue analytics properties"""
     LOG = "log"
+    """Filter by log properties"""
 
 
 class PropertyMathType(StrEnum):
@@ -10591,7 +10610,7 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: FilterLogicalOperator
+    type: FilterLogicalOperator = Field(description="Defines how filters should be combined")
     values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
 
 
@@ -10599,7 +10618,7 @@ class MaxOuterUniversalFiltersGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: FilterLogicalOperator
+    type: FilterLogicalOperator = Field(description="Defines how filters should be combined")
     values: list[MaxInnerUniversalFiltersGroup]
 
 
@@ -10607,11 +10626,18 @@ class MaxRecordingUniversalFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    duration: list[RecordingDurationFilter]
-    filter_group: MaxOuterUniversalFiltersGroup
-    filter_test_accounts: Optional[bool] = None
+    date_from: Optional[str] = Field(
+        default="-5d",
+        description="The start date of the recording. If not provided, the default value is the last 5 days.",
+    )
+    date_to: Optional[str] = Field(
+        default=None, description="The end date of the recording. If not provided, the default value is today."
+    )
+    duration: list[RecordingDurationFilter] = Field(
+        default=[], description="The duration of the recording. If not provided, the default value is an empty list."
+    )
+    filter_group: MaxOuterUniversalFiltersGroup = Field(description="The filter group of the recording.")
+    filter_test_accounts: Optional[bool] = Field(default=None, description="Whether to filter test accounts.")
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
 
 

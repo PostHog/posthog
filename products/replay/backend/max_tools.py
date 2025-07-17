@@ -7,8 +7,9 @@ from .prompts import (
     AI_FILTER_PROPERTIES_PROMPT,
     AI_FILTER_REQUEST_PROMPT,
 )
-from posthog.schema import MaxRecordingUniversalFilters
+from posthog.schema import MaxRecordingUniversalFilters, PropertyFilterType
 from ee.hogai.tool import MaxTool
+import json
 
 
 class SearchSessionRecordingsArgs(BaseModel):
@@ -32,7 +33,7 @@ class SearchSessionRecordingsTool(MaxTool):
     def _run_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         model = (
             ChatOpenAI(model="gpt-4.1", temperature=0.2)
-            .with_structured_output(MaxRecordingUniversalFilters, include_raw=False)
+            # .with_structured_output(MaxRecordingUniversalFilters, include_raw=False)
             .with_retry()
         )
 
@@ -49,7 +50,16 @@ class SearchSessionRecordingsTool(MaxTool):
         if "current_filters" not in self.context:
             raise ValueError("Context `current_filters` is required for the `search_session_recordings` tool")
 
-        result = chain.invoke({"change": change, **self.context})
+        recording_filter_schema = MaxRecordingUniversalFilters.model_json_schema()
+        property_filter_schema = [e.value for e in PropertyFilterType]
+        result = chain.invoke(
+            {
+                "change": change,
+                **self.context,
+                "recording_filter_schema": json.dumps(recording_filter_schema, indent=2),
+                "property_filter_schema": json.dumps(property_filter_schema, indent=2),
+            }
+        )
         assert isinstance(result, MaxRecordingUniversalFilters)
 
         return "✅ Updated session recordings filters.", result
