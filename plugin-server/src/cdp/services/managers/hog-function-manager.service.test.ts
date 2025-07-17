@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 
-import { HogFunctionType, IntegrationType } from '~/cdp/types'
+import { HogFunctionType } from '~/cdp/types'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 
-import { insertHogFunction, insertIntegration } from '../../_tests/fixtures'
+import { insertHogFunction } from '../../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -15,7 +16,6 @@ describe('HogFunctionManager', () => {
     let manager: HogFunctionManagerService
 
     let hogFunctions: HogFunctionType[]
-    let integrations: IntegrationType[]
 
     let teamId1: number
     let teamId2: number
@@ -31,36 +31,27 @@ describe('HogFunctionManager', () => {
         teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
 
         hogFunctions = []
-        integrations = []
-
-        integrations.push(
-            await insertIntegration(hub.postgres, teamId1, {
-                kind: 'slack',
-                config: { team: 'foobar' },
-                sensitive_config: {
-                    access_token: hub.encryptedFields.encrypt('token'),
-                    not_encrypted: 'not-encrypted',
-                },
-            })
-        )
 
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId1, {
                 name: 'Test Hog Function team 1',
                 inputs_schema: [
                     {
-                        type: 'integration',
-                        key: 'slack',
+                        type: 'string',
+                        key: 'input_1',
+                    },
+                    {
+                        type: 'string',
+                        key: 'input_2',
+                        secret: true,
                     },
                 ],
                 inputs: {
-                    slack: {
-                        value: integrations[0].id,
-                    },
-                    normal: {
-                        value: integrations[0].id,
+                    input_1: {
+                        value: 'test',
                     },
                 },
+                encrypted_inputs: hub.encryptedFields.encrypt(JSON.stringify({ input_2: { value: 'test' } })) as any,
             })
         )
 
@@ -78,16 +69,13 @@ describe('HogFunctionManager', () => {
                 name: 'Test Hog Function team 2',
                 inputs_schema: [
                     {
-                        type: 'integration',
-                        key: 'slack',
+                        type: 'string',
+                        key: 'input_1',
                     },
                 ],
                 inputs: {
-                    slack: {
-                        value: integrations[0].id,
-                    },
-                    normal: {
-                        value: integrations[0].id,
+                    input_1: {
+                        value: 'test',
                     },
                 },
             })
@@ -101,42 +89,59 @@ describe('HogFunctionManager', () => {
     it('returns the hog functions', async () => {
         let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
-        expect(items).toEqual([
-            expect.objectContaining({
-                id: hogFunctions[0].id,
-                team_id: teamId1,
-                name: 'Test Hog Function team 1',
-                type: 'destination',
-                enabled: true,
-                execution_order: null,
-                bytecode: {},
-                filters: null,
-                inputs_schema: [
-                    {
-                        key: 'slack',
-                        type: 'integration',
-                    },
-                ],
-                inputs: {
-                    slack: {
-                        value: {
-                            team: 'foobar',
-                            access_token: 'token',
-                            not_encrypted: 'not-encrypted',
-                            integrationId: 1,
-                        },
-                    },
-                    normal: {
-                        value: integrations[0].id,
-                    },
+        expect(items[0].id).toEqual(hogFunctions[0].id)
+        expect(items[0].team_id).toEqual(teamId1)
+
+        expect(
+            forSnapshot(items, {
+                overrides: {
+                    created_at: '<REPLACED-DATE>',
+                    updated_at: '<REPLACED-DATE>',
+                    team_id: '<REPLACED-TEAM-ID>',
                 },
-                encrypted_inputs: null,
-                masking: null,
-                mappings: null,
-                template_id: null,
-                depends_on_integration_ids: new Set([integrations[0].id]),
-            }),
-        ])
+            })
+        ).toMatchInlineSnapshot(`
+            [
+              {
+                "bytecode": {},
+                "created_at": "<REPLACED-DATE>",
+                "deleted": false,
+                "enabled": true,
+                "encrypted_inputs": {
+                  "input_2": {
+                    "value": "test",
+                  },
+                },
+                "execution_order": null,
+                "filters": null,
+                "id": "<REPLACED-UUID-0>",
+                "inputs": {
+                  "input_1": {
+                    "value": "test",
+                  },
+                },
+                "inputs_schema": [
+                  {
+                    "key": "input_1",
+                    "type": "string",
+                  },
+                  {
+                    "key": "input_2",
+                    "secret": true,
+                    "type": "string",
+                  },
+                ],
+                "is_addon_required": true,
+                "mappings": null,
+                "masking": null,
+                "name": "Test Hog Function team 1",
+                "team_id": "<REPLACED-TEAM-ID>",
+                "template_id": null,
+                "type": "destination",
+                "updated_at": "<REPLACED-DATE>",
+              },
+            ]
+        `)
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -251,35 +256,6 @@ describe('HogFunctionManager', () => {
         items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
         expect(items).toEqual([])
-    })
-
-    it('enriches integration inputs if found and belonging to the team', async () => {
-        const function1Inputs = (await manager.getHogFunctionsForTeam(teamId1, ['destination']))[0].inputs
-        const function2Inputs = (await manager.getHogFunctionsForTeam(teamId2, ['destination']))[0].inputs
-
-        // Only the right team gets the integration inputs enriched
-        expect(function1Inputs).toEqual({
-            slack: {
-                value: {
-                    team: 'foobar',
-                    access_token: 'token',
-                    not_encrypted: 'not-encrypted',
-                    integrationId: 1,
-                },
-            },
-            normal: {
-                value: integrations[0].id,
-            },
-        })
-
-        expect(function2Inputs).toEqual({
-            slack: {
-                value: integrations[0].id,
-            },
-            normal: {
-                value: integrations[0].id,
-            },
-        })
     })
 })
 
@@ -475,98 +451,6 @@ describe('Hogfunction Manager - Execution Order', () => {
             { name: 'fn1', order: 2 }, // Third because execution_order=2
             { name: 'fn2', order: null }, // Last because null execution_order
         ])
-    })
-})
-
-describe('HogFunctionManager - Integration Updates', () => {
-    let hub: Hub
-    let manager: HogFunctionManagerService
-    let teamId: number
-    let integration: IntegrationType
-
-    beforeEach(async () => {
-        hub = await createHub()
-        await resetTestDatabase()
-        manager = new HogFunctionManagerService(hub)
-
-        const team = await getTeam(hub, 2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
-
-        // Create an integration
-        integration = await insertIntegration(hub.postgres, teamId, {
-            kind: 'slack',
-            config: { team: 'initial-team' },
-            sensitive_config: {
-                access_token: hub.encryptedFields.encrypt('initial-token'),
-            },
-        })
-
-        // Create a hog function that uses this integration
-        await insertHogFunction(hub.postgres, teamId, {
-            name: 'Test Integration Updates',
-            inputs_schema: [
-                {
-                    type: 'integration',
-                    key: 'slack',
-                },
-            ],
-            inputs: {
-                slack: {
-                    value: integration.id,
-                },
-            },
-        })
-    })
-
-    afterEach(async () => {
-        await closeHub(hub)
-    })
-
-    it('updates cached integration data when integration changes', async () => {
-        // First check - initial state
-        const functions = await manager.getHogFunctionsForTeam(teamId, ['destination'])
-        expect(functions[0]?.inputs?.slack?.value).toEqual({
-            team: 'initial-team',
-            access_token: 'initial-token',
-            integrationId: integration.id,
-        })
-
-        // Update the integration in the database
-        await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_integration 
-             SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
-                 sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb)
-             WHERE id = $2`,
-            [JSON.stringify(hub.encryptedFields.encrypt('updated-token')), integration.id],
-            'updateIntegration'
-        )
-
-        manager['onIntegrationsReloaded']([integration.id])
-
-        // Verify the database update worked
-        const updatedIntegration = await hub.db.postgres.query(
-            PostgresUse.COMMON_READ,
-            `SELECT config, sensitive_config FROM posthog_integration WHERE id = $1`,
-            [integration.id],
-            'fetchUpdatedIntegration'
-        )
-
-        // assert the integration was updated
-        expect(updatedIntegration.rows[0].config).toEqual({ team: 'updated-team' })
-        expect(hub.encryptedFields.decrypt(updatedIntegration.rows[0].sensitive_config.access_token)).toEqual(
-            'updated-token'
-        )
-
-        // Trigger integration reload
-        manager['onIntegrationsReloaded']([integration.id])
-        // Check if the cached data was updated
-        const newFunctions = await manager.getHogFunctionsForTeam(teamId, ['destination'])
-        expect(newFunctions[0]?.inputs?.slack?.value).toEqual({
-            team: 'updated-team',
-            access_token: 'updated-token',
-            integrationId: integration.id,
-        })
     })
 })
 

@@ -1,4 +1,3 @@
-import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
@@ -246,7 +245,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     LOG_LEVEL: LogLevel
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
-    DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
@@ -400,7 +398,6 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     celery: Celery
     // geoip database, setup in workers
-    mmdb?: ReaderModel
     geoipService: GeoIPService
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
@@ -433,7 +430,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
-    mmdb?: boolean
 }
 
 export interface EnqueuedPluginJob {
