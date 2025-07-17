@@ -60,3 +60,6 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
             distinct_id = self._generate_random_distinct_id()
         _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
         return distinct_id
+
+    def _sort_results(self, results, key=lambda x: str(x[0])):
+        return sorted(results, key=key)
