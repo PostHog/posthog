@@ -9,8 +9,7 @@ from posthog.test.base import BaseTest
 
 class TestCspReport(BaseTest):
     """
-    Tests all data capture endpoints (e.g. `/capture` `/batch/`).
-    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    Test CSP /report/ endpoint that accepts CSP violation report requests and publishes events to capture-rs
     """
 
     CLASS_DATA_LEVEL_SETUP = False
@@ -20,8 +19,8 @@ class TestCspReport(BaseTest):
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
 
-    @patch("posthog.api.report.new_capture_internal")
-    def test_submit_csp_report_to_new_internal_capture(self, mock_new_capture) -> None:
+    @patch("posthog.api.report.capture_internal")
+    def test_submit_csp_report_to_new_internal_capture(self, mock_capture) -> None:
         payload = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -41,7 +40,7 @@ class TestCspReport(BaseTest):
             f"/report/?token={self.team.api_token}", data=json.dumps(payload), content_type="application/csp-report"
         )
         assert resp.status_code == status.HTTP_204_NO_CONTENT
-        assert mock_new_capture.call_count == 1
+        assert mock_capture.call_count == 1
 
     @patch("posthog.api.capture.new_capture_internal")
     def test_submit_csp_report_list_to_new_internal_capture(self, mock_new_capture) -> None:
@@ -102,9 +101,9 @@ class TestCspReport(BaseTest):
         assert resp.status_code == status.HTTP_204_NO_CONTENT
         assert mock_new_capture.call_count == 3
 
-    @patch("posthog.api.report.new_capture_internal")
-    def test_capture_csp_violation(self, mock_new_capture):
-        mock_new_capture.return_value = MagicMock(status_code=204)
+    @patch("posthog.api.report.capture_internal")
+    def test_capture_csp_violation(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
 
         csp_report = {
             "csp-report": {
@@ -129,11 +128,11 @@ class TestCspReport(BaseTest):
         )
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
-        assert mock_new_capture.call_count == 1
+        assert mock_capture.call_count == 1
 
-    @patch("posthog.api.report.new_capture_internal")
-    def test_capture_csp_no_trailing_slash(self, mock_new_capture):
-        mock_new_capture.return_value = MagicMock(status_code=204)
+    @patch("posthog.api.report.capture_internal")
+    def test_capture_csp_no_trailing_slash(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
 
         csp_report = {
             "csp-report": {
@@ -157,7 +156,7 @@ class TestCspReport(BaseTest):
             content_type="application/csp-report",
         )
         assert status.HTTP_204_NO_CONTENT == response.status_code
-        assert mock_new_capture.call_count == 1
+        assert mock_capture.call_count == 1
 
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
