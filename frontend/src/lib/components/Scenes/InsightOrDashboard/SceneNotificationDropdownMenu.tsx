@@ -14,7 +14,6 @@ import { urls } from 'scenes/urls'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 import { insightAlertsLogic } from '../../Alerts/insightAlertsLogic'
 import { SubscriptionBaseProps, urlForSubscriptions } from '../../Subscriptions/utils'
-
 interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps {
     insight?: Partial<QueryBasedInsightModel>
     insightLogicProps?: InsightLogicProps
@@ -23,13 +22,13 @@ interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps {
 }
 
 interface AlertsDropdownMenuItemProps extends SubscriptionBaseProps {
-    insight?: Partial<QueryBasedInsightModel>
-    insightLogicProps?: InsightLogicProps
+    insight: Partial<QueryBasedInsightModel>
+    insightLogicProps: InsightLogicProps
 }
 
 function AlertsDropdownMenuItem({ insight, insightLogicProps }: AlertsDropdownMenuItemProps): JSX.Element {
     const { push } = useActions(router)
-    const logic = insightAlertsLogic({ insightId: insight?.id, insightLogicProps: insightLogicProps! })
+    const logic = insightAlertsLogic({ insightId: insight?.id, insightLogicProps: insightLogicProps })
     const { alerts } = useValues(logic)
 
     return (
@@ -62,7 +61,9 @@ export function SceneNotificationDropdownMenu({
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                {insight && <AlertsDropdownMenuItem insight={insight} insightLogicProps={insightLogicProps} />}
+                {insight && insightLogicProps && (
+                    <AlertsDropdownMenuItem insight={insight} insightLogicProps={insightLogicProps} />
+                )}
                 <DropdownMenuItem className="w-full">
                     <ButtonPrimitive
                         menuItem
