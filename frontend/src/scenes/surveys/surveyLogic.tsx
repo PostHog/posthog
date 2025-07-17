@@ -631,13 +631,37 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
-                return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             stopSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                const response = await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_COMPLETED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             resumeSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: null })
+                const response = await api.surveys.update(props.id, { end_date: null })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_RESUMED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
         },
         duplicatedSurvey: {
@@ -658,6 +682,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
 
                     actions.reportSurveyCreated(createdSurvey, true)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                        metadata: {
+                            survey_id: createdSurvey.id,
+                        },
+                    })
                     return survey
                 } catch (error) {
                     posthog.captureException('Error duplicating survey', {
@@ -686,6 +717,13 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 actions.reportSurveyCreated(createdSurvey, true)
                 actions.setIsDuplicateToProjectModalOpen(false)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                    metadata: {
+                        survey_id: createdSurvey.id,
+                    },
+                })
                 return sourceSurvey
             },
         },

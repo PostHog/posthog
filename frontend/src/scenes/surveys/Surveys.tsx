@@ -314,13 +314,6 @@ export function Surveys(): JSX.Element {
                                                                                                 dayjs().toISOString(),
                                                                                         },
                                                                                     })
-                                                                                    addProductIntent({
-                                                                                        product_type: ProductKey.SURVEYS,
-                                                                                        intent_context: ProductIntentContext.SURVEY_LAUNCHED,
-                                                                                        metadata: {
-                                                                                            survey_id: survey.id,
-                                                                                        },
-                                                                                    })
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -358,13 +351,6 @@ export function Surveys(): JSX.Element {
                                                                                                 dayjs().toISOString(),
                                                                                         },
                                                                                     })
-                                                                                    addProductIntent({
-                                                                                        product_type: ProductKey.SURVEYS,
-                                                                                        intent_context: ProductIntentContext.SURVEY_COMPLETED,
-                                                                                        metadata: {
-                                                                                            survey_id: survey.id,
-                                                                                        },
-                                                                                    })
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -399,13 +385,6 @@ export function Surveys(): JSX.Element {
                                                                                         id: survey.id,
                                                                                         updatePayload: {
                                                                                             end_date: null,
-                                                                                        },
-                                                                                    })
-                                                                                    addProductIntent({
-                                                                                        product_type: ProductKey.SURVEYS,
-                                                                                        intent_context: ProductIntentContext.SURVEY_RESUMED,
-                                                                                        metadata: {
-                                                                                            survey_id: survey.id,
                                                                                         },
                                                                                     })
                                                                                 },
@@ -505,13 +484,6 @@ export function Surveys(): JSX.Element {
                                                                             type: 'primary',
                                                                             onClick: () => {
                                                                                 deleteSurvey(survey.id)
-                                                                                addProductIntent({
-                                                                                    product_type: ProductKey.SURVEYS,
-                                                                                    intent_context: ProductIntentContext.SURVEY_DELETED,
-                                                                                    metadata: {
-                                                                                        survey_id: survey.id,
-                                                                                    },
-                                                                                })
                                                                             },
                                                                             size: 'small',
                                                                         },

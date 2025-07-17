@@ -12,9 +12,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -100,7 +101,7 @@ export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['loadCurrentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -160,8 +161,16 @@ export const surveysLogic = kea<surveysLogicType>([
                 return mergeSearchSurveysData(values.data, response, true)
             },
             deleteSurvey: async (id) => {
-                await api.surveys.delete(id)
-                deleteFromTree('survey', String(id))
+                const surveyId = String(id)
+                await api.surveys.delete(surveyId)
+                deleteFromTree('survey', surveyId)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_DELETED,
+                    metadata: {
+                        survey_id: surveyId,
+                    },
+                })
                 return {
                     ...values.data,
                     surveys: deleteSurvey(values.data.surveys, id),

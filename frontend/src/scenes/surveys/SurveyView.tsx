@@ -87,13 +87,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         fullWidth
                                                         onClick={() => {
                                                             duplicateSurvey()
-                                                            addProductIntent({
-                                                                product_type: ProductKey.SURVEYS,
-                                                                intent_context: ProductIntentContext.SURVEY_DUPLICATED,
-                                                                metadata: {
-                                                                    survey_id: survey.id,
-                                                                },
-                                                            })
                                                         }}
                                                     >
                                                         Duplicate

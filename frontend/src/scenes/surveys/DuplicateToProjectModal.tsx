@@ -51,13 +51,6 @@ export function DuplicateToProjectModal(): JSX.Element {
                         type="primary"
                         onClick={() => {
                             duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedProject?.id })
-                            addProductIntent({
-                                product_type: ProductKey.SURVEYS,
-                                intent_context: ProductIntentContext.SURVEY_DUPLICATED,
-                                metadata: {
-                                    survey_id: survey.id,
-                                },
-                            })
                         }}
                         loading={duplicatedToProjectSurveyLoading}
                         disabledReason={!selectedProject ? 'Select a project' : undefined}
