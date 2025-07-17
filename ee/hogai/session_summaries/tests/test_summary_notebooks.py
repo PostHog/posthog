@@ -9,7 +9,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     PatternAssignedEventSegmentContext,
     EnrichedPatternAssignedEvent,
 )
-from posthog.temporal.ai.session_summary.activities.notebook import (
+from ee.hogai.session_summaries.summary_notebooks import (
     create_summary_notebook,
     _generate_notebook_content_from_summary,
 )

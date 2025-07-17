@@ -11,13 +11,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from ee.hogai.session_summaries.summary_notebooks import create_summary_notebook
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.temporal.ai.session_summary.activities.notebook import create_summary_notebook
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
 logger = structlog.get_logger(__name__)
