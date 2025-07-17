@@ -136,13 +136,12 @@ export function DashboardItems(): JSX.Element {
                         if (insight) {
                             // Check if this insight has an error from the server
                             const isErrorTile = !!tile.error
-                            const apiErrored = isErrorTile ? true : refreshStatus[insight.short_id]?.errored || false
+                            const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
                             const apiError = isErrorTile
                                 ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
                                 : refreshStatus[insight.short_id]?.error
                             const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                             const loading = isErrorTile ? false : isRefreshing(insight.short_id)
-                            const refreshEnabled = !itemsLoading
 
                             return (
                                 <InsightCard
@@ -156,7 +155,7 @@ export function DashboardItems(): JSX.Element {
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
                                     refresh={() => triggerDashboardItemRefresh({ tile })}
-                                    refreshEnabled={refreshEnabled}
+                                    refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}

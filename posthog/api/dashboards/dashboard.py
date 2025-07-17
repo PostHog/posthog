@@ -483,6 +483,7 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
                     try:
                         tile_data = DashboardTileSerializer(tile, context=self.context).data
                         tile_data["error"] = {"type": type(e).__name__, "message": str(e), "tile_id": tile.id}
+                        raise Exception("WTF")
                         serialized_tiles.append(tile_data)
                     except Exception:
                         logger.warning("dashboard_tile_insight_serialization_also_failed", tile_id=tile.id)
