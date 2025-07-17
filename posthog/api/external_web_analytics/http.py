@@ -7,6 +7,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from drf_spectacular.utils import OpenApiResponse
 from posthog.api.utils import action
 
 from posthog.auth import SessionAuthentication, PersonalAPIKeyAuthentication
@@ -33,7 +34,12 @@ from .query_adapter import ExternalWebAnalyticsQueryAdapter
 TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [2]
 
 
+@extend_schema(tags=["web_analytics"])
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    """
+    Provides access to web analytics data for a project.
+    """
+
     scope_object = "query"
     scope_object_read_actions = ["summary", "overview", "trend", "breakdown"]
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
@@ -53,6 +59,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         request=WebAnalyticsExternalSummaryRequest,
         responses={200: WebAnalyticsExternalSummaryQueryResponse},
         description="Get an overview of web analytics data.",
+        exclude=True,
     )
     @action(methods=["POST"], detail=False)
     def summary(self, request: Request, **kwargs) -> Response:
@@ -74,8 +81,11 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
 
     @extend_schema(
         parameters=[WebAnalyticsOverviewRequestSerializer],
-        responses={200: WebAnalyticsOverviewResponseSerializer},
-        description="Get simple overview metrics: visitors, views, sessions, bounce rate, session duration",
+        responses=OpenApiResponse(
+            response=WebAnalyticsOverviewResponseSerializer,
+            description="Get simple overview metrics: visitors, views, sessions, bounce rate, session duration",
+        ),
+        methods=["GET"],
     )
     @action(methods=["GET"], detail=False)
     def overview(self, request: Request, **kwargs) -> Response:
@@ -90,8 +100,12 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
 
     @extend_schema(
         parameters=[WebAnalyticsTrendRequestSerializer],
-        responses={200: WebAnalyticsTrendResponseSerializer},
-        description="Get trends for visitors, views, or sessions.",
+        responses=OpenApiResponse(
+            response=WebAnalyticsTrendResponseSerializer,
+            description="Get trends for visitors, views, or sessions.",
+        ),
+        methods=["GET"],
+        exclude=True,
     )
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, **kwargs) -> Response:
@@ -105,8 +119,11 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
 
     @extend_schema(
         parameters=[WebAnalyticsBreakdownRequestSerializer],
-        responses={200: WebAnalyticsBreakdownResponseSerializer},
-        description="Get a breakdown of web analytics data by supported properties.",
+        responses=OpenApiResponse(
+            response=WebAnalyticsBreakdownResponseSerializer,
+            description="Get a breakdown of web analytics data by supported properties.",
+        ),
+        methods=["GET"],
     )
     @action(methods=["GET"], detail=False)
     def breakdown(self, request: Request, **kwargs) -> Response:
