@@ -10,7 +10,6 @@ import dataclasses
 from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
 from ee.session_recordings.session_summary.patterns.output_data import (
@@ -308,8 +307,11 @@ class TestSummarizeSessionGroupWorkflow:
         class MockMetadataDict(dict):
             """Return the same metadata for all sessions"""
 
-            def __getitem__(self, key):
+            def __getitem__(self, key: str) -> dict[str, Any]:
                 return mock_raw_metadata
+
+            def get(self, key: str, default: Any = None) -> dict[str, Any]:
+                return self[key]
 
         # Mock LLM responses
         call_llm_side_effects = (
@@ -326,8 +328,9 @@ class TestSummarizeSessionGroupWorkflow:
             # Mock DB calls
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=mock_team),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session_group.SessionReplayEvents"
-            ) as mock_session_replay_events,
+                "posthog.temporal.ai.session_summary.summarize_session_group.SessionReplayEvents.get_group_metadata",
+                return_value=MockMetadataDict(),
+            ),
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session_group._get_db_events_per_page",
                 return_value=mock_cached_session_batch_events_query_response_factory(session_ids),
@@ -339,7 +342,6 @@ class TestSummarizeSessionGroupWorkflow:
                 side_effect=iter(mock_valid_event_ids * len(session_ids)),
             ),
         ):
-            mock_session_replay_events.get_group_metadata.return_value = MockMetadataDict()
             yield
 
     @asynccontextmanager
@@ -374,7 +376,6 @@ class TestSummarizeSessionGroupWorkflow:
                     workflows=WORKFLOWS,
                     activities=[
                         get_llm_single_session_summary_activity,
-                        fetch_session_data_activity,
                         extract_session_group_patterns_activity,
                         assign_events_to_patterns_activity,
                         fetch_session_batch_events_activity,
@@ -480,17 +481,17 @@ class TestSummarizeSessionGroupWorkflow:
             )
             # Verify the result is of the correct type
             assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
-            # Verify Redis operations count (more operations now due to pattern activities)
-            # Operations: session data storage (2) + session summaries (2) + pattern extraction (1)
-            assert spy_setex.call_count == 5
+            # Verify Redis operations
+            # Operations: session data storage (2) + session summaries (2) + pattern extraction (1) + pattern assignment (1)
+            assert spy_setex.call_count == 6
             # Operations:
-            # - try to get cached DB data (2)
-            # - try to get cached single-session summaries (2)
-            # - get cached DB data (2)
-            # - try to get cached extracted patterns (1)
-            # - get cached single-session summaries (2)
-            # - try to get cached patterns assignments (1)
-            # - get cached extracted patterns (1)
-            # - get cached single-session summaries (2)
-            # - get cached DB data (2)
+            # - try to get cached DB data for 2 sessions (2)
+            # - try to get cached single-session summaries for 2 sessions (2)
+            # - get cached DB data for 2 sessions (2)
+            # - try to get cached extracted patterns from all sessions (1)
+            # - get cached single-session summaries for 2 sessions (2)
+            # - try to get cached patterns assignments for all sessions (1)
+            # - get cached extracted patterns for all sessions (1)
+            # - get cached single-session summaries for 2 sessions (2)
+            # - get cached DB data for 2 sessions (2)
             assert spy_get.call_count == 15
