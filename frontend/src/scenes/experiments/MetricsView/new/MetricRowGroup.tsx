@@ -71,7 +71,7 @@ export function MetricRowGroup({
             >
                 {/* Metric column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
+                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalRows}
@@ -94,7 +94,7 @@ export function MetricRowGroup({
                 <td
                     className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b border-border-bold' : ''}`}
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-sm text-text-primary whitespace-nowrap">
@@ -106,7 +106,7 @@ export function MetricRowGroup({
                 <td
                     className={`w-24 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b border-border-bold' : ''}`}
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-sm">
@@ -121,7 +121,7 @@ export function MetricRowGroup({
                 <td
                     className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b border-border-bold' : ''}`}
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-xs text-muted" />
@@ -131,7 +131,7 @@ export function MetricRowGroup({
                 <td
                     className={`min-w-[400px] w-full p-0 align-top text-center relative overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b border-border-bold' : ''}`}
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     {chartRadius && chartRadius > 0 ? (
@@ -161,9 +161,9 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`w-1/5 border-border-bold p-3 align-top relative overflow-hidden ${
-                        !isLastMetric ? 'border-b' : ''
-                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    className={`w-1/5 p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
                     rowSpan={totalRows}
                     style={{
                         height: `${CELL_HEIGHT * totalRows}px`,
@@ -200,7 +200,7 @@ export function MetricRowGroup({
                         <td
                             className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                            } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                            } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <div className="text-sm text-text-primary whitespace-nowrap">
@@ -212,7 +212,7 @@ export function MetricRowGroup({
                         <td
                             className={`w-24 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                            } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                            } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <div className="text-sm">
@@ -227,7 +227,7 @@ export function MetricRowGroup({
                         <td
                             className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                            } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                            } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <div className="flex items-center gap-1 text-sm">

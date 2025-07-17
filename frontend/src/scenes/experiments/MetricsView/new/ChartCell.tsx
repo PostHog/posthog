@@ -53,7 +53,7 @@ export function ChartCell({
             <td
                 className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                } ${isLastRow ? 'border-b' : ''}`}
                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
                 <div className="flex items-center justify-center h-full text-muted text-xs whitespace-nowrap">
@@ -67,7 +67,7 @@ export function ChartCell({
         <td
             className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-            } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+            } ${isLastRow ? 'border-b' : ''}`}
             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
         >
             <ChartCellTooltip variantResult={variantResult}>
