@@ -67,9 +67,9 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(actions).toHaveLength(1)
             expect(actions[0].name).toBe('Test action')
 
-            // Test processEvent directly and verify it returns true for matching event
+            // Test processEvent directly and verify it returns 1 for matching event
             const result = await (processor as any).processEvent(globals)
-            expect(result).toBe(true)
+            expect(result).toBe(1)
         })
 
         it('should not match action when event does not match bytecode filter', async () => {
@@ -114,9 +114,74 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(actions).toHaveLength(1)
             expect(actions[0].name).toBe('Test action')
 
-            // Test processEvent directly and verify it returns false for non-matching event
+            // Test processEvent directly and verify it returns 0 for non-matching event
             const result = await (processor as any).processEvent(globals)
-            expect(result).toBe(false)
+            expect(result).toBe(0)
+        })
+
+        it('should return count of matched actions when multiple actions match', async () => {
+            // Create multiple actions with different bytecode
+            const pageViewBytecode = ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11]
+
+            const filterBytecode = [
+                '_H',
+                1,
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                32,
+                '%Chrome%',
+                32,
+                '$browser',
+                32,
+                'properties',
+                1,
+                2,
+                2,
+                'toString',
+                1,
+                18,
+                3,
+                2,
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                31,
+                32,
+                '$ip',
+                32,
+                'properties',
+                1,
+                2,
+                12,
+                3,
+                2,
+                4,
+                2,
+            ]
+
+            await createAction(hub.postgres, team.id, 'Pageview action', pageViewBytecode)
+            await createAction(hub.postgres, team.id, 'Filter action', filterBytecode)
+
+            // Create an event that matches both actions
+            const matchingEvent = createIncomingEvent(team.id, {
+                event: '$pageview',
+                properties: JSON.stringify({ $browser: 'Chrome', $ip: '127.0.0.1' }),
+            })
+
+            const globals = convertToHogFunctionInvocationGlobals(matchingEvent, team, hub.SITE_URL)
+
+            // Test processEvent directly and verify it returns 2 for both matching actions
+            const result = await (processor as any).processEvent(globals)
+            expect(result).toBe(2)
         })
     })
 })

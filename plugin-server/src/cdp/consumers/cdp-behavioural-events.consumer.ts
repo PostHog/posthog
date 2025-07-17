@@ -47,12 +47,8 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             // Track events consumed and matched (absolute numbers)
             let eventsMatched = 0
 
-            for (const event of invocationGlobals) {
-                const matched = await this.processEvent(event)
-                if (matched) {
-                    eventsMatched++
-                }
-            }
+            const results = await Promise.all(invocationGlobals.map((event) => this.processEvent(event)))
+            eventsMatched = results.reduce((sum, count) => sum + count, 0)
 
             // Update metrics with absolute numbers
             counterEventsConsumed.inc(invocationGlobals.length)
@@ -60,32 +56,26 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         })
     }
 
-    private async processEvent(event: HogFunctionInvocationGlobals): Promise<boolean> {
+    private async processEvent(event: HogFunctionInvocationGlobals): Promise<number> {
         try {
             const teamId = event.project.id
             const actions = await this.loadActionsForTeam(teamId)
 
             if (!actions.length) {
                 logger.debug('No actions found for team', { teamId })
-                return false
+                return 0
             }
 
-            let eventMatched = false
-            for (const action of actions) {
-                const matched = await this.doesEventMatchAction(event, action)
-                if (matched) {
-                    eventMatched = true
-                }
-            }
+            const results = await Promise.all(actions.map((action) => this.doesEventMatchAction(event, action)))
 
-            return eventMatched
+            return results.filter(Boolean).length
         } catch (error) {
             logger.error('Error processing event', {
                 teamId: event.project.id,
                 eventName: event.event.event,
                 error,
             })
-            return false
+            return 0
         }
     }
 
