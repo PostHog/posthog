@@ -16,7 +16,7 @@ import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
     HogFunctionQueueParametersFetchRequest,
@@ -48,72 +48,6 @@ describe('Hog Executor', () => {
 
         hub = await createHub()
         executor = new HogExecutorService(hub)
-    })
-
-    describe('formatInput', () => {
-        it('can handle null values in input objects', async () => {
-            const globals = {
-                ...createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                        uuid: 'test-uuid',
-                    } as any,
-                }),
-                inputs: {},
-            }
-
-            // Body with null values that should be preserved
-            const inputWithNulls = {
-                body: {
-                    value: {
-                        event: '{event}',
-                        person: null,
-                        userId: null,
-                    },
-                },
-            }
-
-            // Call formatInput directly to test that it handles null values
-            const result = await formatHogInput(inputWithNulls, globals)
-
-            // Verify that null values are preserved
-            expect(result.body.value.person).toBeNull()
-            expect(result.body.value.userId).toBeNull()
-            expect(result.body.value.event).toBe('{event}')
-        })
-
-        it('can handle deep null and undefined values', async () => {
-            const globals = {
-                ...createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                        uuid: 'test-uuid',
-                    } as any,
-                }),
-                inputs: {},
-            }
-
-            const complexInput = {
-                body: {
-                    value: {
-                        data: {
-                            first: null,
-                            second: undefined,
-                            third: {
-                                nested: null,
-                            },
-                        },
-                    },
-                },
-            }
-
-            const result = await formatHogInput(complexInput, globals)
-
-            // Verify all null and undefined values are properly preserved
-            expect(result.body.value.data.first).toBeNull()
-            expect(result.body.value.data.second).toBeUndefined()
-            expect(result.body.value.data.third.nested).toBeNull()
-        })
     })
 
     describe('general event processing', () => {

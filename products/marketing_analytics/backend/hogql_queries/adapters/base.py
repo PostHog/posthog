@@ -139,7 +139,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""
-        if len(errors) > 0:
+        if errors:
             self.logger.error("Source validation failed", errors=errors)
 
     def _log_query_generation(self, success: bool, error: str | None = None):

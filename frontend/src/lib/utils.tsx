@@ -1948,6 +1948,17 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
     return timeValue
 }
 
+// Compute the ISO week string for a given date
+// Useful above to show the toast once per week
+export function getISOWeekString(date = new Date()): string {
+    const dayjs_date = dayjs(date)
+
+    const year = dayjs_date.year()
+    const week = dayjs_date.week()
+
+    return `${year}-W${week}`
+}
+
 export function range(startOrEnd: number, end?: number): number[] {
     let length = startOrEnd
     let start = 0
