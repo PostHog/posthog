@@ -19,10 +19,14 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterActionMatched = new Counter({
-    name: 'cdp_behavioural_action_matched',
-    help: 'An action matched against an event',
-    labelNames: ['team_id', 'action_id'],
+export const counterEventsConsumed = new Counter({
+    name: 'cdp_behavioural_events_consumed_total',
+    help: 'Total number of events consumed by the behavioural consumer',
+})
+
+export const counterEventsMatchedTotal = new Counter({
+    name: 'cdp_behavioural_events_matched_total',
+    help: 'Total number of events that matched at least one action filter',
 })
 
 export class CdpCyclotronWorkerBehaviouralConsumer extends CdpConsumerBase {
@@ -39,43 +43,53 @@ export class CdpCyclotronWorkerBehaviouralConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
-        if (!invocationGlobals.length) {
-            return
-        }
+        return await this.runInstrumented('processBatch', async () => {
+            if (!invocationGlobals.length) {
+                return
+            }
 
-        for (const event of invocationGlobals) {
-            await this.processEvent(event)
-        }
+            // Track events consumed and matched (absolute numbers)
+            let eventsMatched = 0
+
+            for (const event of invocationGlobals) {
+                const matched = await this.processEvent(event)
+                if (matched) {
+                    eventsMatched++
+                }
+            }
+
+            // Update metrics with absolute numbers
+            counterEventsConsumed.inc(invocationGlobals.length)
+            counterEventsMatchedTotal.inc(eventsMatched)
+        })
     }
 
-    private async processEvent(event: HogFunctionInvocationGlobals): Promise<void> {
+    private async processEvent(event: HogFunctionInvocationGlobals): Promise<boolean> {
         try {
             const teamId = event.project.id
             const actions = await this.loadActionsForTeam(teamId)
 
             if (!actions.length) {
                 logger.debug('No actions found for team', { teamId })
-                return
+                return false
             }
 
+            let eventMatched = false
             for (const action of actions) {
                 const matched = await this.doesEventMatchAction(event, action)
                 if (matched) {
-                    logger.info('Event matched action', {
-                        teamId,
-                        eventName: event.event.event,
-                        actionId: action.id,
-                        actionName: action.name,
-                    })
-                    counterActionMatched.labels({ team_id: teamId, action_id: action.id }).inc()
+                    eventMatched = true
                 }
             }
+
+            return eventMatched
         } catch (error) {
             logger.error('Error processing event', {
                 teamId: event.project.id,
                 eventName: event.event.event,
                 error,
             })
+            return false
         }
     }
 
@@ -156,7 +170,6 @@ export class CdpCyclotronWorkerBehaviouralConsumer extends CdpConsumerBase {
                             }
                         })
                     )
-
                     return events
                 },
             })

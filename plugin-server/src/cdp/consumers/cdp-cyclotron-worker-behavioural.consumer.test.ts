@@ -3,7 +3,6 @@ import { PostgresUse } from '~/utils/db/postgres'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { logger } from '../../utils/logger'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpCyclotronWorkerBehaviouralConsumer } from './cdp-cyclotron-worker-behavioural.consumer'
@@ -70,24 +69,14 @@ describe('CdpCyclotronWorkerBehaviouralConsumer', () => {
 
             const globals = convertToHogFunctionInvocationGlobals(matchingEvent, team, hub.SITE_URL)
 
-            // Spy on logger after hub is created
-            const loggerSpy = jest.spyOn(logger, 'info')
-
-            // Process the event
-            await processor.processBatch([globals])
-
             // Verify the action was loaded
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
             expect(actions).toHaveLength(1)
             expect(actions[0].name).toBe('Test action')
 
-            // Verify the logger was called with the matched action
-            expect(loggerSpy).toHaveBeenCalledWith('Event matched action', {
-                teamId: team.id,
-                eventName: '$pageview',
-                actionId: '1',
-                actionName: 'Test action',
-            })
+            // Test processEvent directly and verify it returns true for matching event
+            const result = await (processor as any).processEvent(globals)
+            expect(result).toBe(true)
         })
 
         it('should not match action when event does not match bytecode filter', async () => {
@@ -132,19 +121,14 @@ describe('CdpCyclotronWorkerBehaviouralConsumer', () => {
 
             const globals = convertToHogFunctionInvocationGlobals(nonMatchingEvent, team, hub.SITE_URL)
 
-            // Spy on logger after hub is created
-            const loggerSpy = jest.spyOn(logger, 'info')
-
-            // Process the event
-            await processor.processBatch([globals])
-
             // Verify the action was loaded
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
             expect(actions).toHaveLength(1)
             expect(actions[0].name).toBe('Test action')
 
-            // Verify the logger was NOT called with the matched action
-            expect(loggerSpy).not.toHaveBeenCalledWith('Event matched action', expect.any(Object))
+            // Test processEvent directly and verify it returns false for non-matching event
+            const result = await (processor as any).processEvent(globals)
+            expect(result).toBe(false)
         })
     })
 })
