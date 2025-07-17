@@ -76,7 +76,8 @@ def pre_aggregate_web_analytics_data(
         current_date = start_datetime.date()
         end_date = end_datetime.date()
 
-        while current_date <= end_date:
+        # For time windows: start is inclusive, end is exclusive (except for single-day partitions)
+        while current_date < end_date or (current_date == start_datetime.date() == end_date):
             partition_date_str = current_date.strftime("%Y-%m-%d")
             drop_partition_query = DROP_PARTITION_SQL(table_name, partition_date_str, granularity="daily")
             context.log.info(f"Dropping partition for {partition_date_str}: {drop_partition_query}")
