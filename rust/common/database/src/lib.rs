@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -20,6 +20,9 @@ pub enum CustomDatabaseError {
     #[error("Timeout error")]
     Timeout(#[from] tokio::time::error::Elapsed),
 }
+
+pub type PostgresReader = Arc<dyn Client + Send + Sync>;
+pub type PostgresWriter = Arc<dyn Client + Send + Sync>;
 
 /// A simple db wrapper
 /// Supports running any arbitrary query with a timeout.

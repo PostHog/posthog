@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+
+from dateutil import parser
 from django.core.cache import cache
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from dateutil import parser
-
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_saved_metrics import (
+    ExperimentToSavedMetricSerializer,
+)
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -14,10 +16,10 @@ from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.test.base import (
     ClickhouseTestMixin,
+    FuzzyInt,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    FuzzyInt,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -100,11 +102,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
-        self.assertEqual(response.json()["stats_config"], {"version": 2, "method": "bayesian"})
+        self.assertEqual(response.json()["stats_config"], {"method": "bayesian"})
 
         id = response.json()["id"]
         experiment = Experiment.objects.get(pk=id)
-        self.assertEqual(experiment.get_stats_config("version"), 2)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -118,7 +119,7 @@ class TestExperimentCRUD(APILicensedTest):
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 1}},
+            {"description": "Bazinga", "end_date": end_date},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -126,7 +127,76 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
-        self.assertEqual(experiment.get_stats_config("version"), 1)
+
+    def test_creating_experiment_with_ensure_experience_continuity(self):
+        ff_key = "test-continuity-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment with Continuity",
+                "description": "",
+                "start_date": None,  # Draft experiment
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {"ensure_experience_continuity": True},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment with Continuity")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # Check that the feature flag was created with ensure_experience_continuity
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.ensure_experience_continuity, True)
+
+        # Test with ensure_experience_continuity set to False
+        ff_key_false = "test-no-continuity-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment without Continuity",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key_false,
+                "parameters": {"ensure_experience_continuity": False},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_ff_false = FeatureFlag.objects.get(key=ff_key_false)
+        self.assertEqual(created_ff_false.ensure_experience_continuity, False)
+
+        # Test without specifying ensure_experience_continuity (should default to False)
+        ff_key_default = "test-default-continuity-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment with Default Continuity",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key_default,
+                "parameters": {},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_ff_default = FeatureFlag.objects.get(key=ff_key_default)
+        self.assertEqual(created_ff_default.ensure_experience_continuity, False)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
@@ -1416,48 +1486,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Feature flag variants must contain a control variant",
         )
 
-    def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the feature flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/",
-            {"deleted": True},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
-        self.assertEqual(feature_flag_response.json().get("deleted"), True)
-
-        self.assertIsNotNone(Experiment.objects.get(pk=id))
-
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -2378,6 +2406,19 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_create_experiment_with_missing_parameters(self):
+        ff_key = "a-b-tests"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": ff_key,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
@@ -2916,3 +2957,32 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Experiment already has an exposure cohort")
+
+    def test_create_experiment_with_stats_config(self) -> None:
+        """Test that stats_config can be passed from frontend and is preserved"""
+        ff_key = "stats-config-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Stats Config Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+                "stats_config": {
+                    "method": "bayesian",
+                    "use_new_bayesian_method": True,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Stats Config Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # Verify stats_config is preserved with custom fields
+        stats_config = response.json()["stats_config"]
+        self.assertEqual(stats_config["method"], "bayesian")
+        self.assertEqual(stats_config["use_new_bayesian_method"], True)

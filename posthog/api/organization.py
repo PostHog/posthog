@@ -1,22 +1,31 @@
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
+from django.core.cache import cache
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, serializers, viewsets
+from rest_framework import exceptions, permissions, serializers, viewsets, response
 from rest_framework.request import Request
 from rest_framework.response import Response
 import posthoganalytics
+import json
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
+from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_api_host, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted, groups
-from posthog.models import Organization, User
+from posthog.models import (
+    User,
+    Team,
+    Organization,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.project import Project
+from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
@@ -28,6 +37,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
     OrganizationInviteSettingsPermission,
+    OrganizationMemberPermissions,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -73,6 +83,16 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
+class OrganizationPermissionsWithEnvRollback(OrganizationAdminWritePermissions):
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        organization = extract_organization(object, view)
+
+        return (
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
+            >= OrganizationMembership.Level.ADMIN
+        )
+
+
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
@@ -104,6 +124,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_use_personal_api_keys",
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
@@ -271,8 +292,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Add capture event for 2FA enforcement change
             posthoganalytics.capture(
-                str(user.distinct_id),
                 "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
                 properties={
                     "enabled": enforce_2fa_value,
                     "organization_id": str(organization.id),
@@ -307,3 +328,116 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["team:read"],
+        throttle_classes=[SetupWizardAuthenticationRateThrottle],
+    )
+    def authenticate_wizard(self, request, **kwargs):
+        hash = request.data.get("hash")
+        project_id = request.data.get("projectId")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        if not project_id:
+            raise serializers.ValidationError({"projectId": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+        wizard_data = cache.get(cache_key)
+
+        if wizard_data is None:
+            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
+
+        try:
+            project = Project.objects.get(id=project_id)
+
+            # Verify user has access to this project
+            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
+            if project.id not in visible_teams_ids:
+                raise serializers.ValidationError(
+                    {"projectId": ["You don't have access to this project."]}, code="permission_denied"
+                )
+
+            project_api_token = project.passthrough_team.api_token
+        except Project.DoesNotExist:
+            raise serializers.ValidationError({"projectId": ["This project does not exist."]}, code="not_found")
+
+        wizard_data = {
+            "project_api_key": project_api_token,
+            "host": get_api_host(),
+            "user_distinct_id": request.user.distinct_id,
+        }
+
+        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        return response.Response({"success": True}, status=200)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="environments_rollback",
+        permission_classes=[
+            permissions.IsAuthenticated,
+            OrganizationMemberPermissions,
+            OrganizationPermissionsWithEnvRollback,
+        ],
+    )
+    def environments_rollback(self, request: Request, **kwargs) -> Response:
+        """
+        Trigger environments rollback migration for users previously on multi-environment projects.
+        The request data should be a mapping of source environment IDs to target environment IDs.
+        Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
+        """
+        from posthog.tasks.tasks import environments_rollback_migration
+        from posthog.storage.environments_rollback_storage import (
+            add_organization_to_rollback_list,
+            is_organization_rollback_triggered,
+        )
+
+        organization = self.get_object()
+
+        if is_organization_rollback_triggered(organization.id):
+            raise exceptions.ValidationError("Environments rollback has already been requested for this organization.")
+
+        environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
+        user = cast(User, request.user)
+        membership = user.organization_memberships.get(organization=organization)
+
+        if not environment_mappings:
+            raise exceptions.ValidationError("Environment mappings are required")
+
+        # Verify all environments exist and belong to this organization
+        all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
+        teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
+        found_team_ids = set(teams.values_list("id", flat=True))
+
+        missing_team_ids = all_environment_ids - found_team_ids
+        if missing_team_ids:
+            raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
+
+        # Trigger the async task to perform the migration
+        environments_rollback_migration.delay(
+            organization_id=organization.id,
+            environment_mappings=environment_mappings,
+            user_id=user.id,
+        )
+
+        # Mark organization as having triggered rollback in Redis
+        add_organization_to_rollback_list(organization.id)
+
+        posthoganalytics.capture(
+            "organization environments rollback started",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "environment_mappings": json.dumps(environment_mappings),
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "user_role": membership.level,
+            },
+            groups=groups(organization),
+        )
+
+        return Response({"success": True, "message": "Migration started"}, status=202)

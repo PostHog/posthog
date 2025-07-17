@@ -8,6 +8,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { shortTimeZone } from 'lib/utils'
 import { ReactNode } from 'react'
 import { formatAggregationValue } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
@@ -87,6 +88,8 @@ export function InsightTooltip({
     showHeader = true,
     groupTypeLabel = 'people',
     breakdownFilter,
+    interval,
+    dateRange,
 }: InsightTooltipProps): JSX.Element {
     // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
     // and the insight has a breakdown or compare option enabled. This gives us space for labels
@@ -96,16 +99,21 @@ export function InsightTooltip({
         (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { weekStartDay } = useValues(teamLogic)
+    const formattedDate = getFormattedDate(date, {
+        interval,
+        dateRange,
+        timezone,
+        weekStartDay,
+    })
 
-    const concreteTooltipTitle = getTooltipTitle(seriesData, altTitle, date)
+    const concreteTooltipTitle = altTitle ? getTooltipTitle(seriesData, altTitle, formattedDate) : null
+
     const title: ReactNode | null =
-        concreteTooltipTitle ||
-        (date
-            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
-                  timezone ? shortTimeZone(timezone) : 'UTC'
-              })`
-            : null)
-    const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
+        concreteTooltipTitle || (date ? `${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})` : null)
+    const rightTitle: ReactNode | null = altRightTitle
+        ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
+        : null
 
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
@@ -131,7 +139,8 @@ export function InsightTooltip({
                 colCutoff
             )
             const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
-            truncatedCols.forEach((seriesColumn, colIdx) => {
+            truncatedCols.forEach((seriesColumn) => {
+                const colIdx = seriesColumn.order
                 dataColumns.push({
                     key: colIdx.toString(),
                     className: 'datum-counts-column',
@@ -154,7 +163,9 @@ export function InsightTooltip({
                                 colIdx
                             )),
                     render: function renderSeriesColumnData(_, datum) {
-                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData?.[colIdx]
+                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData.find(
+                            (s) => s.order === colIdx
+                        )
                         return renderDatumToTableCell(
                             seriesColumnData?.action?.math_property,
                             seriesColumnData?.count,
@@ -165,11 +176,12 @@ export function InsightTooltip({
                     },
                 })
             })
-            dataColumns.sort(
-                (a, b) =>
-                    (truncatedCols[parseInt(a.key as string)]?.action?.order || 0) -
-                    (truncatedCols[parseInt(b.key as string)]?.action?.order || 0)
-            )
+            dataColumns.sort((a, b) => {
+                const itemA = truncatedCols?.find((s) => s.order === parseInt(a.key as string))
+                const itemB = truncatedCols?.find((s) => s.order === parseInt(b.key as string))
+
+                return (itemA?.order || 0) - (itemB?.order || 0)
+            })
             columns.push(...dataColumns)
         }
 

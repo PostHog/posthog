@@ -15,12 +15,19 @@ import { useActions, useValues } from 'kea'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SurveyEventProperties } from 'posthog-js'
 import { useState } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
-import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
+import {
+    billingProductLogic,
+    isPlatformAndSupportAddon,
+    randomizeReasons,
+    UNSUBSCRIBE_REASONS,
+} from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 
 export const UnsubscribeSurveyModal = ({
@@ -50,7 +57,7 @@ export const UnsubscribeSurveyModal = ({
         process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
-    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
+    const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const includesPipelinesAddon =
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
@@ -189,6 +196,8 @@ export const UnsubscribeSurveyModal = ({
                             </p>
                         )}
 
+                        {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
+
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
@@ -217,9 +226,9 @@ export const UnsubscribeSurveyModal = ({
                             <LemonTextArea
                                 data-attr="unsubscribe-reason-survey-textarea"
                                 placeholder={unsubscribeReasonQuestions}
-                                value={surveyResponse['$survey_response']}
+                                value={surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]}
                                 onChange={(value) => {
-                                    setSurveyResponse('$survey_response', value)
+                                    setSurveyResponse(SurveyEventProperties.SURVEY_RESPONSE, value)
                                 }}
                             />
                         )}

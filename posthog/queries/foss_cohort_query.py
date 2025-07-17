@@ -564,7 +564,9 @@ class FOSSCohortQuery(EventQuery):
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
-        return f"{'NOT' if prop.negation else ''} {column_name}", {
+        # For OR conditions, we need to handle NULL values that occur when a person doesn't appear in the behavioral subquery
+        # NULL should be treated as false for behavioral conditions
+        return f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)", {
             **date_params,
             **entity_params,
             **entity_filters_params,
@@ -585,8 +587,10 @@ class FOSSCohortQuery(EventQuery):
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
+        # For OR conditions, we need to handle NULL values that occur when a person doesn't appear in the behavioral subquery
+        # NULL should be treated as false for behavioral conditions
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{operator_value_param}": count,
                 **date_params,

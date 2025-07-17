@@ -5,4 +5,5 @@ export type ResultBreakdownRenderProps = {
     query: InsightVizNode | null
     breakdownResultsLoading: boolean
     breakdownResults: FunnelStep[] | FunnelStep[][] | TrendResult[] | null
+    exposureDifference: number
 }

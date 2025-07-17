@@ -136,8 +136,8 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         if "verified" in validated_data and verified_old != verified_new:
             user = cast(User, self.context["request"].user)
             posthoganalytics.capture(
-                str(user.distinct_id),
                 "event verification toggled",
+                distinct_id=str(user.distinct_id),
                 properties={
                     "verified": verified_new,
                     "event_name": event_definition.name,

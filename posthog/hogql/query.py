@@ -131,6 +131,7 @@ class HogQLQueryExecutor:
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.query_modifiers,
+            limit_context=self.limit_context,
         )
 
         with self.timings.measure("clone"):
@@ -189,6 +190,7 @@ class HogQLQueryExecutor:
                 enable_select_queries=True,
                 timings=self.timings,
                 modifiers=self.query_modifiers,
+                limit_context=self.limit_context,
                 # it's valid to reuse the hogql DB because the modifiers are the same,
                 # and if we don't we end up creating the virtual DB twice per query
                 database=self.hogql_context.database if self.hogql_context else None,

@@ -2,11 +2,11 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
-import { AnyPropertyFilter, HogFunctionConfigurationContextId, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -52,11 +52,11 @@ const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterO
     }
 }
 
-const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
+const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
     return value?.events?.[0]?.id
 }
 
-const setSimpleFilterValue = (options: FilterOption[], value: string): HogFunctionFiltersType => {
+const setSimpleFilterValue = (options: FilterOption[], value: string): CyclotronJobFiltersType => {
     return {
         events: [
             {
@@ -72,16 +72,15 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getFilterOptions(contextId), [contextId])
-    const hasAlertRouting = useFeatureFlag('ERROR_TRACKING_ALERT_ROUTING')
 
     const taxonomicGroupTypes = useMemo(() => {
-        if (hasAlertRouting && contextId === 'error-tracking') {
+        if (contextId === 'error-tracking') {
             return [TaxonomicFilterGroupType.ErrorTrackingIssues]
         } else if (contextId === 'insight-alerts') {
             return [TaxonomicFilterGroupType.Events]
         }
         return []
-    }, [contextId, hasAlertRouting])
+    }, [contextId])
 
     return (
         <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">

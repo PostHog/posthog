@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -57,8 +58,10 @@ const SupportResponseTimesTable = ({
     const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
         (a) => a.current_plan && a.plan_key?.includes('enterprise')
     )
+    // Treat add-ons without Stripe prices (included_with_main_product) the same as subscribed ones.
     const hasPlatformAndSupportAddon =
-        platformAndSupportProduct?.addons?.find((a) => !!a.subscribed) || hasLegacyEnterprisePlan
+        platformAndSupportProduct?.addons?.find((a) => a.subscribed || a.included_with_main_product) ||
+        hasLegacyEnterprisePlan
 
     // Check for expired trials
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -102,13 +105,22 @@ const SupportResponseTimesTable = ({
                 name: addon.name,
                 // Note(@zach): This is a legacy check that we can remove after migrating users off it.
                 current_plan:
-                    (addon.subscribed || (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) && !hasActiveTrial,
+                    (addon.subscribed ||
+                        addon.included_with_main_product ||
+                        (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) &&
+                    !hasActiveTrial,
                 features: [getResponseTimeFeature(addon.name) || { note: '1 business day' }],
                 plan_key: addon.type,
                 legacy_product: addon.legacy_product,
             }
         }) || []),
     ]
+
+    // Ensure only one plan (the last matching) remains marked as current.
+    const lastActiveIndex = plansToDisplay.map((p) => p.current_plan).lastIndexOf(true)
+    plansToDisplay.forEach((plan, idx) => {
+        plan.current_plan = idx === lastActiveIndex
+    })
 
     return (
         <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
@@ -174,40 +186,32 @@ const SupportResponseTimesTable = ({
 }
 
 export function SidePanelSupport(): JSX.Element {
-    // We need preflightLogic and userLogic for debugBilling to work properly
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle } = useValues(supportLogic)
-    const { closeEmailForm, openEmailForm, closeSupportForm } = useActions(supportLogic)
+    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
+    const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
+    const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
-    // Check for support access - paid plans or active trials only
     const canEmail =
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
-        (!!billing?.trial?.status && billing.trial.status === 'active')
+        (!!billing?.trial?.status && billing.trial.status === 'active') ||
+        targetArea === 'billing' ||
+        isCurrentOrganizationNew
 
-    // Check if we're on a paid plan or active trial
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
-
-    // Show email support only to paid/trial users on cloud or in development
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
-
-    // Show Max AI to all cloud users regardless of plan or in development
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
-
-    // Ensure billing data is loaded before showing support options
     const isBillingLoaded = !billingLoading && billing !== undefined
 
     const handleOpenEmailForm = (): void => {
-        // Only allow email form opening if user has access
         if (showEmailSupport && isBillingLoaded) {
             openEmailForm()
         }
     }
 
-    // Define SupportFormBlock component here, with access to debugBilling
     const SupportFormBlock = ({
         onCancel,
         hasActiveTrial,
@@ -274,12 +278,12 @@ export function SidePanelSupport(): JSX.Element {
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()
+                                resetSendSupportRequest()
                             }}
                             hasActiveTrial={hasActiveTrial}
                         />
                     ) : (
                         <>
-                            {/* Max AI section - show for all cloud users */}
                             {showMaxAI && isBillingLoaded && (
                                 <Section title="Ask Max AI">
                                     <div>
@@ -293,10 +297,7 @@ export function SidePanelSupport(): JSX.Element {
                                             fullWidth
                                             center
                                             onClick={() => {
-                                                openSidePanel(
-                                                    SidePanelTab.Docs,
-                                                    '/docs/new-to-posthog/understand-posthog?chat=open'
-                                                )
+                                                openSidePanel(SidePanelTab.Max)
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
@@ -307,7 +308,6 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {/* Contact us section - only show for paid/trial users on cloud */}
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
                                     <p>Can't find what you need and Max unable to help?</p>
@@ -324,7 +324,6 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {/* For free users who can't email, show an explanation */}
                             {!showEmailSupport && isBillingLoaded && (
                                 <Section title="">
                                     <h3>Can't find what you need in the docs?</h3>

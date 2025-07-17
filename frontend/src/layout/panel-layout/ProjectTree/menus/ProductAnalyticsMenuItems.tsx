@@ -7,7 +7,7 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { CustomMenuProps } from '../types'
 
-export function ProductAnalyticsMenuItems({ MenuItem = DropdownMenuItem }: CustomMenuProps): JSX.Element {
+export function ProductAnalyticsMenuItems({ MenuItem = DropdownMenuItem, onLinkClick }: CustomMenuProps): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
 
@@ -28,11 +28,18 @@ export function ProductAnalyticsMenuItems({ MenuItem = DropdownMenuItem }: Custo
                                 // small delay to fight dropdown menu from taking focus
                                 setTimeout(() => {
                                     mainContentRef?.current?.focus()
+                                    onLinkClick?.(true)
                                 }, 10)
                             }
                         }}
                     >
-                        <Link to={child.record?.href} buttonProps={{ menuItem: true }}>
+                        <Link
+                            to={child.record?.href}
+                            buttonProps={{ menuItem: true }}
+                            onClick={() => {
+                                onLinkClick?.(false)
+                            }}
+                        >
                             {child.icon}
                             {child.name}
                         </Link>

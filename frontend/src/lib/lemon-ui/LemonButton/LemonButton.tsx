@@ -66,7 +66,7 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: React.ReactElement | string | null | false
     noPadding?: boolean
-    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
@@ -75,6 +75,8 @@ export interface LemonButtonPropsBase
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
     tooltipArrowOffset?: number
+    /** Whether to force the tooltip to be visible. */
+    tooltipForceMount?: boolean
 }
 
 export type SideAction = Pick<
@@ -146,6 +148,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 truncate = false,
                 buttonWrapper,
                 tooltipDocLink,
+                tooltipForceMount,
                 ...buttonProps
             },
             ref
@@ -259,6 +262,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         placement={tooltipPlacement}
                         arrowOffset={tooltipArrowOffset}
                         docLink={tooltipDocLink}
+                        visible={tooltipForceMount}
                     >
                         {workingButton}
                     </Tooltip>

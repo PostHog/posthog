@@ -1,5 +1,6 @@
 import chdb
 import structlog
+import time
 from datetime import datetime, UTC, timedelta
 from typing import Any
 
@@ -7,40 +8,38 @@ import dagster
 from dagster import (
     Field,
     MetadataValue,
+    AssetCheckExecutionContext,
     AssetCheckResult,
     AssetCheckSeverity,
     asset_check,
 )
-from dags.common import JobOwners
-from dags.web_preaggregated_utils import TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
+from dags.common import JobOwners, dagster_tags
+from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
-from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
-from posthog.settings.base_variables import DEBUG
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.database.schema.web_analytics_s3 import (
+    get_s3_url,
+    get_s3_web_stats_structure,
+    get_s3_web_bounces_structure,
+    get_s3_function_args,
 )
+from posthog.models import Team
+from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
+from posthog.settings.base_variables import DEBUG
 
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_TOLERANCE_PCT = 1.0
 DEFAULT_DAYS_BACK = 7
-DEFAULT_ACCURACY_CHECK_TOLERANCE = 0.5
 MAX_TEAMS_PER_BATCH = 10
 CHDB_QUERY_TIMEOUT = 60
 
 WEB_DATA_QUALITY_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        list,
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to validate data quality for",
-    ),
     "tolerance_pct": Field(
         float,
         default_value=DEFAULT_TOLERANCE_PCT,
@@ -54,9 +53,10 @@ WEB_DATA_QUALITY_CONFIG_SCHEMA = {
 }
 
 
-def table_has_data(table_name: str) -> AssetCheckResult:
+def table_has_data(table_name: str, tags: DagsterTags = None) -> AssetCheckResult:
     try:
-        result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
+        with tags_context(kind="dagster", dagster=tags):
+            result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
         row_count = result[0][0] if result and result[0] else 0
 
         passed = row_count > 0
@@ -77,8 +77,8 @@ def table_has_data(table_name: str) -> AssetCheckResult:
     name="bounces_daily_has_data",
     description="Check if web_bounces_daily table has data",
 )
-def bounces_daily_has_data() -> AssetCheckResult:
-    return table_has_data("web_bounces_daily")
+def bounces_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_bounces_daily", dagster_tags(context))
 
 
 @asset_check(
@@ -86,8 +86,8 @@ def bounces_daily_has_data() -> AssetCheckResult:
     name="stats_daily_has_data",
     description="Check if web_stats_daily table has data",
 )
-def stats_daily_has_data() -> AssetCheckResult:
-    return table_has_data("web_stats_daily")
+def stats_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_stats_daily", dagster_tags(context))
 
 
 @asset_check(
@@ -95,43 +95,39 @@ def stats_daily_has_data() -> AssetCheckResult:
     name="bounces_hourly_has_data",
     description="Check if web_bounces_hourly table has data",
 )
-def bounces_hourly_has_data() -> AssetCheckResult:
-    return table_has_data("web_bounces_hourly")
+def bounces_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_bounces_hourly", dagster_tags(context))
 
 
 @asset_check(
     asset="web_analytics_stats_table_hourly",
     name="stats_hourly_has_data",
-    description="Check if web_stats_daily table has data",
+    description="Check if web_stats_hourly table has data",
 )
-def stats_hourly_has_data() -> AssetCheckResult:
-    return table_has_data("web_stats_hourly")
+def stats_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_stats_hourly", dagster_tags(context))
 
 
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
-        # Get the export path - follow same pattern as export_web_analytics_data
-        if DEBUG:
-            # For local development, use Minio with s3() function for proper authentication
-            s3_endpoint = "http://objectstorage:19000"
-            bucket = "posthog"
-            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_type}_export.native"
+        export_filename = f"{export_type}_export"
+        export_path = get_s3_url(table_name=export_filename, team_id=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
+
+        if export_type == "web_stats_daily":
+            table_structure = get_s3_web_stats_structure().strip()
+        elif export_type == "web_bounces_daily":
+            table_structure = get_s3_web_bounces_structure().strip()
         else:
-            # For production, use S3 URL (same pattern as export method)
-            s3_endpoint = "https://s3.amazonaws.com"
-            bucket = DAGSTER_DATA_EXPORT_S3_BUCKET
-            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_type}_export.native"
+            raise ValueError(f"Unknown export type: {export_type}")
 
         try:
-            # Try to query the export file with chdb using s3() function for proper AWS auth
-            s3_query = f"SELECT COUNT(*) as row_count FROM s3('{s3_endpoint}/{bucket}/{key}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native')"
+            s3_function_args = get_s3_function_args(export_path)
+            s3_query = f"SELECT COUNT(*) as row_count FROM s3({s3_function_args}, '{table_structure}')"
             result = chdb.query(s3_query)
             row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
 
             passed = row_count > 0
             env_type = "Minio" if DEBUG else "S3"
-
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
             logger.info(log_event_name, export_path=export_path, row_count=row_count, queryable=True, env=env_type)
 
             return AssetCheckResult(
@@ -154,7 +150,6 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # File doesn't exist yet - this is expected for new exports
             error_msg = str(e)
             env_type = "Minio" if DEBUG else "S3"
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
 
             logger.info(
                 log_event_name, export_path=export_path, status="file_not_found", error=error_msg[:100], env=env_type
@@ -165,7 +160,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
                 description=f"Export file not found on {env_type} - may not have been created yet",
                 metadata={
                     "export_path": MetadataValue.text(export_path),
-                    "error": MetadataValue.text(error_msg[:200]),
+                    "error": MetadataValue.text(error_msg),
                     "export_type": MetadataValue.text(export_type),
                     "status": MetadataValue.text("file_not_found"),
                     "environment": MetadataValue.text(env_type),
@@ -175,11 +170,10 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # Handle parsing/format issues
             error_msg = str(e)
             env_type = "Minio" if DEBUG else "S3"
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
 
             if "table structure cannot be extracted" in error_msg.lower():
                 status = "format_issue"
-                description = f"Export file exists on {env_type} but chdb cannot determine structure - this is expected for Native format"
+                description = f"Export file exists on {env_type} but chdb cannot determine structure - this should not happen with explicit structure"
             else:
                 status = "parse_error"
                 description = f"Error parsing export file on {env_type}: {error_msg}"
@@ -201,7 +195,6 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # Handle other unexpected errors
             error_msg = str(e)
             env_type = "Minio" if DEBUG else "S3"
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
 
             # Check for common ClickHouse/S3 errors
             if "CANNOT_STAT" in error_msg or "Cannot stat file" in error_msg:
@@ -221,7 +214,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
                 description=description,
                 metadata={
                     "export_path": MetadataValue.text(export_path),
-                    "error": MetadataValue.text(error_msg[:200]),
+                    "error": MetadataValue.text(error_msg),
                     "export_type": MetadataValue.text(export_type),
                     "status": MetadataValue.text(status),
                     "environment": MetadataValue.text(env_type),
@@ -263,8 +256,29 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
     return check_export_chdb_queryable("web_bounces_daily", "bounces_export_chdb_check")
 
 
+def log_query_sql(
+    runner, query_name: str, context: AssetCheckExecutionContext, team: Team, use_pre_agg: bool = False
+) -> None:
+    try:
+        if use_pre_agg:
+            query_ast = runner.preaggregated_query_builder.get_query()
+        else:
+            query_ast = runner.to_query()
+
+        executor = HogQLQueryExecutor(query=query_ast, team=team, modifiers=runner.modifiers)
+        sql_with_placeholders, sql_context = executor.generate_clickhouse_sql()
+        raw_sql = substitute_params(sql_with_placeholders, sql_context.values)
+        context.log.info(f"{query_name}:\n {raw_sql}")
+    except Exception as e:
+        context.log.warning(f"Failed to log {query_name}: {e}")
+
+
 def compare_web_overview_metrics(
-    team_id: int, date_from: str, date_to: str, tolerance_pct: float = 1.0
+    team_id: int,
+    date_from: str,
+    date_to: str,
+    context: AssetCheckExecutionContext,
+    tolerance_pct: float = DEFAULT_TOLERANCE_PCT,
 ) -> tuple[bool, dict[str, Any]]:
     """
     Compare pre-aggregated vs regular WebOverview metrics for accuracy.
@@ -277,27 +291,39 @@ def compare_web_overview_metrics(
     except Team.DoesNotExist:
         raise ValueError(f"Team {team_id} does not exist")
 
-    # Query with pre-aggregated tables
-    query_pre_agg = WebOverviewQuery(
+    query_fn = lambda: WebOverviewQuery(
         dateRange=DateRange(date_from=date_from, date_to=date_to),
-        properties=[],  # Add required empty properties field
+        properties=[],
     )
 
-    modifiers_pre_agg = HogQLQueryModifiers(
-        useWebAnalyticsPreAggregatedTables=True,
-        convertToProjectTimezone=False,  # Pre-agg tables are in UTC
+    runner_pre_agg = WebOverviewQueryRunner(
+        query=query_fn(),
+        team=team,
+        modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False),
     )
-
-    runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
-
-    # Query without pre-aggregated tables
-    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False)
-
-    runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
+    runner_regular = WebOverviewQueryRunner(
+        query=query_fn(),
+        team=team,
+        modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False),
+    )
 
     try:
+        log_query_sql(runner_pre_agg, "Pre-aggregated SQL", context, team, use_pre_agg=True)
+        log_query_sql(runner_regular, "Regular SQL", context, team, use_pre_agg=False)
+
+        context.log.info("About to execute pre-aggregated query")
+        start_time = time.time()
         response_pre_agg = runner_pre_agg.calculate()
+        pre_agg_time = time.time() - start_time
+
+        context.log.info("About to execute regular query")
+        start_time = time.time()
         response_regular = runner_regular.calculate()
+        regular_time = time.time() - start_time
+
+        context.log.info(
+            f"Query execution completed for team {team_id}, pre-agg time: {pre_agg_time}, regular time: {regular_time}"
+        )
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
@@ -310,10 +336,10 @@ def compare_web_overview_metrics(
             "team_id": team_id,
             "date_from": date_from,
             "date_to": date_to,
-            "pre_aggregated_used": response_pre_agg.usedPreAggregatedTables,
             "metrics": {},
             "all_within_tolerance": True,
             "tolerance_pct": tolerance_pct,
+            "timing": {"pre_aggregated": pre_agg_time, "regular": regular_time},
         }
 
         for metric_key in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
@@ -345,125 +371,107 @@ def compare_web_overview_metrics(
 
     except Exception as e:
         logger.error("Error comparing web overview metrics", team_id=team_id, error=str(e), exc_info=True)
-        return False, {"team_id": team_id, "error": str(e), "date_from": date_from, "date_to": date_to}
+        return False, {
+            "team_id": team_id,
+            "error": str(e),
+            "date_from": date_from,
+            "date_to": date_to,
+            "metrics": {},
+            "all_within_tolerance": False,
+            "tolerance_pct": tolerance_pct,
+            "timing": {"pre_aggregated": 0.0, "regular": 0.0},
+        }
 
 
 @asset_check(
-    asset="web_analytics_combined_views",
+    asset="web_analytics_bounces_daily",
     name="web_analytics_accuracy_check",
     description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
     blocking=False,  # Don't block asset materialization if check fails
 )
-def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+def web_analytics_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
     """
     Data quality check: validates pre-aggregated tables match regular WebOverview queries within some % accuracy.
     """
     run_config = context.run.run_config.get("ops", {}).get("web_analytics_accuracy_check", {}).get("config", {})
-    team_ids = run_config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
     tolerance_pct = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
     days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
-
-    # Validate inputs
-    if not team_ids:
-        return AssetCheckResult(
-            passed=False,
-            description="No team IDs provided for accuracy validation",
-            metadata={"error": MetadataValue.text("Empty team_ids list")},
-        )
-
-    if len(team_ids) > MAX_TEAMS_PER_BATCH:
-        context.log.warning(f"Large team batch ({len(team_ids)} teams), consider splitting for better performance")
+    team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
     end_date = (datetime.now(UTC) - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).date()
     start_date = end_date - timedelta(days=days_back)
     date_from = start_date.strftime("%Y-%m-%d")
     date_to = end_date.strftime("%Y-%m-%d")
 
-    validation_results = []
-    failed_teams = []
-    skipped_teams = []
+    get_query_tags().with_dagster(dagster_tags(context))
 
-    context.log.info(f"Starting accuracy validation for {len(team_ids)} teams, tolerance: {tolerance_pct}%")
+    check_results = {}
 
-    for team_id in team_ids:
-        try:
-            context.log.info(f"Validating data quality for team {team_id}")
+    context.log.info(f"Starting accuracy check for team {team_id}, tolerance: {tolerance_pct}%")
 
-            is_valid, comparison_data = compare_web_overview_metrics(
-                team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct
-            )
+    try:
+        context.log.info(
+            f"Running accuracy check for team {team_id}, date range: {date_from} to {date_to}, tolerance: {tolerance_pct}%"
+        )
+        is_valid, comparison_data = compare_web_overview_metrics(
+            team_id=team_id, date_from=date_from, date_to=date_to, context=context, tolerance_pct=tolerance_pct
+        )
 
-            validation_results.append(comparison_data)
+        check_results = comparison_data
 
-            if not is_valid:
-                failed_teams.append(team_id)
+        timing = comparison_data.get("timing", {})
+        context.log.info(
+            f"Valid?: {is_valid}. Pre-agg: {timing.get('pre_aggregated', 0):.2f}s, Regular: {timing.get('regular', 0):.2f}s"
+        )
+    except Exception as e:
+        context.log.exception(f"Failed to run accuracy check for team {team_id}: {str(e)}")
+        check_results = {
+            "team_id": team_id,
+            "error": str(e),
+            "date_from": date_from,
+            "date_to": date_to,
+            "skipped": True,
+        }
 
-                # Log specific metric failures
-                if "metrics" in comparison_data:
-                    for metric_key, metric_data in comparison_data["metrics"].items():
-                        if not metric_data.get("within_tolerance", True):
-                            context.log.error(
-                                f"Metric accuracy check failed for team {team_id}, metric {metric_key}: "
-                                f"pre_agg={metric_data.get('pre_aggregated')}, regular={metric_data.get('regular')}, "
-                                f"diff={metric_data.get('pct_difference'):.2f}%, tolerance={tolerance_pct}%"
-                            )
-        except Exception as e:
-            context.log.exception(f"Failed to validate team {team_id}: {str(e)}")
-            skipped_teams.append(team_id)
-            validation_results.append(
-                {"team_id": team_id, "error": str(e), "date_from": date_from, "date_to": date_to, "skipped": True}
-            )
-
-    total_metrics_checked = sum(
-        len(result.get("metrics", {})) for result in validation_results if not result.get("skipped")
-    )
+    total_metrics_checked = len(check_results.get("metrics", {}))
     failed_metrics = sum(
-        1
-        for result in validation_results
-        if not result.get("skipped")
-        for metric in result.get("metrics", {}).values()
-        if not metric.get("within_tolerance", True)
+        1 for metric in check_results.get("metrics", {}).values() if not metric.get("within_tolerance", True)
     )
 
     success_rate = (total_metrics_checked - failed_metrics) / max(total_metrics_checked, 1) * 100
-    processed_teams = len(team_ids) - len(skipped_teams)
 
-    if skipped_teams and len(skipped_teams) == len(team_ids):
-        passed = False
-        severity = AssetCheckSeverity.ERROR
-        description = f"All {len(team_ids)} teams failed validation due to errors"
-    elif not failed_teams and not skipped_teams:
-        passed = True
-        severity = None
-        description = f"All {len(team_ids)} teams passed accuracy validation within {tolerance_pct}% tolerance"
-    elif success_rate >= 95 and len(failed_teams) <= 1:
+    if success_rate >= 95:
         passed = True
         severity = AssetCheckSeverity.WARN
-        description = f"{processed_teams - len(failed_teams)}/{processed_teams} teams passed validation (success rate: {success_rate:.1f}%)"
+        description = f"Team {team_id} passed validation (success rate: {success_rate:.1f}%)"
     else:
         passed = False
         severity = AssetCheckSeverity.ERROR
-        description = (
-            f"{len(failed_teams)} of {processed_teams} teams failed accuracy validation. Failed teams: {failed_teams}"
+        description = f"Team {team_id} failed accuracy validation."
+
+    metadata = {
+        "success_rate": MetadataValue.float(success_rate),
+        "failed_metrics": MetadataValue.int(failed_metrics),
+        "total_metrics": MetadataValue.int(total_metrics_checked),
+        "tolerance_pct": MetadataValue.float(tolerance_pct),
+        "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
+        "detailed_results": MetadataValue.json(check_results),
+    }
+
+    # Add timing metadata if available
+    if check_results and not check_results.get("skipped") and "timing" in check_results:
+        metadata.update(
+            {
+                "pre_agg_time": MetadataValue.float(round(check_results["timing"]["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(check_results["timing"]["regular"], 3)),
+            }
         )
 
     return AssetCheckResult(
         passed=passed,
         severity=severity,
         description=description,
-        metadata={
-            "success_rate": MetadataValue.float(success_rate),
-            "teams_passed": MetadataValue.int(processed_teams - len(failed_teams)),
-            "total_teams": MetadataValue.int(len(team_ids)),
-            "processed_teams": MetadataValue.int(processed_teams),
-            "failed_metrics": MetadataValue.int(failed_metrics),
-            "total_metrics": MetadataValue.int(total_metrics_checked),
-            "tolerance_pct": MetadataValue.float(tolerance_pct),
-            "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
-            "failed_teams": MetadataValue.json(failed_teams),
-            "skipped_teams": MetadataValue.json(skipped_teams),
-            "detailed_results": MetadataValue.json(validation_results),
-        },
+        metadata=metadata,
     )
 
 
@@ -493,8 +501,7 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             "ops": {
                 "web_analytics_accuracy_check": {
                     "config": {
-                        "team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-                        "tolerance_pct": DEFAULT_ACCURACY_CHECK_TOLERANCE,
+                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
                         "days_back": DEFAULT_DAYS_BACK,
                     }
                 }

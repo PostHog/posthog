@@ -2,10 +2,12 @@ from typing import Optional, Union, cast
 
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql import ast
+from posthog.hogql.base import Expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.data_warehouse_mixin import (
     DataWarehouseInsightQueryMixin,
 )
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
 from posthog.hogql_queries.insights.utils.aggregations import (
     FirstTimeForUserEventsQueryAlternator,
     QueryAlternator,
@@ -53,7 +55,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
         elif self.series.math == "dau":
-            actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
+            # `weekly_active` and `monthly_active` turn into `dau` for intervals longer than their period, hence the
+            # need to use person field here so we need to get the actor accordingly.
+            actor = self._get_person_field()
             return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
             return ast.Placeholder(
@@ -89,10 +93,34 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return parse_expr("count()")  # All "count per actor" get replaced during query orchestration
 
+    @property
+    def actor_id_field(self) -> str:
+        """
+        For group-based math (unique_group, weekly_active, monthly_active, dau with group index), returns the group
+        field. Otherwise, returns person_id.
+
+        Note: DAU can have math_group_type_index because weekly_active/monthly_active get converted to DAU when
+        interval >= their time window.
+        """
+        if is_groups_math(series=self.series):
+            return f'e."$group_{int(cast(int, self.series.math_group_type_index))}"'
+        return "e.person_id"
+
     def actor_id(self) -> ast.Expr:
-        if self.series.math == "unique_group" and self.series.math_group_type_index is not None:
-            return parse_expr(f'e."$group_{int(self.series.math_group_type_index)}"')
-        return parse_expr("e.person_id")
+        return parse_expr(self.actor_id_field)
+
+    def _get_person_field(self) -> str:
+        """
+        Similar to `actor_id_field` property, but here the aggregation option is factored in for `GROUP BY`s.
+        `aggregate_users_by_distinct_id` only applies when the actor in question is a person.
+        """
+        if self.actor_id_field == "e.person_id":
+            return "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
+        return self.actor_id_field
+
+    @property
+    def person_field(self) -> Expr:
+        return parse_expr(self._get_person_field())
 
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [
@@ -178,27 +206,48 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             # to avoid ClickHouse errors with dictGetOrDefault expecting non-nullable dates
             timestamp_expr: ast.Expr
             if isinstance(self.series, DataWarehouseNode):
-                timestamp_expr = ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Field(chain=[self.series.timestamp_field]),
-                        ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
-                    ],
-                )
+                if self.series.dw_source_type == "self-managed":
+                    # The database's automatic toDateTime wrapping causes parseDateTime64BestEffortOrNull issues
+                    # for the timestamp field that are strings for self managed sources.
+                    # We use today's date as the timestamp to avoid this issue.
+                    timestamp_expr = ast.Call(name="today", args=[])
+                else:
+                    timestamp_expr = ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Field(chain=[self.series.timestamp_field]),
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                        ],
+                    )
             else:
                 # For events, timestamp is never null
                 timestamp_expr = ast.Field(chain=["timestamp"])
 
-            return ast.Call(
-                name=method,
-                args=[
-                    convert_currency_call(
-                        ast.Field(chain=chain),
-                        event_currency,
-                        base_currency,
-                        ast.Call(name="_toDate", args=[timestamp_expr]),
-                    )
-                ],
+            # Apply math_multiplier to the field before currency conversion
+            currency_field_expr: ast.Expr = ast.Field(chain=chain)
+            if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
+                currency_field_expr = ast.ArithmeticOperation(
+                    left=currency_field_expr,
+                    right=ast.Constant(value=self.series.math_multiplier),
+                    op=ast.ArithmeticOperationOp.Mult,
+                )
+
+            currency_field_expr = convert_currency_call(
+                currency_field_expr,
+                event_currency,
+                base_currency,
+                ast.Call(name="_toDate", args=[timestamp_expr]),
+            )
+
+            return ast.Call(name=method, args=[currency_field_expr])
+
+        # Apply math_multiplier if present
+        field_expr: ast.Expr = ast.Field(chain=chain)
+        if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
+            field_expr = ast.ArithmeticOperation(
+                left=field_expr,
+                right=ast.Constant(value=self.series.math_multiplier),
+                op=ast.ArithmeticOperationOp.Mult,
             )
 
         return ast.Call(
@@ -209,13 +258,22 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
             name="ifNull",
             args=[
-                ast.Call(name=method, args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])]),
+                ast.Call(name=method, args=[ast.Call(name="toFloat", args=[field_expr])]),
                 ast.Constant(value=0),
             ],
         )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         chain = override_chain or self._get_math_chain()
+
+        # Apply math_multiplier if present
+        field_expr: ast.Expr = ast.Field(chain=chain)
+        if hasattr(self.series, "math_multiplier") and self.series.math_multiplier is not None:
+            field_expr = ast.ArithmeticOperation(
+                left=field_expr,
+                right=ast.Constant(value=self.series.math_multiplier),
+                op=ast.ArithmeticOperationOp.Mult,
+            )
 
         return ast.Call(
             # Two caveats here - similar to the math_func, but not quite:
@@ -228,7 +286,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(
                     name="quantile",
                     params=[ast.Constant(value=percentile)],
-                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
+                    args=[ast.Call(name="toFloat", args=[field_expr])],
                 ),
                 ast.Constant(value=0),
             ],
@@ -443,9 +501,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     "table": self._table_expr,
                     "events_where_clause": where_clause_combined,
                     "sample": sample_value,
-                    "person_field": ast.Field(
-                        chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person_id"]
-                    ),
+                    "person_field": self.person_field,
                 },
             )
             assert isinstance(query, ast.SelectQuery)
@@ -473,9 +529,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             placeholders={
                 "events_where_clause": where_clause_combined,
                 "sample": sample_value,
-                "person_field": ast.Field(
-                    chain=["e", "distinct_id"] if self.team.aggregate_users_by_distinct_id else ["e", "person_id"]
-                ),
+                "person_field": self.person_field,
             },
         )
 

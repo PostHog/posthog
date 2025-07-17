@@ -9,108 +9,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { APIScopeObject, OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
+import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
+import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
+import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
-
-export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
-
-export type APIScope = {
-    key: APIScopeObject
-    info?: string | JSX.Element
-    disabledActions?: ('read' | 'write')[]
-    disabledWhenProjectScoped?: boolean
-    description?: string
-    warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
-}
-
-export const APIScopes: APIScope[] = [
-    { key: 'action' },
-    { key: 'activity_log' },
-    { key: 'annotation' },
-    { key: 'batch_export' },
-    { key: 'cohort' },
-    { key: 'dashboard' },
-    { key: 'dashboard_template' },
-    { key: 'early_access_feature' },
-    { key: 'event_definition' },
-    { key: 'error_tracking' },
-    { key: 'experiment' },
-    { key: 'export' },
-    { key: 'feature_flag' },
-    { key: 'group' },
-    { key: 'hog_function' },
-    { key: 'insight' },
-    { key: 'notebook' },
-    { key: 'organization', disabledWhenProjectScoped: true },
-    {
-        key: 'organization_member',
-        disabledWhenProjectScoped: true,
-        warnings: {
-            write: (
-                <>
-                    This scope can be used to invite users to your organization,
-                    <br />
-                    effectively <strong>allowing access to other scopes via the added user</strong>.
-                </>
-            ),
-        },
-    },
-    { key: 'person' },
-    { key: 'plugin' },
-    {
-        key: 'project',
-        warnings: {
-            write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
-        },
-    },
-    { key: 'property_definition' },
-    { key: 'query', disabledActions: ['write'] },
-    { key: 'session_recording' },
-    { key: 'session_recording_playlist' },
-    { key: 'sharing_configuration' },
-    { key: 'subscription' },
-    { key: 'survey' },
-    {
-        key: 'user',
-        disabledActions: ['write'],
-        warnings: {
-            read: (
-                <>
-                    This scope allows you to retrieve your own user object.
-                    <br />
-                    Note that the user object <strong>lists all organizations and projects you're in</strong>.
-                </>
-            ),
-        },
-    },
-    { key: 'webhook', info: 'Webhook configuration is currently only enabled for the Zapier integration.' },
-    { key: 'warehouse_view' },
-    { key: 'warehouse_table' },
-]
-
-export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
-    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
-    {
-        value: 'zapier',
-        label: 'Zapier integration',
-        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
-    },
-    { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
-    {
-        value: 'project_management',
-        label: 'Project & user management',
-        scopes: ['project:write', 'organization:read', 'organization_member:write'],
-    },
-    {
-        value: 'mcp_server',
-        label: 'MCP Server',
-        scopes: APIScopes.map(({ key }) =>
-            ['feature_flag', 'insight'].includes(key) ? `${key}:write` : `${key}:read`
-        ),
-    },
-    { value: 'all_access', label: 'All access', scopes: ['*'] },
-]
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
@@ -237,6 +141,157 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 return user?.organizations ?? []
             },
         ],
+
+        canUsePersonalApiKeys: [
+            (s) => [s.user],
+            (user: UserType | null): boolean => {
+                const currentOrg = user?.organization
+                if (!currentOrg) {
+                    return true
+                }
+
+                if (currentOrg.membership_level && currentOrg.membership_level >= OrganizationMembershipLevel.Admin) {
+                    return true
+                }
+
+                return organizationAllowsPersonalApiKeysForMembers(currentOrg)
+            },
+        ],
+
+        isPersonalApiKeyIdDisabled: [
+            (s) => [s.allOrganizations, s.allTeams, s.keys, s.getRestrictedOrganizationsForKey],
+            (
+                    allOrganizations: OrganizationBasicType[],
+                    allTeams: TeamBasicType[] | null,
+                    keys: PersonalAPIKeyType[],
+                    getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
+                ) =>
+                (keyId: PersonalAPIKeyType['id']): boolean => {
+                    const key = keys.find((k) => k.id === keyId)
+                    if (!key) {
+                        return false
+                    }
+
+                    const restrictedOrgs = getRestrictedOrganizationsForKey(keyId)
+
+                    // If key is scoped to specific organizations
+                    if (key.scoped_organizations?.length) {
+                        // Key is disabled if ALL scoped organizations are restricted
+                        return restrictedOrgs.length === key.scoped_organizations.length
+                    }
+
+                    // If key is scoped to specific teams
+                    if (key.scoped_teams?.length && allTeams) {
+                        // Get unique organization IDs from scoped teams
+                        const teamOrgIds = new Set<string>()
+                        key.scoped_teams.forEach((teamId) => {
+                            const team = allTeams.find((t) => t.id === teamId)
+                            if (team?.organization) {
+                                teamOrgIds.add(team.organization)
+                            }
+                        })
+
+                        // Key is disabled if ALL team organizations are restricted
+                        return restrictedOrgs.length === teamOrgIds.size
+                    }
+
+                    // If key has all access, it's disabled if ALL user's organizations are restricted
+                    return restrictedOrgs.length === allOrganizations.length
+                },
+        ],
+
+        getRestrictedOrganizationsForKey: [
+            (s) => [s.allOrganizations, s.keys, s.getRestrictedTeamsForKey],
+            (
+                    allOrganizations: OrganizationBasicType[],
+                    keys: PersonalAPIKeyType[],
+                    getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
+                ) =>
+                (keyId: PersonalAPIKeyType['id']): OrganizationBasicType[] => {
+                    let restrictedOrgs: OrganizationBasicType[] = []
+                    const key = keys.find((k) => k.id === keyId)
+
+                    if (!key) {
+                        return []
+                    }
+
+                    // If key is scoped to specific organizations
+                    if (key.scoped_organizations?.length) {
+                        restrictedOrgs = (key.scoped_organizations || [])
+                            .map((orgId) => {
+                                const org = allOrganizations.find((o) => o.id === orgId)
+                                if (
+                                    org &&
+                                    !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                                    !organizationAllowsPersonalApiKeysForMembers(org)
+                                ) {
+                                    return org
+                                }
+                            })
+                            .filter((x) => x) as OrganizationBasicType[]
+
+                        return restrictedOrgs
+                    }
+
+                    // If key is scoped to specific teams
+                    if (key.scoped_teams?.length) {
+                        const restrictedTeams = getRestrictedTeamsForKey(keyId)
+                        const orgIds = new Set<string>()
+
+                        restrictedTeams.forEach((team) => {
+                            if (team.organization) {
+                                orgIds.add(team.organization)
+                            }
+                        })
+
+                        restrictedOrgs = Array.from(orgIds)
+                            .map((orgId) => allOrganizations.find((o) => o.id === orgId))
+                            .filter((org) => org) as OrganizationBasicType[]
+
+                        return restrictedOrgs
+                    }
+
+                    // If key has all access, check all user's organizations
+                    allOrganizations.forEach((org) => {
+                        if (
+                            !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                            !organizationAllowsPersonalApiKeysForMembers(org)
+                        ) {
+                            restrictedOrgs.push(org)
+                        }
+                    })
+
+                    return restrictedOrgs
+                },
+        ],
+
+        getRestrictedTeamsForKey: [
+            (s) => [s.allOrganizations, s.allTeams, s.keys],
+            (allOrganizations: OrganizationBasicType[], allTeams: TeamBasicType[] | null, keys: PersonalAPIKeyType[]) =>
+                (keyId: PersonalAPIKeyType['id']): TeamBasicType[] => {
+                    const key = keys.find((k) => k.id === keyId)
+
+                    if (!key || !allTeams || !key.scoped_teams?.length) {
+                        return []
+                    }
+
+                    return key.scoped_teams
+                        .map((teamId) => {
+                            const team = allTeams.find((t: TeamBasicType) => t.id === teamId)
+                            if (team?.organization) {
+                                const org = allOrganizations.find((o) => o.id === team.organization)
+                                if (
+                                    org &&
+                                    !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                                    !organizationAllowsPersonalApiKeysForMembers(org)
+                                ) {
+                                    return team
+                                }
+                            }
+                        })
+                        .filter((team) => team) as TeamBasicType[]
+                },
+        ],
     })),
     listeners(({ actions, values }) => ({
         touchEditingKeyField: ({ key }) => {
@@ -349,6 +404,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         preset: preset.value,
                         label: preset.label,
                         scopes: preset.scopes,
+                        access_type: preset.access_type,
                     })
                 }
             }

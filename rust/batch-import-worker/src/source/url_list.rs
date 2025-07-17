@@ -112,7 +112,7 @@ impl DataSource for UrlList {
         Ok(self.urls.clone())
     }
 
-    async fn size(&self, key: &str) -> Result<u64, Error> {
+    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
         // Ensure the passed key is in our list of URLs
         if !self.urls.contains(&key.to_string()) {
             return Err(Error::msg("Key not found"));
@@ -139,6 +139,7 @@ impl DataSource for UrlList {
                     Error::msg(format!("Failed to parse content length as u64: {}", e))
                 })
             })
+            .map(Some)
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
@@ -271,7 +272,7 @@ mod test {
             .unwrap();
         let size = source.size(&urls[0]).await.unwrap();
 
-        assert_eq!(size, TEST_CONTENTS.len() as u64);
+        assert_eq!(size, Some(TEST_CONTENTS.len() as u64));
     }
 
     #[tokio::test]

@@ -63,6 +63,7 @@ frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
 frontend/src/products.tsx
+.typegen
 # ANTLR-generated temp files when "npm run grammar:build" crashes
 gen/
 max-test-venv/
@@ -95,6 +96,8 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+!.dagster_home/workspace.yaml
+!.dagster_home/dagster.yaml
 .tmp_dagster_home*/*
 
 # Dist release target dir

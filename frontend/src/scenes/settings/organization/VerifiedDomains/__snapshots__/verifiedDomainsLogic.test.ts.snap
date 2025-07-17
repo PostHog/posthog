@@ -23,6 +23,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "is_member_join_email_enabled": true,
     "logo_media_id": null,
     "member_count": 2,
+    "members_can_use_personal_api_keys": true,
     "membership_level": 8,
     "metadata": {},
     "name": "MockHog",
@@ -74,6 +75,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "feature_flag_confirmation_enabled": false,
+        "feature_flag_confirmation_message": "",
         "flags_persistence_default": false,
         "group_types": [
           {
@@ -146,6 +149,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
               "revenueProperty": "subscription_value",
             },
           ],
+          "filter_test_accounts": false,
           "goals": [
             {
               "due_date": "2020-12-31",

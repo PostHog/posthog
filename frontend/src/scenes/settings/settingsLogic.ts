@@ -165,7 +165,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 } else {
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
-                        .reduce((acc, section) => [...acc, ...section.settings], [] as Setting[])
+                        .reduce((acc, section) => acc.concat(section.settings), [] as Setting[])
                 }
 
                 return settings.filter((x) => {

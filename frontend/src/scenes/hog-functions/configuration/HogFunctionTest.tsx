@@ -151,7 +151,7 @@ const HogFunctionTestEditor = ({
 }
 
 export function HogFunctionTest(): JSX.Element {
-    const { logicProps, canLoadSampleGlobals } = useValues(hogFunctionConfigurationLogic)
+    const { logicProps, canLoadSampleGlobals, hogFunction, template } = useValues(hogFunctionConfigurationLogic)
     const {
         isTestInvocationSubmitting,
         testResult,
@@ -179,6 +179,8 @@ export function HogFunctionTest(): JSX.Element {
 
     const testResultsRef = useRef<HTMLDivElement>(null)
     const inactive = !expanded
+    const canMockFetchRequests =
+        template?.id?.startsWith('template-') || hogFunction?.template?.id?.startsWith('template-')
 
     return (
         <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
@@ -229,33 +231,38 @@ export function HogFunctionTest(): JSX.Element {
                                         dropdown={{ closeOnClickInside: false }}
                                         overlay={
                                             <>
-                                                <LemonField name="mock_async_functions">
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            onChange={(v) => onChange(!v)}
-                                                            checked={!value}
-                                                            data-attr="toggle-hog-test-mocking"
-                                                            className="px-2 py-1"
-                                                            label={
-                                                                <Tooltip
-                                                                    title={
-                                                                        <>
-                                                                            When disabled, async functions such as
-                                                                            `fetch` will not be called. Instead they
-                                                                            will be mocked out and logged.
-                                                                        </>
+                                                {canMockFetchRequests && (
+                                                    <>
+                                                        <LemonField name="mock_async_functions">
+                                                            {({ value, onChange }) => (
+                                                                <LemonSwitch
+                                                                    onChange={(v) => onChange(!v)}
+                                                                    checked={!value}
+                                                                    data-attr="toggle-hog-test-mocking"
+                                                                    className="px-2 py-1"
+                                                                    label={
+                                                                        <Tooltip
+                                                                            title={
+                                                                                <>
+                                                                                    When disabled, async functions such
+                                                                                    as `fetch` will not be called.
+                                                                                    Instead they will be mocked out and
+                                                                                    logged.
+                                                                                </>
+                                                                            }
+                                                                        >
+                                                                            <span className="flex gap-2">
+                                                                                Make real HTTP requests
+                                                                                <IconInfo className="text-lg" />
+                                                                            </span>
+                                                                        </Tooltip>
                                                                     }
-                                                                >
-                                                                    <span className="flex gap-2">
-                                                                        Make real HTTP requests
-                                                                        <IconInfo className="text-lg" />
-                                                                    </span>
-                                                                </Tooltip>
-                                                            }
-                                                        />
-                                                    )}
-                                                </LemonField>
-                                                <LemonDivider />
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                        <LemonDivider />
+                                                    </>
+                                                )}
                                                 {savedGlobals.map(({ name, globals }, index) => (
                                                     <div className="flex justify-between w-full" key={index}>
                                                         <LemonButton
@@ -289,7 +296,7 @@ export function HogFunctionTest(): JSX.Element {
                                                         disabledReason={(() => {
                                                             try {
                                                                 JSON.parse(testInvocation.globals)
-                                                            } catch (e) {
+                                                            } catch {
                                                                 return 'Invalid globals JSON'
                                                             }
                                                             return undefined
@@ -466,11 +473,7 @@ export function HogFunctionTest(): JSX.Element {
                                     {({ value, onChange }) => (
                                         <>
                                             <div className="deprecated-space-y-2">
-                                                <div>
-                                                    {type === 'broadcast'
-                                                        ? 'The test broadcast will be sent with this sample data:'
-                                                        : 'Here are all the global variables you can use in your code:'}
-                                                </div>
+                                                <div>Here are all the global variables you can use in your code:</div>
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>
                                                 ) : null}

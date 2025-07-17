@@ -87,10 +87,10 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": str(org_id)}},
         )
         # Check out many times it was called
-        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
+            call for call in patch_capture.call_args_list if call.kwargs.get("event") == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
             "event": "ignored",
@@ -138,10 +138,10 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": org_id}},
         )
         # Check out many times it was called
-        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
+            call for call in patch_capture.call_args_list if call.kwargs.get("event") == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
             "event": "already limited",
@@ -198,7 +198,7 @@ class TestQuotaLimiting(BaseTest):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
-        assert patch_capture.call_count == 7  # 7 logs
+        assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["exceptions"] == {}
         assert quota_limited_orgs["recordings"] == {}
@@ -300,10 +300,14 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
 
             # Check out many times it was called
-            assert patch_capture.call_count == 9  # 7 logs + 1 org and 1 log from org_quota_limited_until
+            assert (
+                patch_capture.call_count == 2
+            )  # 1 org_quota_limited_until event + 1 organization quota limits changed event
             # Find the org action call
             org_action_call = next(
-                call for call in patch_capture.call_args_list if call.args[1] == "organization quota limits changed"
+                call
+                for call in patch_capture.call_args_list
+                if call.kwargs.get("event") == "organization quota limits changed"
             )
             assert org_action_call.kwargs.get("properties") == {
                 "quota_limited_events": 1612137599,
@@ -1122,10 +1126,10 @@ class TestQuotaLimiting(BaseTest):
 
         self.assertEqual(tokens, [])
         mock_capture.assert_called_once()
-        self.assertIn(
-            f"quota_limiting: No team tokens found for organization: {self.organization.id}",
-            str(mock_capture.call_args[0][0]),
-        )
+
+        call_args = mock_capture.call_args
+        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")  # type: ignore
+        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})  # type: ignore
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
@@ -1265,13 +1269,21 @@ class TestQuotaLimiting(BaseTest):
                     f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
                 )
 
-            # Test high trust score organization is not limited
-            self.organization.customer_trust_scores[trust_key] = 15
-            self.organization.save()
-            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
+            # Test high trust score (15) - should get 5 day suspension
+            with freeze_time("2021-01-25T00:00:00Z"):
+                self.organization.customer_trust_scores[trust_key] = 15
+                self.organization.usage["api_queries_read_bytes"] = {"usage": 110, "limit": 100}
+                self.organization.save()
+                self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
+
+                quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+                assert quota_limited_orgs["api_queries_read_bytes"] == {}
+                assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {
+                    org_id: 1612051200
+                }  # 5 day suspension
+                assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                    f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
+                )
 
             # Test never_drop_data organization is not limited
             self.organization.customer_trust_scores[trust_key] = 0
@@ -1321,7 +1333,7 @@ class TestQuotaLimiting(BaseTest):
             # Find the specific call for org_quota_limited_until with suspension removed
             event = None
             for call in mock_capture.call_args_list:
-                if len(call[0]) >= 2 and call[0][1] == "org_quota_limited_until":
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
                     event = call
                     break
 

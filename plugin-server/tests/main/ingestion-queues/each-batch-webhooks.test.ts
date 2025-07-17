@@ -53,7 +53,7 @@ describe('eachMessageWebhooksHandlers', () => {
             'testTag'
         )
         await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -83,7 +83,7 @@ describe('eachMessageWebhooksHandlers', () => {
     })
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
-        const actionManager = new ActionManager(hub.postgres, hub)
+        const actionManager = new ActionManager(hub.postgres, hub.pubSub)
         const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
         const hookCannon = new HookCommander(
             hub.postgres,

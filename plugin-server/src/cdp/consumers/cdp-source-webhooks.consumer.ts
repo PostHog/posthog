@@ -5,7 +5,6 @@ import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUIDT } from '../../utils/utils'
-import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocationHogFunction,
@@ -63,7 +62,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         // TODO: Should this be filled via other headers?
         const ip = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
 
-        const projectUrl = `${this.hub.SITE_URL ?? ''}/project/${hogFunction.team_id}`
+        const projectUrl = `${this.hub.SITE_URL}/project/${hogFunction.team_id}`
 
         const globals: HogFunctionInvocationGlobals = {
             source: {
@@ -95,15 +94,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         try {
             // TODO: Add error handling and logging
-            const globalsWithInputs = buildGlobalsWithInputs(globals, {
-                ...(hogFunction.inputs ?? {}),
-                ...(hogFunction.encrypted_inputs ?? {}),
-            })
+            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
             // TODO: Do we want to use hogwatcher here as well?
             const invocation = createInvocation(globalsWithInputs, hogFunction)
             // Run the initial step - this allows functions not using fetches to respond immediately
-            result = this.hogExecutor.execute(invocation)
+            result = await this.hogExecutor.execute(invocation)
 
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
             if (!result.finished) {
@@ -123,7 +119,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             logger.error('Error executing hog function', { error })
             result = createInvocationResult(
                 createInvocation({} as any, hogFunction),
-                { queue: 'hog' },
+                {},
                 {
                     finished: true,
                     error: error.message,
@@ -142,9 +138,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
-        await super.stop()
         await this.cyclotronJobQueue.stop()
         await this.promiseScheduler.waitForAllSettled()
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {

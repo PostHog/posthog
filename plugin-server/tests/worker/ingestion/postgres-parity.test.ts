@@ -165,7 +165,7 @@ describe('postgres parity', () => {
         expect(person).toEqual(postgresPersons[0])
     })
 
-    test('updatePersonDeprecated', async () => {
+    test('updatePerson', async () => {
         const uuid = new UUIDT().toString()
         const [person, kafkaMessages] = await hub.db.createPerson(
             DateTime.utc(),
@@ -184,7 +184,7 @@ describe('postgres parity', () => {
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
         // update properties and set is_identified to true
-        const [_p, kafkaMessagesUpdate] = await hub.db.updatePersonDeprecated(person, {
+        const [_p, kafkaMessagesUpdate] = await hub.db.updatePerson(person, {
             properties: { replacedUserProp: 'propValue' },
             is_identified: true,
         })
@@ -211,7 +211,7 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const [updatedPerson, kafkaMessages2] = await hub.db.updatePersonDeprecated(person, {
+        const [updatedPerson, kafkaMessages2] = await hub.db.updatePerson(person, {
             created_at: randomDate,
             is_identified: false,
         })
@@ -364,8 +364,12 @@ describe('postgres parity', () => {
 
         // move distinct ids from person to to anotherPerson
 
-        const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
+        const moveDistinctIdsResult = await hub.db.moveDistinctIds(person, anotherPerson)
+        expect(moveDistinctIdsResult.success).toEqual(true)
+
+        if (moveDistinctIdsResult.success) {
+            await hub.db!.kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
+        }
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -419,7 +423,7 @@ describe('postgres parity', () => {
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
+        await hub.db.postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })

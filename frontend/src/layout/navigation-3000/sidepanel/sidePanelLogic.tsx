@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
+import { combineUrl, router, urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
@@ -57,7 +59,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (selectedTab === SidePanelTab.Max && sidePanelOpen)) {
+                if (
+                    (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
+                        !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) ||
+                    (sidePanelOpen && selectedTab === SidePanelTab.Max)
+                ) {
                     // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
@@ -76,7 +82,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                tabs.push(SidePanelTab.FeaturePreviews)
                 if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
@@ -151,5 +156,25 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
             },
         ],
+    }),
+    urlToAction(() => {
+        return {
+            '/': (_, _searchParams, hashParams): void => {
+                // Redirect old feature preview side panel links to new settings page
+                if (hashParams.panel?.startsWith('feature-previews')) {
+                    // it will be encoded as %3A, so we need to split on :
+                    const parts = hashParams.panel.split(':')
+                    // from: ${url}/#panel=feature-previews
+                    // to:   ${url}/settings/user-feature-previews
+                    if (parts.length > 1) {
+                        // from: ${url}/#panel=feature-previews%3A${flagKey} or ${url}/#panel=feature-previews:${flagKey}
+                        // to:   ${url}/settings/user-feature-previews#${flagKey}
+                        router.actions.replace(combineUrl(urls.settings('user-feature-previews'), {}, parts[1]).url)
+                    } else {
+                        router.actions.replace(urls.settings('user-feature-previews'))
+                    }
+                }
+            },
+        }
     }),
 ])

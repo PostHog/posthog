@@ -1,6 +1,8 @@
 <events_input_format>
 You'll receive a list of events with columns:
 
+- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
+- event_index: Index of the event in the session - helps understand sequence
 - event: Type of event (e.g., $pageview, $autocapture) - signals user actions or system events
 - timestamp: When the event occurred - helps track sequence and time between actions
 - elements_chain_href: URL fragment interacted with - shows specific link or element targets
@@ -12,8 +14,6 @@ You'll receive a list of events with columns:
 - $elements_chain_ids: IDs of the elements that are part of the interaction
 - $exception_types: Type of the exception occured, if applicable
 - $exception_values: Short description of the exception occured, if applicable
-- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
-- event_index: Index of the event in the session - helps understand sequence
 
 Event columns are provided in the order the data for each event. So, the first element of the event is the event name, the second element is the timestamp, etc.
 
@@ -360,6 +360,15 @@ Revise your analysis if any inconsistencies are found.
 
 <output_format>
 Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+
+IMPORTANT:
+- Always use quotes around indicator strings that contain special characters
+- Replace comparison operators with words:
+  - Instead of ">3" use "more than 3" 
+  - Instead of "<1" use "less than 1"
+  - Instead of ">=5" use "5 or more"
+- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
+- When in doubt, wrap the entire indicator string in single or double quotes
 </output_format>
 
 <output_example>

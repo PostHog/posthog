@@ -1,5 +1,4 @@
-import { IconEllipsis, IconGear } from '@posthog/icons'
-import { IconOpenSidebar } from '@posthog/icons'
+import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -11,7 +10,6 @@ import {
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -25,8 +23,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
-import { ProductKey } from '~/types'
+import { NotebookNodeType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -45,12 +42,7 @@ function Header(): JSX.Element {
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
-        const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Replay playlists' })
-        if (typeof folder === 'string') {
-            await createPlaylist({ _create_in_folder: folder, type: 'collection' }, true)
-        } else {
-            await createPlaylist({ type: 'collection' }, true)
-        }
+        await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
         reportRecordingPlaylistCreated('new')
     })
 
@@ -229,7 +221,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-home-tab',
     },
     {
-        label: 'Playlists → Collections',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
@@ -253,6 +245,7 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
+            className="flex"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {

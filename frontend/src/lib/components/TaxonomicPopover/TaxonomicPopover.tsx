@@ -9,7 +9,7 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
@@ -25,7 +25,8 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     eventNames?: string[]
     placeholder?: React.ReactNode
     placeholderClass?: string
-    dropdownMatchSelectWidth?: boolean
+    /** Width of the popover. */
+    width?: number
     schemaColumns?: DatabaseSchemaField[]
     allowClear?: boolean
     style?: React.CSSProperties
@@ -33,7 +34,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
-    maxContextOptions?: MaxContextOption[]
+    maxContextOptions?: MaxContextTaxonomicFilterOption[]
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -60,7 +61,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         groupTypes,
         eventNames = [],
         placeholder = 'Please select',
-        placeholderClass = 'text-muted',
+        placeholderClass,
         allowClear = false,
         excludedProperties,
         metadataSource,
@@ -68,6 +69,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
         maxContextOptions,
+        width,
         ...buttonPropsRest
     }: TaxonomicPopoverProps<ValueType>,
     ref: Ref<HTMLButtonElement>
@@ -113,6 +115,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     showNumericalPropsOnly={showNumericalPropsOnly}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     maxContextOptions={maxContextOptions}
+                    width={width}
                 />
             }
             matchWidth={false}

@@ -12,7 +12,7 @@ class PydanticOutputParserException(ValueError):
     """Pydantic validation error message."""
 
     def __init__(self, llm_output: str, validation_message: str):
-        super().__init__(f"{validation_message}:\n{llm_output}")
+        super().__init__(f"{validation_message} at `{llm_output}`")
         self.llm_output = llm_output
         self.validation_message = validation_message
 

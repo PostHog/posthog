@@ -3,9 +3,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 
-import { ProductKey } from '~/types'
+import { ProductKey, OnboardingStepKey } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {

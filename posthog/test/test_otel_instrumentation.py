@@ -127,9 +127,7 @@ class TestOtelInstrumentation(BaseTest):
         # Assert PsycopgInstrumentor call
         mock_psycopg_instrumentor_cls.assert_called_once_with()
         mock_psycopg_instrumentor_instance.instrument.assert_called_once_with(
-            tracer_provider=mock_provider_instance,
-            enable_commenter=True,
-            commenter_options={"opentelemetry_values": True},
+            tracer_provider=mock_provider_instance, enable_commenter=False
         )
 
         # Assert KafkaInstrumentor call

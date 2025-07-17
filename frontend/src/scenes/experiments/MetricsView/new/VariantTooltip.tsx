@@ -1,6 +1,12 @@
-import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
-
-import { formatPValue, valueToXCoordinate } from '../shared/utils'
+import {
+    type ExperimentVariantResult,
+    formatChanceToWin,
+    formatPValue,
+    getIntervalLabel,
+    getVariantInterval,
+    isBayesianResult,
+    valueToXCoordinate,
+} from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
 export function VariantTooltip({
@@ -12,7 +18,7 @@ export function VariantTooltip({
     onMouseEnter,
     onMouseLeave,
 }: {
-    variantResult: ExperimentVariantResultFrequentist
+    variantResult: ExperimentVariantResult
     index: number
     chartRadius: number
     chartSvgRef: React.RefObject<SVGSVGElement>
@@ -25,7 +31,7 @@ export function VariantTooltip({
     }
 
     // Calculate SVG coordinates (same as VariantBar)
-    const interval = variantResult.confidence_interval
+    const interval = getVariantInterval(variantResult)
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
 
     const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
@@ -43,7 +49,8 @@ export function VariantTooltip({
     const screenX = svgRect.left + (barCenterX / svgViewBox.width) * svgRect.width
     const screenY = svgRect.top + (barTopY / svgViewBox.height) * svgRect.height
 
-    const confidenceIntervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
+    const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
+    const intervalLabel = getIntervalLabel(variantResult)
 
     return (
         <div
@@ -70,10 +77,17 @@ export function VariantTooltip({
                     <span className="font-semibold">{variantResult.sum}</span>
                 </div>
 
-                <div className="flex justify-between items-center">
-                    <span className="text-secondary font-semibold">P-value:</span>
-                    <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
-                </div>
+                {isBayesianResult(variantResult) ? (
+                    <div className="flex justify-between items-center">
+                        <span className="text-secondary font-semibold">Chance to win:</span>
+                        <span className="font-semibold">{formatChanceToWin(variantResult.chance_to_win)}</span>
+                    </div>
+                ) : (
+                    <div className="flex justify-between items-center">
+                        <span className="text-secondary font-semibold">P-value:</span>
+                        <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
+                    </div>
+                )}
 
                 <div className="flex justify-between items-center">
                     <span className="text-secondary font-semibold">Significant:</span>
@@ -102,8 +116,8 @@ export function VariantTooltip({
                 </div>
 
                 <div className="flex justify-between items-center">
-                    <span className="text-secondary font-semibold">Confidence interval:</span>
-                    <span className="font-semibold">{confidenceIntervalPercent}</span>
+                    <span className="text-secondary font-semibold">{intervalLabel}:</span>
+                    <span className="font-semibold">{intervalPercent}</span>
                 </div>
             </div>
         </div>

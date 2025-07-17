@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from django.urls import URLPattern, re_path
 import orjson
 import os
 import re
@@ -14,7 +15,7 @@ import string
 import time
 import uuid
 import zlib
-from collections.abc import Generator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -78,23 +79,6 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-
-def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
-    date_formats = {
-        "default": "%-d-%b-%Y",
-        "minute": "%-d-%b %H:%M",
-        "hour": "%-d-%b %H:%M",
-        "week": "%-d-%b – %-d-%b",
-        "month": "%b %Y",
-    }
-    labels_format = date_formats.get(interval, date_formats["default"])
-
-    if interval == "week":
-        end_date = date + datetime.timedelta(days=6)
-        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
-
-    return date.strftime(labels_format)
 
 
 class PotentialSecurityProblemException(Exception):
@@ -787,7 +771,7 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    # add the data in sentry's scope in case there's an exception
+    # add the data in the scope in case there's an exception
     with posthoganalytics.new_context():
         if isinstance(data, dict):
             posthoganalytics.tag("data", data)
@@ -1591,3 +1575,9 @@ def to_json(obj: dict) -> bytes:
     json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
 
     return json_string
+
+
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
+    """Catches path with or without trailing slash, taking into account query param and hash."""
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore

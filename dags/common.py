@@ -1,8 +1,10 @@
+from contextlib import suppress
 from enum import Enum
 
-import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
+import dagster
 
+from posthog.clickhouse import query_tagging
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     ExponentialBackoff,
@@ -10,6 +12,7 @@ from posthog.clickhouse.cluster import (
     get_cluster,
 )
 from posthog.clickhouse.custom_metrics import MetricsClient
+from posthog.clickhouse.query_tagging import DagsterTags
 
 
 class JobOwners(str, Enum):
@@ -17,6 +20,7 @@ class JobOwners(str, Enum):
     TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
     TEAM_ERROR_TRACKING = "team-error-tracking"
+    TEAM_GROWTH = "team-growth"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -87,3 +91,40 @@ job_status_metrics_sensors = [
         dagster.DagsterRunStatus.CANCELED,
     ]
 ]
+
+
+def dagster_tags(
+    context: dagster.OpExecutionContext | dagster.AssetCheckExecutionContext | dagster.AssetExecutionContext,
+) -> DagsterTags:
+    r = context.run
+    tags = DagsterTags(
+        job_name=r.job_name,
+        run_id=r.run_id,
+        tags=r.tags,
+        root_run_id=r.root_run_id,
+        parent_run_id=r.parent_run_id,
+        job_snapshot_id=r.job_snapshot_id,
+        execution_plan_snapshot_id=r.execution_plan_snapshot_id,
+    )
+
+    with suppress(Exception):
+        if isinstance(context, dagster.AssetCheckExecutionContext):
+            op = context.op_execution_context
+            if op and op.op:
+                tags.op_name = op.op.name
+        elif isinstance(context, dagster.OpExecutionContext):
+            if context.op:
+                tags.op_name = context.op.name
+        elif isinstance(context, dagster.AssetExecutionContext):
+            if context.asset_key:
+                tags.asset_key = context.asset_key.to_user_string()
+
+    return tags
+
+
+def settings_with_log_comment(
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext | dagster.AssetCheckExecutionContext,
+) -> dict[str, str]:
+    qt = query_tagging.get_query_tags()
+    qt.with_dagster(dagster_tags(context))
+    return {"log_comment": qt.to_json()}

@@ -1,23 +1,23 @@
-import { IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { IconArrowRight, IconLock } from '@posthog/icons'
+import { useAsyncActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 export function AIConsentPopoverWrapper({
+    hidden,
     children,
+    onApprove,
     onDismiss,
     ...popoverProps
 }: Pick<PopoverProps, 'placement' | 'fallbackPlacements' | 'middleware' | 'showArrow'> & {
     children: JSX.Element
+    hidden?: boolean
+    onApprove?: () => void
     onDismiss?: () => void
 }): JSX.Element {
-    const { acceptDataProcessing } = useActions(maxGlobalLogic)
+    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-    const handleAcceptDataProcessing = (): void => {
-        acceptDataProcessing()
-    }
 
     const handleClickOutside = (): void => {
         onDismiss?.()
@@ -27,9 +27,11 @@ export function AIConsentPopoverWrapper({
         <Popover
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
-                <div className="m-1.5">
+                <div className="flex flex-col items-end m-1.5">
                     <p className="font-medium text-pretty mb-1.5">
-                        Hi! I use{' '}
+                        Max needs your approval to potentially process
+                        <br />
+                        identifying user data using{' '}
                         <Tooltip
                             title={`As of ${dayjs().format(
                                 'MMMM YYYY'
@@ -43,21 +45,30 @@ export function AIConsentPopoverWrapper({
                         </Link>{' '}
                         if needed, but data is never used for training models.
                     </p>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={handleAcceptDataProcessing}
-                        sideIcon={dataProcessingApprovalDisabledReason ? <IconLock /> : undefined}
-                        disabledReason={dataProcessingApprovalDisabledReason}
-                        tooltip="You are approving this as an organization admin"
-                        tooltipPlacement="bottom"
-                    >
-                        I allow AI-based analysis in this organization
-                    </LemonButton>
+                    <div className="flex gap-1.5">
+                        <LemonButton type="secondary" size="xsmall" onClick={onDismiss}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="xsmall"
+                            onClick={() =>
+                                void acceptDataProcessing()
+                                    .then(() => onApprove?.())
+                                    .catch(console.error)
+                            }
+                            sideIcon={dataProcessingApprovalDisabledReason ? <IconLock /> : <IconArrowRight />}
+                            disabledReason={dataProcessingApprovalDisabledReason}
+                            tooltip="You are approving this as an organization admin"
+                            tooltipPlacement="bottom"
+                        >
+                            I allow AI analysis in this organization
+                        </LemonButton>
+                    </div>
                 </div>
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
-            visible={!dataProcessingAccepted}
+            visible={!hidden && !dataProcessingAccepted}
             onClickOutside={handleClickOutside}
             {...popoverProps}
         >

@@ -7,7 +7,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
-import { getHighestProbabilityVariant, getIndexForVariant } from '../experimentCalculations'
+import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
 
@@ -71,9 +71,9 @@ export function SignificanceText({
 }
 
 export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Element {
-    const { experimentId, legacyMetricResults } = useValues(experimentLogic)
+    const { experimentId, legacyPrimaryMetricsResults } = useValues(experimentLogic)
 
-    const result = legacyMetricResults?.[metricIndex]
+    const result = legacyPrimaryMetricsResults?.[metricIndex]
     if (!result) {
         return <></>
     }

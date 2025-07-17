@@ -10,9 +10,10 @@ import { userLogic } from 'scenes/userLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature, Experiment } from '~/types'
 
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/shared/const'
+import { modalsLogic } from '../modalsLogic'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
 export function SharedMetricModal({
@@ -25,19 +26,15 @@ export function SharedMetricModal({
     const {
         experiment,
         compatibleSharedMetrics,
-        isPrimarySharedMetricModalOpen,
-        isSecondarySharedMetricModalOpen,
         editingSharedMetricId,
         primaryMetricsLengthWithSharedMetrics,
         secondaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic({ experimentId }))
-    const {
-        closePrimarySharedMetricModal,
-        closeSecondarySharedMetricModal,
-        addSharedMetricsToExperiment,
-        removeSharedMetricFromExperiment,
-        restoreUnmodifiedExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    const { addSharedMetricsToExperiment, removeSharedMetricFromExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+    const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
+    const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'
@@ -58,11 +55,19 @@ export function SharedMetricModal({
         if (selectedMetricIds.length === 0) {
             return 'Please select at least one metric'
         }
-        if (!isSecondary && primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > MAX_PRIMARY_METRICS) {
-            return `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
+
+        if (
+            !isSecondary &&
+            primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > EXPERIMENT_MAX_PRIMARY_METRICS
+        ) {
+            return `You can only add up to ${EXPERIMENT_MAX_PRIMARY_METRICS} primary metrics.`
         }
-        if (isSecondary && secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > MAX_SECONDARY_METRICS) {
-            return `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+
+        if (
+            isSecondary &&
+            secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > EXPERIMENT_MAX_SECONDARY_METRICS
+        ) {
+            return `You can only add up to ${EXPERIMENT_MAX_SECONDARY_METRICS} secondary metrics.`
         }
     }
 

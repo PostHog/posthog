@@ -111,7 +111,7 @@ export function renderColumn(
                         />
                     )
                 }
-            } catch (e) {
+            } catch {
                 // do nothing
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
@@ -328,7 +328,7 @@ export function renderColumn(
     ) {
         try {
             return <JSONViewer src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
-        } catch (e) {
+        } catch {
             // do nothing
         }
     }

@@ -62,10 +62,8 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
             if isinstance(metric.source, ExperimentDataWarehouseNode):
                 return parse_expr(metric_property)
             else:
-                return parse_expr(
-                    "toFloat(JSONExtractRaw(properties, {property}))",
-                    placeholders={"property": ast.Constant(value=metric_property)},
-                )
+                # Use the same property access pattern as trends to get property groups optimization
+                return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
 
     elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
         return ast.Field(chain=["$session_id"])
@@ -88,17 +86,43 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
             # If an action doesn't exist, we want to return no events
             event_filter = ast.Constant(value=False)
     else:
-        event_filter = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=entity_node.event),
-        )
+        # If event is None, we want to match all events (no event name filter)
+        if entity_node.event is None:
+            event_filter = ast.Constant(value=True)
+        else:
+            event_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=entity_node.event),
+            )
 
     if entity_node.properties:
         event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter
+
+
+def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode) -> ast.Expr:
+    """
+    Returns the filter for a data warehouse node, including all properties and fixedProperties.
+    """
+    # Collect all properties from both properties and fixedProperties
+    all_properties = []
+
+    if node.properties:
+        all_properties.extend(node.properties)
+
+    if node.fixedProperties:
+        all_properties.extend(node.fixedProperties)
+
+    # If no properties, return True (no filtering)
+    if not all_properties:
+        return ast.Constant(value=True)
+
+    # Use property_to_expr to convert properties to HogQL expressions
+    # This follows the same pattern as TrendsQueryBuilder._events_filter()
+    return property_to_expr(all_properties, team)
 
 
 def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:

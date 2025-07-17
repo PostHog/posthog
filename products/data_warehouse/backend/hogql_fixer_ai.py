@@ -186,8 +186,8 @@ class HogQLQueryFixerTool(MaxTool):
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
-        database = create_hogql_database(self._team_id)
-        hogql_context = HogQLContext(team_id=self._team_id, enable_select_queries=True, database=database)
+        database = create_hogql_database(team=self._team)
+        hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
         all_tables = database.get_all_tables()
         schema_description = _get_schema_description(self.context, hogql_context, database)
@@ -236,7 +236,7 @@ The newly updated query gave us this error:
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",
             include_raw=False,

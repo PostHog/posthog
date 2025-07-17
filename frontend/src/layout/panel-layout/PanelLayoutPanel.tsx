@@ -105,7 +105,7 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div className="flex justify-between p-1 bg-surface-tertiary">
+            <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
                 <ProjectDropdownMenu />
 
                 <div className="flex gap-px items-center justify-end shrink-0">
@@ -115,11 +115,14 @@ export function PanelLayoutPanel({
                             onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                             tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
                             data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
+                            active={isLayoutPanelPinned}
+                            size="sm"
+                            aria-pressed={isLayoutPanelPinned}
                         >
                             {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-[14px] text-tertiary" />
+                                <IconPinFilled className="size-3 text-primary" />
                             ) : (
-                                <IconPin className="size-[14px] text-tertiary" />
+                                <IconPin className="size-3 text-tertiary" />
                             )}
                         </ButtonPrimitive>
                     )}
@@ -134,8 +137,9 @@ export function PanelLayoutPanel({
                         tooltip="Close panel"
                         iconOnly
                         data-attr="tree-panel-close-panel-button"
+                        size="sm"
                     >
-                        <IconX className="text-tertiary size-4" />
+                        <IconX className="text-tertiary size-3" />
                     </ButtonPrimitive>
                 </div>
             </div>
