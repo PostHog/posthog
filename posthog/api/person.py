@@ -554,7 +554,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
         event_name = "$delete_person_property"
-        distinct_id = person.distinct_id[0]
+        distinct_id = person.distinct_ids[0]
         timestamp = datetime.now(UTC)
         properties = {
             "$unset": [request.data["$unset"]],

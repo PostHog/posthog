@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 
 from posthog.api.utils import get_token
-from posthog.api.capture import new_capture_internal, new_capture_batch_internal
+from posthog.api.capture import capture_internal, capture_batch_internal
 from posthog.api.csp import process_csp_report
 from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
@@ -63,14 +63,24 @@ def get_csp_event(request):
 
     try:
         token = get_token(csp_report, request)
+        if not token:
+            token = ""
 
         if isinstance(csp_report, list):
-            futures = new_capture_batch_internal(csp_report, token, False)
+            futures = capture_batch_internal(csp_report, "get_csp_report", token, False)
             for future in futures:
                 result = future.result()
                 result.raise_for_status()
         else:
-            resp = new_capture_internal(token, first_distinct_id, csp_report, False)
+            resp = capture_internal(
+                token=token,
+                event_name=csp_report.get("event", ""),
+                event_source="get_csp_report",
+                distinct_id=first_distinct_id,
+                timestamp=csp_report.get("timestamp", ""),
+                properties=csp_report.get("properties", {}),
+                process_person_profile=False,
+            )
             resp.raise_for_status()
 
         return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))

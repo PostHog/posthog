@@ -171,7 +171,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.new_capture_internal")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -257,7 +257,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.new_capture_internal")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -382,7 +382,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.new_capture_internal")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -504,7 +504,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    @patch("ee.clickhouse.views.groups.new_capture_internal")
+    @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_success(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_response = mock.MagicMock()
@@ -546,7 +546,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
 
     @freeze_time("2021-05-02")
-    @patch("ee.clickhouse.views.groups.new_capture_internal")
+    @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_invalid_group(self, mock_capture):
         # Mock the response to return a 200 OK
         mock_response = mock.MagicMock()

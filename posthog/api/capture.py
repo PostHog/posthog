@@ -66,7 +66,7 @@ def capture_internal(
         Response object, the result of POSTing the event payload to the capture-rs backend service.
     """
     logger.debug(
-        "new_capture_internal",
+        "capture_internal",
         token=token,
         distinct_id=distinct_id,
         event_name=event_name,
@@ -134,7 +134,7 @@ def capture_batch_internal(
     with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
         # Note:
         # 1. token should be supplied by caller, and be consistent per batch submitted.
-        #    new_capture_internal will attempt to extract from each event if missing
+        #    new capture_internal will attempt to extract from each event if missing
         # 2. distinct_id should be present on each event since these can differ within a batch
         for event in events:
             future = executor.submit(
@@ -152,7 +152,7 @@ def capture_batch_internal(
     return futures
 
 
-# prep payload for new_capture_internal to POST to capture-rs
+# prep payload for new capture_internal to POST to capture-rs
 def prepare_capture_internal_payload(
     token: str,
     event_name: str,
