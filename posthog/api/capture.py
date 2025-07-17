@@ -1,24 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor, Future
 
 import structlog
-from requests import HTTPError, Response, Session
+from requests import Response, Session
 from requests.adapters import HTTPAdapter, Retry
 from datetime import datetime, UTC
-from django.conf import settings
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from enum import Enum
 from prometheus_client import Counter
-from rest_framework import status
-from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional
 
-from posthog.api.utils import get_token
-from posthog.api.csp import process_csp_report
-from posthog.exceptions import generate_exception_response
-from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
-from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,
@@ -26,20 +15,8 @@ from posthog.settings.ingestion import (
     NEW_ANALYTICS_CAPTURE_ENDPOINT,
     REPLAY_CAPTURE_ENDPOINT,
 )
-from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
-
-LIMITER = Limiter(
-    rate=settings.PARTITION_KEY_BUCKET_REPLENTISH_RATE,
-    capacity=settings.PARTITION_KEY_BUCKET_CAPACITY,
-    storage=MemoryStorage(),
-)
-LOG_RATE_LIMITER = Limiter(
-    rate=1 / 60,
-    capacity=1,
-    storage=MemoryStorage(),
-)
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -47,103 +24,12 @@ LOG_RATE_LIMITER = Limiter(
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
 
-INTERNAL_EVENTS_RECEIVED_COUNTER = Counter(
-    "capture_internal_events_received_total",
-    "Events received by capture, tagged by resource type.",
-    labelnames=[LABEL_RESOURCE_TYPE, "token"],
+# let's track who is using this to detect new (ab)usive call sites quickly
+CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER = Counter(
+    "capture_internal_event_submitted",
+    "Events received by capture_internal, tagged by resource type.",
+    labelnames=["event_source"],
 )
-
-
-class InputType(Enum):
-    EVENTS = "events"
-    REPLAY = "replay"
-
-
-@csrf_exempt
-@timed("posthog_cloud_csp_event_endpoint")
-def get_csp_event(request):
-    # we want to handle this as early as possible and avoid any processing
-    if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
-
-    debug_enabled = request.GET.get("debug", "").lower() == "true"
-    if debug_enabled:
-        logger.exception(
-            "CSP debug request",
-            error=ValueError("CSP debug request"),
-            method=request.method,
-            url=request.build_absolute_uri(),
-            content_type=request.content_type,
-            headers=dict(request.headers),
-            query_params=dict(request.GET),
-            body_size=len(request.body) if request.body else 0,
-            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
-        )
-
-    csp_report, error_response = process_csp_report(request)
-    if error_response:
-        return error_response
-
-    first_distinct_id = None  # temp: only used for feature flag check
-    if csp_report and isinstance(csp_report, list):
-        # For list of reports, use the first one's distinct_id for feature flag check
-        first_distinct_id = csp_report[0].get("distinct_id", None)
-    elif csp_report and isinstance(csp_report, dict):
-        # For single report, use the distinct_id for the same
-        first_distinct_id = csp_report.get("distinct_id", None)
-    else:
-        # mimic what get_event does if no data is returned from process_csp_report
-        return cors_response(
-            request,
-            generate_exception_response(
-                "csp_report_capture",
-                f"Failed to submit CSP report",
-                code="invalid_payload",
-                type="invalid_payload",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
-        )
-
-    try:
-        token = get_token(csp_report, request)
-
-        if isinstance(csp_report, list):
-            futures = new_capture_batch_internal(csp_report, token, False)
-            for future in futures:
-                result = future.result()
-                result.raise_for_status()
-        else:
-            resp = new_capture_internal(token, first_distinct_id, csp_report, False)
-            resp.raise_for_status()
-
-        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
-
-    except HTTPError as hte:
-        capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
-        logger.exception("csp_report_capture_http_error", exc_info=hte)
-        return cors_response(
-            request,
-            generate_exception_response(
-                "csp_report_capture",
-                f"Failed to submit CSP report",
-                code="capture_http_error",
-                type="capture_http_error",
-                status_code=hte.response.status_code,
-            ),
-        )
-    except Exception as e:
-        capture_exception(e, {"capture-pathway": "csp_report", "ph-team-token": token})
-        logger.exception("csp_report_capture_error", exc_info=e)
-        return cors_response(
-            request,
-            generate_exception_response(
-                "csp_report_capture",
-                f"Failed to submit CSP report",
-                code="capture_error",
-                type="capture_error",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
-        )
 
 
 class CaptureInternalError(Exception):
@@ -151,6 +37,7 @@ class CaptureInternalError(Exception):
 
 
 # TODO: replace raw_event input with structured inputs after transition off old capture_internal
+@timed("capture_internal_event_submission")
 def new_capture_internal(
     token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profile: bool = False
 ) -> Response:
@@ -187,6 +74,7 @@ def new_capture_internal(
             ),
         )
 
+        CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER.labels(event_source="TODO").inc()
         return s.post(
             resolved_capture_url,
             json=event_payload,
@@ -194,7 +82,6 @@ def new_capture_internal(
         )
 
 
-# TODO: rename as capture_batch_internal after the trasition from old capture_internal is complete
 def new_capture_batch_internal(
     events: list[dict[str, Any]],
     token: Optional[str] = None,
