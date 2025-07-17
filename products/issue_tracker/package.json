@@ -1,0 +1,15 @@
+{
+    "name": "@posthog/products-issue-tracker",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*",
+        "react-beautiful-dnd": "*"
+    }
+}

@@ -74,6 +74,7 @@
         "@posthog/products-feature-flags": "workspace:*",
         "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
+        "@posthog/products-issue-tracker": "workspace:*",
         "@posthog/products-links": "workspace:*",
         "@posthog/products-llm-observability": "workspace:*",
         "@posthog/products-logs": "workspace:*",
