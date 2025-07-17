@@ -15,7 +15,7 @@ import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
 import { useValues } from 'kea'
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export interface SourceFormProps {
@@ -27,6 +27,85 @@ export interface SourceFormProps {
 
 const CONNECTION_STRING_DEFAULT_PORT = {
     Postgres: 5432,
+}
+
+const ssh_field: SourceFieldSwitchGroupConfig = {
+    name: 'ssh-tunnel',
+    label: 'Use SSH tunnel?',
+    type: 'switch-group',
+    default: false,
+    fields: [
+        {
+            name: 'host',
+            label: 'Tunnel host',
+            type: 'text',
+            required: true,
+            placeholder: 'localhost',
+        },
+        {
+            name: 'port',
+            label: 'Tunnel port',
+            type: 'number',
+            required: true,
+            placeholder: '22',
+        },
+        {
+            type: 'select',
+            name: 'auth_type',
+            label: 'Authentication type',
+            required: true,
+            defaultValue: 'password',
+            options: [
+                {
+                    label: 'Password',
+                    value: 'password',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: true,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'password',
+                            label: 'Tunnel password',
+                            type: 'password',
+                            required: true,
+                            placeholder: '',
+                        },
+                    ],
+                },
+                {
+                    label: 'Key pair',
+                    value: 'keypair',
+                    fields: [
+                        {
+                            name: 'username',
+                            label: 'Tunnel username',
+                            type: 'text',
+                            required: false,
+                            placeholder: 'User1',
+                        },
+                        {
+                            name: 'private_key',
+                            label: 'Tunnel private key',
+                            type: 'textarea',
+                            required: true,
+                            placeholder: '',
+                        },
+                        {
+                            name: 'passphrase',
+                            label: 'Tunnel passphrase',
+                            type: 'password',
+                            required: false,
+                            placeholder: '',
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
 }
 
 const sourceFieldToElement = (
@@ -186,6 +265,15 @@ const sourceFieldToElement = (
                     </div>
                 )}
             </LemonField>
+        )
+    }
+
+    if (field.type === 'ssh-tunnel') {
+        return sourceFieldToElement(
+            { ...ssh_field, name: field.name, label: field.label },
+            sourceConfig,
+            lastValue,
+            isUpdateMode
         )
     }
 

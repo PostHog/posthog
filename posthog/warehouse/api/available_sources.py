@@ -8,6 +8,7 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
+    SourceFieldSSHTunnelConfig,
     Type4,
     Option,
 )
@@ -18,6 +19,7 @@ FieldType = Union[
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
+    SourceFieldSSHTunnelConfig,
 ]
 
 
@@ -94,87 +96,7 @@ Currently, **read permissions are required** for the following resources:
                 SourceFieldInputConfig(
                     name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
                 ),
-                SourceFieldSwitchGroupConfig(
-                    name="ssh-tunnel",
-                    label="Use SSH tunnel?",
-                    default=False,
-                    fields=cast(
-                        list[FieldType],
-                        [
-                            SourceFieldInputConfig(
-                                name="host",
-                                label="Tunnel host",
-                                type=Type4.TEXT,
-                                required=True,
-                                placeholder="localhost",
-                            ),
-                            SourceFieldInputConfig(
-                                name="port", label="Tunnel port", type=Type4.NUMBER, required=True, placeholder="22"
-                            ),
-                            SourceFieldSelectConfig(
-                                name="auth_type",
-                                label="Authentication type",
-                                required=True,
-                                defaultValue="password",
-                                options=[
-                                    Option(
-                                        label="Password",
-                                        value="password",
-                                        fields=cast(
-                                            list[FieldType],
-                                            [
-                                                SourceFieldInputConfig(
-                                                    name="username",
-                                                    label="Tunnel username",
-                                                    type=Type4.TEXT,
-                                                    required=True,
-                                                    placeholder="User1",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="password",
-                                                    label="Tunnel password",
-                                                    type=Type4.PASSWORD,
-                                                    required=True,
-                                                    placeholder="",
-                                                ),
-                                            ],
-                                        ),
-                                    ),
-                                    Option(
-                                        label="Key pair",
-                                        value="keypair",
-                                        fields=cast(
-                                            list[FieldType],
-                                            [
-                                                SourceFieldInputConfig(
-                                                    name="username",
-                                                    label="Tunnel username",
-                                                    type=Type4.TEXT,
-                                                    required=False,
-                                                    placeholder="User1",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="private_key",
-                                                    label="Tunnel private key",
-                                                    type=Type4.TEXTAREA,
-                                                    required=True,
-                                                    placeholder="",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="passphrase",
-                                                    label="Tunnel passphrase",
-                                                    type=Type4.PASSWORD,
-                                                    required=False,
-                                                    placeholder="",
-                                                ),
-                                            ],
-                                        ),
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
+                SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
             ],
         ),
     ),
@@ -205,87 +127,7 @@ Currently, **read permissions are required** for the following resources:
                     defaultValue="1",
                     options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
                 ),
-                SourceFieldSwitchGroupConfig(
-                    name="ssh-tunnel",
-                    label="Use SSH tunnel?",
-                    default=False,
-                    fields=cast(
-                        list[FieldType],
-                        [
-                            SourceFieldInputConfig(
-                                name="host",
-                                label="Tunnel host",
-                                type=Type4.TEXT,
-                                required=True,
-                                placeholder="localhost",
-                            ),
-                            SourceFieldInputConfig(
-                                name="port", label="Tunnel port", type=Type4.NUMBER, required=True, placeholder="22"
-                            ),
-                            SourceFieldSelectConfig(
-                                name="auth_type",
-                                label="Authentication type",
-                                required=True,
-                                defaultValue="password",
-                                options=[
-                                    Option(
-                                        label="Password",
-                                        value="password",
-                                        fields=cast(
-                                            list[FieldType],
-                                            [
-                                                SourceFieldInputConfig(
-                                                    name="username",
-                                                    label="Tunnel username",
-                                                    type=Type4.TEXT,
-                                                    required=True,
-                                                    placeholder="User1",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="password",
-                                                    label="Tunnel password",
-                                                    type=Type4.PASSWORD,
-                                                    required=True,
-                                                    placeholder="",
-                                                ),
-                                            ],
-                                        ),
-                                    ),
-                                    Option(
-                                        label="Key pair",
-                                        value="keypair",
-                                        fields=cast(
-                                            list[FieldType],
-                                            [
-                                                SourceFieldInputConfig(
-                                                    name="username",
-                                                    label="Tunnel username",
-                                                    type=Type4.TEXT,
-                                                    required=False,
-                                                    placeholder="User1",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="private_key",
-                                                    label="Tunnel private key",
-                                                    type=Type4.TEXTAREA,
-                                                    required=True,
-                                                    placeholder="",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="passphrase",
-                                                    label="Tunnel passphrase",
-                                                    type=Type4.PASSWORD,
-                                                    required=False,
-                                                    placeholder="",
-                                                ),
-                                            ],
-                                        ),
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
+                SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
             ],
         ),
     ),
@@ -310,87 +152,7 @@ Currently, **read permissions are required** for the following resources:
                 SourceFieldInputConfig(
                     name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="dbo"
                 ),
-                SourceFieldSwitchGroupConfig(
-                    name="ssh-tunnel",
-                    label="Use SSH tunnel?",
-                    default=False,
-                    fields=cast(
-                        list[FieldType],
-                        [
-                            SourceFieldInputConfig(
-                                name="host",
-                                label="Tunnel host",
-                                type=Type4.TEXT,
-                                required=True,
-                                placeholder="localhost",
-                            ),
-                            SourceFieldInputConfig(
-                                name="port", label="Tunnel port", type=Type4.NUMBER, required=True, placeholder="22"
-                            ),
-                            SourceFieldSelectConfig(
-                                name="auth_type",
-                                label="Authentication type",
-                                required=True,
-                                defaultValue="password",
-                                options=[
-                                    Option(
-                                        label="Password",
-                                        value="password",
-                                        fields=cast(
-                                            list[FieldType],
-                                            [
-                                                SourceFieldInputConfig(
-                                                    name="username",
-                                                    label="Tunnel username",
-                                                    type=Type4.TEXT,
-                                                    required=True,
-                                                    placeholder="User1",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="password",
-                                                    label="Tunnel password",
-                                                    type=Type4.PASSWORD,
-                                                    required=True,
-                                                    placeholder="",
-                                                ),
-                                            ],
-                                        ),
-                                    ),
-                                    Option(
-                                        label="Key pair",
-                                        value="keypair",
-                                        fields=cast(
-                                            list[FieldType],
-                                            [
-                                                SourceFieldInputConfig(
-                                                    name="username",
-                                                    label="Tunnel username",
-                                                    type=Type4.TEXT,
-                                                    required=False,
-                                                    placeholder="User1",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="private_key",
-                                                    label="Tunnel private key",
-                                                    type=Type4.TEXTAREA,
-                                                    required=True,
-                                                    placeholder="",
-                                                ),
-                                                SourceFieldInputConfig(
-                                                    name="passphrase",
-                                                    label="Tunnel passphrase",
-                                                    type=Type4.PASSWORD,
-                                                    required=False,
-                                                    placeholder="",
-                                                ),
-                                            ],
-                                        ),
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
+                SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
             ],
         ),
     ),
@@ -418,6 +180,7 @@ Currently, **read permissions are required** for the following resources:
                     label="Authentication type",
                     required=True,
                     defaultValue="password",
+                    flattenComplexSelect="selection",
                     options=[
                         Option(
                             label="Password",
@@ -426,7 +189,7 @@ Currently, **read permissions are required** for the following resources:
                                 list[FieldType],
                                 [
                                     SourceFieldInputConfig(
-                                        name="username",
+                                        name="user",
                                         label="Username",
                                         type=Type4.TEXT,
                                         required=True,
@@ -449,7 +212,7 @@ Currently, **read permissions are required** for the following resources:
                                 list[FieldType],
                                 [
                                     SourceFieldInputConfig(
-                                        name="username",
+                                        name="user",
                                         label="Username",
                                         type=Type4.TEXT,
                                         required=True,
@@ -525,6 +288,7 @@ Currently, **read permissions are required** for the following resources:
                     label="Vitally region",
                     required=True,
                     defaultValue="EU",
+                    flattenComplexSelect="selection",
                     options=[
                         Option(label="EU", value="EU"),
                         Option(

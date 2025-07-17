@@ -18,12 +18,14 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     delete_table,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+
+from posthog.temporal.data_imports.sources import SourceRegistry
 
 
 @dataclasses.dataclass
@@ -74,12 +76,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         logger.debug("Running *SYNC* import_data")
 
+        source_type = ExternalDataSource.Type(model.pipeline.source_type)
+
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
             schema_id=inputs.schema_id,
             run_id=inputs.run_id,
             team_id=inputs.team_id,
-            job_type=ExternalDataSource.Type(model.pipeline.source_type),
+            job_type=source_type,
             dataset_name=model.folder_path(),
         )
 
@@ -124,6 +128,36 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         source: DltSource | SourceResponse
 
+        if SourceRegistry.is_registered(source_type):
+            source_inputs = SourceInputs(
+                schema_name=schema.name,
+                team_id=inputs.team_id,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                incremental_field=schema.incremental_field if schema.should_use_incremental_field else None,
+                incremental_field_type=schema.incremental_field_type if schema.should_use_incremental_field else None,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_earliest_value=processed_incremental_earliest_value
+                if schema.should_use_incremental_field
+                else None,
+                logger=logger,
+            )
+            new_source = SourceRegistry.get_source(source_type)
+            config = new_source.parse_config(model.pipeline.job_inputs)
+            source = new_source.source_for_pipeline(config, source_inputs)
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
+        # Fall back to old pattern
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
             from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 
@@ -725,17 +759,17 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
 
             if "google_ads_integration_id" in model.pipeline.job_inputs.keys():
-                config: GoogleAdsServiceAccountSourceConfig | GoogleAdsOAuthSourceConfig = (
+                google_ads_config: GoogleAdsServiceAccountSourceConfig | GoogleAdsOAuthSourceConfig = (
                     GoogleAdsOAuthSourceConfig.from_dict(
                         {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
                     )
                 )
             else:
-                config = GoogleAdsServiceAccountSourceConfig.from_dict(
+                google_ads_config = GoogleAdsServiceAccountSourceConfig.from_dict(
                     {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
                 )
             source = google_ads_source(
-                config,
+                google_ads_config,
                 team_id=inputs.team_id,
                 should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.sync_type_config.get("incremental_field")

@@ -1827,7 +1827,7 @@ def parse_snowflake_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
 
     auth_type_obj = payload.get("auth_type", {})
     auth_type = auth_type_obj.get("selection", None)
-    auth_type_username = auth_type_obj.get("username", None)
+    auth_type_username = auth_type_obj.get("user", None)
     auth_type_password = auth_type_obj.get("password", None)
     auth_type_passphrase = auth_type_obj.get("passphrase", None)
     auth_type_private_key = auth_type_obj.get("private_key", None)

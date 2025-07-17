@@ -2231,6 +2231,15 @@ class SourceFieldOauthConfig(BaseModel):
     type: Literal["oauth"] = "oauth"
 
 
+class SourceFieldSSHTunnelConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    type: Literal["ssh-tunnel"] = "ssh-tunnel"
+
+
 class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13080,6 +13089,7 @@ class SourceConfig(BaseModel):
             SourceFieldSelectConfig,
             SourceFieldOauthConfig,
             SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
         ]
     ]
     label: Optional[str] = None
@@ -13099,6 +13109,7 @@ class Option(BaseModel):
                 SourceFieldSelectConfig,
                 SourceFieldOauthConfig,
                 SourceFieldFileUploadConfig,
+                SourceFieldSSHTunnelConfig,
             ]
         ]
     ] = None
@@ -13111,6 +13122,7 @@ class SourceFieldSelectConfig(BaseModel):
         extra="forbid",
     )
     defaultValue: str
+    flattenComplexSelect: Optional[str] = None
     label: str
     name: str
     options: list[Option]
@@ -13131,6 +13143,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
             SourceFieldSelectConfig,
             SourceFieldOauthConfig,
             SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
         ]
     ]
     label: str

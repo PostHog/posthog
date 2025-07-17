@@ -3459,6 +3459,13 @@ export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
 }
+
+export interface SourceFieldSSHTunnelConfig {
+    type: 'ssh-tunnel'
+    label: string
+    name: string
+}
+
 export interface SourceFieldOauthConfig {
     type: 'oauth'
     name: string
@@ -3482,6 +3489,7 @@ export interface SourceFieldSelectConfig {
     required: boolean
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    flattenComplexSelect?: string
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -3507,6 +3515,7 @@ export type SourceFieldConfig =
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
     | SourceFieldFileUploadConfig
+    | SourceFieldSSHTunnelConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType

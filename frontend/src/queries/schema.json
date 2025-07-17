@@ -21503,6 +21503,9 @@
                 },
                 {
                     "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSSHTunnelConfig"
                 }
             ]
         },
@@ -21575,10 +21578,30 @@
             "required": ["type", "name", "label", "required", "kind"],
             "type": "object"
         },
+        "SourceFieldSSHTunnelConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ssh-tunnel",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "label", "name"],
+            "type": "object"
+        },
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
                 "defaultValue": {
+                    "type": "string"
+                },
+                "flattenComplexSelect": {
                     "type": "string"
                 },
                 "label": {

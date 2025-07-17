@@ -27,6 +27,8 @@ from posthog.warehouse.models import (
     sync_old_schemas_with_new_schemas,
 )
 
+from posthog.temporal.data_imports.sources import SourceRegistry
+
 
 @dataclasses.dataclass
 class SyncNewSchemasActivityInputs:
@@ -52,7 +54,16 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     schemas_to_sync: list[str] = []
 
-    if source.source_type == ExternalDataSource.Type.POSTGRES:
+    source_type_enum = ExternalDataSource.Type(source.source_type)
+    if SourceRegistry.is_registered(source_type_enum):
+        if not source.job_inputs:
+            return
+
+        new_source = SourceRegistry.get_source(source_type_enum)
+        config = new_source.parse_config(source.job_inputs)
+        schemas = new_source.get_schemas(config)
+        schemas_to_sync = [s.name for s in schemas]
+    elif source.source_type == ExternalDataSource.Type.POSTGRES:
         if not source.job_inputs:
             return
 
