@@ -1,23 +1,13 @@
 import json
-import pathlib
 
-from typing import Any, cast
 from django.test.client import Client
-from prance import ResolvingParser
 from rest_framework import status
 from unittest.mock import MagicMock, patch
 
 from posthog.test.base import BaseTest
 
-# TODO: update this to openapi/report.yaml
-parser = ResolvingParser(
-    url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),
-    strict=True,
-)
-openapi_spec = cast(dict[str, Any], parser.specification)
 
-
-class TestCapture(BaseTest):
+class TestCspReport(BaseTest):
     """
     Tests all data capture endpoints (e.g. `/capture` `/batch/`).
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.

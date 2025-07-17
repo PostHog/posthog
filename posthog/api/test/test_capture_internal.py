@@ -1,7 +1,10 @@
-from typing import Any
+import pathlib
+
+from typing import Any, cast
 from datetime import datetime, UTC
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
+from prance import ResolvingParser
 
 from posthog.api.capture import new_capture_internal, new_capture_batch_internal, CaptureInternalError
 from posthog.test.base import BaseTest
@@ -11,6 +14,12 @@ from posthog.settings.ingestion import (
     NEW_ANALYTICS_CAPTURE_ENDPOINT,
     REPLAY_CAPTURE_ENDPOINT,
 )
+
+parser = ResolvingParser(
+    url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),
+    strict=True,
+)
+openapi_spec = cast(dict[str, Any], parser.specification)
 
 
 class InstallCapturePostSpy:
