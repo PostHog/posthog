@@ -98,12 +98,12 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     }),
     loaders(() => ({
         startSetup: [
-            {},
+            null as { secret: string; success: boolean } | null,
             {
                 openTwoFactorSetupModal: async (_, breakpoint) => {
                     breakpoint()
-                    await api.get('api/users/@me/two_factor_start_setup/')
-                    return { status: 'completed' }
+                    const response = await api.get('api/users/@me/two_factor_start_setup/')
+                    return response
                 },
             },
         ],
