@@ -11,7 +11,7 @@ from ee.session_recordings.session_summary.input_data import (
 )
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
-from posthog.api.activity_log import ServerTimingsGathered
+from posthog.api.utils import ServerTimingsGathered
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.sync import database_sync_to_async
 
