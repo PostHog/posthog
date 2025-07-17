@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 
 
-class ConfigGenerator:
+class SourceConfigGenerator:
     def __init__(self):
         self.generated_classes: dict[str, str] = {}
         self.imports: set[str] = set()
@@ -376,7 +376,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         logger.info("Generating source configs from AVAILABLE_SOURCES...")
 
-        generator = ConfigGenerator()
+        generator = SourceConfigGenerator()
         output = generator.generate_all_configs()
 
         output_path = os.path.join(
