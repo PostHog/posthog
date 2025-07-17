@@ -30,12 +30,12 @@ export interface LemonMarkdownProps {
 // Pre-process text to handle math expressions
 function preprocessMathContent(content: string): string {
     // Replace display math ($$...$$) with a special marker
-    content = content.replace(/\$\$([^$]+?)\$\$/g, (match, math) => {
+    content = content.replace(/\$\$([^$]+?)\$\$/g, (_, math) => {
         return `__DISPLAY_MATH_${btoa(math)}_DISPLAY_MATH__`
     })
 
     // Replace inline math ($...$) with a special marker
-    content = content.replace(/\$([^$\n]+?)\$/g, (match, math) => {
+    content = content.replace(/\$([^$\n]+?)\$/g, (_, math) => {
         return `__INLINE_MATH_${btoa(math)}_INLINE_MATH__`
     })
 
