@@ -20,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.email import send_invite
 from posthog.permissions import UserCanInvitePermission, OrganizationMemberPermissions
+from posthog.rbac.user_access_control import UserAccessControl
 
 
 class OrganizationInviteManager:
@@ -217,15 +218,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
             if private_team_access:
                 # Team is private, check if user has admin access
-                user_access = AccessControl.objects.filter(
-                    team_id=item["id"],
-                    resource="project",
-                    resource_id=str(item["id"]),
-                    organization_member__user=self.context["request"].user,
-                    access_level="admin",
-                ).exists()
-
-                if not user_access:
+                uac = UserAccessControl(user=self.context["request"].user, team=team)
+                access_level = uac.access_level_for_object(team)
+                if access_level != "admin":
                     raise exceptions.ValidationError(team_error)
 
         return private_project_access
