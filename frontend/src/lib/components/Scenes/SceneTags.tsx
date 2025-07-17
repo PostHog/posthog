@@ -89,7 +89,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
                     menuItem
                 >
                     {tags && tags.length > 0 ? (
-                        <ObjectTags tags={tags ?? []} data-attr="scene-tags" staticOnly />
+                        <ObjectTags tags={tags} data-attr="scene-tags" staticOnly />
                     ) : (
                         <>{onSave ? 'Add tags' : 'No tags'}</>
                     )}
