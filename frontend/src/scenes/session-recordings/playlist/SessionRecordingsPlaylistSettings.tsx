@@ -213,6 +213,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 label: 'Remove from this collection',
                 onClick: () => handleBulkDeleteFromPlaylist(shortId),
                 'data-attr': 'remove-from-collection',
+                disabledReason: shortId === 'history' ? 'You cannot remove items from your watched history' : undefined,
             })
         }
 

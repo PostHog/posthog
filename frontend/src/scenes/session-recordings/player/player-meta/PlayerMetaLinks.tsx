@@ -22,10 +22,13 @@ import { PlayerMetaBreakpoints } from './PlayerMeta'
 function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
+    const { currentPlaylistShortId } = useValues(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
-    const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
-    const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
+    const showingHistoryPlaylist = currentPlaylistShortId === 'history'
+
+    const tooltip = logicProps.pinned && !showingHistoryPlaylist ? 'Remove from collection' : 'Add to collection'
+    const description = logicProps.pinned && !showingHistoryPlaylist ? 'Remove from collection' : 'Add to collection'
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
@@ -41,6 +44,9 @@ function PinToPlaylistButton(): JSX.Element {
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
             icon={<IconPlusSmall />}
+            disabledReason={
+                showingHistoryPlaylist ? 'You add things to the history collection by watching them.' : undefined
+            }
         />
     ) : (
         <PlaylistPopoverButton

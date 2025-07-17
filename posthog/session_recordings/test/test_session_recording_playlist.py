@@ -1179,3 +1179,125 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert history_item["id"] == "history"
         assert history_item["recordings_counts"]["collection"]["count"] == 0
         assert history_item["recordings_counts"]["collection"]["watched_count"] == 0
+
+    def test_history_playlist_recordings_endpoint_returns_user_viewed_recordings(self):
+        """Test that /playlists/history/recordings returns recordings from SessionRecordingViewed for the user"""
+        from datetime import datetime, timedelta
+        from uuid import uuid4
+
+        session_one = f"test_history_recordings-session1-{uuid4()}"
+        session_two = f"test_history_recordings-session2-{uuid4()}"
+        session_three = f"test_history_recordings-session3-{uuid4()}"
+
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+
+        # Create actual session recording data
+        for session_id in [session_one, session_two, session_three]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=three_days_ago,
+                last_timestamp=three_days_ago,
+            )
+
+        # Create some SessionRecordingViewed records for this user
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id=session_one,
+        )
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id=session_two,
+        )
+
+        # Create a view for another user to ensure filtering works
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id=session_three,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history/recordings")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+
+        # Should return recordings that this user has viewed
+        assert len(data["results"]) == 2
+        session_ids = [recording["id"] for recording in data["results"]]
+        assert session_one in session_ids
+        assert session_two in session_ids
+        assert session_three not in session_ids  # Should not include other user's views
+
+    def test_history_playlist_recordings_endpoint_with_no_views(self):
+        """Test that /playlists/history/recordings returns empty results when user has no views"""
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history/recordings")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert len(data["results"]) == 0
+
+    def test_history_playlist_recordings_endpoint_respects_user_context(self):
+        """Test that recordings endpoint returns different results for different users"""
+        from datetime import datetime, timedelta
+        from uuid import uuid4
+
+        session_one = f"test_history_context-session1-{uuid4()}"
+        session_two = f"test_history_context-session2-{uuid4()}"
+        session_three = f"test_history_context-session3-{uuid4()}"
+
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+
+        # Create actual session recording data
+        for session_id in [session_one, session_two, session_three]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=three_days_ago,
+                last_timestamp=three_days_ago,
+            )
+
+        # Create views for first user
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id=session_one,
+        )
+
+        # Create views for second user
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id=session_two,
+        )
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id=session_three,
+        )
+
+        # Test as first user
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history/recordings")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == session_one
+
+        # Test as second user
+        self.client.force_login(other_user)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists/history/recordings")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert len(data["results"]) == 2
+        session_ids = [recording["id"] for recording in data["results"]]
+        assert session_two in session_ids
+        assert session_three in session_ids
+        assert session_one not in session_ids

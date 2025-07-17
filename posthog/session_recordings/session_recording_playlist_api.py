@@ -412,6 +412,28 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["GET"], detail=True, url_path="recordings")
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Handle the special "history" playlist
+        if kwargs.get("short_id") == "history":
+            # Get session IDs from SessionRecordingViewed for current user
+            viewed_session_ids = list(
+                SessionRecordingViewed.objects.filter(team=self.team, user=cast(User, request.user))
+                .values_list("session_id", flat=True)
+                .distinct()
+            )
+
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+
+            # Override date filters to get ALL recordings for history
+            query.date_from = None
+            query.date_to = None
+            query.session_ids = viewed_session_ids
+
+            return list_recordings_response(
+                list_recordings_from_query(query, cast(User, request.user), team=self.team),
+                context=self.get_serializer_context(),
+            )
+
         playlist = self.get_object()
         playlist_items = list(
             SessionRecordingPlaylistItem.objects.filter(playlist=playlist)

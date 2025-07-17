@@ -99,7 +99,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             null as SessionRecordingType[] | null,
             {
                 loadPinnedRecordings: async (_, breakpoint) => {
-                    if (!props.shortId || props.shortId === 'new' || props.shortId === 'history') {
+                    if (!props.shortId || props.shortId === 'new') {
                         return null
                     }
 
@@ -151,7 +151,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             }
         },
         markPlaylistViewed: async () => {
-            if (!values.playlist || values.playplaylistlst.short_id === 'history') {
+            if (!values.playlist || values.playlist.short_id === 'history') {
                 return
             }
             await api.recordings.playlistViewed(values.playlist.short_id)
