@@ -52,17 +52,32 @@ const config: StorybookConfig = {
                 // Add Buffer global for browser compatibility
                 'process.env': '{}',
                 process: JSON.stringify({ env: {}, browser: true }),
+                // Provide Buffer global for modules that expect it
+                Buffer: 'Buffer',
             },
             optimizeDeps: {
                 include: ['buffer', 'crypto-browserify'],
-                // Exclude hogvm from optimization to avoid import issues
-                exclude: ['@posthog/hogvm'],
+                // Force include buffer to prevent externalization
+                force: true,
             },
             // Add explicit polyfills for Node.js modules
             build: {
                 rollupOptions: {
                     external: ['@storybook/blocks'],
+                    // Don't externalize buffer
+                    output: {
+                        globals: {
+                            buffer: 'Buffer',
+                        },
+                    },
                 },
+                commonjsOptions: {
+                    transformMixedEsModules: true,
+                },
+            },
+            // Prevent externalization of Node.js modules in browser builds
+            ssr: {
+                noExternal: ['buffer', '@posthog/hogvm'],
             },
         })
     },
