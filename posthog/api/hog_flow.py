@@ -14,9 +14,10 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cdp.validation import HogFunctionFiltersSerializer
+from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
 
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -31,6 +32,16 @@ class HogFlowTriggerSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["event"], required=True)
 
 
+class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
+    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+    inputs = InputsSerializer(required=False)
+
+    def to_internal_value(self, data):
+        # Weirdly nested serializers don't get this set...
+        self.initial_data = data
+        return super().to_internal_value(data)
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     id = serializers.CharField()
     name = serializers.CharField(max_length=400)
@@ -38,8 +49,8 @@ class HogFlowActionSerializer(serializers.Serializer):
     on_error = serializers.ChoiceField(
         choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
     )
-    created_at = serializers.IntegerField()
-    updated_at = serializers.IntegerField()
+    created_at = serializers.IntegerField(required=False)
+    updated_at = serializers.IntegerField(required=False)
     filters = HogFunctionFiltersSerializer(required=False, default=dict)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
@@ -51,16 +62,26 @@ class HogFlowActionSerializer(serializers.Serializer):
 
     def validate(self, data):
         if "function" in data.get("type", ""):
-            from posthog.cdp.validation import generate_template_bytecode
+            template_id = data.get("config", {}).get("template_id", "")
+            template = HogFunctionTemplates.template(template_id) if template_id else None
 
+            if not template:
+                raise serializers.ValidationError({"template_id": "Template not found"})
+
+            input_schema = template.inputs_schema
             inputs = data.get("config", {}).get("inputs", {})
-            input_collector: set[str] = set()
-            try:
-                compiled_inputs = generate_template_bytecode(inputs, input_collector)
-                data["config"]["inputs"]["bytecode"] = compiled_inputs
-            except Exception as e:
-                logger.exception("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
-                raise
+
+            function_config_serializer = HogFlowConfigFunctionInputsSerializer(
+                data={
+                    "inputs_schema": input_schema,
+                    "inputs": inputs,
+                },
+                context={"function_type": template.type},
+            )
+
+            function_config_serializer.is_valid(raise_exception=True)
+
+            data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
 
         return data
 
@@ -91,7 +112,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
     trigger = HogFlowTriggerSerializer()
-    actions = HogFlowActionSerializer(many=True)
+    actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
 
     class Meta:
         model = HogFlow
