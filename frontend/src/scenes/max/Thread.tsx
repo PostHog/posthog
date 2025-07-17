@@ -61,6 +61,7 @@ import {
     isVisualizationMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -386,11 +387,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const [isRejected, setIsRejected] = useState(false)
+    // const [isRejected, setIsRejected] = useState(false)
 
     // Get insight props for the logic
     const insightProps = { dashboardItemId: insight?.short_id }
-    const { previousQuery } = useValues(insightLogic(insightProps))
+
+    const { hasRejected, suggestedQuery } = useValues(insightLogic(insightProps))
     const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
@@ -434,19 +436,18 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && previousQuery && (
+                              {isEditingInsight && suggestedQuery && (
                                   <LemonButton
                                       onClick={() => {
-                                          setIsRejected(!isRejected)
-                                          if (!isRejected) {
+                                          if (!hasRejected) {
                                               onRejectSuggestedInsight()
                                           } else {
                                               onReapplySuggestedInsight()
                                           }
                                       }}
-                                      sideIcon={!isRejected ? <IconX /> : <IconRefresh />}
+                                      sideIcon={!hasRejected ? <IconX /> : <IconRefresh />}
                                       size="xsmall"
-                                      tooltip={!isRejected ? "Reject Max's changes" : "Reapply Max's changes"}
+                                      tooltip={!hasRejected ? "Reject Max's changes" : "Reapply Max's changes"}
                                   />
                               )}
                               {!isEditingInsight && (

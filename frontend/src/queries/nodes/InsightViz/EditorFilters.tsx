@@ -1,4 +1,4 @@
-import { IconInfo, IconRefresh, IconX } from '@posthog/icons'
+import { IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -84,10 +84,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
 
-    const { handleInsightSuggested, onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(
-        insightLogic(insightProps)
-    )
-    const { previousQuery, hasRejected, suggestedQuery } = useValues(insightLogic(insightProps))
+    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
+    const { previousQuery, suggestedQuery, hasRejected } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
@@ -464,7 +462,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         </div>
                     </MaxTool>
 
-                    {(previousQuery || suggestedQuery) && (
+                    {previousQuery && !hasRejected && (
                         <div
                             className="w-full px-2"
                             ref={(el) => {
@@ -478,8 +476,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {
-                                        // Use suggestedQuery if available, otherwise use previousQuery
-
                                         const changedLabels = compareTopLevelSections(suggestedQuery, previousQuery)
                                         let diffString = `🔍 ${changedLabels.length} section(s) changed: \n`
                                         changedLabels.forEach((label) => {
@@ -503,32 +499,18 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                         )
                                     })()}
                                 </div>
-                                <div className="flex gap-2">
-                                    {hasRejected && (
-                                        <LemonButton
-                                            status="default"
-                                            onClick={() => {
-                                                onReapplySuggestedInsight()
-                                            }}
-                                            tooltipPlacement="top"
-                                            size="small"
-                                            icon={<IconRefresh />}
-                                        >
-                                            Reapply
-                                        </LemonButton>
-                                    )}
-                                    <LemonButton
-                                        status="danger"
-                                        onClick={() => {
-                                            onRejectSuggestedInsight()
-                                        }}
-                                        tooltipPlacement="top"
-                                        size="small"
-                                        icon={<IconX />}
-                                    >
-                                        Reject changes
-                                    </LemonButton>
-                                </div>
+
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        onRejectSuggestedInsight()
+                                    }}
+                                    tooltipPlacement="top"
+                                    size="small"
+                                    icon={<IconX />}
+                                >
+                                    Reject changes
+                                </LemonButton>
                             </div>
                         </div>
                     )}

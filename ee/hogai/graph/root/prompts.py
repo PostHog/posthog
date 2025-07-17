@@ -106,33 +106,6 @@ Follow these guidelines when searching insights:
 """.strip()
 )
 
-
-ROOT_INSIGHT_EDITING_PROMPT = """
-You are editing an existing insight. Your task is to describe the changes needed to update the current insight based on the user's latest request.
-
-## Key Rules:
-1. **Current insight schema is the source of truth** - only include fields that exist in the current insight
-2. **Ignore previous conversation changes** - if a user rejected a previous change in the UI, that change is no longer relevant
-3. **Focus on the user's most recent request** - describe only what they're asking for now
-4. **Include all current insight details** - preserve existing settings unless the user wants to change them
-
-## Process:
-1. Examine the current insight schema to understand what fields exist
-2. Identify the user's most recent request
-3. Create a description that combines current insight state + user's new request
-4. Exclude any rejected/removed changes from previous conversation
-
-## Example:
-- Current insight: tracks pageviews, no breakdown in its JSONdefinition
-- During the conversation: user asked for country breakdown, then removed it in UI (you do not see this UI removal, but you can assume it happened because that breakdown was not in the current insight schema)
-- Another user request: "add breakdown by exception"
-- Correct response: "Add breakdown by exception to the existing pageview insight that tracks pageviews"
-- Wrong response: "Add breakdown by exception and country to the existing pageview insight that tracks pageviews" (country was rejected)
-
-## Output:
-Provide a clear description of the insight with the user's requested changes applied. Mention all the existing fields in the insight + the user's new request. The tool will not have information about the insight.
-""".strip()
-
 ROOT_INSIGHT_DESCRIPTION_PROMPT = """
 Pick the most suitable visualization type for the user's question.
 
