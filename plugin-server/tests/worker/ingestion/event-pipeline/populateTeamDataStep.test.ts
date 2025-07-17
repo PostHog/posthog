@@ -2,7 +2,6 @@ import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
 import { Hub, PipelineEvent, Team } from '../../../../src/types'
-import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { getMetricValues, resetMetrics } from '../../../helpers/metrics'
@@ -60,7 +59,6 @@ beforeEach(() => {
     } as unknown as DB
 
     hub = {
-        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken('2:distinct_id_to_drop'),
         teamManager,
         db,
     } as Hub
@@ -122,12 +120,6 @@ describe('populateTeamDataStep()', () => {
         const input = { ...pipelineEvent, team_id: 3 }
         const response = await populateTeamDataStep(hub, input)
         expect(response?.team.person_processing_opt_out).toBe(true)
-        expect(response?.event.properties?.$process_person_profile).toBe(false)
-    })
-
-    it('event that is in the skip list', async () => {
-        const input = { ...pipelineEvent, team_id: 2, distinct_id: 'distinct_id_to_drop' }
-        const response = await populateTeamDataStep(hub, input)
         expect(response?.event.properties?.$process_person_profile).toBe(false)
     })
 

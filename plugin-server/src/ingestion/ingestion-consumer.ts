@@ -654,15 +654,9 @@ export class IngestionConsumer {
 
     private applyPersonProcessingRestrictions(eventWithTeam: IncomingEventWithTeam): void {
         const { event, team } = eventWithTeam
-        let shouldSkipPerson = this.shouldSkipPerson(event.token, event.distinct_id)
 
-        // Check the env variable person processing overrides
-        if (event.token) {
-            const skipPersonsProcessingForDistinctIds = this.hub.eventsToSkipPersonsProcessingByToken.get(event.token)
-            if (skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)) {
-                shouldSkipPerson = true
-            }
-        }
+        // Check the event restriction manager for person processing overrides
+        let shouldSkipPerson = this.shouldSkipPerson(event.token, event.distinct_id)
 
         // Check for team-level person processing opt-out setting
         if (team.person_processing_opt_out) {
