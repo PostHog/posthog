@@ -10,6 +10,7 @@ import dataclasses
 from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
+from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
@@ -25,6 +26,7 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SummarizeSessionGroupWorkflow,
     execute_summarize_session_group,
+    fetch_session_batch_events_activity,
     get_llm_single_session_summary_activity,
 )
 from posthog.temporal.ai.session_summary.activities.patterns import (
@@ -296,14 +298,20 @@ class TestSummarizeSessionGroupWorkflow:
         mock_call_llm: Callable,
         mock_team: MagicMock,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events_columns: list[str],
-        mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
+        mock_cached_session_batch_events_query_response: CachedSessionBatchEventsQueryResponse,
         custom_content: str | None = None,
     ):
         """Test environment for sync Django functions to run the workflow from"""
+
+        class MockMetadataDict(dict):
+            """Return the same metadata for all sessions"""
+
+            def __getitem__(self, key):
+                return mock_raw_metadata
+
         # Mock LLM responses
         call_llm_side_effects = (
             [mock_call_llm(custom_content=custom_content) for _ in range(len(session_ids))]  # Single-session summaries
@@ -317,14 +325,14 @@ class TestSummarizeSessionGroupWorkflow:
                 new=AsyncMock(side_effect=call_llm_side_effects),
             ),
             # Mock DB calls
-            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=mock_team),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
-                return_value=mock_raw_metadata,
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=MockMetadataDict(),
             ),
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_events",
-                return_value=(mock_raw_events_columns, mock_raw_events),
+                "posthog.temporal.ai.session_summary.summarize_session_group._get_db_events_per_page",
+                return_value=mock_cached_session_batch_events_query_response,
             ),
             # Mock deterministic hex generation
             patch.object(
@@ -342,11 +350,10 @@ class TestSummarizeSessionGroupWorkflow:
         mock_call_llm: Callable,
         mock_team: MagicMock,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events_columns: list[str],
-        mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
+        mock_cached_session_batch_events_query_response: CachedSessionBatchEventsQueryResponse,
         custom_content: str | None = None,  # noqa: ARG002
     ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
         """Test environment for Temporal workflow"""
@@ -355,12 +362,11 @@ class TestSummarizeSessionGroupWorkflow:
             mock_call_llm,
             mock_team,
             mock_raw_metadata,
-            mock_raw_events_columns,
-            mock_raw_events,
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
             mock_patterns_assignment_yaml_response,
-            custom_content=custom_content,
+            mock_cached_session_batch_events_query_response,
+            custom_content,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
@@ -372,6 +378,7 @@ class TestSummarizeSessionGroupWorkflow:
                         fetch_session_data_activity,
                         extract_session_group_patterns_activity,
                         assign_events_to_patterns_activity,
+                        fetch_session_batch_events_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:
@@ -440,12 +447,11 @@ class TestSummarizeSessionGroupWorkflow:
         mock_team: MagicMock,
         mock_call_llm: Callable,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events_columns: list[str],
-        mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
         mock_session_group_summary_inputs: Callable,
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
+        mock_cached_session_batch_events_query_response: CachedSessionBatchEventsQueryResponse,
         redis_test_setup: AsyncRedisTestContext,
     ):
         """Test that the workflow completes successfully and returns the expected result"""
@@ -460,11 +466,10 @@ class TestSummarizeSessionGroupWorkflow:
             mock_call_llm,
             mock_team,
             mock_raw_metadata,
-            mock_raw_events_columns,
-            mock_raw_events,
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
             mock_patterns_assignment_yaml_response,
+            mock_cached_session_batch_events_query_response,
             custom_content=None,
         ) as (activity_environment, worker):
             # Wait for workflow to complete and get result
