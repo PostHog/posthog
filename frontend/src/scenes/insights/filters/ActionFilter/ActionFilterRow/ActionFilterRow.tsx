@@ -954,107 +954,59 @@ function useMathSelectorOptions({
             }
         }
 
-        const weeklyActiveUsersIndex = options.findIndex(
-            (option) => 'value' in option && option.value === BaseMathType.WeeklyActiveUsers
-        )
-        if (weeklyActiveUsersIndex !== -1) {
-            const actor = weeklyActiveActorsShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
+        const getActiveActorOptionByPeriod = (
+            activeActorShown: string,
+            setActiveActorShown: (value: string) => void,
+            mathType: BaseMathType,
+            period: 'month' | 'week',
+            days: '30' | '7',
+            optionIndex: number
+        ): LemonSelectOption<string> => {
+            const actor = activeActorShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
             const capitalizedActor = capitalizeFirstLetter(actor)
-            const label = `Weekly active ${actor}`
+            const label = `${capitalizeFirstLetter(period)} active ${actor}`
             const tooltip =
                 actor === 'user' ? (
-                    options[weeklyActiveUsersIndex].tooltip
+                    options[optionIndex].tooltip
                 ) : (
                     <>
-                        <b>{capitalizedActor} active in the past week (7 days).</b>
+                        <b>
+                            {capitalizedActor} active in the past {period} ({days} days).
+                        </b>
                         <br />
                         <br />
-                        This is a trailing count that aggregates distinct {actor} in the past 7 days for each day in the
-                        time series.
+                        This is a trailing count that aggregates distinct {actor} in the past {days} days for each day
+                        in the time series.
                         <br />
                         <br />
-                        If the group by interval is a week or longer, this is the same as "Unique {capitalizedActor}"
-                        math.
+                        If the group by interval is a {period} or longer, this is the same as "Unique {capitalizedActor}
+                        " math.
                     </>
                 )
-            options[weeklyActiveUsersIndex] = {
-                value: BaseMathType.WeeklyActiveUsers,
-                label,
-                tooltip,
-                labelInMenu: (
-                    <div className="flex items-center gap-2">
-                        <span>Weekly active</span>
-                        <LemonSelect
-                            value={weeklyActiveActorsShown}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                            onSelect={(value) => {
-                                setWeeklyActiveActorsShown(value as string)
-                                const groupIndex =
-                                    value === 'users'
-                                        ? undefined
-                                        : mathTypeToApiValues(value as string).math_group_type_index
-                                const mathType =
-                                    groupIndex !== undefined
-                                        ? `weekly_active::${groupIndex}`
-                                        : BaseMathType.WeeklyActiveUsers
-                                onMathSelect(index, mathType)
-                            }}
-                            options={uniqueActorsOptions}
-                        />
-                    </div>
-                ),
-                'data-attr': `math-node-weekly-active-actors-${index}`,
-            }
-        }
 
-        const monthlyActiveUsersIndex = options.findIndex(
-            (option) => 'value' in option && option.value === BaseMathType.MonthlyActiveUsers
-        )
-        if (monthlyActiveUsersIndex !== -1) {
-            const actor = monthlyActiveActorsShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
-            const capitalizedActor = capitalizeFirstLetter(actor)
-            const label = `Monthly active ${actor}`
-            const tooltip =
-                actor === 'user' ? (
-                    options[monthlyActiveUsersIndex].tooltip
-                ) : (
-                    <>
-                        <b>{capitalizedActor} active in the past month (30 days).</b>
-                        <br />
-                        <br />
-                        This is a trailing count that aggregates distinct {actor} in the past 30 days for each day in
-                        the time series.
-                        <br />
-                        <br />
-                        If the group by interval is a month or longer, this is the same as "Unique {capitalizedActor}"
-                        math.
-                    </>
-                )
-            options[monthlyActiveUsersIndex] = {
-                value: BaseMathType.MonthlyActiveUsers,
+            return {
+                value: mathType,
                 label,
                 tooltip,
+                'data-attr': `math-node-${period}ly-active-actors-${index}`,
                 labelInMenu: (
                     <div className="flex items-center gap-2">
-                        <span>Monthly active</span>
+                        <span>{capitalizeFirstLetter(period)}ly active</span>
                         <LemonSelect
-                            value={monthlyActiveActorsShown}
+                            value={activeActorShown}
                             onClick={(e) => e.stopPropagation()}
                             size="small"
                             dropdownMatchSelectWidth={false}
                             optionTooltipPlacement="right"
                             onSelect={(value) => {
-                                setMonthlyActiveActorsShown(value as string)
+                                setActiveActorShown(value as string)
                                 const groupIndex =
                                     value === 'users'
                                         ? undefined
                                         : mathTypeToApiValues(value as string).math_group_type_index
                                 const mathType =
                                     groupIndex !== undefined
-                                        ? `monthly_active::${groupIndex}`
+                                        ? `${period}ly_active::${groupIndex}`
                                         : BaseMathType.MonthlyActiveUsers
                                 onMathSelect(index, mathType)
                             }}
@@ -1062,8 +1014,35 @@ function useMathSelectorOptions({
                         />
                     </div>
                 ),
-                'data-attr': `math-node-monthly-active-actors-${index}`,
             }
+        }
+
+        const monthlyActiveUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.MonthlyActiveUsers
+        )
+        if (monthlyActiveUsersIndex !== -1) {
+            options[monthlyActiveUsersIndex] = getActiveActorOptionByPeriod(
+                monthlyActiveActorsShown,
+                setMonthlyActiveActorsShown,
+                BaseMathType.MonthlyActiveUsers,
+                'month',
+                '30',
+                monthlyActiveUsersIndex
+            )
+        }
+
+        const weeklyActiveUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.WeeklyActiveUsers
+        )
+        if (weeklyActiveUsersIndex !== -1) {
+            options[weeklyActiveUsersIndex] = getActiveActorOptionByPeriod(
+                weeklyActiveActorsShown,
+                setWeeklyActiveActorsShown,
+                BaseMathType.WeeklyActiveUsers,
+                'week',
+                '7',
+                weeklyActiveUsersIndex
+            )
         }
     }
 
