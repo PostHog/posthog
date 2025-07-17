@@ -11,7 +11,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { urls } from 'scenes/urls'
-import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 import { insightAlertsLogic } from '../../Alerts/insightAlertsLogic'
 import { SubscriptionBaseProps, urlForSubscriptions } from '../../Subscriptions/utils'
 
@@ -22,19 +22,25 @@ interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps {
     buttonProps?: Omit<ButtonPrimitiveProps, 'children'>
 }
 
-interface AlertsDropdownMenuItemProps extends SubscriptionBaseProps {
-    insight: Partial<QueryBasedInsightModel>
+interface AlertsDropdownMenuItemProps {
+    insightId: number
+    insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
 }
 
-function AlertsDropdownMenuItem({ insight, insightLogicProps }: AlertsDropdownMenuItemProps): JSX.Element {
+function AlertsDropdownMenuItem({
+    insightId,
+    insightShortId,
+    insightLogicProps,
+}: AlertsDropdownMenuItemProps): JSX.Element {
     const { push } = useActions(router)
-    const logic = insightAlertsLogic({ insightId: insight?.id, insightLogicProps: insightLogicProps })
+
+    const logic = insightAlertsLogic({ insightId, insightLogicProps })
     const { alerts } = useValues(logic)
 
     return (
         <DropdownMenuItem className="w-full">
-            <ButtonPrimitive menuItem onClick={() => push(urls.insightAlerts(insight?.short_id))}>
+            <ButtonPrimitive menuItem onClick={() => push(urls.insightAlerts(insightShortId))}>
                 <IconWithCount count={alerts?.length} showZero={false}>
                     <IconWarning />
                 </IconWithCount>
@@ -62,8 +68,12 @@ export function SceneNotificationDropdownMenu({
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                {insight && insightLogicProps && (
-                    <AlertsDropdownMenuItem insight={insight} insightLogicProps={insightLogicProps} />
+                {insight && insight.id && insight.short_id && insightLogicProps && (
+                    <AlertsDropdownMenuItem
+                        insightId={insight.id}
+                        insightShortId={insight.short_id}
+                        insightLogicProps={insightLogicProps}
+                    />
                 )}
                 <DropdownMenuItem className="w-full">
                     <ButtonPrimitive
