@@ -1,4 +1,5 @@
 import {
+    IconBolt,
     IconCheck,
     IconCollapse,
     IconExpand,
@@ -62,6 +63,7 @@ import {
     isVisualizationMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -184,10 +186,19 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                         useCurrentPageContext={false}
                                     />
                                 )}
-                                <MarkdownMessage
-                                    content={message.content || '*No text.*'}
-                                    id={message.id || 'no-text'}
-                                />
+                                {MAX_SLASH_COMMANDS.some((cmd) => cmd.name === message.content) ? (
+                                    <div className="flex items-center">
+                                        <Tooltip title="This is a Max command">
+                                            <IconBolt className="text-base mr-1.5" />
+                                        </Tooltip>
+                                        <span className="font-mono">{message.content}</span>
+                                    </div>
+                                ) : (
+                                    <MarkdownMessage
+                                        content={message.content || '*No text.*'}
+                                        id={message.id || 'no-text'}
+                                    />
+                                )}
                             </MessageTemplate>
                         )
                     } else if (

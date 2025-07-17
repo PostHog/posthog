@@ -274,14 +274,8 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, memory_onboarding_enquiry_interrupt)
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, memory_onboarding_finalize)
 
-        builder.add_conditional_edges(
-            AssistantNodeName.START,
-            memory_onboarding.should_run_onboarding_at_start,
-            {
-                "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
-                "continue": next_node,
-            },
-        )
+        # Memory onboarding is now only triggered via /init command through ROOT node routing
+        # No automatic START → MEMORY_ONBOARDING routing
 
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_ONBOARDING,

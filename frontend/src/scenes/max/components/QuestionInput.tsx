@@ -3,7 +3,7 @@ import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -13,6 +13,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
+import { SlashCommandAutocomplete, SlashCommand } from './SlashCommandAutocomplete'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -49,6 +50,21 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+
+    const [showAutocomplete, setShowAutocomplete] = useState(false)
+
+    // Update autocomplete visibility when question changes
+    useEffect(() => {
+        setShowAutocomplete(question.startsWith('/') && question.length > 0)
+    }, [question])
+
+    // Handle command selection
+    const handleCommandSelect = (command: SlashCommand): void => {
+        // Execute the command immediately and clear the input
+        setQuestion('')
+        setShowAutocomplete(false)
+        askMax(command.name)
+    }
 
     return (
         <div
@@ -92,24 +108,36 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         ) : (
                             <ContextDisplay size={contextDisplaySize} />
                         )}
-                        <LemonTextArea
-                            ref={textAreaRef}
-                            value={question}
-                            onChange={(value) => setQuestion(value)}
-                            placeholder={
-                                threadLoading ? 'Thinking…' : isFloating ? placeholder || 'Ask follow-up' : 'Ask away'
-                            }
-                            onPressEnter={() => {
-                                if (question && !submissionDisabledReason && !threadLoading) {
-                                    onSubmit?.()
-                                    askMax(question)
+
+                        <SlashCommandAutocomplete
+                            onSelect={handleCommandSelect}
+                            visible={showAutocomplete}
+                            onClose={() => setShowAutocomplete(false)}
+                            searchText={question}
+                        >
+                            <LemonTextArea
+                                ref={textAreaRef}
+                                value={question}
+                                onChange={setQuestion}
+                                placeholder={
+                                    threadLoading
+                                        ? 'Thinking…'
+                                        : isFloating
+                                        ? placeholder || 'Ask follow-up (/ for commands)'
+                                        : 'Ask away (/ for commands)'
                                 }
-                            }}
-                            disabled={inputDisabled}
-                            minRows={1}
-                            maxRows={10}
-                            className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
-                        />
+                                onPressEnter={() => {
+                                    if (question && !submissionDisabledReason && !threadLoading) {
+                                        onSubmit?.()
+                                        askMax(question)
+                                    }
+                                }}
+                                disabled={inputDisabled}
+                                minRows={1}
+                                maxRows={10}
+                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                            />
+                        </SlashCommandAutocomplete>
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {

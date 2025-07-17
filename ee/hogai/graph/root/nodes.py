@@ -18,7 +18,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 
 # Import moved inside functions to avoid circular imports
@@ -579,12 +578,16 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
+
+        # Check if the user sent a /init command to trigger memory onboarding
+        if isinstance(last_message, HumanMessage) and last_message.content == "/init":
+            return "memory_onboarding"
+
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
             if state.root_tool_insight_plan:
-                if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
-                    return "memory_onboarding"
+                # No longer automatically trigger memory onboarding before insights
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"

@@ -85,9 +85,9 @@ class MemoryInitializerContextMixin:
 class MemoryOnboardingShouldRunMixin(AssistantNode):
     def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
+        Only trigger memory onboarding when explicitly requested with /init command or legacy trigger message.
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If no messages are to be found in the AssistantState, do not run onboarding.
-        If the conversation starts with the onboarding initial message, start the onboarding process.
         """
         core_memory = self.core_memory
 
@@ -99,26 +99,17 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
             return "continue"
 
         last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage) and last_message.content == ONBOARDING_INITIAL_MESSAGE:
+        if isinstance(last_message, HumanMessage) and (
+            last_message.content == ONBOARDING_INITIAL_MESSAGE or last_message.content == "/init"
+        ):
             return "memory_onboarding"
         return "continue"
 
 
 def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> str:
     """
-    If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
-    Otherwise, start the onboarding process.
+    No longer automatically triggers memory onboarding. Memory onboarding must be explicitly requested with /init command.
     """
-    try:
-        core_memory = CoreMemory.objects.get(team=team)
-    except CoreMemory.DoesNotExist:
-        core_memory = None
-    if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
-        # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
-        return "continue"
-
-    if core_memory is None or core_memory.initial_text == "":
-        return "memory_onboarding"
     return "continue"
 
 
@@ -272,6 +263,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             SCRAPING_CONFIRMATION_MESSAGE,
             SCRAPING_REJECTION_MESSAGE,
             ONBOARDING_INITIAL_MESSAGE,
+            "/init",
         ] and core_memory.initial_text.endswith("Answer:"):
             # The user is answering to a question
             core_memory.append_answer_to_initial_text(human_message.content)
