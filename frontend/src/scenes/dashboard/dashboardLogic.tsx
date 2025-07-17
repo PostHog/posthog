@@ -1068,6 +1068,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortDayJsDates(validDates)
             },
         ],
+        oldestRefreshed: [
+            // selecting page visibility to update the refresh when a page comes back into view
+            (s) => [s.sortedDates, s.pageVisibility],
+            (sortedDates): Dayjs | null => {
+                if (!sortedDates.length) {
+                    return null
+                }
+
+                return sortedDates[0]
+            },
+        ],
+        effectiveLastRefresh: [
+            (s) => [s.lastDashboardRefresh, s.oldestRefreshed],
+            (lastDashboardRefresh, oldestRefreshed): Dayjs | null => {
+                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d) => d != null)
+                return sortDayJsDates(dates)[dates.length - 1]
+            },
+        ],
+
         nextAllowedDashboardRefresh: [
             (s) => [s.lastDashboardRefresh],
             (lastDashboardRefresh): Dayjs | null => {
