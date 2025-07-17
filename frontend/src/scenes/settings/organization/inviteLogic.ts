@@ -211,6 +211,10 @@ export const inviteLogic = kea<inviteLogicType>([
                 return currentOrganization?.teams || []
             },
         ],
+        isInviting: [
+            (selectors) => [selectors.invitedTeamMembersInternalLoading],
+            (invitedTeamMembersInternalLoading: boolean) => invitedTeamMembersInternalLoading,
+        ],
     }),
     listeners(({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {

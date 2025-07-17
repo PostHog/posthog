@@ -381,7 +381,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit, isInviting } = useValues(inviteLogic)
     const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
@@ -432,12 +432,14 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                         onClose()
                                     }}
                                     type="secondary"
+                                    disabled={isInviting}
                                 >
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => inviteTeamMembers()}
                                     type="primary"
+                                    loading={isInviting}
                                     disabledReason={
                                         userCannotInvite
                                             ? "You don't have permissions to invite others."
