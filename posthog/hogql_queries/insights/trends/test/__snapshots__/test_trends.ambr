@@ -6170,7 +6170,7 @@
              (SELECT toTimeZone(e.timestamp, 'America/Phoenix') AS timestamp,
                      e.`$group_0` AS actor_id
               FROM events AS e SAMPLE 1
-              WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))))
+              WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'America/Phoenix')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'America/Phoenix')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
@@ -6212,7 +6212,7 @@
              (SELECT toTimeZone(e.timestamp, 'Asia/Tokyo') AS timestamp,
                      e.`$group_0` AS actor_id
               FROM events AS e SAMPLE 1
-              WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))))
+              WHERE and(equals(e.team_id, 99999), and(equals(e.event, 'viewed video'), notEquals(e.`$group_0`, '')), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'Asia/Tokyo')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo'))))
               GROUP BY timestamp, actor_id) AS e
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
