@@ -173,7 +173,10 @@ export function DashboardItems(): JSX.Element {
                                     loading={false}
                                     apiErrored={true}
                                     apiError={
-                                        new Error(`${tile.error.type}: ${tile.error.message} (Tile ID: ${tile.id})`)
+                                        {
+                                            status: 400,
+                                            detail: `${tile.error.type}: ${tile.error.message}`,
+                                        } as any
                                     }
                                     highlighted={highlightedInsightId && insightToUse.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
