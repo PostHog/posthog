@@ -1,3 +1,4 @@
+from django.conf import settings
 import posthoganalytics
 from rest_framework import viewsets
 from rest_framework.request import Request
@@ -8,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models.user import User
 
 from posthog.auth import SessionAuthentication, PersonalAPIKeyAuthentication
 
@@ -44,12 +46,12 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         self.factory = WebAnalyticsDataFactory()
 
     def _can_use_external_web_analytics(self) -> None:
-        # if settings.DEBUG:
-        #     return
+        if settings.DEBUG:
+            return
 
         available = False
 
-        if self.team_id in TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS:
+        if self.team_id in TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS and isinstance(self.request.user, User):
             user = self.request.user
 
             web_analytics_api_enabled = posthoganalytics.feature_enabled("web-analytics-api", str(user.distinct_id))
