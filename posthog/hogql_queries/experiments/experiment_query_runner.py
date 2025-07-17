@@ -19,6 +19,7 @@ from posthog.hogql_queries.experiments import (
 )
 from posthog.hogql_queries.experiments.base_query_utils import (
     conversion_window_to_seconds,
+    data_warehouse_node_to_filter,
     event_or_action_to_filter,
     get_data_warehouse_metric_source,
     get_metric_value,
@@ -316,6 +317,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     *self._get_metric_time_window(
                                         left=ast.Field(chain=[metric.source.table_name, metric.source.timestamp_field])
                                     ),
+                                    data_warehouse_node_to_filter(self.team, metric.source),
                                 ],
                             ),
                         )

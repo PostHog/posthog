@@ -1085,7 +1085,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
             table = saved_query.table
 
-            table.row_count = table.get_count()
+            table.row_count = await database_sync_to_async(table.get_count)()
             await database_sync_to_async(table.save)()
         except Exception as err:
             await logger.aexception(f"Failed to update table row count for {model}: {err}")

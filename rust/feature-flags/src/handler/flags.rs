@@ -21,8 +21,9 @@ pub async fn fetch_and_filter(
     flag_service: &FlagService,
     project_id: i64,
     query_params: &FlagsQueryParams,
-) -> Result<FeatureFlagList, FlagError> {
-    let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
+) -> Result<(FeatureFlagList, bool), FlagError> {
+    let (all_flags, had_deserialization_errors) =
+        flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
     let flags_after_survey_filter = filter_survey_flags(
         all_flags.flags,
@@ -31,7 +32,10 @@ pub async fn fetch_and_filter(
             .unwrap_or(false),
     );
 
-    Ok(FeatureFlagList::new(flags_after_survey_filter))
+    Ok((
+        FeatureFlagList::new(flags_after_survey_filter),
+        had_deserialization_errors,
+    ))
 }
 
 /// Filters flags to only include survey flags if requested

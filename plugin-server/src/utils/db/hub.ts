@@ -7,6 +7,8 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
@@ -23,6 +25,7 @@ import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
+import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -127,13 +130,17 @@ export async function createHub(
     const teamManager = new TeamManager(postgres)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const pubSub = new PubSub(serverConfig)
+    await pubSub.start()
     const rustyHook = new RustyHook(serverConfig)
-
-    const actionManager = new ActionManager(postgres, serverConfig)
+    const actionManager = new ActionManager(postgres, pubSub)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const geoipService = new GeoIPService(serverConfig)
+    await geoipService.get()
+    const encryptedFields = new EncryptedFields(serverConfig)
+    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
 
     const hub: Hub = {
         ...serverConfig,
@@ -161,7 +168,7 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
-        geoipService: new GeoIPService(serverConfig),
+        geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
@@ -172,13 +179,12 @@ export async function createHub(
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
-        encryptedFields: new EncryptedFields(serverConfig),
+        encryptedFields,
         celery: new Celery(serverConfig),
         cookielessManager,
+        pubSub,
+        integrationManager,
     }
-
-    // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
-    await hub.geoipService.get()
 
     return hub
 }
@@ -189,6 +195,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         await hub.appMetrics?.flush()
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
+    await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')

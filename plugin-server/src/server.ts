@@ -123,7 +123,6 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        await initPlugins()
                         const consumer = new IngestionConsumer(hub, {
                             INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                             INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
@@ -134,7 +133,6 @@ export class PluginServer {
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const consumer = new IngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
@@ -264,11 +262,10 @@ export class PluginServer {
             }
 
             // The service commands is always created
-            serviceLoaders.push(async () => {
+            serviceLoaders.push(() => {
                 const serverCommands = new ServerCommands(hub)
                 this.expressApp.use('/', serverCommands.router())
-                await serverCommands.start()
-                return serverCommands.service
+                return Promise.resolve(serverCommands.service)
             })
 
             if (capabilities.cdpCyclotronWorkerSegment) {
