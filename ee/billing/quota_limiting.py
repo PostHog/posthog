@@ -276,7 +276,7 @@ def org_quota_limited_until(
     _, today_end = get_current_day()
 
     # Set minimum grace period for specific resources
-    minimum_grace_period = 0
+    minimum_grace_period = None
     if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
         minimum_grace_period = FEATURE_FLAGS_GRACE_PERIOD_DAYS
 
@@ -286,15 +286,15 @@ def org_quota_limited_until(
 
     # 2b. no trust score
     if not trust_score:
-        # Set them to the default trust score
+        # Set them to the default trust score and immediately limit (unless minimum grace period applies)
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
             organization.save(update_fields=["customer_trust_scores"])
 
-        grace_period_days = max(0, minimum_grace_period)
+        if minimum_grace_period is not None:
+            # Apply minimum grace period even for no trust score
+            grace_period_days = minimum_grace_period
 
-        if grace_period_days > 0:
-            # Apply minimum grace period
             # If the suspension is expired or never set, we want to suspend the limit for a grace period
             if not quota_limiting_suspended_until or (
                 (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
@@ -391,10 +391,10 @@ def org_quota_limited_until(
 
     # 2c. low trust
     elif trust_score == 3:
-        grace_period_days = max(0, minimum_grace_period)
-
-        if grace_period_days > 0:
+        if minimum_grace_period is not None:
             # Apply minimum grace period even for low trust
+            grace_period_days = minimum_grace_period
+
             # If the suspension is expired or never set, we want to suspend the limit for a grace period
             if not quota_limiting_suspended_until or (
                 (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
@@ -490,9 +490,9 @@ def org_quota_limited_until(
             }
 
     # 3. medium / medium high / high trust
-    elif trust_score in [7, 10, 15]:
+    elif minimum_grace_period or trust_score in [7, 10, 15]:
         trust_score_grace_period = GRACE_PERIOD_DAYS.get(trust_score, 0)
-        grace_period_days = max(trust_score_grace_period, minimum_grace_period)
+        grace_period_days = max(trust_score_grace_period, minimum_grace_period or 0)
 
         # If the suspension is expired or never set, we want to suspend the limit for a grace period
         if not quota_limiting_suspended_until or (
