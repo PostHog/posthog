@@ -480,12 +480,15 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
                 # A single broken query object has the potential to crash the entire dashboard
                 # Here we catch it and handle it gracefully
                 except pydantic_core.ValidationError as e:
-                    if tile.insight:
-                        tile.insight.query = None
+                    if not tile.insight:
+                        raise
+                    query = tile.insight.query
+                    tile.insight.query = None
                     # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
                     # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
                     # way if we don't have insight information attached.
                     tile_data = DashboardTileSerializer(tile, context=self.context).data
+                    tile_data["insight"]["query"] = query
                     tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
                     serialized_tiles.append(tile_data)
 
