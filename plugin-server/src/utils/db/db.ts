@@ -61,7 +61,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
-import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
+import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
@@ -971,6 +971,8 @@ export class DB {
                     team_id: target.team_id,
                     person_id: target.id,
                 })
+                // Track 0 moved IDs for failed merges
+                moveDistinctIdsCountHistogram.observe(0)
                 return {
                     success: false,
                     error: 'TargetNotFound',
@@ -987,6 +989,8 @@ export class DB {
                 team_id: source.team_id,
                 person_id: source.id,
             })
+            // Track 0 moved IDs for failed merges
+            moveDistinctIdsCountHistogram.observe(0)
             return {
                 success: false,
                 error: 'SourceNotFound',
@@ -1006,6 +1010,10 @@ export class DB {
                 ],
             })
         }
+
+        // Track the number of distinct IDs moved in this merge operation
+        moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
+
         return { success: true, messages: kafkaMessages }
     }
 

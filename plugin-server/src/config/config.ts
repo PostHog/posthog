@@ -73,7 +73,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
         BASE_DIR: '..',
-        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
         INGESTION_CONCURRENCY: 10,

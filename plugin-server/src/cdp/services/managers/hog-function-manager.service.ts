@@ -4,7 +4,6 @@ import { parseJSON } from '../../../utils/json-parse'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { PubSub } from '../../../utils/pubsub'
 import { HOG_FUNCTION_TEMPLATES } from '../../templates'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../../types'
 
@@ -81,30 +80,8 @@ const isAddonRequired = (hogFunction: HogFunctionType): boolean => {
 export class HogFunctionManagerService {
     private lazyLoader: LazyLoader<HogFunctionType>
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
-    private started: boolean
-    private pubSub: PubSub
 
     constructor(private hub: Hub) {
-        this.started = false
-
-        this.pubSub = new PubSub(this.hub, {
-            'reload-integrations': (message) => {
-                const { integrationIds } = parseJSON(message) as {
-                    integrationIds: IntegrationType['id'][]
-                }
-                logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
-                this.onIntegrationsReloaded(integrationIds)
-            },
-            'reload-hog-functions': (message) => {
-                const { teamId, hogFunctionIds } = parseJSON(message) as {
-                    teamId: Team['id']
-                    hogFunctionIds: HogFunctionType['id'][]
-                }
-                logger.debug('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
-                this.onHogFunctionsReloaded(teamId, hogFunctionIds)
-            },
-        })
-
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFunctions(teamIds),
@@ -114,19 +91,19 @@ export class HogFunctionManagerService {
             name: 'hog_function_manager',
             loader: async (ids) => await this.fetchHogFunctions(ids),
         })
-    }
 
-    public async start(): Promise<void> {
-        // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
-        if (this.started) {
-            return
-        }
-        this.started = true
-        await this.pubSub.start()
-    }
+        this.hub.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', ({ integrationIds }) => {
+            logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
+            this.onIntegrationsReloaded(integrationIds)
+        })
 
-    public async stop(): Promise<void> {
-        await this.pubSub.stop()
+        this.hub.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
+            'reload-hog-functions',
+            ({ teamId, hogFunctionIds }) => {
+                logger.debug('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
+                this.onHogFunctionsReloaded(teamId, hogFunctionIds)
+            }
+        )
     }
 
     public async getHogFunctionsForTeams(

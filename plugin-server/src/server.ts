@@ -264,11 +264,10 @@ export class PluginServer {
             }
 
             // The service commands is always created
-            serviceLoaders.push(async () => {
+            serviceLoaders.push(() => {
                 const serverCommands = new ServerCommands(hub)
                 this.expressApp.use('/', serverCommands.router())
-                await serverCommands.start()
-                return serverCommands.service
+                return Promise.resolve(serverCommands.service)
             })
 
             if (capabilities.cdpCyclotronWorkerSegment) {
