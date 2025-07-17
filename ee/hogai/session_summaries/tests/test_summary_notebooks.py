@@ -400,3 +400,110 @@ class TestNotebookCreation(APIBaseTest):
                                 break
 
         self.assertTrue(outcome_section_found, "Nested list structure with paragraph and bulletList not found")
+
+    def test_replay_link_includes_timestamp(self):
+        """Test that replay links include the timestamp parameter calculated from milliseconds_since_start"""
+
+        # Create a test event with specific milliseconds_since_start
+        test_event = EnrichedPatternAssignedEvent(
+            event_id="test_event_id",
+            event_uuid="test_event_uuid",
+            session_id="test_session_id",
+            description="Test event",
+            abandonment=False,
+            confusion=False,
+            exception=None,
+            timestamp="2025-07-15T13:38:18.715000+00:00",
+            milliseconds_since_start=5500,  # This should result in t=5
+            window_id="test_window_id",
+            current_url="http://localhost:8010/test",
+            event="$pageview",
+            event_type=None,
+            event_index=1,
+        )
+
+        # Create segment context
+        segment_context = PatternAssignedEventSegmentContext(
+            segment_name="Test segment",
+            segment_outcome="Test outcome",
+            segment_success=True,
+            segment_index=0,
+            previous_events_in_segment=[],
+            target_event=test_event,
+            next_events_in_segment=[],
+        )
+
+        # Create pattern stats
+        pattern_stats = EnrichedSessionGroupSummaryPatternStats(
+            occurences=1,
+            sessions_affected=1,
+            sessions_affected_ratio=1.0,
+            segments_success_ratio=1.0,
+        )
+
+        # Create pattern
+        pattern = EnrichedSessionGroupSummaryPattern(
+            pattern_id=1,
+            pattern_name="Test Pattern",
+            pattern_description="Test pattern for replay link",
+            severity="low",
+            indicators=["Test indicator"],
+            events=[segment_context],
+            stats=pattern_stats,
+        )
+
+        summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
+        content = _generate_notebook_content_from_summary(summary_data, ["test_session_id"], "TestDomain")
+
+        # Convert content to JSON string to search for the replay link
+        content_text = json.dumps(content)
+
+        # Check that the replay link includes the timestamp parameter
+        self.assertIn("/project/1/replay/test_session_id?t=5", content_text)
+
+        # Test with different milliseconds_since_start values
+        test_cases = [
+            (1000, 1),  # 1 second
+            (1500, 1),  # 1.5 seconds -> 1
+            (2999, 2),  # 2.999 seconds -> 2
+            (10000, 10),  # 10 seconds
+            (0, 0),  # 0 seconds
+        ]
+
+        for millis, expected_timestamp in test_cases:
+            # Create new instances for each test case since dataclasses are frozen
+            test_event_case = EnrichedPatternAssignedEvent(
+                event_id="test_event_id",
+                event_uuid="test_event_uuid",
+                session_id="test_session_id",
+                description="Test event",
+                abandonment=False,
+                confusion=False,
+                exception=None,
+                timestamp="2025-07-15T13:38:18.715000+00:00",
+                milliseconds_since_start=millis,
+                window_id="test_window_id",
+                current_url="http://localhost:8010/test",
+                event="$pageview",
+                event_type=None,
+                event_index=1,
+            )
+
+            segment_context_case = PatternAssignedEventSegmentContext(
+                segment_name="Test segment",
+                segment_outcome="Test outcome",
+                segment_success=True,
+                segment_index=0,
+                previous_events_in_segment=[],
+                target_event=test_event_case,
+                next_events_in_segment=[],
+            )
+
+            pattern.events = [segment_context_case]
+            content = _generate_notebook_content_from_summary(summary_data, ["test_session_id"], "TestDomain")
+            content_text = json.dumps(content)
+            self.assertIn(
+                f"/project/1/replay/test_session_id?t={expected_timestamp}",
+                content_text,
+                f"Failed for {millis}ms -> t={expected_timestamp}",
+            )

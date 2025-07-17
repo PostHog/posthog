@@ -259,6 +259,8 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
     """Create example section content for an event."""
     content = []
     session_id = event_data.target_event.session_id
+    # Calculate timestamp in seconds from milliseconds_since_start
+    timestamp = int(event_data.target_event.milliseconds_since_start / 1000)
 
     # Example header with session link
     content.append(
@@ -269,7 +271,11 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
                 {"type": "text", "text": "Session "},
                 {
                     "type": "ph-backlink",
-                    "attrs": {"href": f"/project/1/replay/{session_id}", "type": None, "title": session_id},
+                    "attrs": {
+                        "href": f"/project/1/replay/{session_id}?t={timestamp}",
+                        "type": None,
+                        "title": session_id,
+                    },
                 },
             ],
         }
