@@ -89,7 +89,8 @@ export function InsightMeta({
     // (@zach) Access Control TODO: add access control checks for remove from dashboard
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
-    const summary = useSummarizeInsight()(insight.query)
+    // here we fallback to derived name to support displaying errored queried
+    const summary = useSummarizeInsight()(insight.query) || insight?.derived_name || ''
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
