@@ -39,6 +39,7 @@ const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.El
                 <MaxTool
                     name="experiment_results_summary"
                     displayName="Generate Experiment Results Summary"
+                    description="Max can generate a summary of the experiment results, including the key findings, insights, and recommendations."
                     context={{
                         experiment_data: experiment,
                         experiment_id: experimentId,
