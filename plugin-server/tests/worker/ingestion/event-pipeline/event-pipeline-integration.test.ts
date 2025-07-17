@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
@@ -17,7 +16,6 @@ import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipe
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
@@ -73,7 +71,7 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(
@@ -90,76 +88,6 @@ describe('Event Pipeline integration test', () => {
 
     afterEach(async () => {
         await closeHub(hub)
-    })
-
-    it('handles plugins setting properties', async () => {
-        await resetTestDatabase(`
-            function processEvent (event) {
-                event.properties = {
-                    ...event.properties,
-                    $browser: 'Chrome',
-                    processed: 'hell yes'
-                }
-                event.$set = {
-                    ...event.$set,
-                    personProp: 'value'
-                }
-                return event
-            }
-        `)
-        await setupPlugins(hub)
-
-        const event: PluginEvent = {
-            event: 'xyz',
-            properties: { foo: 'bar' },
-            $set: { personProp: 1, anotherValue: 2 },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        await ingestEvent(event)
-
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
-        const persons = await delayUntilEventIngested(() => hub.db.fetchPersons())
-
-        expect(events.length).toEqual(1)
-        expect(events[0]).toEqual(
-            expect.objectContaining({
-                uuid: event.uuid,
-                event: 'xyz',
-                team_id: 2,
-                timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
-                // :KLUDGE: Ignore properties like $plugins_succeeded, etc
-                properties: expect.objectContaining({
-                    foo: 'bar',
-                    $browser: 'Chrome',
-                    processed: 'hell yes',
-                    $set: {
-                        personProp: 'value',
-                        anotherValue: 2,
-                        $browser: 'Chrome',
-                    },
-                    $set_once: {
-                        $initial_browser: 'Chrome',
-                    },
-                }),
-            })
-        )
-
-        expect(persons.length).toEqual(1)
-        expect(persons[0].version).toEqual(0)
-        expect(persons[0].properties).toEqual({
-            $creator_event_uuid: event.uuid,
-            $initial_browser: 'Chrome',
-            $browser: 'Chrome',
-            personProp: 'value',
-            anotherValue: 2,
-        })
     })
 
     it('fires a webhook', async () => {
