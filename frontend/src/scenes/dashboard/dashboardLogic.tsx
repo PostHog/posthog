@@ -979,6 +979,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     .filter((n): n is { variable: Variable; insights: string[] } => Boolean(n?.variable))
             },
         ],
+        hasVariables: [
+            (s) => [s.dashboardVariables],
+            (dashboardVariables) => Object.keys(dashboardVariables).length > 0,
+        ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
             (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
