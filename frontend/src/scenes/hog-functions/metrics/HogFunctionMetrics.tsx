@@ -24,7 +24,7 @@ const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
     failed: 'Total number of events that had errors during processing',
     filtered: 'Total number of events that were filtered out',
-    dropped: 'Total number of events that were dropped during transformation',
+    dropped: 'Total number of events that were dropped during processing',
     disabled_temporarily:
         'Total number of events that were skipped due to the destination being temporarily disabled (due to issues such as the destination being down or rate-limited)',
     disabled_permanently:
