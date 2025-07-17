@@ -280,13 +280,45 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "team_id": self.team.id,
             "functions": [
                 {
-                    "id": "test-hog-function",
-                    "name": "Test Function",
+                    "id": "test-hog-function-1",
+                    "name": "Webhook Alert System",
                     "type": "destination",
-                    "succeeded": 80,
-                    "failed": 10,
-                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
-                }
+                    "succeeded": 1000,
+                    "failed": 50000,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+                {
+                    "id": "test-hog-function-2",
+                    "name": "Slack Notifications",
+                    "type": "transformation",
+                    "succeeded": 1500000,
+                    "failed": 25000,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
+                },
+                {
+                    "id": "test-hog-function-3",
+                    "name": "Email Campaign Processor",
+                    "type": "destination",
+                    "succeeded": 75000,
+                    "failed": 3500,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-3",
+                },
+                {
+                    "id": "test-hog-function-4",
+                    "name": "Data Warehouse Sync",
+                    "type": "destination",
+                    "succeeded": 2000000,
+                    "failed": 150000,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-4",
+                },
+                {
+                    "id": "test-hog-function-5",
+                    "name": "Analytics Dashboard Feed",
+                    "type": "transformation",
+                    "succeeded": 500000,
+                    "failed": 12000,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-5",
+                },
             ],
         }
 
@@ -332,7 +364,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "functions": [
                 {
                     "id": "test-hog-function-1",
-                    "name": "Test Function with Large Numbers",
+                    "name": "Webhook Alert System",
                     "type": "destination",
                     "succeeded": 1000,
                     "failed": 50000,
@@ -340,7 +372,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 },
                 {
                     "id": "test-hog-function-2",
-                    "name": "Test Function 2",
+                    "name": "Slack Notifications",
                     "type": "transformation",
                     "succeeded": 1500000,
                     "failed": 25000,
