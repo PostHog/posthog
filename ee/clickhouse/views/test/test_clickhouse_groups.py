@@ -504,9 +504,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_success(self, mock_capture):
         # Mock the response to return a 200 OK
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 200
-        mock_capture.return_value = mock_response
+        mock_capture.return_value = mock.MagicMock(status_code=200)
 
         group_type_mapping = GroupTypeMapping.objects.create(
             team=self.team,
@@ -546,9 +544,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_invalid_group(self, mock_capture):
         # Mock the response to return a 200 OK
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 200
-        mock_capture.return_value = mock_response
+        mock_capture.return_value = mock.MagicMock(status_code=200)
 
         group_type_mapping = GroupTypeMapping.objects.create(
             team=self.team,
