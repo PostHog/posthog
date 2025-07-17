@@ -402,16 +402,12 @@ class FeatureFlagSerializer(
     def _check_flag_circular_dependencies(self, filters: dict, current_flag_key: str) -> None:
         """Check for circular dependencies in flag properties."""
 
-        def extract_flag_dependencies(filters: dict) -> set[str]:
-            """Extract all flag IDs that this flag depends on."""
-            dependencies = set()
+        def extract_flag_references(filters: dict) -> set[str]:
+            """Extract all flag references (keys and IDs) from filters."""
+            references = set()
             for group in filters.get("groups", []):
                 for prop in group.get("properties", []):
                     if prop.get("type") == "flag":
-                        # Property key can be:
-                        # - A numeric flag ID (e.g., "123")
-                        # - A flag key with $feature/ prefix (e.g., "$feature/my-flag")
-                        # - A flag key with $feature_flag/ prefix (e.g., "$feature_flag/my-flag")
                         flag_key = prop.get("key", "")
 
                         # Handle prefixed flag keys
@@ -421,73 +417,123 @@ class FeatureFlagSerializer(
                             flag_key = flag_key[14:]  # Remove "$feature_flag/" prefix
 
                         if flag_key:
-                            # If it's numeric, it's already a flag ID
-                            # Otherwise, we need to look up the flag by key to get its ID
-                            if flag_key.isdigit():
-                                dependencies.add(flag_key)
-                            else:
-                                try:
-                                    flag = FeatureFlag.objects.get(
-                                        key=flag_key, team_id=self.context["team_id"], deleted=False
-                                    )
-                                    dependencies.add(str(flag.id))
-                                except FeatureFlag.DoesNotExist:
-                                    pass  # Flag doesn't exist, skip it
-            return dependencies
+                            references.add(flag_key)
+            return references
 
-        # Get the current flag's ID
-        current_flag_id = None
-        if self.instance:
-            current_flag_id = str(self.instance.id)  # type: ignore[union-attr]
-        else:
-            # For new flags, we don't have an ID yet, so we'll use the key
-            # and convert dependent flags to use keys for comparison
-            current_flag_id = current_flag_key
+        # 1. Collect ALL flag references from the new filters
+        initial_references = extract_flag_references(filters)
+        if not initial_references:
+            return
 
-        # Build dependency graph and check for cycles
-        visited = set()
+        # 2. Iteratively build complete flag lookup maps with minimal queries
+        all_references = set(initial_references)
+        team_id = self.context["team_id"]
 
-        def has_cycle(flag_id: str, path: set[str]) -> bool:
-            """Check if there's a cycle starting from flag_id."""
-            if flag_id in path:
-                return True  # Cycle detected
+        # Build lookup maps iteratively
+        key_to_id = {}  # flag_key -> flag_id
+        id_to_flag = {}  # flag_id -> flag_data
 
-            if flag_id in visited:
-                return False  # Already checked, no cycle found
+        # We need to iteratively fetch flags because dependencies may reference flags
+        # not in the initial set
+        refs_to_fetch = set(all_references)
+        refs_fetched = set()
 
-            visited.add(flag_id)
-            new_path = path | {flag_id}
+        while refs_to_fetch - refs_fetched:
+            current_refs = refs_to_fetch - refs_fetched
 
-            # Get the flag's dependencies
-            try:
-                if flag_id.isdigit():
-                    flag = FeatureFlag.objects.get(id=int(flag_id), team_id=self.context["team_id"], deleted=False)
+            # Separate numeric IDs from keys for efficient querying
+            numeric_ids = {ref for ref in current_refs if ref.isdigit()}
+            flag_keys = {ref for ref in current_refs if not ref.isdigit()}
+
+            if not numeric_ids and not flag_keys:
+                break
+
+            # Single query to get all flags we need in this iteration
+            from django.db.models import Q
+
+            query_conditions = []
+            if numeric_ids:
+                query_conditions.append(Q(id__in=[int(id) for id in numeric_ids]))
+            if flag_keys:
+                query_conditions.append(Q(key__in=flag_keys))
+
+            if query_conditions:
+                flags_query = FeatureFlag.objects.filter(team_id=team_id, deleted=False)
+                if len(query_conditions) > 1:
+                    flags_query = flags_query.filter(query_conditions[0] | query_conditions[1])
                 else:
-                    # For new flags being created, flag_id might be a key
-                    flag = FeatureFlag.objects.get(key=flag_id, team_id=self.context["team_id"], deleted=False)
-                dependencies = extract_flag_dependencies(flag.filters)
+                    flags_query = flags_query.filter(query_conditions[0])
 
-                for dep_id in dependencies:
-                    if has_cycle(dep_id, new_path):
+                flags_data = flags_query.values("id", "key", "filters")
+
+                # Update lookup maps
+                for flag in flags_data:
+                    flag_id = str(flag["id"])
+                    flag_key = flag["key"]
+
+                    key_to_id[flag_key] = flag_id
+                    id_to_flag[flag_id] = flag
+
+                    # Also map numeric string IDs
+                    key_to_id[flag_id] = flag_id
+
+                    # Extract dependencies from this flag and add to refs_to_fetch
+                    deps = extract_flag_references(flag["filters"])
+                    refs_to_fetch.update(deps)
+
+            refs_fetched.update(current_refs)
+
+        # 3. Build complete dependency graph
+        dependency_graph = {}
+        for flag_id, flag_data in id_to_flag.items():
+            deps = extract_flag_references(flag_data["filters"])
+            # Convert to IDs, only include deps that we actually found
+            dep_ids = {key_to_id.get(dep) for dep in deps if key_to_id.get(dep)}
+            dependency_graph[flag_id] = dep_ids
+
+        def has_cycle_in_graph(start_id: str, graph: dict[str, set[str]]) -> bool:
+            """Check for cycles using pre-built graph."""
+            visited = set()
+            path = set()
+
+            def dfs(node_id: str) -> bool:
+                if node_id in path:
+                    return True
+                if node_id in visited:
+                    return False
+
+                visited.add(node_id)
+                path.add(node_id)
+
+                for dep_id in graph.get(node_id, set()):
+                    if dfs(dep_id):
                         return True
-            except FeatureFlag.DoesNotExist:
-                # Missing dependency is not a cycle
-                pass
 
-            return False
+                path.remove(node_id)
+                return False
 
-        # Check if this flag's new dependencies would create a cycle
-        new_dependencies = extract_flag_dependencies(filters)
-        for dep_id in new_dependencies:
-            if has_cycle(dep_id, {current_flag_id}):
-                # Get the flag name for a better error message
-                dep_flag_name = dep_id
-                try:
-                    if dep_id.isdigit():
-                        dep_flag = FeatureFlag.objects.get(id=int(dep_id), team_id=self.context["team_id"])
-                        dep_flag_name = dep_flag.key
-                except FeatureFlag.DoesNotExist:
-                    pass
+            return dfs(start_id)
+
+        # 4. Check each new dependency for cycles
+        current_flag_id = str(self.instance.id) if self.instance else current_flag_key
+
+        for ref in initial_references:
+            dep_id = key_to_id.get(ref, ref)
+
+            # Skip if dependency doesn't exist
+            if not dep_id or dep_id not in id_to_flag:
+                continue
+
+            # Temporarily add this dependency to current flag
+            temp_graph = dict(dependency_graph)
+            current_deps = temp_graph.get(current_flag_id, set())
+            temp_graph[current_flag_id] = current_deps | {dep_id}
+
+            if has_cycle_in_graph(current_flag_id, temp_graph):
+                # Get flag name for error
+                dep_flag_name = next(
+                    (flag_data["key"] for flag_id, flag_data in id_to_flag.items() if flag_id == dep_id), dep_id
+                )
 
                 raise serializers.ValidationError(
                     f"Circular dependency detected: This flag would depend on '{dep_flag_name}' "
