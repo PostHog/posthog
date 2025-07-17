@@ -303,11 +303,11 @@ export class IngestionConsumer {
             this.parseKafkaBatch(filteredMessages)
         )
 
-        const eventsWithPersonOverrides = this.applyPersonProcessingRestrictions(parsedMessages)
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
-            return this.resolveTeams(eventsWithPersonOverrides)
+            return this.resolveTeams(parsedMessages)
         })
-        const eventsWithValidUuids = await this.validateEventUuids(eventsWithTeams)
+        const eventsWithPersonOverrides = this.applyPersonProcessingRestrictions(eventsWithTeams)
+        const eventsWithValidUuids = await this.validateEventUuids(eventsWithPersonOverrides)
 
         const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithValidUuids)
 
@@ -625,9 +625,26 @@ export class IngestionConsumer {
         return Promise.resolve(batch)
     }
 
-    private applyPersonProcessingRestrictions(messages: IncomingEvent[]): IncomingEvent[] {
-        for (const { event } of messages) {
-            if (this.shouldSkipPerson(event.token, event.distinct_id)) {
+    private applyPersonProcessingRestrictions(messages: IncomingEventWithTeam[]): IncomingEventWithTeam[] {
+        for (const { event, team } of messages) {
+            let shouldSkipPerson = this.shouldSkipPerson(event.token, event.distinct_id)
+
+            // Check the env variable person processing overrides
+            if (event.token) {
+                const skipPersonsProcessingForDistinctIds = this.hub.eventsToSkipPersonsProcessingByToken.get(
+                    event.token
+                )
+                if (skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)) {
+                    shouldSkipPerson = true
+                }
+            }
+
+            // Check for team-level person processing opt-out setting
+            if (team.person_processing_opt_out) {
+                shouldSkipPerson = true
+            }
+
+            if (shouldSkipPerson) {
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
