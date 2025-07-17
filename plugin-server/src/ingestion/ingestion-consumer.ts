@@ -296,7 +296,10 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+        const filteredMessages = this.filterDroppedEvents(messages)
+        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () =>
+            this.parseKafkaBatch(filteredMessages)
+        )
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(parsedMessages)
@@ -573,8 +576,8 @@ export class IngestionConsumer {
         )
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {
-        const batch: IncomingEvent[] = []
+    private filterDroppedEvents(messages: Message[]): Message[] {
+        const filteredMessages: Message[] = []
 
         for (const message of messages) {
             let distinctId: string | undefined
@@ -595,18 +598,22 @@ export class IngestionConsumer {
                 continue
             }
 
+            filteredMessages.push(message)
+        }
+
+        return filteredMessages
+    }
+
+    private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {
+        const batch: IncomingEvent[] = []
+
+        for (const message of messages) {
             // Parse the message payload into the event object
             const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
             const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
-
-            // In case the headers were not set we check the parsed message now
-            if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
-                this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
-                continue
-            }
 
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
                 event.properties = {
