@@ -234,6 +234,36 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "$pageview"
 
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_event_definition_without_taxonomy_entitlement(self, mock_is_feature_available):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"name": "updated_event"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        event_definition.refresh_from_db()
+        self.assertEqual(event_definition.name, "updated_event")
+        self.assertEqual(response.json()["name"], "updated_event")
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_update_event_definition_with_taxonomy_entitlement(self, *mocks):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"verified": True},  # verified field only exists in enterprise serializer
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify the enterprise-only field was updated
+        self.assertEqual(response.json()["verified"], True)
+
 
 @dataclasses.dataclass
 class EventData:
