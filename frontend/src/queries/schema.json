@@ -10821,7 +10821,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "hogql"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {

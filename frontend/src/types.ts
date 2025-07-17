@@ -4045,6 +4045,7 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    HogQL = 'hogql',
 }
 
 export enum ActorGroupType {
