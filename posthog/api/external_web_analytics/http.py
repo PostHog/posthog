@@ -34,7 +34,6 @@ from .query_adapter import ExternalWebAnalyticsQueryAdapter
 TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [2]
 
 
-@extend_schema(tags=["web_analytics"])
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     """
     Provides access to web analytics data for a project. This is currently in beta, please contact support to enable it for your team.
@@ -85,7 +84,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
             response=WebAnalyticsOverviewResponseSerializer,
             description="Get simple overview metrics: visitors, views, sessions, bounce rate, session duration",
         ),
-        methods=["GET"],
         examples=[
             OpenApiExample(
                 "Overview Response",
@@ -121,7 +119,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
             response=WebAnalyticsTrendResponseSerializer,
             description="Get trends for visitors, views, or sessions.",
         ),
-        methods=["GET"],
         exclude=True,  # TODO: remove this once we support trend queries
         examples=[
             OpenApiExample(
@@ -160,7 +157,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
             response=WebAnalyticsBreakdownResponseSerializer,
             description="Get a breakdown of web analytics data by supported properties.",
         ),
-        methods=["GET"],
         examples=[
             OpenApiExample(
                 "Breakdown Response",
