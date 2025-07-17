@@ -126,7 +126,7 @@ export function DashboardHeader(): JSX.Element | null {
     }
     useEffect(() => {
         setIsPinned(dashboard?.pinned)
-    }, [dashboard?.pinned, dashboardLoading])
+    }, [dashboard?.pinned])
 
     return dashboard || dashboardLoading ? (
         <>
