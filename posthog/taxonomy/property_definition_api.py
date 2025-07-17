@@ -17,7 +17,6 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -456,7 +455,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         }
         # free users can update property type but no other properties on property definitions
         if set(changed_fields) == {"property_type"}:
-            changed_fields["updated_by"] = self.context["request"].user
             if changed_fields["property_type"] == "Numeric":
                 changed_fields["is_numerical"] = True
             else:
@@ -464,7 +462,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
             return super().update(property_definition, changed_fields)
         else:
-            raise EnterpriseFeatureException()
+            return super().update(property_definition, validated_data)
 
 
 class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
