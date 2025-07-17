@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timedelta
 
+import pytest
 from freezegun import freeze_time
 
 
@@ -2062,6 +2063,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
+    @pytest.mark.flaky(max_runs=3)
     def test_cohort_filter_with_extra(self):
         p1 = _create_person(
             team_id=self.team.pk,

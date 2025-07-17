@@ -69,16 +69,15 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let filtered_flags =
-                flags::fetch_and_filter(&flag_service, team.project_id, &request, &context.meta)
-                    .await?;
+            let (filtered_flags, had_flag_errors) =
+                flags::fetch_and_filter(&flag_service, team.project_id, &context.meta).await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let response = flags::evaluate_for_request(
+            let mut response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
                 team.project_id,
@@ -90,8 +89,14 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 property_overrides.hash_key,
                 context.request_id,
                 request.is_flags_disabled(),
+                request.flag_keys.clone(),
             )
             .await;
+
+            // Set error flag if there were deserialization errors
+            if had_flag_errors {
+                response.errors_while_computing_flags = true;
+            }
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {

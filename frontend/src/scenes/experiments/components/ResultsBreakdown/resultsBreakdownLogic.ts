@@ -106,7 +106,10 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         },
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
-                            breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                            /* We want to break down results by the flag value from the _first_ step
+                            which is the expsoure criteria */
+                            breakdownAttributionType: BreakdownAttributionType.Step,
+                            breakdownAttributionValue: 0,
                             funnelOrderType:
                                 (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
                                 StepOrderValue.ORDERED,

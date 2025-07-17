@@ -42,6 +42,7 @@ const team: Team = {
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    drop_events_older_than_seconds: null,
 }
 
 describe('Event Pipeline integration test', () => {
@@ -72,7 +73,7 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(

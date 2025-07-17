@@ -24,18 +24,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
-    /**
-     * Processes a single invocation. This is the core of the worker and is responsible for executing the hog code and any fetch requests.
-     */
-    private async processInvocation(
-        invocation: CyclotronJobInvocationHogFunction
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        return await this.hogExecutor.executeWithAsyncFunctions(invocation)
-    }
-
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
-        return await Promise.all(loadedInvocations.map((item) => this.processInvocation(item)))
+        return await Promise.all(loadedInvocations.map((item) => this.hogExecutor.executeWithAsyncFunctions(item)))
     }
 
     protected async loadHogFunctions(

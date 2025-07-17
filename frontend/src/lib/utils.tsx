@@ -452,6 +452,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
+}
+
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(resolve, ms)
@@ -1145,6 +1149,19 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     return response
 }
 
+export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    if (isStringDateRegex.test(date)) {
+        return true
+    }
+    if (dayjs(date).isValid()) {
+        return true
+    }
+    if (date === 'all') {
+        return true
+    }
+    return false
+}
+
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
     // use the default mapping if we can
     for (const mapping of dateMapping) {
@@ -1163,6 +1180,15 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     }
 
     if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        (parsedDateFrom?.unit === 'month' && parsedDateFrom.amount <= 3) ||
+        (parsedDateTo?.unit === 'month' && parsedDateTo.amount <= 3) ||
+        (parsedDateFrom?.unit === 'quarter' && parsedDateFrom.amount <= 1) ||
+        (parsedDateTo?.unit === 'quarter' && parsedDateTo.amount <= 1)
+    ) {
         return 'day'
     }
 
@@ -1543,6 +1569,17 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     }
 }
 
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
+}
+
 export function humanTzOffset(timezone?: string): string {
     const offset = dayjs().tz(timezone).utcOffset() / 60
     if (!offset) {
@@ -1911,6 +1948,17 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
     return timeValue
 }
 
+// Compute the ISO week string for a given date
+// Useful above to show the toast once per week
+export function getISOWeekString(date = new Date()): string {
+    const dayjs_date = dayjs(date)
+
+    const year = dayjs_date.year()
+    const week = dayjs_date.week()
+
+    return `${year}-W${week}`
+}
+
 export function range(startOrEnd: number, end?: number): number[] {
     let length = startOrEnd
     let start = 0
@@ -2108,4 +2156,11 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     } catch {
         return null
     }
+}
+
+export function escapeHtml(raw: string): string {
+    // renders a string safe to use in dangerouslySetInnerHTML
+    const div = document.createElement('div')
+    div.textContent = raw
+    return div.innerHTML
 }

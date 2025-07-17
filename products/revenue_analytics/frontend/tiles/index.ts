@@ -1,5 +1,6 @@
-export { GrossRevenueTile } from './GrossRevenueTile'
+export { ArpuTile } from './ArpuTile'
+export { CustomerCountTile } from './CustomerCountTile'
 export { OverviewTile } from './OverviewTile'
-export { RevenueTile } from './RevenueTile'
 export { RevenueGrowthRateTile } from './RevenueGrowthRateTile'
+export { RevenueTile } from './RevenueTile'
 export { TopCustomersTile } from './TopCustomersTile'

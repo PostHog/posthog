@@ -16,7 +16,7 @@ import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import { createMaxContextHelpers, MaxContextInput } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -84,7 +84,8 @@ export interface RefreshStatus {
     /** Insight is currently loading */
     loading?: boolean
     refreshed?: boolean
-    error?: boolean
+    error?: Error
+    errored?: boolean
     timer?: Date | null
 }
 
@@ -104,7 +105,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic, maxContextLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -182,7 +183,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setPageVisibility: (visible: boolean) => ({ visible }),
-        setRefreshError: (shortId: InsightShortId) => ({ shortId }),
+        setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
@@ -230,7 +231,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardType<QueryBasedInsightModel> | null,
             {
                 /**
-                 * TRICKY:Load dashboard only gets the dashboard meta + cached insights (as we pass `force_cache`)
+                 * TRICKY: Load dashboard only gets the dashboard meta + cached insights (as we pass `force_cache`)
                  * if manualDashboardRefresh is passed then in loadDashboardSuccess we trigger
                  * updateDashboardItems to refresh all insights with `force_blocking`
                  */
@@ -752,9 +753,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
-                setRefreshError: (state, { shortId }) => ({
+                setRefreshError: (state, { shortId, error }) => ({
                     ...state,
-                    [shortId]: { error: true, timer: state[shortId]?.timer || null },
+                    [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 updateDashboardItems: () => ({}),
                 abortQuery: () => ({}),
@@ -1165,6 +1166,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         // NOTE: noCache is used to prevent the dashboard from using cached results from previous loads when url variables override
         noCache: [(s) => [s.urlVariables], (urlVariables) => Object.keys(urlVariables).length > 0],
+        maxContext: [
+            (s) => [s.dashboard],
+            (dashboard): MaxContextInput[] => {
+                if (!dashboard) {
+                    return []
+                }
+
+                return [createMaxContextHelpers.dashboard(dashboard)]
+            },
+        ],
     })),
     events(({ actions, cache, props }) => ({
         afterMount: () => {
@@ -1189,8 +1200,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
-            // Clear dashboard context when unmounting
-            maxContextLogic.actions.clearActiveDashboard()
         },
     })),
     sharedListeners(({ values, props }) => ({
@@ -1332,8 +1341,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
-            } catch {
-                actions.setRefreshError(insight.short_id)
+            } catch (e: any) {
+                actions.setRefreshError(insight.short_id, e)
             }
         },
         updateDashboardItems: async ({ tiles, action, manualDashboardRefresh }, breakpoint) => {
@@ -1391,7 +1400,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime })
                         } else {
-                            actions.setRefreshError(insight.short_id)
+                            actions.setRefreshError(insight.short_id, e)
                         }
                     }
                 })
@@ -1494,9 +1503,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!values.dashboard) {
                 return // We hit a 404
             }
-
-            // Set dashboard context for Max AI
-            maxContextLogic.actions.setActiveDashboard(values.dashboard)
 
             // access stored values from dashboardLoadData
             // as we can't pass them down to this listener

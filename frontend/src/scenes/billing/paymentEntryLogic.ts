@@ -116,10 +116,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                 actions.setClientSecret(response.clientSecret)
                 actions.setLoading(false)
             } catch (error) {
-                posthog.capture('payment entry api error', {
-                    error,
-                    type: 'initiate authorization error',
-                })
+                posthog.captureException(
+                    new Error('payment entry api error - initiate authorization error', { cause: error })
+                )
                 actions.setApiError('Failed to initialize payment')
                 actions.setLoading(false)
             }
@@ -159,10 +158,11 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         return
                     } else if (status === 'failed') {
                         actions.setApiError(errorMessage)
-                        posthog.capture('payment entry api error', {
-                            error_message: errorMessage,
-                            type: 'authorization status failed',
-                        })
+                        posthog.captureException(
+                            new Error('payment entry api error - authorization status failed', {
+                                cause: new Error(errorMessage),
+                            })
+                        )
                         return
                     }
 
@@ -171,13 +171,15 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         setTimeout(() => void poll(), pollInterval)
                     } else {
                         actions.setApiError('Payment status check timed out')
-                        posthog.capture('payment entry api error', {
-                            error_message: errorMessage,
-                            type: 'authorization status timed out',
-                        })
+                        posthog.captureException(
+                            new Error('payment entry api error - authorization status timed out', {
+                                cause: new Error(errorMessage),
+                            })
+                        )
                     }
-                } catch {
+                } catch (error) {
                     actions.setStripeError('Failed to complete. Please refresh the page and try again.')
+                    posthog.captureException(new Error('payment entry api error', { cause: error }))
                 } finally {
                     actions.setLoading(false)
                     actions.setClientSecret(null)
@@ -186,6 +188,12 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             }
 
             await poll()
+        },
+
+        hidePaymentEntryModal: () => {
+            // Clear client secret when modal is closed to ensure a fresh one is used next time
+            actions.setClientSecret(null)
+            actions.clearErrors()
         },
     }),
 })

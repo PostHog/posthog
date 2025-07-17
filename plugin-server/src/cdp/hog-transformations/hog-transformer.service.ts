@@ -70,13 +70,10 @@ export class HogTransformerService {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
-    public async start(): Promise<void> {
-        await this.hogFunctionManager.start()
-    }
+    public async start(): Promise<void> {}
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
-        await this.hogFunctionManager.stop()
         await this.redis.useClient({ name: 'cleanup' }, async (client) => {
             await client.quit()
         })
@@ -115,8 +112,8 @@ export class HogTransformerService {
         return {
             project: {
                 id: event.team_id,
-                name: 'WHERE TO GET THIS FROM??',
-                url: this.hub.SITE_URL ?? 'http://localhost:8000',
+                name: '',
+                url: this.hub.SITE_URL,
             },
             event: {
                 uuid: event.uuid,

@@ -1,64 +1,42 @@
-from django.conf import settings
-
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
-CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
-CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
 
-
-def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
-    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
-    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+def TABLE_TEMPLATE(table_name, columns, order_by):
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
     (
         period_bucket DateTime,
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
-    PARTITION BY toYYYYMM(period_bucket)
+    PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=None):
-    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
-    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
     (
         period_bucket DateTime,
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
     ORDER BY {order_by}
+    PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
     {ttl_clause}
-    """
-
-
-def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granularity="daily"):
-    return f"""
-    CREATE TABLE IF NOT EXISTS {dist_table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-    (
-        period_bucket DateTime,
-        team_id UInt64,
-        host String,
-        device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
-        {columns}
-    ) ENGINE = Distributed('{CLICKHOUSE_CLUSTER}', '{CLICKHOUSE_DATABASE}', {base_table_name}, rand())
     """
 
 
@@ -129,56 +107,52 @@ def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
 
 
-def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
-    """Create both a local and distributed table with the same schema"""
-    base_sql = TABLE_TEMPLATE(base_table_name, columns, order_by, on_cluster)
-    dist_sql = DISTRIBUTED_TABLE_TEMPLATE(
-        f"{base_table_name}_distributed", base_table_name, columns, granularity="daily"
-    )
-    return base_sql, dist_sql
+def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
+    """
+    Generate SQL to drop a partition for a specific date.
+    This enables idempotent operations by ensuring clean state before insertion.
+
+    Args:
+        table_name: Name of the table
+        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
+        granularity: "daily" or "hourly" - determines partition format
+    """
+
+    if granularity == "hourly":
+        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
+        if " " in date_start:
+            date_part, hour_part = date_start.split(" ")
+            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
+        else:
+            # If only date provided for hourly, format as "YYYYMMDD00"
+            partition_id = date_start.replace("-", "") + "00"
+    else:
+        # For daily: format date as YYYYMMDD
+        partition_id = date_start.replace("-", "")
+
+    return f"""
+    ALTER TABLE {table_name}
+    DROP PARTITION '{partition_id}'
+    """
 
 
-def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=True):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
 
 
-def DISTRIBUTED_WEB_STATS_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS, granularity="daily"
-    )
+def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
 
 
-def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", on_cluster=True):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
-
-
-def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_bounces_daily_distributed", "web_bounces_daily", WEB_BOUNCES_COLUMNS, granularity="daily"
-    )
-
-
-def WEB_STATS_HOURLY_SQL(on_cluster=True):
+def WEB_STATS_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
-        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster, ttl="24 HOUR"
+        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
     )
 
 
-def DISTRIBUTED_WEB_STATS_HOURLY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_stats_hourly_distributed", "web_stats_hourly", WEB_STATS_COLUMNS, granularity="hourly"
-    )
-
-
-def WEB_BOUNCES_HOURLY_SQL(on_cluster=True):
+def WEB_BOUNCES_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
-        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster, ttl="24 HOUR"
-    )
-
-
-def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_bounces_hourly_distributed", "web_bounces_hourly", WEB_BOUNCES_COLUMNS, granularity="hourly"
+        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
     )
 
 
@@ -217,22 +191,28 @@ def get_insert_params(team_ids, granularity="daily"):
 
 
 def WEB_STATS_INSERT_SQL(
-    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", granularity="daily"
+    date_start,
+    date_end,
+    team_ids=None,
+    timezone="UTC",
+    settings="",
+    table_name="web_stats_daily",
+    granularity="daily",
+    select_only=False,
 ):
     params = get_insert_params(team_ids, granularity)
     team_filter = params["team_filter"]
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
-    return f"""
-    INSERT INTO {table_name}
+    query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
         host,
         device_type,
-        now() AS updated_at,
         entry_pathname,
         pathname,
         end_pathname,
@@ -262,8 +242,8 @@ def WEB_STATS_INSERT_SQL(
             e.mat_$device_type AS device_type,
             e.mat_$browser AS browser,
             e.mat_$os AS os,
-            e.mat_$viewport_width AS viewport_width,
-            e.mat_$viewport_height AS viewport_height,
+            accurateCastOrNull(e.mat_$viewport_width, 'Int64') AS viewport_width,
+            accurateCastOrNull(e.mat_$viewport_height, 'Int64') AS viewport_height,
             e.mat_$geoip_country_code AS country_code,
             e.mat_$geoip_city_name AS city_name,
             e.mat_$geoip_subdivision_1_code AS region_code,
@@ -301,11 +281,11 @@ def WEB_STATS_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
@@ -316,7 +296,7 @@ def WEB_STATS_INSERT_SQL(
             WHERE {person_team_filter}
             GROUP BY person_distinct_id_overrides.distinct_id
             HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
@@ -345,7 +325,7 @@ def WEB_STATS_INSERT_SQL(
             city_name,
             region_code,
             region_name
-        SETTINGS {settings}
+        {settings_clause}
     )
     GROUP BY
         period_bucket,
@@ -369,8 +349,13 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name
-    SETTINGS {settings}
+    {settings_clause}
     """
+
+    if select_only:
+        return query
+    else:
+        return f"INSERT INTO {table_name}\n{query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
@@ -389,13 +374,14 @@ def WEB_BOUNCES_INSERT_SQL(
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
 
+    settings_clause = f"SETTINGS {settings}" if settings else ""
+
     query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
         host,
         device_type,
-        now() AS updated_at,
         entry_pathname,
         end_pathname,
         browser,
@@ -439,8 +425,8 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$device_type) AS device_type,
             any(e.mat_$browser) AS browser,
             any(e.mat_$os) AS os,
-            any(e.mat_$viewport_width) AS viewport_width,
-            any(e.mat_$viewport_height) AS viewport_height,
+            accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
+            accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -477,8 +463,8 @@ def WEB_BOUNCES_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY raw_sessions.session_id_v7
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
@@ -521,7 +507,7 @@ def WEB_BOUNCES_INSERT_SQL(
         os,
         viewport_width,
         viewport_height
-    {"SETTINGS " + settings if settings and not select_only else ""}
+    {settings_clause}
     """
 
     if select_only:
@@ -594,12 +580,12 @@ def WEB_BOUNCES_EXPORT_SQL(
     """
 
 
-def create_combined_view_sql(table_prefix, on_cluster=True):
+def create_combined_view_sql(table_prefix):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_prefix}_combined {ON_CLUSTER_CLAUSE(on_cluster)} AS
-    SELECT * FROM {table_prefix}_daily FINAL WHERE period_bucket < toStartOfDay(now(), 'UTC')
+    CREATE VIEW IF NOT EXISTS {table_prefix}_combined AS
+    SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
-    SELECT * FROM {table_prefix}_hourly FINAL WHERE period_bucket >= toStartOfDay(now(), 'UTC')
+    SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
     """
 
 

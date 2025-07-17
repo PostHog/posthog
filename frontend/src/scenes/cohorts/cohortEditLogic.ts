@@ -3,11 +3,9 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { v4 as uuidv4 } from 'uuid'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
@@ -19,6 +17,7 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
+import { v4 as uuidv4 } from 'uuid'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
@@ -110,7 +109,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return applyAllCriteriaGroup(state, (groupList) => [
                         ...groupList.slice(0, groupIndex),
-                        groupList[groupIndex],
+                        {
+                            ...groupList[groupIndex],
+                            sort_key: uuidv4(),
+                        },
                         ...groupList.slice(groupIndex),
                     ])
                 },
@@ -122,7 +124,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) => [...groupList, NEW_CRITERIA_GROUP])
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList,
+                        { ...NEW_CRITERIA_GROUP, sort_key: uuidv4() },
+                    ])
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
@@ -202,10 +207,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Untitled/Cohorts',
-                        callback: (folder) => actions.saveCohort({ ...cohort, _create_in_folder: folder }),
-                    })
+                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
                 }
             },
         },

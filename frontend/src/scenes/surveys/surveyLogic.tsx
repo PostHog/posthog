@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -51,6 +50,7 @@ import {
     SurveyStats,
 } from '~/types'
 
+import posthog from 'posthog-js'
 import {
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
@@ -535,6 +535,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
+        setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -624,20 +625,49 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
+                try {
+                    const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
-                lemonToast.success('Survey duplicated.', {
-                    toastId: `survey-duplicated-${createdSurvey.id}`,
+                    lemonToast.success('Survey duplicated.', {
+                        toastId: `survey-duplicated-${createdSurvey.id}`,
+                        button: {
+                            label: 'View Survey',
+                            action: () => {
+                                router.actions.push(urls.survey(createdSurvey.id))
+                            },
+                        },
+                    })
+
+                    actions.reportSurveyCreated(createdSurvey, true)
+                    return survey
+                } catch (error) {
+                    posthog.captureException('Error duplicating survey', {
+                        error,
+                        survey: payload,
+                    })
+                    lemonToast.error('Error while duplicating survey. Please try again.')
+                    return null
+                }
+            },
+        },
+        duplicatedToProjectSurvey: {
+            duplicateToProject: async ({ sourceSurvey, targetTeamId }) => {
+                const payload = duplicateExistingSurvey(sourceSurvey)
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload), targetTeamId)
+
+                lemonToast.success('Survey duplicated to another project.', {
+                    toastId: `survey-duplicated-to-project-${createdSurvey.id}`,
                     button: {
                         label: 'View Survey',
                         action: () => {
-                            router.actions.push(urls.survey(createdSurvey.id))
+                            window.open(`${window.location.origin}/project/${targetTeamId}/surveys/${createdSurvey.id}`)
                         },
                     },
                 })
 
                 actions.reportSurveyCreated(createdSurvey, true)
-                return survey
+                actions.setIsDuplicateToProjectModalOpen(false)
+                return sourceSurvey
             },
         },
         surveyBaseStats: {
@@ -905,6 +935,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
+            },
+        ],
+        isDuplicateToProjectModalOpen: [
+            false,
+            {
+                setIsDuplicateToProjectModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         surveyMissing: [
@@ -1760,18 +1796,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(payload)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Surveys',
-                        callback: (folder) =>
-                            actions.createSurvey(
-                                typeof folder === 'string'
-                                    ? {
-                                          ...payload,
-                                          _create_in_folder: folder,
-                                      }
-                                    : payload
-                            ),
-                    })
+                    actions.createSurvey({ ...payload, _create_in_folder: 'Unfiled/Surveys' })
                 }
             },
         },

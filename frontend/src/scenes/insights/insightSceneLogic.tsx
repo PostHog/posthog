@@ -1,6 +1,5 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import { CombinedLocation } from 'kea-router/lib/utils'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import { AlertType } from 'lib/components/Alerts/types'
 import { isEmptyObject } from 'lib/utils'
@@ -26,12 +25,17 @@ import {
     InsightType,
     ItemMode,
     ProjectTreeRef,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
-import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
+import { parseDraftQueryFromURL } from './utils'
+import api from 'lib/api'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
+
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -91,8 +95,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
-        setOpenedWithQuery: (query: Node | null) => ({ query }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
+        upgradeQuery: (query: Node) => ({ query }),
     }),
     reducers({
         insightId: [
@@ -169,7 +173,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
-        openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors(() => ({
@@ -232,6 +235,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     : null
             },
         ],
+        maxContext: [
+            (s) => [s.insight],
+            (insight: Partial<QueryBasedInsightModel>): MaxContextInput[] => {
+                if (!insight || !insight.short_id || !insight.query) {
+                    return []
+                }
+                return [createMaxContextHelpers.insight(insight)]
+            },
+        ],
     })),
     sharedListeners(({ actions, values }) => ({
         reloadInsightLogic: () => {
@@ -274,9 +286,31 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners }) => ({
+    listeners(({ sharedListeners, values }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
+        upgradeQuery: async ({ query }) => {
+            let upgradedQuery: Node | null = null
+
+            if (!checkLatestVersionsOnQuery(query)) {
+                const response = await api.schema.queryUpgrade({ query })
+                upgradedQuery = response.query
+            } else {
+                upgradedQuery = query
+            }
+
+            values.insightLogicRef?.logic.actions.setInsight(
+                {
+                    ...createEmptyInsight('new'),
+                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                    query: upgradedQuery,
+                },
+                {
+                    fromPersistentApi: false,
+                    overrideQuery: true,
+                }
+            )
+        },
     })),
     urlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
@@ -342,10 +376,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             let queryFromUrl: Node | null = null
+            let validatingQuery = false
             if (q) {
                 const validQuery = parseDraftQueryFromURL(q)
                 if (validQuery) {
-                    queryFromUrl = validQuery
+                    validatingQuery = true
+                    actions.upgradeQuery(validQuery)
                 } else {
                     console.error('Invalid query', q)
                 }
@@ -356,7 +392,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             actions.setFreshQuery(false)
 
             // reset the insight's state if we have to
-            if (initial || queryFromUrl || method === 'PUSH') {
+            if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new') {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
@@ -375,29 +411,38 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
-                    actions.setOpenedWithQuery(query)
-
                     eventUsageLogic.actions.reportInsightCreated(query)
                 }
             }
         },
     })),
     actionToUrl(({ values }) => {
-        // Use the browser redirect to determine state to hook into beforeunload prevention
         const actionToUrl = ({
             insightMode = values.insightMode,
             insightId = values.insightId,
         }: {
             insightMode?: ItemMode
             insightId?: InsightShortId | 'new' | null
-        }): string | undefined => {
-            if (!insightId || insightId === 'new') {
-                return undefined
-            }
+        }): [
+            string,
+            string | Record<string, any> | undefined,
+            string | Record<string, any> | undefined,
+            { replace?: boolean }
+        ] => {
+            const baseUrl =
+                !insightId || insightId === 'new'
+                    ? urls.insightNew()
+                    : insightMode === ItemMode.View
+                    ? urls.insightView(insightId)
+                    : urls.insightEdit(insightId)
+            const searchParams = router.values.currentLocation.searchParams
+            // TODO: also kepe these in the URL?
+            // const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
+            const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
+            const query = values.insightDataLogicRef?.logic.values.query
+            const hashParams = queryChanged ? { q: query } : undefined
 
-            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
-            const searchParams = window.location.search
-            return searchParams ? `${baseUrl}${searchParams}` : baseUrl
+            return [baseUrl, searchParams, hashParams, { replace: true }]
         }
 
         return {
@@ -405,53 +450,4 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightMode: actionToUrl,
         }
     }),
-    beforeUnload(({ values }) => ({
-        enabled: (newLocation?: CombinedLocation) => {
-            // Don't run this check on other scenes
-            if (values.activeScene !== Scene.Insight) {
-                return false
-            }
-
-            if (values.disableNavigationHooks) {
-                return false
-            }
-
-            // If just the hash or project part changes, don't show the prompt
-            const currentPathname = router.values.currentLocation.pathname.replace(/\/project\/\d+/, '')
-            const newPathname = newLocation?.pathname.replace(/\/project\/\d+/, '')
-            if (currentPathname === newPathname) {
-                return false
-            }
-
-            // Don't show the prompt if we're in edit mode (just exploring)
-            if (values.insightMode !== ItemMode.Edit) {
-                return false
-            }
-
-            const metadataChanged = !!values.insightLogicRef?.logic.values.insightChanged
-            const queryChanged = !!values.insightDataLogicRef?.logic.values.queryChanged
-            const draftQueryFromLocalStorage = localStorage.getItem(`draft-query-${values.currentTeamId}`)
-            let draftQuery: { query: Node; timestamp: number } | null = null
-            if (draftQueryFromLocalStorage) {
-                const parsedQuery = parseDraftQueryFromLocalStorage(draftQueryFromLocalStorage)
-                if (parsedQuery) {
-                    draftQuery = parsedQuery
-                } else {
-                    // If the draft query is invalid, remove it
-                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
-                }
-            }
-            const query = values.insightDataLogicRef?.logic.values.query
-
-            if (draftQuery && query && objectsEqual(draftQuery.query, query)) {
-                return false
-            }
-
-            return metadataChanged || queryChanged
-        },
-        message: 'Leave insight?\nChanges you made will be discarded.',
-        onConfirm: () => {
-            values.insightDataLogicRef?.logic.actions.cancelChanges()
-        },
-    })),
 ])

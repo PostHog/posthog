@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { TopicMessage } from '../../../kafka/producer'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
@@ -141,13 +142,17 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         this.databaseOperationCounts = new Map()
     }
 
-    async flush(): Promise<void> {
+    getGroupCache(): GroupCache {
+        return this.groupCache
+    }
+
+    async flush(): Promise<TopicMessage[]> {
         const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
             const [_, update] = entry
             return update !== null && update.needsWrite
         })
         if (pendingUpdates.length === 0) {
-            return
+            return []
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
@@ -156,6 +161,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             await Promise.all(
                 pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
             )
+            return []
         } catch (error) {
             logger.error('Failed to flush group updates', {
                 error,
@@ -258,6 +264,13 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {
+        logger.info('🔁', 'Adding to batch', {
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            timestamp,
+        })
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
 
         if (!group) {
@@ -273,19 +286,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
 
-        logger.info('👥', 'adding group to batch, group already exists', {
-            teamId,
-            groupTypeIndex,
-            groupKey,
-        })
-
         const propertiesUpdate = calculateUpdate(group.group_properties || {}, properties)
         if (propertiesUpdate.updated) {
-            logger.info('👥', 'adding group to batch, group properties updated', {
-                teamId,
-                groupTypeIndex,
-                groupKey,
-            })
             this.groupCache.set(teamId, groupKey, {
                 team_id: teamId,
                 group_type_index: groupTypeIndex,
@@ -561,6 +563,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
         if (error instanceof RaceConditionError) {
+            // Remove from cache to prevent retry, the group was already created by another thread
+            this.groupCache.delete(teamId, groupKey)
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error

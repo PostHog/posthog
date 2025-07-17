@@ -8,6 +8,7 @@ from typing import Literal, get_args
 # WARNING: Make sure to keep in sync with the frontend!
 APIScopeObject = Literal[
     "action",
+    "access_control",
     "activity_log",
     "annotation",
     "batch_export",

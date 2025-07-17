@@ -1,7 +1,8 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
+    RevenueAnalyticsArpuNode,
+    RevenueAnalyticsCustomerCountNode,
     RevenueAnalyticsGrowthRateNode,
-    RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsOverviewNode,
     RevenueAnalyticsRevenueNode,
     RevenueAnalyticsTopCustomersNode,
@@ -37,8 +38,9 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsArpuQuery,
+    isRevenueAnalyticsCustomerCountQuery,
     isRevenueAnalyticsGrowthRateQuery,
-    isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsOverviewQuery,
     isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
@@ -155,9 +157,13 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
+    } else if (isRevenueAnalyticsArpuQuery(query)) {
         component = (
-            <RevenueAnalyticsGrossRevenueNode
+            <RevenueAnalyticsArpuNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsCustomerCountQuery(query)) {
+        component = (
+            <RevenueAnalyticsCustomerCountNode
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}

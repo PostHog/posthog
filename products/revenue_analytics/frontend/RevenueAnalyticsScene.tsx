@@ -1,5 +1,5 @@
 import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -9,14 +9,20 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
+import { PipelineStage, ProductKey } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { GrossRevenueTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile, RevenueTile } from './tiles'
+import {
+    ArpuTile,
+    CustomerCountTile,
+    OverviewTile,
+    RevenueGrowthRateTile,
+    RevenueTile,
+    TopCustomersTile,
+} from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -32,7 +38,6 @@ const PRODUCT_THING_NAME = 'revenue'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         return (
@@ -51,7 +56,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         type="primary"
                         icon={<IconPlus />}
                         onClick={() => {
-                            openSidePanel(SidePanelTab.FeaturePreviews, FEATURE_FLAGS.REVENUE_ANALYTICS)
+                            router.actions.push(urls.settings('user-feature-previews'))
                         }}
                         data-attr="activate-revenue-analytics"
                     >
@@ -92,7 +97,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     )
 
     return (
-        <div>
+        <div className="RevenueAnalyticsDashboard">
             <LemonBanner
                 type="info"
                 dismissKey="revenue-analytics-beta-banner"
@@ -192,12 +197,11 @@ const RevenueAnalyticsTables = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
-            <GrossRevenueTile />
-            <RevenueTile />
 
-            <LemonDivider className="mt-6" />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <RevenueTile />
+                <ArpuTile />
+                <CustomerCountTile />
                 <RevenueGrowthRateTile />
                 <TopCustomersTile />
             </div>

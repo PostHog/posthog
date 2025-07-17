@@ -158,7 +158,7 @@ async def batch_embed_actions(
             raise maybe_vector
 
         if isinstance(maybe_vector, BaseException):
-            posthoganalytics.capture_exception(maybe_vector, additional_properties={"tag": "max_ai"})
+            posthoganalytics.capture_exception(maybe_vector, properties={"tag": "max_ai"})
             logger.exception("Error embedding actions", error=maybe_vector)
             continue
         for action, embedding in zip(action_batch, maybe_vector):

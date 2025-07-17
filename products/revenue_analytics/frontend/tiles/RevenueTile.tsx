@@ -11,8 +11,6 @@ import {
     revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const QUERY_ID = RevenueAnalyticsQuery.REVENUE
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -21,16 +19,11 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-export const RevenueTile = (): JSX.Element | null => {
+export const RevenueTile = (): JSX.Element => {
     const { queries } = useValues(revenueAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const query = queries[QUERY_ID]
     const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
-
-    if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_MRR]) {
-        return null
-    }
 
     return <Query query={query} readOnly context={context} />
 }

@@ -61,6 +61,7 @@ import {
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -69,7 +70,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow',
+                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
                 className
             )}
         >
@@ -123,7 +124,7 @@ function MessageGroupContainer({
     return (
         <div
             className={twMerge(
-                'relative flex gap-2',
+                'relative flex gap-1.5',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
                 className
             )}
@@ -160,7 +161,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
             </Tooltip>
             <div
                 className={clsx(
-                    'flex flex-col gap-2 min-w-0 w-full',
+                    'flex flex-col gap-1.5 min-w-0 w-full',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}
             >
@@ -214,7 +215,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5">
                                     <Spinner className="text-xl" />
                                     <span>{message.content}…</span>
                                 </div>
@@ -252,9 +253,9 @@ function MessageGroupSkeleton({
     className?: string
 }): JSX.Element {
     return (
-        <MessageGroupContainer className={clsx('mb-4 items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden @md/thread:flex" />
-            <LemonSkeleton className="h-10 w-3/5" />
+        <MessageGroupContainer className={clsx('items-center', className)} groupType={groupType}>
+            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
+            <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageGroupContainer>
     )
 }
@@ -355,7 +356,7 @@ interface AssistantMessageFormProps {
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
     return (
-        <div className="flex flex-wrap gap-2 mt-1">
+        <div className="flex flex-wrap gap-1.5 mt-1">
             {form.options.map((option) => (
                 <LemonButton
                     key={option.value}
@@ -416,7 +417,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                   >
                       {!isCollapsed && <Query query={query} readOnly embedded />}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                               <LemonButton
                                   sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
                                   onClick={() => setIsSummaryShown(!isSummaryShown)}
@@ -429,7 +430,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                   </h5>
                               </LemonButton>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                               {isEditingInsight ? (
                                   <LemonButton
                                       onClick={() => {
@@ -485,7 +486,7 @@ function RetriableFailureActions(): JSX.Element {
             size="xsmall"
             tooltip="Try again"
             onClick={() => retryLastMessage()}
-            className="ml-1 -mb-1"
+            className="ml-1"
         >
             Try again
         </LemonButton>
@@ -495,6 +496,8 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
+    const { submitZendeskTicket } = useActions(supportLogic)
+    const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -512,16 +515,29 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId) {
+        if (!feedback || !traceId || !user) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
+        // Also create a support ticket for thumbs down feedback, for the support hero to see
+        submitZendeskTicket({
+            name: user.first_name,
+            email: user.email,
+            kind: 'feedback',
+            target_area: 'max-ai',
+            severity_level: 'medium',
+            message: [
+                feedback,
+                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
+                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+            ].join('\n'),
+        })
     }
 
     return (
         <>
-            <div className="flex items-center ml-1 -mb-1">
+            <div className="flex items-center ml-1">
                 {rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
@@ -562,11 +578,13 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                             icon={<IconX />}
                             type="tertiary"
                             size="xsmall"
-                            onClick={() => setFeedbackInputStatus('hidden')}
+                            onClick={() => {
+                                setFeedbackInputStatus('hidden')
+                            }}
                         />
                     </div>
                     {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-2 items-center mt-1.5">
+                        <div className="flex w-full gap-1.5 items-center mt-1.5">
                             <LemonInput
                                 placeholder="Help us improve Max…"
                                 fullWidth

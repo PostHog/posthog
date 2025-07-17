@@ -31,6 +31,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
+from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
@@ -38,6 +39,7 @@ from posthog.schema import (
     DashboardFilter,
     DateRange,
     EventsQuery,
+    SessionBatchEventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
@@ -151,6 +153,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     ActorsQuery,
     EventsQuery,
+    SessionBatchEventsQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -254,6 +257,16 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "SessionBatchEventsQuery":
+        from .ai.session_batch_events_query_runner import SessionBatchEventsQueryRunner
+
+        return SessionBatchEventsQueryRunner(
+            query=cast(SessionBatchEventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -409,12 +422,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrowthRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
-            RevenueAnalyticsGrowthRateQueryRunner,
+    if kind == "RevenueAnalyticsArpuQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_arpu_query_runner import (
+            RevenueAnalyticsArpuQueryRunner,
         )
 
-        return RevenueAnalyticsGrowthRateQueryRunner(
+        return RevenueAnalyticsArpuQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -422,12 +435,25 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrossRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-            RevenueAnalyticsGrossRevenueQueryRunner,
+    if kind == "RevenueAnalyticsCustomerCountQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
+            RevenueAnalyticsCustomerCountQueryRunner,
         )
 
-        return RevenueAnalyticsGrossRevenueQueryRunner(
+        return RevenueAnalyticsCustomerCountQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
+        )
+
+        return RevenueAnalyticsGrowthRateQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -668,6 +694,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
 
@@ -1005,6 +1032,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "hogql_modifiers": to_dict(self.modifiers),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
+            "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
 

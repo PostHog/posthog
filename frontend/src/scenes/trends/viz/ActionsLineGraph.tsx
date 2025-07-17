@@ -14,6 +14,7 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -35,14 +36,16 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         showLegend,
         hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
         showMultipleYAxes,
         goalLines,
+        insightData,
     } = useValues(trendsDataLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const { alertThresholdLines } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
@@ -121,7 +124,7 @@ export function ActionsLineGraph({
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 context?.onDataPointClick ||
-                (showPersonsModal && !isMultiSeriesFormula(formula) && !isDataWarehouseSeries)
+                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
                     ? (payload) => {
                           const { index, points } = payload
 
@@ -153,7 +156,13 @@ export function ActionsLineGraph({
                               (label: string) => (
                                   <>
                                       {label} on{' '}
-                                      <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
+                                      <DateDisplay
+                                          interval={interval || 'day'}
+                                          resolvedDateRange={insightData?.resolved_date_range}
+                                          timezone={timezone}
+                                          weekStartDay={weekStartDay}
+                                          date={day?.toString() || ''}
+                                      />
                                   </>
                               )
                           )
