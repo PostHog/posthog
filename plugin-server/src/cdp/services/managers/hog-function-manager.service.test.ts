@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFunctionType } from '~/cdp/types'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -39,12 +40,18 @@ describe('HogFunctionManager', () => {
                         type: 'string',
                         key: 'input_1',
                     },
+                    {
+                        type: 'string',
+                        key: 'input_2',
+                        secret: true,
+                    },
                 ],
                 inputs: {
                     input_1: {
                         value: 'test',
                     },
                 },
+                encrypted_inputs: hub.encryptedFields.encrypt(JSON.stringify({ input_2: { value: 'test' } })) as any,
             })
         )
 
@@ -82,33 +89,59 @@ describe('HogFunctionManager', () => {
     it('returns the hog functions', async () => {
         let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
-        expect(items).toEqual([
-            expect.objectContaining({
-                id: hogFunctions[0].id,
-                team_id: teamId1,
-                name: 'Test Hog Function team 1',
-                type: 'destination',
-                enabled: true,
-                execution_order: null,
-                bytecode: {},
-                filters: null,
-                inputs_schema: [
-                    {
-                        type: 'string',
-                        key: 'input_1',
-                    },
-                ],
-                inputs: {
-                    input_1: {
-                        value: 'test',
-                    },
+        expect(items[0].id).toEqual(hogFunctions[0].id)
+        expect(items[0].team_id).toEqual(teamId1)
+
+        expect(
+            forSnapshot(items, {
+                overrides: {
+                    created_at: '<REPLACED-DATE>',
+                    updated_at: '<REPLACED-DATE>',
+                    team_id: '<REPLACED-TEAM-ID>',
                 },
-                encrypted_inputs: null,
-                masking: null,
-                mappings: null,
-                template_id: null,
-            }),
-        ])
+            })
+        ).toMatchInlineSnapshot(`
+            [
+              {
+                "bytecode": {},
+                "created_at": "<REPLACED-DATE>",
+                "deleted": false,
+                "enabled": true,
+                "encrypted_inputs": {
+                  "input_2": {
+                    "value": "test",
+                  },
+                },
+                "execution_order": null,
+                "filters": null,
+                "id": "<REPLACED-UUID-0>",
+                "inputs": {
+                  "input_1": {
+                    "value": "test",
+                  },
+                },
+                "inputs_schema": [
+                  {
+                    "key": "input_1",
+                    "type": "string",
+                  },
+                  {
+                    "key": "input_2",
+                    "secret": true,
+                    "type": "string",
+                  },
+                ],
+                "is_addon_required": true,
+                "mappings": null,
+                "masking": null,
+                "name": "Test Hog Function team 1",
+                "team_id": "<REPLACED-TEAM-ID>",
+                "template_id": null,
+                "type": "destination",
+                "updated_at": "2025-07-17T06:54:44.986Z",
+              },
+            ]
+        `)
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
