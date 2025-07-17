@@ -36,8 +36,19 @@ import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isNotebookUpdateMessage,
+    isReasoningMessage,
+} from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { openNotebook } from '~/models/notebooksModel'
+import { NotebookTarget } from '~/types'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -122,6 +133,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
+        setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
+        processNotebookUpdate: (notebookId: string) => ({ notebookId }),
     }),
 
     reducers(({ props }) => ({
@@ -174,6 +187,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Trace ID is used for the conversation metrics in the UI
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
+
+        deepResearchMode: [
+            false,
+            {
+                setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache, props }) => ({
@@ -227,6 +247,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         ui_context: values.compiledContext || undefined,
                         conversation: values.conversation?.id,
                         trace_id: traceId,
+                        deep_research_mode: values.deepResearchMode,
                     },
                     {
                         signal: cache.generationController.signal,
@@ -293,6 +314,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
+                            } else if (isNotebookUpdateMessage(parsedResponse)) {
+                                actions.processNotebookUpdate(parsedResponse.notebook_id)
                             } else if (
                                 values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
                                 values.threadRaw.length === 0
@@ -408,6 +431,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
             if (values.selectedConversationId !== values.conversationId && cache.unmount) {
                 cache.unmount()
+            }
+        },
+
+        processNotebookUpdate: async ({ notebookId }) => {
+            try {
+                const currentPath = router.values.location.pathname
+                const notebookPath = urls.notebook(notebookId)
+
+                if (currentPath.includes(notebookPath)) {
+                    // We're already on the notebook page, refresh it
+                    const theNotebookLogic = notebookLogic({ shortId: notebookId })
+                    if (theNotebookLogic.isMounted()) {
+                        theNotebookLogic.actions.loadNotebook()
+                    }
+                } else {
+                    // Navigate to the notebook
+                    await openNotebook(notebookId, NotebookTarget.Scene)
+                }
+            } catch (error) {
+                console.error('Failed to navigate to notebook:', error)
             }
         },
     })),

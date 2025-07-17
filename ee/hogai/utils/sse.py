@@ -16,6 +16,8 @@ class AssistantSSESerializer:
             return self._serialize_message(cast(AssistantMessageUnion, event_data))
         elif event_type == AssistantEventType.CONVERSATION:
             return self._serialize_conversation(cast(Conversation, event_data))
+        elif event_type == AssistantEventType.NOTEBOOK:
+            return self._serialize_notebook(cast(str, event_data))
         else:
             raise ValueError(f"Unknown event type: {event_type}")
 
@@ -31,4 +33,9 @@ class AssistantSSESerializer:
         output = f"event: {AssistantEventType.CONVERSATION}\n"
         json_conversation = json.dumps(ConversationMinimalSerializer(conversation).data)
         output += f"data: {json_conversation}\n\n"
+        return output
+
+    def _serialize_notebook(self, notebook_id: str) -> str:
+        output = f"event: {AssistantEventType.NOTEBOOK}\n"
+        output += f"data: {json.dumps({'id': notebook_id})}\n\n"
         return output

@@ -19,6 +19,24 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+
+class DeepResearchPlanStep(BaseModel):
+    short_id: str
+    short_description: str
+    instructions: str
+    status: Literal["pending", "completed", "failed"]
+    requires_result_from_previous_todo: bool
+
+
+class DeepResearchPlan(BaseModel):
+    scratchpad: str
+    todos: list[DeepResearchPlanStep]
+
+
+class DeepResearchPlanWithResults(DeepResearchPlan):
+    results: dict[str, str]
+
+
 AIMessageUnion = Union[
     AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
 ]
@@ -27,6 +45,7 @@ AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.NOTEBOOK], str]
 )
 
 
@@ -153,14 +172,22 @@ class _SharedAssistantState(BaseModel):
     The context for taxonomy agent.
     """
     rag_context: Optional[str] = Field(default=None)
+    query_generation_retry_count: Annotated[int, merge_retry_counts] = Field(default=0)
     """
     Tracks the number of times the query generation has been retried.
     """
-    query_generation_retry_count: Annotated[int, merge_retry_counts] = Field(default=0)
+    search_insights_query: Optional[str] = Field(default=None)
     """
     The user's search query for finding existing insights.
     """
-    search_insights_query: Optional[str] = Field(default=None)
+    deep_research_plan: Optional[DeepResearchPlanWithResults] = Field(default=None)
+    """
+    The deep research plan.
+    """
+    notebook: Optional[str] = Field(default=None)
+    """
+    The notebook ID.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -225,9 +252,15 @@ class AssistantNodeName(StrEnum):
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
+    DEEP_RESEARCH_PLANNER = "deep_research_planner"
+    DEEP_RESEARCH_PLANNER_TOOLS = "deep_research_planner_tools"
+    DEEP_RESEARCH_AGENT_SUBGRAPH = "deep_research_agent_subgraph"
+    DEEP_RESEARCH_FINAL_SUMMARIZER = "deep_research_final_summary"
+    DEEP_RESEARCH_NOTEBOOK_TITLE_GENERATOR = "deep_research_notebook_title_generator"
     INSIGHTS_SEARCH = "insights_search"
 
 
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
+    DEEP_RESEARCH = "deep_research"
     INSIGHTS_TOOL = "insights_tool"
