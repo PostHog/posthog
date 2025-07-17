@@ -685,6 +685,9 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
             flush_persons_and_events()
             self._populate_preaggregated_tables()
 
+            # Clear events table to ensure tests only pass if using pre-aggregated tables
+            sync_execute("TRUNCATE TABLE events")
+
     def _populate_preaggregated_tables(self, date_start: str = "2024-01-01", date_end: str = "2024-01-02"):
         bounces_insert = WEB_BOUNCES_INSERT_SQL(
             date_start=date_start,
