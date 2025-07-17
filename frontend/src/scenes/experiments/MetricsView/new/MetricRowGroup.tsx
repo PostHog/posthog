@@ -93,12 +93,12 @@ export function MetricRowGroup({
 
                 {/* Variant name */}
                 <td
-                    className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
+                    className={`w-20 p-3 text-xs font-semibold align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="text-sm text-text-primary whitespace-nowrap">
+                    <div className="text-xs font-semibold">
                         <span className="text-[#2563eb]">—</span> {baselineResult.key}
                     </div>
                 </td>
@@ -204,7 +204,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="text-sm text-text-primary whitespace-nowrap">
+                            <div className="text-xs font-semibold whitespace-nowrap">
                                 <span className="text-[#2563eb]">—</span> {variant.key}
                             </div>
                         </td>
