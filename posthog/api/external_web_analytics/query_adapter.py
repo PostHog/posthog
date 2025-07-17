@@ -101,14 +101,14 @@ class ExternalWebAnalyticsQueryAdapter:
         self.team = team
         self.breakdown_metrics_config = BreakdownMetricsConfig()
 
-    def _get_base_properties(self, domain: Optional[str] = None) -> list[EventPropertyFilter]:
+    def _get_base_properties(self, host: Optional[str] = None) -> list[EventPropertyFilter]:
         properties = []
-        if domain:
+        if host:
             properties.append(
                 EventPropertyFilter(
                     key="$host",
                     operator=PropertyOperator.EXACT,
-                    value=[domain],
+                    value=[host],
                 )
             )
         return properties
@@ -131,7 +131,7 @@ class ExternalWebAnalyticsQueryAdapter:
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
             ),
-            properties=self._get_base_properties(data.get("domain")),
+            properties=self._get_base_properties(data.get("host")),
             filterTestAccounts=data.get("filter_test_accounts", True),
             doPathCleaning=data.get("apply_path_cleaning", True),
             includeRevenue=False,
@@ -159,7 +159,7 @@ class ExternalWebAnalyticsQueryAdapter:
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
             ),
-            properties=self._get_base_properties(data.get("domain")),
+            properties=self._get_base_properties(data.get("host")),
             filterTestAccounts=data.get("filter_test_accounts", True),
             doPathCleaning=data.get("apply_path_cleaning", True),
             includeBounceRate=self.breakdown_metrics_config.is_metric_supported("bounce_rate", breakdown_by),

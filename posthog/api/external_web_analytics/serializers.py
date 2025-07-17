@@ -20,8 +20,8 @@ class WebAnalyticsRequestSerializer(serializers.Serializer):
     date_to = serializers.DateField(
         help_text="End date for the query (format: YYYY-MM-DD)",
     )
-    domain = serializers.CharField(
-        help_text="Domain to filter by (e.g. example.com)",
+    host = serializers.CharField(
+        help_text="Host to filter by (e.g. example.com)",
         required=False,
         allow_null=True,
     )

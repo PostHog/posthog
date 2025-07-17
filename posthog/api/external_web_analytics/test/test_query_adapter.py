@@ -19,7 +19,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         self.serializer_data = {
             "date_from": date(2025, 1, 1),
             "date_to": date(2025, 1, 31),
-            "domain": "example.com",
+            "host": "example.com",
             "filter_test_accounts": True,
             "apply_path_cleaning": True,
         }
@@ -156,19 +156,19 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             assert result == case["expected"], f"Failed for case: {case}"
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
-    def test_query_configuration_with_domain(self, mock_runner_class):
+    def test_query_configuration_with_host(self, mock_runner_class):
         mock_runner = MagicMock()
         mock_runner.calculate.return_value = self._create_mock_overview_response([])
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_overview_request_serializer(domain="app.example.com")
+        serializer = self._create_mock_overview_request_serializer(host="app.example.com")
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_overview_data(serializer)
 
         _, kwargs = mock_runner_class.call_args
         query = kwargs["query"]
 
-        # Check domain filter
+        # Check host filter
         assert len(query.properties) == 1
         assert query.properties[0].key == "$host"
         assert query.properties[0].value == ["app.example.com"]
@@ -181,19 +181,19 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         assert query.conversionGoal is None
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
-    def test_query_configuration_without_domain(self, mock_runner_class):
+    def test_query_configuration_without_host(self, mock_runner_class):
         mock_runner = MagicMock()
         mock_runner.calculate.return_value = self._create_mock_overview_response([])
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_overview_request_serializer(domain=None)
+        serializer = self._create_mock_overview_request_serializer(host=None)
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_overview_data(serializer)
 
         _, kwargs = mock_runner_class.call_args
         query = kwargs["query"]
 
-        # Should have no properties when the domain is not provided
+        # Should have no properties when the host is not provided
         assert len(query.properties) == 0
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
@@ -306,7 +306,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
             "date_from": date(2025, 1, 1),
             "date_to": date(2025, 1, 31),
             "breakdown_by": "Browser",
-            "domain": "example.com",
+            "host": "example.com",
             "filter_test_accounts": True,
             "apply_path_cleaning": True,
             "limit": 100,
@@ -531,13 +531,13 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
             assert query.breakdownBy == expected_enum, f"Failed for breakdown: {breakdown_str}"
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
-    def test_breakdown_with_domain_filter(self, mock_runner_class):
+    def test_breakdown_with_host_filter(self, mock_runner_class):
         mock_runner = MagicMock()
         columns = ["context.columns.breakdown_value", "context.columns.visitors"]
         mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_breakdown_request_serializer(domain="app.example.com")
+        serializer = self._create_mock_breakdown_request_serializer(host="app.example.com")
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_breakdown_data(serializer)
 

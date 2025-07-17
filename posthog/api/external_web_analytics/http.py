@@ -36,6 +36,10 @@ TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [2]
 
 @extend_schema(tags=["web_analytics"])
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    """
+    Provides access to web analytics data for a project. This is currently in beta, please contact support to enable it for your team.
+    """
+
     scope_object = "query"
     scope_object_read_actions = ["summary", "overview", "trend", "breakdown"]
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]

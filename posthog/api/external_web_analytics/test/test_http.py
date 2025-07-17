@@ -269,7 +269,7 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_with_domain_filter(self, mock_team_ids, mock_runner_class):
+    def test_breakdown_with_host_filter(self, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
@@ -284,13 +284,13 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
                 "date_from": "2025-01-01",
                 "date_to": "2025-01-31",
                 "breakdown_by": "Browser",
-                "domain": "example.com",
+                "host": "example.com",
             },
         )
 
         assert response.status_code == status.HTTP_200_OK
 
-        # Verify domain filter was applied
+        # Verify host filter was applied
         _, kwargs = mock_runner_class.call_args
         query = kwargs["query"]
         assert len(query.properties) == 1
