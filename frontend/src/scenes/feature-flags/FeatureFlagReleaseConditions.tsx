@@ -246,6 +246,12 @@ export function FeatureFlagReleaseConditions({
                             </Link>
                         </LemonBanner>
                     )}
+                    {group.properties?.some((property) => property.type === PropertyFilterType.Flag) && (
+                        <LemonBanner type="warning" className="mt-3 mb-3">
+                            Local evaluation is not supported for feature flags with dependencies. These flags will
+                            require a server request to evaluate.
+                        </LemonBanner>
+                    )}
 
                     {readOnly ? (
                         <>
