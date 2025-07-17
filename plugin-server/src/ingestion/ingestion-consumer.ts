@@ -298,34 +298,19 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const filteredMessages = this.applyDropEventsRestrictions(messages)
-        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () =>
-            this.parseKafkaBatch(filteredMessages)
-        )
-
-        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
-            return this.resolveTeams(parsedMessages)
-        })
-        const eventsWithPersonOverrides = this.applyPersonProcessingRestrictions(eventsWithTeams)
-        const eventsWithValidUuids = await this.validateEventUuids(eventsWithPersonOverrides)
-
-        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithValidUuids)
-
-        const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
+        const eventsPerDistinctId = await this.preprocessEvents(messages)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-
-        // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
         if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(groupedMessages)
+            await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
         }
 
         const personsStoreForBatch = this.personStoreManager.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
-                Object.values(groupedMessages).map(async (events) => {
+                Object.values(eventsPerDistinctId).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
                     return await this.runInstrumented('processEventsForDistinctId', () =>
@@ -578,6 +563,23 @@ export class IngestionConsumer {
             personsStoreForBatch,
             groupStoreForBatch
         )
+    }
+
+    private async preprocessEvents(messages: Message[]): Promise<IncomingEventsByDistinctId> {
+        const filteredMessages = this.applyDropEventsRestrictions(messages)
+        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () =>
+            this.parseKafkaBatch(filteredMessages)
+        )
+
+        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
+            return this.resolveTeams(parsedMessages)
+        })
+        const eventsWithPersonOverrides = this.applyPersonProcessingRestrictions(eventsWithTeams)
+        const eventsWithValidUuids = await this.validateEventUuids(eventsWithPersonOverrides)
+
+        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithValidUuids)
+
+        return this.groupEventsByDistinctId(postCookielessMessages)
     }
 
     private applyDropEventsRestrictions(messages: Message[]): Message[] {
