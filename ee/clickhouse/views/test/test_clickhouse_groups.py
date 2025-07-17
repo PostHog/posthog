@@ -230,6 +230,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             token=self.team.api_token,
             event_name="$groupidentify",
             event_source="ee_ch_views_groups",
+            distinct_id=str(self.team.uuid),
             timestamp=mock.ANY,
             properties={
                 "$group_type": group_type_mapping.group_type,
