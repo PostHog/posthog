@@ -25,8 +25,10 @@ interface SparklineProps {
     /** Check vars.scss for available colors. @default 'muted' */
     color?: string
     colors?: string[]
-    /** A label for the graph, shown in the tooltip. */
-    label?: string
+    /** A name for each time series. */
+    name?: string
+    names?: string[]
+    /** A label for each datapoint. */
     labels?: string[]
     /** @default 'bar' */
     type?: 'bar' | 'line'
@@ -47,7 +49,8 @@ export function Sparkline({
     data,
     color,
     colors,
-    label,
+    name,
+    names,
     labels,
     type = 'bar',
     maximumIndicator = true,
@@ -65,25 +68,25 @@ export function Sparkline({
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
         const arrayData = Array.isArray(data) ? data : [data]
         return arrayData.map((timeseries, index): SparklineTimeSeries => {
-            const defaultLabel =
-                labels?.[index] || (arrayData.length === 1 ? label || 'Count' : `${label || 'Series'} ${index + 1}`)
+            const defaultName =
+                names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
             const defaultColor = colors?.[index] || color || 'muted'
             if (typeof timeseries === 'object') {
                 if (!Array.isArray(timeseries)) {
                     return {
-                        name: timeseries.name || defaultLabel,
+                        name: timeseries.name || defaultName,
                         color: timeseries.color || defaultColor,
                         values: timeseries.values || [],
                     }
                 }
                 return {
-                    name: defaultLabel,
+                    name: defaultName,
                     color: defaultColor,
                     values: timeseries,
                 }
             }
             return {
-                name: defaultLabel,
+                name: defaultName,
                 color: defaultColor,
                 values: timeseries ? [timeseries] : [],
             }
