@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from django.db.models import Q
+from drf_spectacular.utils import extend_schema
 
 from rest_framework import serializers, status, viewsets
 
@@ -42,10 +43,12 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
 
 
 class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
     queryset = ActivityLog.objects.all()
     serializer_class = MyNotificationsSerializer
     filter_rewrite_rules = {"project_id": "team_id"}
 
+    @extend_schema(exclude=True)
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = self.request.user
         if not isinstance(user, User):
@@ -259,6 +262,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return response
 
+    @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False)
     def bookmark(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         user = request.user
