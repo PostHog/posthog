@@ -22,8 +22,7 @@ pub async fn fetch_and_filter(
     project_id: i64,
     query_params: &FlagsQueryParams,
 ) -> Result<(FeatureFlagList, bool), FlagError> {
-    let flag_result =
-        flag_service.get_flags_from_cache_or_pg(project_id).await?;
+    let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
     let flags_after_survey_filter = filter_survey_flags(
         flag_result.flag_list.flags,

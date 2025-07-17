@@ -130,41 +130,40 @@ impl FlagService {
         &self,
         project_id: i64,
     ) -> Result<FlagResult, FlagError> {
-        let flag_result =
-            match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id).await {
-                Ok(flags_from_redis) => Ok(FlagResult { 
-                    flag_list: flags_from_redis, 
-                    was_cache_hit: true,
-                    had_deserialization_errors: false 
-                }),
-                Err(_) => {
-                    match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
-                        Ok((flags_from_pg, had_deserialization_errors)) => {
-                            inc(DB_FLAG_READS_COUNTER, &[], 1);
-                            if (FeatureFlagList::update_flags_in_redis(
-                                self.redis_writer.clone(),
-                                project_id,
-                                &flags_from_pg,
-                            )
-                            .await)
-                                .is_err()
-                            {
-                                inc(
-                                    FLAG_CACHE_ERRORS_COUNTER,
-                                    &[("reason".to_string(), "redis_update_failed".to_string())],
-                                    1,
-                                );
-                            }
-                            Ok(FlagResult { 
-                                flag_list: flags_from_pg, 
-                                was_cache_hit: false,
-                                had_deserialization_errors 
-                            })
-                        }
-                        Err(database_error) => Err(database_error),
+        let flag_result = match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id)
+            .await
+        {
+            Ok(flags_from_redis) => Ok(FlagResult {
+                flag_list: flags_from_redis,
+                was_cache_hit: true,
+                had_deserialization_errors: false,
+            }),
+            Err(_) => match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
+                Ok((flags_from_pg, had_deserialization_errors)) => {
+                    inc(DB_FLAG_READS_COUNTER, &[], 1);
+                    if (FeatureFlagList::update_flags_in_redis(
+                        self.redis_writer.clone(),
+                        project_id,
+                        &flags_from_pg,
+                    )
+                    .await)
+                        .is_err()
+                    {
+                        inc(
+                            FLAG_CACHE_ERRORS_COUNTER,
+                            &[("reason".to_string(), "redis_update_failed".to_string())],
+                            1,
+                        );
                     }
+                    Ok(FlagResult {
+                        flag_list: flags_from_pg,
+                        was_cache_hit: false,
+                        had_deserialization_errors,
+                    })
                 }
-            };
+                Err(database_error) => Err(database_error),
+            },
+        };
 
         // Track cache hits and misses
         if let Ok(ref result) = flag_result {
