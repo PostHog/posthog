@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, UTC
 from unittest.mock import patch
 
-from django.test import TestCase, Client
+from django.test import TestCase
 from django.core.cache import cache
 
 from posthog.models import Survey
@@ -19,7 +19,6 @@ class TestExternalSurveys(APIBaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
-        self.client = Client()
 
     def create_external_survey(self, **kwargs):
         """Helper method to create external surveys for testing"""
@@ -170,6 +169,7 @@ class TestExternalSurveys(APIBaseTest):
 
         config_match = re.search(r"window\.projectConfig = ({.*?});", content)
         self.assertIsNotNone(config_match)
+        assert config_match is not None  # Type guard for mypy
 
         project_config = json.loads(config_match.group(1))
         self.assertIn("api_host", project_config)
