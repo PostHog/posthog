@@ -59,11 +59,11 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     load_private_key,
     snowflake_default_fields,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
     RecordBatchTaskError,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,

@@ -192,19 +192,10 @@ const RevenueAnalyticsTables = (): JSX.Element => {
             <OverviewTile />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="col-span-2">
-                    <RevenueTile />
-                </div>
-                <div className="col-span-2">
-                    <CustomerCountTile />
-                </div>
-
-                <div className="col-span-1">
-                    <RevenueGrowthRateTile />
-                </div>
-                <div className="col-span-1">
-                    <TopCustomersTile />
-                </div>
+                <RevenueTile />
+                <CustomerCountTile />
+                <RevenueGrowthRateTile />
+                <TopCustomersTile />
             </div>
         </div>
     )

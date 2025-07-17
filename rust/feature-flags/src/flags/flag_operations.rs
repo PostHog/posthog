@@ -191,7 +191,7 @@ mod tests {
         assert!(flag.filters.payloads.is_some());
         assert!(!flag.deleted);
         assert!(flag.active);
-        assert!(!flag.ensure_experience_continuity);
+        assert!(!flag.ensure_experience_continuity.unwrap_or(false));
     }
 
     // TODO: Add more tests to validate deserialization of flags.
@@ -222,7 +222,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -256,7 +256,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -304,7 +304,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -348,7 +348,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -458,7 +458,7 @@ mod tests {
                 filters: multivariate_flag["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -476,10 +476,9 @@ mod tests {
         assert_eq!(redis_flag.get_variants().len(), 3);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag");
@@ -558,7 +557,7 @@ mod tests {
                 filters: multivariate_flag_with_payloads["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -575,10 +574,9 @@ mod tests {
         assert_eq!(redis_flag.key, "multivariate_flag_with_payloads");
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag_with_payloads");
@@ -692,7 +690,7 @@ mod tests {
                 filters: flag_with_super_groups["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -711,10 +709,9 @@ mod tests {
         assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "flag_with_super_groups");
@@ -789,7 +786,7 @@ mod tests {
                 filters: flag_with_different_properties["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -811,10 +808,9 @@ mod tests {
         assert_eq!(redis_properties[2].prop_type, PropertyType::Cohort);
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "flag_with_different_properties");
@@ -876,7 +872,7 @@ mod tests {
                 filters: deleted_flag["filters"].clone(),
                 deleted: true,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -894,7 +890,7 @@ mod tests {
                 filters: inactive_flag["filters"].clone(),
                 deleted: false,
                 active: false,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -914,10 +910,9 @@ mod tests {
             .any(|f| f.key == "inactive_flag" && !f.active));
 
         // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
         assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
@@ -990,7 +985,7 @@ mod tests {
                 filters: flag["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -1007,7 +1002,7 @@ mod tests {
                 let redis_flags = FeatureFlagList::from_redis(redis_client, project_id)
                     .await
                     .unwrap();
-                let pg_flags = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
+                let (pg_flags, _) = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
                 (redis_flags, pg_flags)
             });
 
@@ -1070,7 +1065,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1085,7 +1080,7 @@ mod tests {
         let redis_duration = start.elapsed();
 
         let start = Instant::now();
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader, team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
@@ -1161,7 +1156,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1173,10 +1168,9 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
-
         assert_eq!(redis_flags.flags.len(), 3);
         assert_eq!(pg_flags.flags.len(), 3);
 
@@ -1247,7 +1241,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1259,7 +1253,7 @@ mod tests {
         let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let mut pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (mut pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
@@ -1361,7 +1355,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1373,7 +1367,7 @@ mod tests {
         let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id)
             .await
             .expect("Failed to fetch flags from Redis");
-        let pg_flags = FeatureFlagList::from_pg(reader, team.project_id)
+        let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
             .expect("Failed to fetch flags from Postgres");
 

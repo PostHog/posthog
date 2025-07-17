@@ -161,7 +161,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             </AnimatedBackButton>
                             {chatTitle ? (
                                 <h3
-                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
                                     title={chatTitle !== 'Max AI' ? chatTitle : undefined}
                                 >
                                     {chatTitle !== 'Max AI' ? (

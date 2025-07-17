@@ -3,7 +3,7 @@ from typing import Union
 import requests
 import structlog
 from posthog.redis import get_client
-from posthog.settings import CDP_API_URL, PLUGINS_RELOAD_PUBSUB_CHANNEL, PLUGINS_RELOAD_REDIS_URL
+from posthog.settings import CDP_API_URL, PLUGINS_RELOAD_REDIS_URL
 from posthog.models.utils import UUIDT
 
 
@@ -19,8 +19,7 @@ def publish_message(channel: str, payload: Union[dict, str]):
 
 def reload_plugins_on_workers():
     logger.info("Reloading plugins on workers")
-
-    publish_message(PLUGINS_RELOAD_PUBSUB_CHANNEL, "reload!")
+    publish_message("reload-plugins", "")
 
 
 def reload_action_on_workers(team_id: int, action_id: int):
