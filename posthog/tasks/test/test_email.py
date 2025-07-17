@@ -250,7 +250,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 95,
                     "failed": 5,
-                    "filtered": 2,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -259,7 +258,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 200,
                     "failed": 50,
-                    "filtered": 10,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -287,7 +285,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 80,
                     "failed": 10,
-                    "filtered": 5,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
                 }
             ],
@@ -317,7 +314,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 50,
                     "failed": 10,
-                    "filtered": 3,
                     "url": "test",
                 }
             ],
@@ -327,6 +323,43 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # Should not send any emails
         assert len(mocked_email_messages) == 0
+
+    def test_send_hog_functions_digest_email_comma_formatting(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "test-hog-function-1",
+                    "name": "Test Function with Large Numbers",
+                    "type": "destination",
+                    "succeeded": 1000,
+                    "failed": 50000,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+                {
+                    "id": "test-hog-function-2",
+                    "name": "Test Function 2",
+                    "type": "transformation",
+                    "succeeded": 1500000,
+                    "failed": 25000,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
+                },
+            ],
+        }
+
+        send_hog_functions_digest_email(digest_data)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Check that the HTML body contains comma-formatted numbers
+        html_body = mocked_email_messages[0].html_body
+        assert "1,000" in html_body  # succeeded count for first function
+        assert "50,000" in html_body  # failed count for first function
+        assert "1,500,000" in html_body  # succeeded count for second function
+        assert "25,000" in html_body  # failed count for second function
 
     def test_send_hog_functions_daily_digest(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2
