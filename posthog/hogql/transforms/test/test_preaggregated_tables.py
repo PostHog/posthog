@@ -65,14 +65,18 @@ class TestPreaggregatedTables(BaseTest):
                 count(),
                 count(*),
                 uniq(person_id),
+                uniq(events.person_id),
+                uniq(person.id),
                 uniq(events.person.id),
                 uniq(session.id),
+                uniq(events.session.id),
+                uniq($session_id),
                 uniq(events.$session_id)
             from events
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_combined)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_combined)"""
         assert query == expected
 
     def test_wrong_id(self):
@@ -166,6 +170,12 @@ class TestPreaggregatedTables(BaseTest):
         )
         query = self._parse_and_transform(original_query)
         expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY entry_pathname)"""
+        assert query == expected
+
+    def test_group_by_property(self):
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source, events.properties.utm_campaign, session.$entry_pathname, events.session.$end_pathname"
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY utm_source, utm_campaign, entry_pathname, end_pathname)"""
         assert query == expected
 
     def test_group_by_alias_supported(self):
@@ -510,3 +520,37 @@ class TestPreaggregatedTables(BaseTest):
         query = self._parse_and_transform(original_query)
         # Should not transform due to IS NOT NULL comparison
         assert query == self._normalize(original_query)
+
+    def test_trends_inner_query(self):
+        # This inner query comes from the default query in Product analytics
+        original_query = """
+        SELECT
+            count() AS total,
+            toStartOfDay(timestamp) AS day_start
+        FROM
+            events AS e SAMPLE 1
+        WHERE
+            and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))), equals(event, '$pageview'))
+        GROUP BY
+            day_start"""
+        query = self._parse_and_transform(original_query)
+        assert "web_stats_combined" in query
+
+    #
+    #
+    # def test_trends_query(self):
+    #     """Test that trends queries are handled correctly."""
+    #     original_query = TrendsQuery(
+    #         **{
+    #             "kind": "TrendsQuery",
+    #             "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+    #             "trendsFilter": {},
+    #         },
+    #         dateRange=DateRange(date_from="all", date_to=None),
+    #         modifiers=HogQLQueryModifiers(
+    #             useWebAnalyticsPreAggregatedTables=True
+    #         )
+    #     )
+    #     tqr = TrendsQueryRunner(team=self.team, query=original_query)
+    #     query = tqr.calculate().clickhouse
+    #     assert "web_stats_combined" in query
