@@ -56,7 +56,7 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
-import { compareTopLevelSections } from './utils'
+import { compareTopLevelSections } from 'scenes/insights/utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
