@@ -162,14 +162,15 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
+                                    // :HACKY: The two props below aren't actually used in the component, but are needed to
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
                                     noCache={noCache}
                                     {...commonTileProps}
+                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
                         }
-
                         if (text) {
                             return (
                                 <TextCard

@@ -17,14 +17,26 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
         const dashboardPage = new DashboardPage(page)
         await dashboardPage.createNew(dashboardName)
 
-        // Create valid insight through UI
+        // Create valid insight using simple approach (avoiding the problematic editName method)
         const validInsightPage = new InsightPage(page)
-        await validInsightPage.createNew(validInsightName)
+        await validInsightPage.goToNew()
+        // Set name using keyboard approach that works (like Cypress)
+        await page.getByTestId('top-bar-name').getByRole('button').click()
+        await page.getByTestId('top-bar-name').getByRole('textbox').clear()
+        await page.getByTestId('top-bar-name').getByRole('textbox').fill(validInsightName)
+        await page.keyboard.press('Enter')
+        await validInsightPage.save()
         await validInsightPage.addToDashboard(dashboardName)
 
-        // Create another valid insight through UI that we'll corrupt later
+        // Create another insight that we'll corrupt later
         const invalidInsightPage = new InsightPage(page)
-        await invalidInsightPage.createNew(invalidInsightName)
+        await invalidInsightPage.goToNew()
+        // Set name using keyboard approach
+        await page.getByTestId('top-bar-name').getByRole('button').click()
+        await page.getByTestId('top-bar-name').getByRole('textbox').clear()
+        await page.getByTestId('top-bar-name').getByRole('textbox').fill(invalidInsightName)
+        await page.keyboard.press('Enter')
+        await invalidInsightPage.save()
         await invalidInsightPage.addToDashboard(dashboardName)
 
         // Now corrupt the second insight's query field via Django admin interface
@@ -32,14 +44,11 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
 
         // Navigate to Django admin to edit the insight directly
         await page.goto('/admin/posthog/insight/')
-
-        // Search for our insight
-        await page.getByPlaceholder('Search').fill(invalidInsightName)
-        await page.keyboard.press('Enter')
         await page.waitForLoadState('networkidle')
 
-        // Click on the insight to edit it
-        await page.getByText(invalidInsightName).first().click()
+        // Look for our insight in the table (it should be one of the most recent)
+        const insightRow = page.locator('tr').filter({ hasText: invalidInsightName })
+        await insightRow.locator('a').first().click()
         await page.waitForLoadState('networkidle')
 
         // Find and edit the query field (it's a JSONField in Django admin)
@@ -60,7 +69,7 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
     })
 
     test('Dashboard loads with pydantic error displayed in insight card', async ({ page }) => {
-        // Navigate to the dashboard (we should already be there, but let's be explicit)
+        // Navigate to the dashboard
         await page.goto('/dashboard')
         await page.getByPlaceholder('Search for dashboards').fill(dashboardName)
         await page.getByText(dashboardName).click()
@@ -79,7 +88,7 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
     })
 
     test('Invalid insight loads directly with pydantic error displayed', async ({ page }) => {
-        // First we need to get the insight ID by navigating to insights list
+        // Navigate to insights list and search for the invalid insight
         await page.goto('/insights')
         await page.getByPlaceholder('Search for insights').fill(invalidInsightName)
 
@@ -98,7 +107,7 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
         await page.getByPlaceholder('Search for dashboards').fill(dashboardName)
         await page.getByText(dashboardName).click()
 
-        // Click on the invalid insight card title
+        // Click on the invalid insight card title to navigate to insight page
         const invalidInsightCard = page.locator('[data-attr="insight-card"]').filter({ hasText: invalidInsightName })
         await invalidInsightCard.locator('h4').click()
 
