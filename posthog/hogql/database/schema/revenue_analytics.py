@@ -18,30 +18,35 @@ from products.revenue_analytics.backend.views import (
 )
 
 
-def join_with_persons_revenue_analytics_table(
-    join_to_add: LazyJoinToAdd,
-    context: HogQLContext,
-    node: ast.SelectQuery,
-):
-    if not join_to_add.fields_accessed:
-        raise ResolutionError("No fields requested from revenue_analytics")
+def build_join_with_persons_revenue_analytics_table(is_poe: bool = False):
+    def join_with_persons_revenue_analytics_table(
+        join_to_add: LazyJoinToAdd,
+        context: HogQLContext,
+        node: ast.SelectQuery,
+    ):
+        if not join_to_add.fields_accessed:
+            raise ResolutionError("No fields requested from revenue_analytics")
 
-    return ast.JoinExpr(
-        alias=join_to_add.to_table,
-        table=select_from_persons_revenue_analytics_table(context),
-        join_type="LEFT JOIN",
-        constraint=ast.JoinConstraint(
-            expr=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[join_to_add.from_table, "id"]),
-                right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
+        return ast.JoinExpr(
+            alias=join_to_add.to_table,
+            table=select_from_persons_revenue_analytics_table(context, is_poe),
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                    right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
+                ),
+                constraint_type="ON",
             ),
-            constraint_type="ON",
-        ),
-    )
+        )
+
+    return join_with_persons_revenue_analytics_table
 
 
-def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
+def select_from_persons_revenue_analytics_table(
+    context: HogQLContext, is_poe: bool = False
+) -> ast.SelectQuery | ast.SelectSetQuery:
     columns = ["person_id", "revenue", "revenue_last_30_days"]
 
     if not context.database:
@@ -111,7 +116,19 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
                                                 "timestamp",
                                             ]
                                         ),
-                                        right=parse_expr("today() - INTERVAL 30 DAY"),
+                                        # If we're using Person on Events, we need to use the events.timestamp field
+                                        # since we know we have `events` present in the query
+                                        # Otherwise, we assume we're accessing the revenue analytics/persons table directly
+                                        # and simply assume today as the right day
+                                        right=parse_expr(
+                                            # TODO: Need to use the commented line since we should get the timestamp from event
+                                            # First attempting to fix a separate bug where we're not finding `e__poe` properly
+                                            # "toDate(events.timestamp) - INTERVAL {interval} DAY" if is_poe else "today() - INTERVAL {interval} DAY",
+                                            "today() - INTERVAL {interval} DAY"
+                                            if is_poe
+                                            else "today() - INTERVAL {interval} DAY",
+                                            {"interval": ast.Constant(value=30)},
+                                        ),
                                     ),
                                 ],
                             ),
@@ -149,6 +166,8 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
 
 
 class RawPersonsRevenueAnalyticsTable(LazyTable):
+    is_poe: bool = False
+
     fields: dict[str, FieldOrTable] = {
         "person_id": StringDatabaseField(name="person_id"),
         "revenue": DecimalDatabaseField(name="revenue", nullable=False),
@@ -161,7 +180,7 @@ class RawPersonsRevenueAnalyticsTable(LazyTable):
         context: HogQLContext,
         node: ast.SelectQuery,
     ):
-        return select_from_persons_revenue_analytics_table(context)
+        return select_from_persons_revenue_analytics_table(context, self.is_poe)
 
     def to_printed_clickhouse(self, context):
         return "raw_persons_revenue_analytics"
