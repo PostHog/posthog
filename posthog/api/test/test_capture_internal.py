@@ -90,7 +90,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
-        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
+        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
         # note: event payload passed to new capture_internal is mutated. here we inject a source marker
         assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_props)
@@ -139,7 +139,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
-        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
+        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
         assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_props)
         # when new capture_internal is called with process_person_profile == True, we don't alter the event payload
@@ -274,7 +274,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
-        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
+        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
         assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_replay_props)
         assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is not None
