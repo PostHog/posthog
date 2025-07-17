@@ -138,7 +138,7 @@ describe('HogFunctionManager', () => {
                 "team_id": "<REPLACED-TEAM-ID>",
                 "template_id": null,
                 "type": "destination",
-                "updated_at": "2025-07-17T06:54:44.986Z",
+                "updated_at": "<REPLACED-DATE>",
               },
             ]
         `)
