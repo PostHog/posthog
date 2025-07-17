@@ -21,7 +21,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
                 cdpCyclotronWorkerSegment: true,
-                cdpCyclotronWorkerBehavioural: true,
+                cdpBehaviouralEvents: true,
                 cdpCyclotronWorkerNative: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpApi: true,
@@ -78,9 +78,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerSegment: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_behavioural:
+        case PluginServerMode.cdp_behavioural_events:
             return {
-                cdpCyclotronWorkerBehavioural: true,
+                cdpBehaviouralEvents: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {

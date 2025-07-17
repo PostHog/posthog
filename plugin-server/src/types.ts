@@ -77,7 +77,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
-    cdp_cyclotron_worker_behavioural = 'cdp-cyclotron-worker-behavioural',
+    cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -430,7 +430,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
-    cdpCyclotronWorkerBehavioural?: boolean
+    cdpBehaviouralEvents?: boolean
     cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean

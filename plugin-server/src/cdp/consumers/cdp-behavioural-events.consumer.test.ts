@@ -5,12 +5,12 @@ import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
-import { CdpCyclotronWorkerBehaviouralConsumer } from './cdp-cyclotron-worker-behavioural.consumer'
+import { CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
 
 jest.setTimeout(5000)
 
-describe('CdpCyclotronWorkerBehaviouralConsumer', () => {
-    let processor: CdpCyclotronWorkerBehaviouralConsumer
+describe('CdpBehaviouralEventsConsumer', () => {
+    let processor: CdpBehaviouralEventsConsumer
     let hub: Hub
     let team: Team
 
@@ -18,7 +18,7 @@ describe('CdpCyclotronWorkerBehaviouralConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorkerBehaviouralConsumer(hub)
+        processor = new CdpBehaviouralEventsConsumer(hub)
     })
 
     afterEach(async () => {

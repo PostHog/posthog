@@ -29,15 +29,11 @@ export const counterEventsMatchedTotal = new Counter({
     help: 'Total number of events that matched at least one action filter',
 })
 
-export class CdpCyclotronWorkerBehaviouralConsumer extends CdpConsumerBase {
-    protected name = 'CdpCyclotronWorkerBehaviouralConsumer'
+export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
+    protected name = 'CdpBehaviouralEventsConsumer'
     protected kafkaConsumer: KafkaConsumer
 
-    constructor(
-        hub: Hub,
-        topic: string = KAFKA_EVENTS_JSON,
-        groupId: string = 'cdp-cyclotron-worker-behavioural-consumer'
-    ) {
+    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
@@ -147,7 +143,7 @@ export class CdpCyclotronWorkerBehaviouralConsumer extends CdpConsumerBase {
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
-                statsKey: `cdpBehaviouralConsumer.handleEachBatch.parseKafkaMessages`,
+                statsKey: `cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
                     const events: HogFunctionInvocationGlobals[] = []
 
@@ -194,11 +190,11 @@ export class CdpCyclotronWorkerBehaviouralConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
-        logger.info('💤', 'Stopping behavioural consumer...')
+        logger.info('💤', 'Stopping behavioural events consumer...')
         await this.kafkaConsumer.disconnect()
         // IMPORTANT: super always comes last
         await super.stop()
-        logger.info('💤', 'Behavioural consumer stopped!')
+        logger.info('💤', 'Behavioural events consumer stopped!')
     }
 
     public isHealthy() {
