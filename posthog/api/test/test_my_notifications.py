@@ -250,7 +250,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         ]
         assert [c["unread"] for c in results] == [True] * 10
 
-    def test_reading_notifications_marks_them_unread(self):
+    def test_reading_notifications_marks_them_read(self):
         self.client.force_login(self.user)
 
         changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications?unread=true")
@@ -275,7 +275,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
 
         # the user can mark where they have read up to
         bookmark_response = self.client.post(
-            f"/api/projects/{self.team.id}/activity_log/bookmark_activity_notification",
+            f"/api/projects/{self.team.id}/my_notifications/bookmark",
             {"bookmark": most_recent_date},
         )
         assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
