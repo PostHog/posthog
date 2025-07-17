@@ -1,3 +1,5 @@
+import pydantic_core
+
 from posthog.schema_migrations.upgrade import upgrade
 import structlog
 from typing import Optional
@@ -6,6 +8,7 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from common.hogvm.python.debugger import color_bytecode
+from posthog.hogql_queries.query_runner import QueryResponse
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.compiler.bytecode import execute_hog
@@ -49,10 +52,9 @@ def process_query_dict(
     upgraded_query_json = upgrade(query_json)
     try:
         model = QuerySchemaRoot.model_validate(upgraded_query_json)
-    except Exception as e:
+    except pydantic_core.ValidationError as e:
         if dashboard_id:
             raise
-        from posthog.hogql_queries.query_runner import QueryResponse
 
         return QueryResponse(results=None, error=str(e))
 
