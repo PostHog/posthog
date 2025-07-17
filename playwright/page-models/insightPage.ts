@@ -180,6 +180,16 @@ export class InsightPage {
         await this.page.getByTestId('dashboard-list-item').getByRole('link').first().click()
     }
 
+    async addToDashboard(dashboardName: string): Promise<void> {
+        await this.dashboardButton.click()
+        await this.page.getByTestId('dashboard-searchfield').fill(dashboardName)
+        await this.page.getByTestId('dashboard-list-item').first().click()
+    }
+
+    async rename(insightName: string): Promise<void> {
+        await this.editName(insightName)
+    }
+
     async openPersonsModal(): Promise<void> {
         await this.page.locator('.TrendsInsight .LineGraph').click()
         await this.page.locator('[data-attr="persons-modal"]').waitFor({ state: 'visible' })
