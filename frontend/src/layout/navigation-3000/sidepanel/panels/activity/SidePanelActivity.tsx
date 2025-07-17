@@ -22,6 +22,7 @@ import { ActivityScope, AvailableFeature } from '~/types'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 import { SidePanelActivitySubscriptions } from './SidePanelActivitySubscriptions'
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -36,20 +37,14 @@ export const SidePanelActivityIcon = (props: { className?: string }): JSX.Elemen
 }
 
 export const SidePanelActivity = (): JSX.Element => {
-    const {
-        hasNotifications,
-        notifications,
-        activeTab,
-        allActivity,
-        allActivityResponseLoading,
-        allActivityHasNext,
-        importantChangesLoading,
-        hasUnread,
-        filters,
-        filtersForCurrentPage,
-    } = useValues(sidePanelActivityLogic)
-    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges, setFilters } =
-        useActions(sidePanelActivityLogic)
+    const { activeTab, allActivity, allActivityResponseLoading, allActivityHasNext, filters, filtersForCurrentPage } =
+        useValues(sidePanelActivityLogic)
+    const { setActiveTab, maybeLoadOlderActivity, setFilters } = useActions(sidePanelActivityLogic)
+
+    const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
+        useValues(sidePanelNotificationsLogic)
+    const { togglePolling, markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
+
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
