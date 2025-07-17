@@ -10,7 +10,6 @@ import dataclasses
 from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
@@ -326,11 +325,9 @@ class TestSummarizeSessionGroupWorkflow:
             ),
             # Mock DB calls
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=mock_team),
-            patch.object(
-                SessionReplayEvents,
-                "get_group_metadata",
-                return_value=MockMetadataDict(),
-            ),
+            patch(
+                "posthog.temporal.ai.session_summary.summarize_session_group.SessionReplayEvents"
+            ) as mock_session_replay_events,
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session_group._get_db_events_per_page",
                 return_value=mock_cached_session_batch_events_query_response_factory(session_ids),
@@ -342,6 +339,7 @@ class TestSummarizeSessionGroupWorkflow:
                 side_effect=iter(mock_valid_event_ids * len(session_ids)),
             ),
         ):
+            mock_session_replay_events.get_group_metadata.return_value = MockMetadataDict()
             yield
 
     @asynccontextmanager
