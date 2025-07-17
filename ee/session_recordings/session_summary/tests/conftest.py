@@ -7,6 +7,7 @@ from ee.session_recordings.session_summary.utils import generate_full_event_id
 from posthog.models import Team, User
 from ee.session_recordings.session_summary.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
+from posthog.schema import SessionBatchEventsQueryResponse, CachedSessionBatchEventsQueryResponse, SessionEventsItem
 
 
 @pytest.fixture
@@ -780,3 +781,70 @@ def mock_window_mapping_reversed() -> dict[str, str]:
 @pytest.fixture
 def mock_window_mapping(mock_window_mapping_reversed: dict[str, str]) -> dict[str, str]:
     return {v: k for k, v in mock_window_mapping_reversed.items()}
+
+
+@pytest.fixture
+def mock_session_batch_events_query_response(
+    mock_raw_events: list[tuple[Any, ...]],
+    mock_session_id: str,
+) -> SessionBatchEventsQueryResponse:
+    """
+    Mock SessionBatchEventsQueryResponse with minimal required fields. For E2E testing.
+    """
+    # Create session events from mock raw events
+    session_events = []
+    events_for_session = []
+
+    for event in mock_raw_events:
+        # Extract relevant fields (event, timestamp, url)
+        event_type = event[0]
+        timestamp = event[1].isoformat()
+        url = event[6]
+        event_row = [event_type, timestamp, url]
+        events_for_session.append(event_row)
+
+    # Group all events under one session
+    session_events.append(
+        SessionEventsItem(
+            session_id=mock_session_id,
+            events=events_for_session,
+        )
+    )
+
+    return SessionBatchEventsQueryResponse(
+        columns=["event", "timestamp", "$current_url"],
+        hogql="SELECT event, timestamp, $current_url FROM events WHERE $session_id = '{}' ORDER BY timestamp".format(
+            mock_session_id
+        ),
+        results=events_for_session,
+        types=["String", "DateTime", "String"],
+        session_events=session_events,
+        sessions_with_no_events=[],
+    )
+
+
+@pytest.fixture
+def mock_cached_session_batch_events_query_response(
+    mock_session_batch_events_query_response: SessionBatchEventsQueryResponse,
+) -> CachedSessionBatchEventsQueryResponse:
+    """
+    Mock CachedSessionBatchEventsQueryResponse built on top of SessionBatchEventsQueryResponse. For E2E testing.
+    """
+    now = datetime.now(UTC)
+
+    return CachedSessionBatchEventsQueryResponse(
+        # Required fields from parent
+        columns=mock_session_batch_events_query_response.columns,
+        hogql=mock_session_batch_events_query_response.hogql,
+        results=mock_session_batch_events_query_response.results,
+        types=mock_session_batch_events_query_response.types,
+        session_events=mock_session_batch_events_query_response.session_events,
+        sessions_with_no_events=mock_session_batch_events_query_response.sessions_with_no_events,
+        # Cache-specific required fields
+        cache_key="test_cache_key_12345",
+        is_cached=False,
+        last_refresh=now,
+        next_allowed_client_refresh=now,
+        timezone="UTC",
+        hasMore=False,  # One page, for simplicity of e2e testing
+    )
