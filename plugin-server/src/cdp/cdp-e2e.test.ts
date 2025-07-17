@@ -10,13 +10,12 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { logger } from '../utils/logger'
-import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
@@ -63,48 +62,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING =
                 mode === 'hybrid' || mode === 'kafka' ? '*:kafka' : '*:postgres'
 
-            const exampleHog = `
-                    let res := fetch(inputs.url, {
-                        'body': inputs.body,
-                        'method': 'POST'
-                    });
-                    print('Fetch response:', res)`
-
             fnFetchNoFilters = await insertHogFunction({
-                type: 'destination',
-                hog: exampleHog,
-                bytecode: await compileHog(exampleHog),
-
-                inputs_schema: [
-                    { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
-                    { key: 'body', type: 'json', label: 'JSON body', secret: true, required: true },
-                ],
-                inputs: {
-                    url: {
-                        value: 'https://example.com/posthog-webhook',
-                        bytecode: await compileHog("return f'https://example.com/posthog-webhook'"),
-                    },
-                },
-                encrypted_inputs: hub.encryptedFields.encrypt(
-                    JSON.stringify({
-                        body: {
-                            value: {
-                                event: '{event}',
-                                groups: '{groups}',
-                                nested: { foo: '{event.url}' },
-                                person: '{person}',
-                                event_url: "{f'{event.url}-test'}",
-                            },
-                            bytecode: {
-                                event: await compileHog("return f'{event}'"),
-                                groups: await compileHog("return f'{groups}'"),
-                                nested: { foo: await compileHog("return f'{event.url}'") },
-                                person: await compileHog("return f'{person}'"),
-                                event_url: await compileHog("return f'{event.url}-test'"),
-                            },
-                        },
-                    })
-                ) as any,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
@@ -194,7 +154,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                   {
                     "body": "{"event":{"uuid":"b3a1fe86-b10c-43cc-acaf-d208977608d0","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
                     "headers": {
-                      "Content-Type": "application/json",
+                      "version": "v=1.0.0",
                     },
                     "method": "POST",
                     "timeoutMs": 10000,
