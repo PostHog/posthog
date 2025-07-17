@@ -134,7 +134,6 @@ describe('HogFunctionManager', () => {
                 masking: null,
                 mappings: null,
                 template_id: null,
-                depends_on_integration_ids: new Set([integrations[0].id]),
             }),
         ])
 

@@ -334,7 +334,6 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
-    depends_on_integration_ids?: Set<IntegrationType['id']>
     is_addon_required: boolean
     template_id?: string
     execution_order?: number
