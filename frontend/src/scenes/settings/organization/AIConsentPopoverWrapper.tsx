@@ -70,6 +70,9 @@ export function AIConsentPopoverWrapper({
                             disabledReason={dataProcessingApprovalDisabledReason}
                             tooltip="You are approving this as an organization admin"
                             tooltipPlacement="bottom"
+                            ref={(el) => {
+                                el?.focus() // Auto-focus the button when the popover is opened, so that you just hit enter to approve
+                            }}
                         >
                             I allow AI analysis in this organization
                         </LemonButton>
