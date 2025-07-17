@@ -3,9 +3,7 @@ import express from 'express'
 import { Hub, PluginServerService } from '../types'
 import { reloadPlugins } from '../worker/tasks'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
-import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { PubSub } from './pubsub'
 
 /**
  * We have various use cases where an external service like django needs to communicate with the node services
@@ -15,41 +13,33 @@ import { PubSub } from './pubsub'
  * don't need access to the pubsub redis
  */
 export class ServerCommands {
-    public readonly messageMap: Record<string, (message: string) => Promise<void>> = {}
-    private pubsub: PubSub
-
     constructor(private hub: Hub) {
-        this.messageMap = {
-            [this.hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                logger.info('⚡', '[PubSub] Reloading plugins!')
-                await reloadPlugins(this.hub)
-            },
-            'populate-plugin-capabilities': async (message) => {
-                const { pluginId } = parseJSON(message) as { pluginId: string }
-                logger.info('⚡', '[PubSub] Populating plugin capabilities!', { pluginId })
-                if (this.hub?.capabilities.appManagementSingleton) {
-                    await populatePluginCapabilities(this.hub, Number(pluginId))
-                }
-            },
-        }
-
-        this.pubsub = new PubSub(this.hub, this.messageMap)
+        this.hub.pubSub.on('reload-plugins', async (message) => await this.reloadPlugins(message))
+        this.hub.pubSub.on<{ pluginId: string }>(
+            'populate-plugin-capabilities',
+            async (message) => await this.populatePluginCapabilities(message)
+        )
     }
 
     public get service(): PluginServerService {
         return {
             id: 'server-commands',
-            onShutdown: async () => await this.stop(),
+            onShutdown: async () => {},
             healthcheck: () => true,
         }
     }
 
-    async start() {
-        await this.pubsub.start()
+    // oxlint-disable-next-line no-unused-vars
+    private reloadPlugins = async (_message: any): Promise<void> => {
+        logger.info('⚡', '[PubSub] Reloading plugins!')
+        await reloadPlugins(this.hub)
     }
 
-    async stop() {
-        await this.pubsub.stop()
+    private populatePluginCapabilities = async ({ pluginId }: { pluginId: string }): Promise<void> => {
+        logger.info('⚡', '[PubSub] Populating plugin capabilities!', { pluginId })
+        if (this.hub?.capabilities.appManagementSingleton) {
+            await populatePluginCapabilities(this.hub, Number(pluginId))
+        }
     }
 
     public router(): express.Router {
@@ -70,12 +60,7 @@ export class ServerCommands {
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { command, message } = req.body
 
-            if (!this.messageMap[command]) {
-                res.status(400).json({ error: 'Invalid command' })
-                return
-            }
-
-            await this.pubsub.publish(command, JSON.stringify(message))
+            await this.hub.pubSub.publish(command, JSON.stringify(message))
 
             res.json({ success: true })
         }

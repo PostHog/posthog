@@ -92,12 +92,9 @@ describe('HogFunctionManager', () => {
                 },
             })
         )
-
-        await manager.start()
     })
 
     afterEach(async () => {
-        await manager.stop()
         await closeHub(hub)
     })
 
@@ -330,13 +327,10 @@ describe('Hogfunction Manager - Execution Order', () => {
                 type: 'transformation',
             })
         )
-
-        await manager.start()
     })
 
     afterEach(async () => {
         jest.useRealTimers()
-        await manager.stop()
         await closeHub(hub)
     })
 
@@ -522,12 +516,9 @@ describe('HogFunctionManager - Integration Updates', () => {
                 },
             },
         })
-
-        await manager.start()
     })
 
     afterEach(async () => {
-        await manager.stop()
         await closeHub(hub)
     })
 
