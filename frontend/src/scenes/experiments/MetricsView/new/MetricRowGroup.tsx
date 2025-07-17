@@ -10,7 +10,8 @@ import { useChartColors } from '../shared/colors'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
 import { ChartCell } from './ChartCell'
-import { IconArrowUp, IconTrendingDown } from 'lib/lemon-ui/icons'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { IconTrending } from '@posthog/icons'
 import {
     CELL_HEIGHT,
     VIEW_BOX_WIDTH,
@@ -249,7 +250,7 @@ export function MetricRowGroup({
                                         }`}
                                     >
                                         {changeResult.isPositive ? (
-                                            <IconArrowUp className="w-4 h-4" />
+                                            <IconTrending className="w-4 h-4" />
                                         ) : (
                                             <IconTrendingDown className="w-4 h-4" />
                                         )}
