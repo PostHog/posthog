@@ -276,7 +276,7 @@ def org_quota_limited_until(
     _, today_end = get_current_day()
 
     # Set minimum grace period for specific resources
-    minimum_grace_period = None
+    minimum_grace_period = 0
     if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
         minimum_grace_period = FEATURE_FLAGS_GRACE_PERIOD_DAYS
 
@@ -285,7 +285,7 @@ def org_quota_limited_until(
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if not trust_score and minimum_grace_period is None:
+    if not trust_score and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
@@ -310,7 +310,7 @@ def org_quota_limited_until(
         }
 
     # 2c. low trust
-    elif trust_score == 3 and minimum_grace_period is None:
+    elif trust_score == 3 and minimum_grace_period == 0:
         # Low trust, immediately limit
         report_organization_action(
             organization,
@@ -331,7 +331,7 @@ def org_quota_limited_until(
         }
 
     # 3. medium / medium high / high trust
-    elif trust_score in [7, 10, 15] or minimum_grace_period:
+    elif trust_score in [7, 10, 15] or minimum_grace_period > 0:
         trust_score_grace_period = GRACE_PERIOD_DAYS.get(trust_score, 0)
         grace_period_days = max(trust_score_grace_period, minimum_grace_period)
 
