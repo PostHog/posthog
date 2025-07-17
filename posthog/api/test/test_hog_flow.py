@@ -25,12 +25,12 @@ class TestHogFlowAPI(APIBaseTest):
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
-    def _create_hog_flow_with_action(self, config: dict):
+    def _create_hog_flow_with_action(self, action_config: dict):
         action = {
             "id": "action_1",
             "name": "action_1",
             "type": "function",
-            "config": config,
+            "config": action_config,
         }
 
         hog_flow = {
@@ -86,14 +86,14 @@ class TestHogFlowAPI(APIBaseTest):
             {
                 "template_id": "template-webhook",
                 "inputs": {"url": {"value": "https://example.com"}},
-                "filters": {
-                    "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}],
-                },
             }
         )
 
+        action["filters"] = {
+            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}],
+        }
+
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        print(response.json())
 
         assert response.status_code == 201, response.json()
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
@@ -102,7 +102,9 @@ class TestHogFlowAPI(APIBaseTest):
             ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1]
         )
 
-        assert hog_flow.actions[0]["filters"].get("bytecode") == "", hog_flow.actions[0]
+        assert hog_flow.actions[0]["filters"].get("bytecode") == snapshot(
+            ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11, 3, 1, 4, 1]
+        )
 
         assert hog_flow.actions[0]["config"]["inputs"] == snapshot(
             {"url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}}
