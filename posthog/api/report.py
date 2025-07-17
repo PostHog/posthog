@@ -67,7 +67,9 @@ def get_csp_event(request):
             token = ""
 
         if isinstance(csp_report, list):
-            futures = capture_batch_internal(csp_report, "get_csp_report", token, False)
+            futures = capture_batch_internal(
+                events=csp_report, event_source="get_csp_report", token=token, process_person_profile=False
+            )
             for future in futures:
                 result = future.result()
                 result.raise_for_status()

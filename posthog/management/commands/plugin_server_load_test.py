@@ -114,10 +114,10 @@ class Command(BaseCommand):
         # ordering in the ingest topic is not guaranteed here
         start_time = time.monotonic()
         results = capture_batch_internal(
-            events,
-            "plugin_server_load_test",
-            token,
-            True,  # allow person profile processing to occur as cfg for this token (team/project)
+            events=events,
+            event_source="plugin_server_load_test",
+            token=token,
+            process_person_profile=True,  # allow person profile processing to occur as cfg for this token (team/project)
         )
         for future in results:
             try:

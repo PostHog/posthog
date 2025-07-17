@@ -397,7 +397,9 @@ class TestCaptureInternal(BaseTest):
             )
 
         spy = InstallCapturePostSpy(mock_session_class)
-        resp_futures = capture_batch_internal(test_events, "test_capture_batch_internal", token, False)
+        resp_futures = capture_batch_internal(
+            events=test_events, event_source="test_capture_batch_internal", token=token, process_person_profile=False
+        )
 
         for future in resp_futures:
             resp = future.result()
@@ -447,7 +449,12 @@ class TestCaptureInternal(BaseTest):
                 }
             )
 
-        resp_futures = capture_batch_internal(test_events, "test_capture_batch_internal_invalid_payload", token, False)
+        resp_futures = capture_batch_internal(
+            events=test_events,
+            event_source="test_capture_batch_internal_invalid_payload",
+            token=token,
+            process_person_profile=False,
+        )
         assert len(resp_futures) == 3
 
         for future in resp_futures:
@@ -482,7 +489,12 @@ class TestCaptureInternal(BaseTest):
             )
 
         InstallCapturePostSpy(mock_session_class, status_code=400)
-        resp_futures = capture_batch_internal(test_events, "test_capture_batch_internal_bad_req", token, False)
+        resp_futures = capture_batch_internal(
+            events=test_events,
+            event_source="test_capture_batch_internal_bad_req",
+            token=token,
+            process_person_profile=False,
+        )
         assert len(resp_futures) == 3
 
         for future in resp_futures:

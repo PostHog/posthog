@@ -101,6 +101,7 @@ def capture_internal(
 
 
 def capture_batch_internal(
+    *,
     events: list[dict[str, Any]],
     event_source: str,
     token: str,
