@@ -31,6 +31,40 @@ class HogFlowTriggerSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["event"], required=True)
 
 
+class HogFlowActionSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    name = serializers.CharField(max_length=400)
+    description = serializers.CharField(allow_blank=True, default="")
+    on_error = serializers.ChoiceField(
+        choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
+    )
+    created_at = serializers.IntegerField()
+    updated_at = serializers.IntegerField()
+    filters = HogFunctionFiltersSerializer(required=False, default=dict)
+    type = serializers.CharField(max_length=100)
+    config = serializers.JSONField()
+
+    def to_internal_value(self, data):
+        # Weirdly nested serializers don't get this set...
+        self.initial_data = data
+        return super().to_internal_value(data)
+
+    def validate(self, data):
+        if data.get("config").get("hasCompiledConfigInputs", False):
+            from posthog.cdp.validation import generate_template_bytecode
+
+            inputs = data.get("config", {}).get("inputs", {})
+            input_collector: set[str] = set()
+            try:
+                compiled_inputs = generate_template_bytecode(inputs, input_collector)
+                data["config"]["inputs"]["bytecode"] = compiled_inputs
+            except Exception as e:
+                logger.exception("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
+                raise
+
+        return data
+
+
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -57,6 +91,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
     trigger = HogFlowTriggerSerializer()
+    actions = HogFlowActionSerializer(many=True)
 
     class Meta:
         model = HogFlow
@@ -93,7 +128,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         return super().create(validated_data=validated_data)
 
-    # TODO: Validation perhaps via the nodejs api?
+    def update(self, instance, validated_data):
+        return super().update(instance, validated_data)
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
