@@ -12,6 +12,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
+from ee.hogai.graph.query_planner.toolkit import retrieve_entity_properties, retrieve_entity_property_values
 
 from .prompts import (
     FILTER_INITIAL_PROMPT,
@@ -27,15 +28,7 @@ from .prompts import (
     EXAMPLES_PROMPT,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
-from .toolkit import (
-    EntityType,
-    FilterOptionsToolkit,
-    FilterOptionsTool,
-    RetrieveEntityPropertiesTool,
-    AskUserForHelpTool,
-    FinalAnswerTool,
-)
-from ee.hogai.graph.taxonomy_agent.toolkit import RetrieveEntityPropertiesValuesTool
+from .toolkit import EntityType, FilterOptionsTool, FilterOptionsToolkit, ask_user_for_help, final_answer
 
 from abc import ABC
 import json
@@ -98,13 +91,13 @@ class FilterOptionsNode(AssistantNode):
 
     def _get_model(self, state: FilterOptionsState):
         return MaxChatOpenAI(
-            model="gpt-4o", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
         ).bind_tools(
             [
-                RetrieveEntityPropertiesTool,
-                RetrieveEntityPropertiesValuesTool,
-                AskUserForHelpTool,
-                FinalAnswerTool,
+                retrieve_entity_properties,
+                retrieve_entity_property_values,
+                ask_user_for_help,
+                final_answer,
             ],
             tool_choice="required",
             parallel_tool_calls=False,

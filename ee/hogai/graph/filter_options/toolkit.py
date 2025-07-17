@@ -1,8 +1,12 @@
 from enum import Enum
 from functools import cached_property
-from typing import Union, Literal
-from pydantic import BaseModel, ConfigDict, Field, RootModel
-from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool, RetrieveEntityPropertiesValuesTool
+from typing import Union
+from pydantic import BaseModel, Field
+from ee.hogai.graph.query_planner.toolkit import (
+    TaxonomyAgentToolkit,
+    retrieve_entity_properties,
+    retrieve_entity_property_values,
+)
 from posthog.models.property_definition import PropertyDefinition
 
 
@@ -20,39 +24,15 @@ class EntityType(str, Enum):
         return [entity.value for entity in cls]
 
 
-class RetrieveEntityPropertiesToolArgs(BaseModel):
-    entity: str = Field(..., description="The entity type (e.g. 'person', 'session', 'event')")
-
-
-class RetrieveEntityPropertiesTool(BaseModel):
-    """
-    Retrieves available property names for a specific entity type (e.g., events, users, groups).
-    Use when you know the entity type but need to discover what properties are available.
-    Returns property names, data types, and descriptions.
-    """
-
-    model_config = ConfigDict(title="retrieve_entity_properties")
-
-    name: Literal["retrieve_entity_properties"]
-    arguments: RetrieveEntityPropertiesToolArgs
-
-
-class AskUserForHelpToolArgs(BaseModel):
-    request: str = Field(..., description="The question you want to ask the user.")
-
-
-class AskUserForHelpTool(BaseModel):
+class ask_user_for_help(BaseModel):
     """
     Use this tool to ask a clarifying question to the user. Your question must be concise and clear.
     """
 
-    model_config = ConfigDict(title="ask_user_for_help")
-
-    name: Literal["ask_user_for_help"]
-    arguments: AskUserForHelpToolArgs
+    request: str = Field(..., description="The question you want to ask the user.")
 
 
-class FinalAnswerToolArgs(BaseModel):
+class final_answer(BaseModel):
     """
     Use this tool to finalize the filter options answer.
     You MUST use this tool ONLY when you have all the information you need to build the filter.
@@ -63,29 +43,18 @@ class FinalAnswerToolArgs(BaseModel):
     data: dict = Field(description="Complete filter object as defined in the prompts")
 
 
-class FinalAnswerTool(BaseModel):
-    """Tool for providing the final answer with filter data."""
-
-    model_config = ConfigDict(title="final_answer")
-
-    name: Literal["final_answer"]
-    arguments: FinalAnswerToolArgs
-
-
 FilterOptionsToolUnion = Union[
-    RetrieveEntityPropertiesTool,
-    RetrieveEntityPropertiesValuesTool,
-    AskUserForHelpTool,
-    FinalAnswerTool,
+    retrieve_entity_properties, retrieve_entity_property_values, ask_user_for_help, final_answer
 ]
 
 
-class FilterOptionsTool(RootModel[FilterOptionsToolUnion]):
-    root: FilterOptionsToolUnion = Field(..., discriminator="name")
+class FilterOptionsTool(BaseModel):
+    name: str
+    arguments: FilterOptionsToolUnion
 
 
 class FilterOptionsToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
+    def _get_tools(self) -> list[dict]:
         """Required implementation of abstract method from TaxonomyAgentToolkit"""
         stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
         return [
@@ -173,18 +142,17 @@ class FilterOptionsToolkit(TaxonomyAgentToolkit):
         result = {"properties": properties_by_type}
         return yaml.dump(result, default_flow_style=False, sort_keys=True)
 
-    def retrieve_entity_properties(self, entity: str) -> str:
+    def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        MAX_PROPERTIES = 500
         if entity not in self._entity_names:
             return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
 
         if entity == EntityType.EVENT.value or entity == EntityType.ACTION.value:
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.EVENT).values_list(
                 "name", "property_type"
-            )[:MAX_PROPERTIES]
+            )[:max_properties]
             props = self._enrich_props_with_descriptions("event", qs)
             if not props:
                 return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
