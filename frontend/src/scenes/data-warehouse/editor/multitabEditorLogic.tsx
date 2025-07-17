@@ -60,6 +60,8 @@ export interface MultitabEditorLogicProps {
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
+export const allTabsStateKey = (key: string | number): string => `${key}/allTabs`
+export const inProgressViewEditsStateKey = (key: string | number): string => `${key}/inProgressViewEdits`
 
 export const NEW_QUERY = 'Untitled'
 
@@ -93,7 +95,7 @@ const getStorageItem = async (key: string): Promise<string | null> => {
             localStorage.removeItem(key)
         } catch (error) {
             // this can happen if the storage quota is exceeded, or if the user is in private mode when trying to migrate
-            posthog.capture('sql-editor-local-storage-migration-failure', { error })
+            posthog.captureException(new Error('sql-editor-local-storage-migration-failure'), { error })
         }
         return lsValue
     }
@@ -104,7 +106,7 @@ const getStorageItem = async (key: string): Promise<string | null> => {
         }
     } catch (error) {
         // this can happen if the storage quota is exceeded, or if the user is in private mode when trying to read from IndexedDB
-        posthog.capture('sql-editor-indexeddb-read-failure', { error })
+        posthog.captureException(new Error('sql-editor-indexeddb-read-failure'), { error })
     }
     return null
 }
@@ -114,7 +116,7 @@ const setStorageItem = async (key: string, value: string): Promise<void> => {
         await set(key, value)
     } catch (error) {
         // this would trigger if theres a problem writing to IndexedDB, and therefore we fall back to localStorage
-        posthog.capture('sql-editor-indexeddb-write-failure', { error })
+        posthog.captureException(new Error('sql-editor-indexeddb-write-failure'), { error })
         localStorage.setItem(key, value)
     }
 }
@@ -753,16 +755,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             // TODO: replace with queryTabState
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
-
-            const storedAllTabs = await getStorageItem(`${props.key}/allTabs`)
-            const storedInProgressViewEdits = await getStorageItem(`${props.key}/inProgressViewEdits`)
+            const storedAllTabs = await getStorageItem(allTabsStateKey(props.key))
+            const storedInProgressViewEdits = await getStorageItem(inProgressViewEditsStateKey(props.key))
 
             if (storedAllTabs) {
                 try {
                     const parsedTabs = JSON.parse(storedAllTabs) as QueryTab[]
                     actions.setTabs(parsedTabs)
                 } catch (error) {
-                    posthog.capture('sql-editor-alltabs-parse-failure', { error })
+                    posthog.captureException(new Error('sql-editor-alltabs-parse-failure'), { error })
                 }
             }
 
@@ -777,7 +778,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.setInProgressViewEdit(viewId, historyId)
                     })
                 } catch (error) {
-                    posthog.capture('sql-editor-inprogressviewedits-parse-failure', { error })
+                    posthog.captureException(new Error('sql-editor-inprogressviewedits-parse-failure'), { error })
                 }
             }
 
@@ -1220,7 +1221,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             // make sure that allTabs is stored in IndexedDB when it changes
             if (allTabs.length > 0) {
-                actions.setLocalState(`${props.key}/allTabs`, JSON.stringify(allTabs))
+                actions.setLocalState(allTabsStateKey(props.key), JSON.stringify(allTabs))
             }
         },
         editingView: (editingView) => {
@@ -1233,7 +1234,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         // used to store inProgressViewEdits in IndexedDB when it changes
         inProgressViewEdits: (inProgressViewEdits) => {
             if (Object.keys(inProgressViewEdits).length > 0) {
-                actions.setLocalState(`${props.key}/inProgressViewEdits`, JSON.stringify(inProgressViewEdits))
+                actions.setLocalState(inProgressViewEditsStateKey(props.key), JSON.stringify(inProgressViewEdits))
             }
         },
     })),
