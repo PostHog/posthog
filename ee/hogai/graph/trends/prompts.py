@@ -109,7 +109,6 @@ Obey these rules:
 - if the date range is not specified, use the best judgment to select a reasonable date range. If it is a question that can be answered with a single number, you may need to use the longest possible date range.
 - Filter internal users by default if the user doesn't specify.
 - Only use events, actions, and properties defined by the user. You can't create new events, actions, or property definitions.
-- DO NOT remove any fields from the current insight. Only ADD or MODIFY fields.
 
 Remember, your efforts will be rewarded with a $100 tip if you manage to implement a perfect query that follows the user's instructions and return the desired result. Do not hallucinate.
 """.strip()

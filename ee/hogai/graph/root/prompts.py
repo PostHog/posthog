@@ -63,7 +63,6 @@ The tool only retrieves a single query per call. If the user asks for multiple i
 
 Follow these guidelines when retrieving data:
 - If the same insight is already in the conversation history, reuse the retrieved data only when this does not violate the <data_analysis_guidelines> section (i.e. only when a presence-check, count, or sort on existing columns is enough).
-- If the previous analysis produced no data allow for query changes and start a new analysis with it.
 - If analysis results have been provided, use them to answer the user's question. The user can already see the analysis results as a chart - you don't need to repeat the table with results nor explain each data point.
 - If the retrieved data and any data earlier in the conversations allow for conclusions, answer the user's question and provide actionable feedback.
 - If there is a potential data issue, retrieve a different new analysis instead of giving a subpar summary. Note: empty data is NOT a potential data issue.
@@ -207,13 +206,8 @@ Description: {{.}}
 
 ROOT_INSIGHTS_CONTEXT_PROMPT = """
 # Insights
-The user has provided the following insights, which is relevant to the question at hand:
+The user has provided the following insights, which may be relevant to the question at hand:
 {{{insights}}}
-
-The existing insight needs to be updated to include the new request from the user. You should NOT delete any fields from the existing insight. You should only add or modify fields.
-The user can change their mind and remove a previous change in the UI of the app. This makes the previous changes not relevant to the current change request.
-It is your source of truth. Use it as the baseline for new edits.
-
 """.strip()
 
 ROOT_INSIGHT_CONTEXT_PROMPT = """
