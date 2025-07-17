@@ -174,10 +174,16 @@ class ExternalWebAnalyticsQueryAdapter:
 
         response = runner.calculate()
 
-        return self._transform_breakdown_response(response, breakdown_by)
+        # Get requested metrics from the serializer data
+        requested_metrics = data.get("metrics")
+
+        return self._transform_breakdown_response(response, breakdown_by, requested_metrics)
 
     def _transform_breakdown_response(
-        self, response: WebStatsTableQueryResponse, breakdown: WebStatsBreakdown
+        self,
+        response: WebStatsTableQueryResponse,
+        breakdown: WebStatsBreakdown,
+        requested_metrics: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Transform the internal WebStatsTableQueryResponse to external API format.
@@ -209,6 +215,16 @@ class ExternalWebAnalyticsQueryAdapter:
             return self._empty_breakdown_response()
 
         supported_metrics = self.breakdown_metrics_config.get_supported_metrics_for_breakdown(breakdown)
+
+        # Filter metrics based on request if specified
+        if requested_metrics:
+            requested_metrics_set = set(requested_metrics)
+            # Always include breakdown_value, then filter other metrics
+            filtered_metrics = {}
+            for key, metric_def in supported_metrics.items():
+                if key == "breakdown_value" or key in requested_metrics_set:
+                    filtered_metrics[key] = metric_def
+            supported_metrics = filtered_metrics
 
         column_indices = {col: i for i, col in enumerate(response.columns)}
 

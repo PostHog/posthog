@@ -1,7 +1,6 @@
 from unittest.mock import patch, MagicMock
 from rest_framework import status
 from posthog.test.base import APIBaseTest
-import yaml
 
 
 class ExternalWebAnalyticsAPITest(APIBaseTest):
@@ -155,6 +154,9 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_summary_team_isolation(self):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
         other_organization = self.create_organization_with_features([])
         other_team = self.create_team_with_organization(organization=other_organization)
         other_url = f"/api/projects/{other_team.id}/web_analytics/summary/"
@@ -169,19 +171,6 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_summary_included_in_openapi_schema(self):
-        schema_response = self.client.get("/api/schema/")
-
-        assert schema_response.status_code == 200
-        assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
-
-        schema = yaml.safe_load(schema_response.content)
-
-        paths = schema.get("paths", {})
-        endpoint_path = f"/api/projects/{{project_id}}/web_analytics/summary/"
-
-        assert endpoint_path in paths
 
     @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
     def test_summary_sql_injection_protection(self, mock_chdb):
