@@ -1,7 +1,7 @@
 import { kea, resetContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { multitabEditorLogic } from './multitabEditorLogic'
-// try moving this up to the top
+// try moving to the top
 jest.mock('lib/monaco/codeEditorLogic', () => ({
     codeEditorLogic: {
         actions: {
