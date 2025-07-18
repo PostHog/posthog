@@ -161,6 +161,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "users_with_access",
         ]:
             return ["access_control:read"]
+        elif request.method == "PUT" and self.action in [
+            "access_controls",
+            "global_access_controls",
+        ]:
+            return ["access_control:write"]
 
         return None
 
@@ -225,8 +230,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
         for membership in org_memberships:
             user = membership.user
             user_uac = UserAccessControl(user=user, team=team)
+
+            # Check if user has access to the project first
+            project_access = user_uac.check_access_level_for_object(team, required_level="member")
+            if not project_access:
+                continue
+
             access_level = user_uac.access_level_for_object(obj, resource)
-            if access_level is None:
+            if access_level is None or access_level == "none":
                 continue
 
             access_source = user_uac.get_access_source_for_object(obj, resource) or AccessSource.DEFAULT

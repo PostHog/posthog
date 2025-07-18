@@ -106,7 +106,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                         replacer = ChannelTypeReplacer(self._get_channel_type_expr())
                         filter_exprs.append(replacer.visit(property_to_expr([prop], self.runner.team)))
 
-        return ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
+        return ast.And(exprs=filter_exprs)
 
     def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[ast.Expr, ast.Expr]:
         current_date_from = self.runner.query_date_range.date_from()

@@ -209,6 +209,7 @@ def WEB_STATS_INSERT_SQL(
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
     settings_clause = f"SETTINGS {settings}" if settings else ""
 
@@ -394,6 +395,8 @@ def WEB_BOUNCES_INSERT_SQL(
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
 
+    settings_clause = f"SETTINGS {settings}" if settings else ""
+
     query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
@@ -537,7 +540,7 @@ def WEB_BOUNCES_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid
-    {"SETTINGS " + settings if settings and not select_only else ""}
+    {settings_clause}
     """
 
     if select_only:

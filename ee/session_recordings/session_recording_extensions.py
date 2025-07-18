@@ -18,7 +18,7 @@ MINIMUM_AGE_FOR_RECORDING = timedelta(
 )
 
 MAXIMUM_AGE_FOR_RECORDING_V2 = timedelta(
-    minutes=int(settings.get_from_env("SESSION_RECORDING_V2_MAXIMUM_AGE_MINUTES", 7 * 24 * 60))
+    minutes=int(settings.get_from_env("SESSION_RECORDING_V2_MAXIMUM_AGE_MINUTES", 90 * 24 * 60))
 )
 
 # we have 30, 90, and 365-day retention possible
