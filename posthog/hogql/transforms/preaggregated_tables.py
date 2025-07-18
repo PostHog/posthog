@@ -370,40 +370,6 @@ def _is_select_expr_valid(expr: ast.Expr) -> bool:
     return False
 
 
-def _contains_any_aggregation(expr: ast.Expr) -> bool:
-    """Check if an expression contains any aggregation function (supported or unsupported)."""
-    if isinstance(expr, ast.Call):
-        # Check for any aggregation function
-        aggregation_functions = [
-            "count",
-            "uniq",
-            "avg",
-            "sum",
-            "min",
-            "max",
-            "median",
-            "stddev",
-            "variance",
-            "quantile",
-            "topK",
-            "groupArray",
-            "groupUniqArray",
-            "argMin",
-            "argMax",
-        ]
-        if expr.name in aggregation_functions:
-            return True
-        # Recursively check arguments
-        for arg in expr.args:
-            if _contains_any_aggregation(arg):
-                return True
-    elif isinstance(expr, ast.ArithmeticOperation):
-        return _contains_any_aggregation(expr.left) or _contains_any_aggregation(expr.right)
-    elif isinstance(expr, ast.Alias):
-        return _contains_any_aggregation(expr.expr)
-    return False
-
-
 def _transform_select_expr(expr: ast.Expr) -> ast.Expr:
     """Transform a SELECT expression to use preaggregated fields."""
     if isinstance(expr, ast.Call):
