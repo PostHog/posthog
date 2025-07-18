@@ -9,7 +9,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { Link } from '../Link'
 import { MarkdownMention } from './MarkdownMention'
-import { parseMentions } from './mentionUtils'
+import { parseMentions } from './parseMentions'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -36,7 +36,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableDocsRedirect = false,
     wrapCode = false,
 }: LemonMarkdownProps): JSX.Element {
-    // We need access to members to validate mentions
     const { meFirstMembers } = useValues(membersLogic)
 
     const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
