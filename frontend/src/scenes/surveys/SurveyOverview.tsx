@@ -113,8 +113,8 @@ export function SurveyOverview(): JSX.Element {
                 {featureFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS] && (
                     <SurveyOption label="Responses via external link">
                         <div className="flex flex-row items-center gap-2">
-                            {survey.is_publicly_shareable ? 'Enabled' : 'Disabled'}
-                            {survey.is_publicly_shareable && <CopySurveyLink surveyId={survey.id} />}
+                            {survey.type === SurveyType.ExternalSurvey ? 'Enabled' : 'Disabled'}
+                            {survey.type === SurveyType.ExternalSurvey && <CopySurveyLink surveyId={survey.id} />}
                         </div>
                     </SurveyOption>
                 )}

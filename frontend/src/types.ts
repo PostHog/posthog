@@ -3077,7 +3077,6 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
-    is_publicly_shareable?: boolean | null
     _create_in_folder?: string | null
 }
 

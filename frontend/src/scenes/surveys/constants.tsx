@@ -178,7 +178,6 @@ export interface NewSurvey
         | 'response_sampling_limit'
         | 'schedule'
         | 'enable_partial_responses'
-        | 'is_publicly_shareable'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -213,7 +212,6 @@ export const NEW_SURVEY: NewSurvey = {
     iteration_count: null,
     iteration_frequency_days: null,
     enable_partial_responses: true,
-    is_publicly_shareable: false,
 }
 
 export enum SurveyTemplateType {

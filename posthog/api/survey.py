@@ -155,7 +155,6 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
-            "is_publicly_shareable",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -222,7 +221,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "_create_in_folder",
-            "is_publicly_shareable",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -1467,7 +1465,7 @@ def public_survey_page(request, survey_id: str):
             "survey_page_access_denied",
             survey_id=survey_id,
             archived=survey.archived,
-            publicly_shareable=survey.is_publicly_shareable,
+            survey_type=survey.type,
         )
         return render(
             request,
