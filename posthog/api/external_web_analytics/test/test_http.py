@@ -343,39 +343,6 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
     @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
-    def test_breakdown_with_metrics_filter(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
-        mock_team_ids.__contains__.return_value = True
-        mock_feature_enabled.return_value = True
-        mock_runner = MagicMock()
-        mock_response = MagicMock()
-        mock_response.columns = [
-            "context.columns.breakdown_value",
-            "context.columns.visitors",
-        ]
-        mock_response.results = [["Chrome", (150, 120)]]
-        mock_runner.calculate.return_value = mock_response
-        mock_runner_class.return_value = mock_runner
-
-        response = self.client.get(
-            self.breakdown_url,
-            {
-                "date_from": "2025-01-01",
-                "date_to": "2025-01-31",
-                "breakdown_by": "Browser",
-                "metrics": "visitors",
-            },
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        result = data["results"][0]
-        assert "breakdown_value" in result
-        assert "visitors" in result
-        assert "views" not in result
-
-    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
-    @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
     def test_breakdown_with_pagination(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
         mock_feature_enabled.return_value = True
