@@ -4153,6 +4153,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'twilio'
     | 'linear'
     | 'github'
     | 'meta-ads'
