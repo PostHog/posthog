@@ -147,7 +147,7 @@ async def fetch_session_batch_events_activity(
                     all_session_events[session_id] = []
                 all_session_events[session_id].extend([tuple(event) for event in session_item.events])
         # Check if we have more pages
-        if not response.hasMore:
+        if response.hasMore is not True:
             break
         offset += page_size
     # Store all per-session DB data in Redis
