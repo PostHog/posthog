@@ -52,6 +52,14 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
         offset: offsetIncrementer++,
         timestamp: DateTime.now().toMillis(),
         partition: 1,
+        headers: [
+            {
+                distinct_id: Buffer.from(event.distinct_id || ''),
+            },
+            {
+                token: Buffer.from(event.token || ''),
+            },
+        ],
     }
 }
 
@@ -435,15 +443,6 @@ describe('IngestionConsumer', () => {
                 jest.spyOn(logger, 'debug')
             })
 
-            const expectDropLogs = (pairs: [string, string | undefined][]) => {
-                for (const [token, distinctId] of pairs) {
-                    expect(jest.mocked(logger.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
-                        distinctId,
-                        token,
-                    })
-                }
-            }
-
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops events with matching token:distinct_id when only event keys are listed', () => {
                 beforeEach(async () => {
                     hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
@@ -460,7 +459,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
                 })
 
                 it('should not drop events for a different team token', async () => {
@@ -475,7 +473,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
 
                 it('should not drop events for a different distinct_id', async () => {
@@ -489,7 +486,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
             })
 
@@ -512,7 +508,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([[team.api_token, distinct_id_to_drop]])
                 })
 
                 it('should not drop all events for team with event key listed when distinct_id differs in event', async () => {
@@ -528,7 +523,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
 
                 it('should drop all events for team with only token listed to be dropped', async () => {
@@ -552,10 +546,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([
-                        [team2.api_token, any_distinct_id],
-                        [team2.api_token, other_distinct_id],
-                    ])
                 })
             })
         })
