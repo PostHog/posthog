@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, kea, listeners, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, listeners, reducers, selectors, path } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
@@ -12,6 +12,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+
+import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 
@@ -31,7 +33,8 @@ export interface ChangelogFlagPayload {
     email?: string
 }
 
-export const sidePanelNotificationsLogic = kea([
+export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>([
+    path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
     connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
@@ -112,7 +115,6 @@ export const sidePanelNotificationsLogic = kea([
             },
         ],
     })),
-
     listeners(({ actions, cache }) => ({
         togglePolling: ({ pageIsVisible }) => {
             if (pageIsVisible) {
@@ -189,7 +191,6 @@ export const sidePanelNotificationsLogic = kea([
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.pollTimeout)
     }),
