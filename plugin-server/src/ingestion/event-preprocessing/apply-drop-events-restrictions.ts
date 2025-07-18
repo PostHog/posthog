@@ -12,12 +12,14 @@ export function applyDropEventsRestrictions(
 
     // Parse the headers so we can early exit if found and should be dropped
     message.headers?.forEach((header) => {
-        if (header.key === 'distinct_id') {
-            distinctId = header.value.toString()
-        }
-        if (header.key === 'token') {
-            token = header.value.toString()
-        }
+        Object.keys(header).forEach((key) => {
+            if (key === 'distinct_id') {
+                distinctId = header[key].toString()
+            }
+            if (key === 'token') {
+                token = header[key].toString()
+            }
+        })
     })
 
     if (!token) {
