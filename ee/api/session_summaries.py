@@ -88,7 +88,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 local_reads_prod=False,
             )
             create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
-            return Response(summary, status=status.HTTP_200_OK)
+            return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
                 f"Failed to generate session group summary for sessions {session_ids} from team {self.team.pk} by user {user.pk}: {err}",
