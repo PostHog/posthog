@@ -53,7 +53,7 @@ const forcedOverflowEventsCounter = new Counter({
 const headerEventMismatchCounter = new Counter({
     name: 'ingestion_header_event_mismatch_total',
     help: 'Number of events where headers do not match the parsed event data',
-    labelNames: ['mismatch'],
+    labelNames: ['token', 'distinct_id'],
 })
 
 type EventsForDistinctId = {
@@ -700,26 +700,38 @@ export class IngestionConsumer {
     }
 
     private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
-        const mismatches: string[] = []
-
-        if (headerToken && event.token && headerToken !== event.token) {
-            mismatches.push('token')
+        let tokenStatus = 'ok'
+        if (!headerToken && event.token) {
+            tokenStatus = 'missing_in_header'
+        } else if (headerToken && !event.token) {
+            tokenStatus = 'missing_in_event'
+        } else if (!headerToken && !event.token) {
+            tokenStatus = 'missing'
+        } else if (headerToken && event.token && headerToken !== event.token) {
+            tokenStatus = 'different'
         }
 
-        if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
-            mismatches.push('distinct_id')
+        let distinctIdStatus = 'ok'
+        if (!headerDistinctId && event.distinct_id) {
+            distinctIdStatus = 'missing_in_header'
+        } else if (headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing_in_event'
+        } else if (!headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing'
+        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
+            distinctIdStatus = 'different'
         }
 
-        if (mismatches.length > 0) {
-            const mismatchType = mismatches.join('_')
-            headerEventMismatchCounter.labels(mismatchType).inc()
+        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
+            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
 
-            logger.warn('🔍', `Header/event mismatch detected`, {
+            logger.warn('🔍', `Header/event validation issue detected`, {
                 headerToken,
                 eventToken: event.token,
                 headerDistinctId,
                 eventDistinctId: event.distinct_id,
-                mismatches,
+                tokenStatus,
+                distinctIdStatus,
             })
         }
     }
