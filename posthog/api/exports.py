@@ -16,6 +16,7 @@ from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
 from posthog.tasks import exporter
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
@@ -41,6 +42,31 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "exception",
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
+
+    def to_representation(self, instance):
+        """Override to show stuck exports as having an exception."""
+        data = super().to_representation(instance)
+
+        # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
+        # has no content, and has no recorded exception)
+        timeout_threshold = self.context.get("timeout_threshold")
+        if (
+            timeout_threshold
+            and instance.created_at < timeout_threshold
+            and not instance.has_content
+            and not instance.exception
+        ):
+            timeout_message = f"Export timed out after {HOGQL_INCREASED_MAX_EXECUTION_TIME} seconds"
+            data["exception"] = timeout_message
+
+            logger.info(
+                "export_shown_as_timed_out",
+                export_id=instance.id,
+                created_at=instance.created_at.isoformat(),
+                timeout_seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME,
+            )
+
+        return data
 
     def validate(self, data: dict) -> dict:
         if not data.get("export_format"):
@@ -167,6 +193,12 @@ class ExportedAssetViewSet(
         if self.action == "list":
             return queryset.filter(created_by=self.request.user)
         return queryset
+
+    def get_serializer_context(self):
+        """Add timeout threshold to serializer context."""
+        context = super().get_serializer_context()
+        context["timeout_threshold"] = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
+        return context
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])
