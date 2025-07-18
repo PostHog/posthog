@@ -57,7 +57,7 @@ export function getSmartStepPath({
                 (edge.source === currentEdge.source && edge.target === currentEdge.target) ||
                 (edge.source === currentEdge.target && edge.target === currentEdge.source)
 
-            return sharesSource || sharesTarget || sameConnection
+            return (sharesSource && sharesTarget) || sameConnection
         })
 
         // Initialize offset based on edge conflicts
@@ -222,11 +222,11 @@ export function SmartEdge({
         targetY,
         targetPosition,
         edges,
-        nodes,
+        nodes: nodes.filter((node) => node.type !== 'dropzone'),
         currentEdgeId: id,
     })
 
-    return <BaseEdge path={edgePath} markerEnd={markerEnd} markerStart={markerStart} {...props} />
+    return <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
 }
 
 export const REACT_FLOW_EDGE_TYPES = {

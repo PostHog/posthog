@@ -32,7 +32,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP * 1.5}`,
         'elk.spacing.nodeNode': `${NODE_GAP}`,
         'elk.spacing.edgeEdge': `${NODE_GAP}`,
-        'elk.spacing.edgeNode': `${NODE_GAP}`,
+        'elk.spacing.edgeNode': `${NODE_GAP * 3}`,
         'elk.direction': 'DOWN',
         'elk.layered.nodePlacement.strategy': 'SIMPLE',
         'elk.alignment': 'CENTER',
