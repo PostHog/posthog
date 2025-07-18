@@ -35,7 +35,7 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries
-MAX_SELECT_RETURNED_ROWS = 5000
+MAX_SELECT_RETURNED_ROWS = 10000
 # Max limit for api based SELECT queries
 API_MAX_SELECT_RETURNED_ROWS = 50000
 
