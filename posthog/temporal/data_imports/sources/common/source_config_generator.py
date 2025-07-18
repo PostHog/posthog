@@ -1,0 +1,365 @@
+import logging
+from structlog import get_logger
+
+from typing import Any, Optional
+
+from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
+from posthog.warehouse.models import ExternalDataSource
+from posthog.schema import (
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+    SourceFieldOauthConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldSSHTunnelConfig,
+    Type4,
+)
+
+logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
+
+
+class SourceConfigGenerator:
+    def __init__(self):
+        self.generated_classes: dict[str, str] = {}
+        self.imports: set[str] = set()
+        self.nested_configs: dict[str, str] = {}
+
+    def generate_all_configs(self) -> str:
+        self.imports.update(
+            [
+                "from typing import Any, Literal",
+                "from posthog.temporal.data_imports.pipelines.source import config",
+                "from posthog.warehouse.models import ExternalDataSource",
+            ]
+        )
+
+        for source_type, source_config in AVAILABLE_SOURCES.items():
+            try:
+                self.generate_source_config(source_type, source_config)
+            except Exception as e:
+                logger.info(f"Error generating config for {source_type}: {e}")
+                continue
+
+        return self._build_output()
+
+    def generate_source_config(self, source_type: ExternalDataSource.Type, source_config: SourceConfig) -> None:
+        class_name = self._get_config_class_name(source_type)
+        fields = []
+        nested_classes = []
+
+        for field in source_config.fields:
+            field_defs, nested = self._process_field(field, class_name, source_config)
+            if field_defs:
+                fields.extend(field_defs)
+            if nested:
+                nested_classes.extend(nested)
+
+        config_class = self._generate_config_class(class_name, fields)
+
+        for nested_class in nested_classes:
+            nested_name = self._extract_class_name(nested_class)
+            self.nested_configs[nested_name] = nested_class
+
+        self.generated_classes[class_name] = config_class
+
+    def _process_field(self, field: Any, parent_class: str, source_config: SourceConfig) -> tuple[list[str], list[str]]:
+        """Process a single field and return field definitions and any nested classes."""
+
+        if isinstance(field, SourceFieldInputConfig):
+            field_def = self._process_input_field(field)
+            return [field_def] if field_def else [], []
+
+        elif isinstance(field, SourceFieldSelectConfig):
+            return self._process_select_field(field, parent_class, source_config)
+
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            field_def, nested_classes = self._process_switch_group_field(field, parent_class, source_config)
+            return [field_def] if field_def else [], nested_classes
+
+        elif isinstance(field, SourceFieldOauthConfig):
+            field_def = self._process_oauth_field(field)
+            return [field_def] if field_def else [], []
+
+        elif isinstance(field, SourceFieldFileUploadConfig):
+            field_def = self._process_file_upload_field(field)
+            return [field_def] if field_def else [], []
+
+        elif isinstance(field, SourceFieldSSHTunnelConfig):
+            field_def = self._process_ssh_tunnel_field(field)
+            return [field_def] if field_def else [], []
+
+        else:
+            logger.info(f"Unknown field type: {type(field)}")
+            return [], []
+
+    def _process_input_field(self, field: SourceFieldInputConfig) -> str:
+        python_type = self._get_python_type(field.type)
+
+        is_optional = not field.required
+        if is_optional:
+            python_type = f"{python_type} | None"
+
+        field_parts = []
+
+        converter = self._get_converter(field.type)
+        if converter:
+            field_parts.append(f"converter={converter}")
+
+        if not field.required:
+            if field_parts:
+                field_parts.append("default=None")
+            else:
+                field_def = f"    {field.name}: {python_type} = None"
+                return field_def
+
+        if field_parts:
+            config_value = f"config.value({', '.join(field_parts)})"
+            field_def = f"    {field.name}: {python_type} = {config_value}"
+        else:
+            field_def = f"    {field.name}: {python_type}"
+
+        return field_def
+
+    def _process_select_field(
+        self, field: SourceFieldSelectConfig, parent_class: str, source_config: SourceConfig
+    ) -> tuple[list[str], list[str]]:
+        has_option_fields = any(option.fields for option in field.options if option.fields)
+
+        if not has_option_fields:
+            option_values = [f'"{option.value}"' for option in field.options]
+            literal_type = f"Literal[{', '.join(option_values)}]"
+
+            if field.defaultValue:
+                field_def = f'    {field.name}: {literal_type} = "{field.defaultValue}"'
+            elif not field.required:
+                field_def = f"    {field.name}: {literal_type} | None = None"
+            else:
+                field_def = f"    {field.name}: {literal_type}"
+
+            return [field_def], []
+
+        nested_classes = []
+
+        # Select with sub-fields
+        if field.flattenComplexSelect:
+            # Legacy flattening behavior - flatten option fields to main config
+            # The select field itself becomes a simple literal
+            option_values = [f'"{option.value}"' for option in field.options]
+            literal_type = f"Literal[{', '.join(option_values)}]"
+
+            if field.defaultValue:
+                select_field = f'    {field.name}: {literal_type} = "{field.defaultValue}"'
+            elif not field.required:
+                select_field = f"    {field.name}: {literal_type} | None = None"
+            else:
+                select_field = f"    {field.name}: {literal_type}"
+
+            option_fields = []
+            seen_field_names = set()
+            for option in field.options:
+                if not option.fields:
+                    continue
+
+                for option_field in option.fields:
+                    field_defs, nested = self._process_field(option_field, parent_class, source_config)
+                    if field_defs:
+                        for field_def in field_defs:
+                            field_name = field_def.split(":")[0].strip()
+                            if field_name not in seen_field_names:
+                                option_fields.append(field_def)
+                                seen_field_names.add(field_name)
+                    if nested:
+                        nested_classes.extend(nested)
+
+            all_fields = [select_field, *option_fields]
+            return all_fields, nested_classes
+
+        else:
+            # Nested behavior - create nested structure
+            nested_class_name = self._get_nested_class_name(field.name, parent_class)
+
+            nested_field_defs = []
+
+            option_values = [f'"{option.value}"' for option in field.options]
+            literal_type = f"Literal[{', '.join(option_values)}]"
+            nested_field_defs.append(f"    selection: {literal_type}")
+            seen_field_names = set()
+
+            for option in field.options:
+                if not option.fields:
+                    continue
+
+                for option_field in option.fields:
+                    field_defs, nested = self._process_field(option_field, nested_class_name, source_config)
+                    if field_defs:
+                        for field_def in field_defs:
+                            field_name = field_def.split(":")[0].strip()
+                            if field_name not in seen_field_names:
+                                nested_field_defs.extend(field_defs)
+                                seen_field_names.add(field_name)
+                    if nested:
+                        nested_classes.extend(nested)
+
+            nested_config = self._generate_config_class(nested_class_name, nested_field_defs)
+            nested_classes.append(nested_config)
+
+            if field.required:
+                parent_field = f"    {field.name}: {nested_class_name}"
+            else:
+                parent_field = f"    {field.name}: {nested_class_name} | None = None"
+
+            return [parent_field], nested_classes
+
+    def _process_switch_group_field(
+        self, field: SourceFieldSwitchGroupConfig, parent_class: str, source_config: SourceConfig
+    ) -> tuple[str, list[str]]:
+        """Process a switch group field (like SSH tunnel)."""
+
+        nested_class_name = self._get_nested_class_name(field.name, parent_class)
+
+        nested_fields = ["    enabled: bool = config.value(converter=config.str_to_bool, default=False)"]
+
+        nested_classes = []
+        for sub_field in field.fields:
+            field_defs, sub_nested = self._process_field(sub_field, nested_class_name, source_config)
+            if field_defs:
+                nested_fields.extend(field_defs)
+            if sub_nested:
+                nested_classes.extend(sub_nested)
+
+        nested_config = self._generate_config_class(nested_class_name, nested_fields)
+        nested_classes.append(nested_config)
+
+        # Convert dashes to underscores for valid Python field names
+        python_field_name = field.name.replace("-", "_")
+
+        if "-" in field.name:
+            # Use alias to map back to original field name with dashes
+            field_def = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default=None)'
+        else:
+            field_def = f"    {python_field_name}: {nested_class_name} | None = None"
+
+        return field_def, nested_classes
+
+    def _process_oauth_field(self, field: SourceFieldOauthConfig) -> str:
+        if field.required:
+            return f"    {field.name}: str"
+        else:
+            return f"    {field.name}: str | None = None"
+
+    def _process_file_upload_field(self, field: SourceFieldFileUploadConfig) -> str:
+        if field.required:
+            return f"    {field.name}: dict[str, Any]"
+        else:
+            return f"    {field.name}: dict[str, Any] | None = None"
+
+    def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
+        """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
+
+        self.imports.add("from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig")
+
+        python_field_name = field.name.replace("-", "_")
+
+        if "-" in field.name:
+            # Use alias to map back to original field name with dashes
+            return f'    {python_field_name}: SSHTunnelConfig = config.value(alias="{field.name}")'
+        else:
+            return f"    {python_field_name}: SSHTunnelConfig"
+
+    def _get_python_type(self, field_type: Type4) -> str:
+        type_mapping = {
+            Type4.TEXT: "str",
+            Type4.PASSWORD: "str",
+            Type4.EMAIL: "str",
+            Type4.NUMBER: "int",
+            Type4.TEXTAREA: "str",
+        }
+
+        return type_mapping.get(field_type, "str")
+
+    def _get_converter(self, field_type: Type4) -> Optional[str]:
+        converter_mapping = {
+            Type4.NUMBER: "int",
+        }
+
+        return converter_mapping.get(field_type)
+
+    def _get_config_class_name(self, source_type: ExternalDataSource.Type) -> str:
+        return f"{source_type.value}SourceConfig"
+
+    def _get_nested_class_name(self, field_name: str, parent_class: str) -> str:
+        parent_prefix = parent_class.replace("SourceConfig", "")
+
+        class_name_part = "".join(word.title() for word in field_name.replace("-", "_").split("_"))
+
+        return f"{parent_prefix}{class_name_part}Config"
+
+    def _sort_fields_by_defaults(self, fields: list[str]) -> list[str]:
+        """Sort fields so that fields without defaults come before fields with defaults."""
+
+        fields_without_defaults = []
+        fields_with_defaults = []
+
+        for field in fields:
+            field_content = field.strip()
+            if field_content == "pass" or not field_content:
+                continue
+
+            # If the field contains " = " it has a default, otherwise it doesn't
+            if " = " in field_content:
+                fields_with_defaults.append(field)
+            else:
+                fields_without_defaults.append(field)
+
+        return fields_without_defaults + fields_with_defaults
+
+    def _generate_config_class(self, class_name: str, fields: list[str]) -> str:
+        if fields:
+            sorted_fields = self._sort_fields_by_defaults(fields)
+            fields_str = "\n".join(sorted_fields)
+        else:
+            fields_str = "    pass"
+
+        return f"""@config.config
+class {class_name}(config.Config):
+{fields_str}"""
+
+    def _extract_class_name(self, class_definition: str) -> str:
+        lines = class_definition.split("\n")
+        for line in lines:
+            if line.startswith("class "):
+                return line.split("class ")[1].split("(")[0]
+        return ""
+
+    def _build_output(self) -> str:
+        parts = []
+
+        parts.append("# This file is automatically generated from AVAILABLE_SOURCES.")
+        parts.append("# Do not edit manually - run `pnpm generate:source-configs` to regenerate.")
+        parts.append("")
+
+        for import_line in sorted(self.imports):
+            parts.append(import_line)
+        parts.append("")
+        parts.append("")
+
+        for class_name in sorted(self.nested_configs.keys()):
+            parts.append(self.nested_configs[class_name])
+            parts.append("")
+            parts.append("")
+
+        for class_name in sorted(self.generated_classes.keys()):
+            parts.append(self.generated_classes[class_name])
+            parts.append("")
+            parts.append("")
+
+        parts.append("SOURCE_CONFIG_MAPPING = {")
+        for source_type in sorted(AVAILABLE_SOURCES.keys(), key=lambda x: x.value):
+            config_class = self._get_config_class_name(source_type)
+            parts.append(f"    ExternalDataSource.Type.{source_type.name}: {config_class},")
+        parts.append("}")
+        parts.append("")
+
+        return "\n".join(parts)
