@@ -1,10 +1,15 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
+import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -13,14 +18,25 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import {
+    ScenePanel,
+    ScenePanelActions,
+    ScenePanelDivider,
+    ScenePanelMetaInfo
+} from '~/layout/scenes/SceneLayout'
 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useRef, useState } from 'react'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
+    const sceneNameRef = useRef<HTMLTextAreaElement>(null)
     const logicProps: ActionEditLogicProps = {
         id: id,
         action: loadedAction,
@@ -30,6 +46,11 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { submitAction, deleteAction, setActionValue } = useActions(logic)
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+
+    // Used for saving a new action without a name, we focus the name input
+    const [forceNameEdit, setForceNameEdit] = useState(false)
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -52,10 +73,13 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
             onClick={() => {
                 router.actions.push(urls.actions())
             }}
+            tooltip="Cancel and return to the list of actions"
         >
             Cancel
         </LemonButton>
     )
+
+    console.log(forceNameEdit)
 
     const actionEditJSX = (
         <div className="action-edit-container">
@@ -63,52 +87,56 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                 <PageHeader
                     caption={
                         <>
-                            <LemonField name="description">
-                                {({ value, onChange }) => (
-                                    <EditableField
-                                        multiline
-                                        name="description"
-                                        markdown
-                                        value={value || ''}
-                                        placeholder="Description (optional)"
-                                        onChange={
-                                            !id
-                                                ? onChange
-                                                : undefined /* When creating a new action, change value on type */
-                                        }
-                                        onSave={(value) => {
-                                            onChange(value)
-                                            submitAction()
-                                            /* When clicking 'Set' on an `EditableField`, always save the form */
-                                        }}
-                                        mode={
-                                            !id
-                                                ? 'edit'
-                                                : undefined /* When creating a new action, maintain edit mode */
-                                        }
-                                        data-attr="action-description"
-                                        className="action-description"
-                                        compactButtons
-                                        maxLength={600} // No limit on backend model, but enforce shortish description
-                                    />
-                                )}
-                            </LemonField>
-                            <LemonField name="tags" className="mt-2">
-                                {({ value, onChange }) => (
-                                    <ObjectTags
-                                        tags={value ?? []}
-                                        onChange={(tags) => onChange(tags)}
-                                        className="action-tags"
-                                        saving={actionLoading}
-                                        tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
-                                    />
-                                )}
-                            </LemonField>
+                            {!newSceneLayout && (
+                                <>
+                                    <LemonField name="description">
+                                        {({ value, onChange }) => (
+                                            <EditableField
+                                                multiline
+                                                name="description"
+                                                markdown
+                                                value={value || ''}
+                                                placeholder="Description (optional)"
+                                                onChange={
+                                                    !id
+                                                        ? onChange
+                                                        : undefined /* When creating a new action, change value on type */
+                                                }
+                                                onSave={(value) => {
+                                                    onChange(value)
+                                                    submitAction()
+                                                    /* When clicking 'Set' on an `EditableField`, always save the form */
+                                                }}
+                                                mode={
+                                                    !id
+                                                        ? 'edit'
+                                                        : undefined /* When creating a new action, maintain edit mode */
+                                                }
+                                                data-attr="action-description"
+                                                className="action-description"
+                                                compactButtons
+                                                maxLength={600} // No limit on backend model, but enforce shortish description
+                                            />
+                                        )}
+                                    </LemonField>
+                                    <LemonField name="tags" className="mt-2">
+                                        {({ value, onChange }) => (
+                                            <ObjectTags
+                                                tags={value ?? []}
+                                                onChange={(tags) => onChange(tags)}
+                                                className="action-tags"
+                                                saving={actionLoading}
+                                                tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
+                                            />
+                                        )}
+                                    </LemonField>
+                                </>
+                            )}
                         </>
                     }
                     buttons={
                         <>
-                            {id ? (
+                            {!newSceneLayout && id && (
                                 <LemonButton
                                     type="secondary"
                                     to={urls.replay(ReplayTabs.Home, {
@@ -141,9 +169,22 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 >
                                     View recordings
                                 </LemonButton>
-                            ) : null}
-                            {id ? deleteButton() : cancelButton()}
-                            {actionChanged || !id ? (
+                            )}
+                            {/* Existing action */}
+                            {!newSceneLayout && (
+                                <>
+                                    {id && deleteButton()}
+                                    {!id && cancelButton()}
+                                </>
+                            )}
+                            {/* New action */}
+                            {newSceneLayout && (
+                                <>
+                                    {!id && cancelButton()}
+                                </>
+                            )}
+                            {/* Existing action */}
+                            {!newSceneLayout && (actionChanged || !id) ? (
                                 <LemonButton
                                     data-attr="save-action-button"
                                     type="primary"
@@ -162,9 +203,120 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     Save
                                 </LemonButton>
                             ) : null}
+                            {/* New action */}
+                            {newSceneLayout ? (
+                                <LemonButton
+                                    data-attr="save-action-button"
+                                    type="primary"
+                                    htmlType="submit"
+                                    loading={actionLoading}
+                                    onClick={() => {
+                                        if (action.name === '') {
+                                            setForceNameEdit(true)
+                                        } else {
+                                            if (id) {
+                                                submitAction()
+                                            } else {
+                                                setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                                submitAction()
+                                            }
+                                        }
+                                    }}
+                                    disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                                >
+                                    {actionChanged ? 'Save' : 'No changes'}
+                                </LemonButton>
+                            ) : null}
                         </>
                     }
                 />
+
+
+                <ScenePanel>
+                    <ScenePanelMetaInfo>
+                        <SceneName
+                            defaultValue={action.name || 'Unnamed'}
+                            dataAttr="action-name"
+                            onSave={(value) => {
+                                setActionValue('name', value)
+                            }}
+                            forceLocalEditing={forceNameEdit}
+                        />
+
+                        <SceneDescription
+                            defaultValue={action.description || 'No description'}
+                            onSave={(value) =>
+                                setActionValue('description', value)
+                            }
+                            dataAttr="action-description"
+                        />
+
+                        <SceneTags
+                            onSave={(tags) => {
+                                setActionValue('tags', tags)
+                            }}
+                            tags={action.tags || []}
+                            tagsAvailable={tags}
+                            dataAttr="action-tags"
+                        />
+
+                        <SceneFile />
+
+                        <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
+                    </ScenePanelMetaInfo>
+                    <ScenePanelDivider />
+
+                    <ScenePanelActions>
+                        {id && (
+                            <Link
+                                to={urls.replay(ReplayTabs.Home, {
+                                    filter_group: {
+                                        type: FilterLogicalOperator.And,
+                                        values: [
+                                            {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        id: id,
+                                                        type: 'actions',
+                                                        order: 0,
+                                                        name: action.name,
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                })}
+                                onClick={() => {
+                                    addProductIntentForCrossSell({
+                                        from: ProductKey.ACTIONS,
+                                        to: ProductKey.SESSION_REPLAY,
+                                        intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                    })
+                                }}
+                                buttonProps={{
+                                    menuItem: true,
+                                }}
+                            >
+                                <IconRewindPlay />
+                                View recordings
+                            </Link>
+                        )}
+
+                        <ScenePanelDivider />
+
+                        <ButtonPrimitive
+                            onClick={() => {
+                                deleteAction()
+                            }}
+                            variant="danger"
+                            menuItem
+                        >
+                            <IconTrash />
+                            Delete
+                        </ButtonPrimitive>
+                    </ScenePanelActions>
+                </ScenePanel>
 
                 <div className="@container">
                     <h2 className="subtitle">Match groups</h2>

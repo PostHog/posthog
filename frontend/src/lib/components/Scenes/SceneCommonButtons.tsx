@@ -1,9 +1,11 @@
-import { IconCopy, IconExpand45, IconPin, IconPinFilled, IconStar, IconStarFilled } from '@posthog/icons'
+import { IconCopy, IconExpand45, IconPin, IconPinFilled, IconRewindPlay, IconStar, IconStarFilled } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 type SceneCommonButtonsButtonProps = {
     onClick?: () => void
     active?: boolean
+    to?: string
 }
 
 type SceneCommonButtonsProps = {
@@ -11,9 +13,10 @@ type SceneCommonButtonsProps = {
     favorite?: SceneCommonButtonsButtonProps
     pinned?: SceneCommonButtonsButtonProps
     fullscreen?: SceneCommonButtonsButtonProps
+    recordings?: SceneCommonButtonsButtonProps
 }
 
-export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen }: SceneCommonButtonsProps): JSX.Element {
+export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen, recordings }: SceneCommonButtonsProps): JSX.Element {
     return (
         <div className="flex gap-1">
             {favorite && (
@@ -61,6 +64,20 @@ export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen }: 
                 >
                     <IconExpand45 />
                 </ButtonPrimitive>
+            )}
+
+            {recordings && (
+                <Link
+                    onClick={recordings.onClick}
+                    to={recordings.to}
+                    tooltip="View recordings"
+                    className="justify-center flex-1"
+                    buttonProps={{
+                        menuItem: true,
+                    }}
+                >
+                    <IconRewindPlay />
+                </Link>
             )}
         </div>
     )

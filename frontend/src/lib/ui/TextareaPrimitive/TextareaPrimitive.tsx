@@ -7,7 +7,10 @@ type TextareaPrimitiveProps = TextareaAutosizeProps &
         error?: boolean
     }
 
-export function TextareaPrimitive({ className, variant, error, ...rest }: TextareaPrimitiveProps): JSX.Element {
+import { forwardRef } from 'react'
+
+export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimitiveProps>(
+    ({ className, variant, error, ...rest }, ref): JSX.Element => {
     // Ensure cursor is at the end of the textarea when it is focused
     function onFocus(e: React.FocusEvent<HTMLTextAreaElement>): void {
         e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)
@@ -15,9 +18,10 @@ export function TextareaPrimitive({ className, variant, error, ...rest }: Textar
 
     return (
         <TextareaAutosize
+            ref={ref}
             onFocus={onFocus}
             {...rest}
             className={cn(textInputVariants({ variant, error: !!error }), className)}
         />
     )
-}
+})
