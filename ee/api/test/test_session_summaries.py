@@ -5,6 +5,11 @@ from unittest.mock import patch, MagicMock, Mock
 
 from django.http import HttpResponse
 from posthog.test.base import APIBaseTest
+from ee.session_recordings.session_summary.patterns.output_data import (
+    EnrichedSessionGroupSummaryPatternsList,
+    EnrichedSessionGroupSummaryPattern,
+    EnrichedSessionGroupSummaryPatternStats,
+)
 
 
 class TestSessionSummariesAPI(APIBaseTest):
@@ -51,27 +56,26 @@ class TestSessionSummariesAPI(APIBaseTest):
         for p in self.environment_patches:
             p.stop()
 
-    def create_mock_result(self) -> dict[str, Any]:
-        """Create a mock result that mimics the serialized output"""
-        # Return a dictionary that represents the serialized Pydantic model
-        return {
-            "patterns": [
-                {
-                    "pattern_id": 1,
-                    "pattern_name": "Login Flow Pattern",
-                    "pattern_description": "Users attempting to log in with some encountering errors",
-                    "severity": "medium",
-                    "indicators": ["login attempts", "form submissions"],
-                    "events": [],
-                    "stats": {
-                        "occurences": 2,
-                        "sessions_affected": 2,
-                        "sessions_affected_ratio": 1.0,
-                        "segments_success_ratio": 0.75,
-                    },
-                }
+    def create_mock_result(self) -> Any:
+        """Create a mock result that mimics the EnrichedSessionGroupSummaryPatternsList object"""
+        return EnrichedSessionGroupSummaryPatternsList(
+            patterns=[
+                EnrichedSessionGroupSummaryPattern(
+                    pattern_id=1,
+                    pattern_name="Login Flow Pattern",
+                    pattern_description="Users attempting to log in with some encountering errors",
+                    severity="medium",
+                    indicators=["login attempts", "form submissions"],
+                    events=[],
+                    stats=EnrichedSessionGroupSummaryPatternStats(
+                        occurences=2,
+                        sessions_affected=2,
+                        sessions_affected_ratio=1.0,
+                        segments_success_ratio=0.75,
+                    ),
+                )
             ]
-        }
+        )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.SessionReplayEvents")
@@ -89,7 +93,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        mock_result: dict[str, Any] = self.create_mock_result()
+        mock_result = self.create_mock_result()
         mock_execute.return_value = mock_result
 
         # Make request
@@ -137,7 +141,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        mock_result: dict[str, Any] = self.create_mock_result()
+        mock_result = self.create_mock_result()
         mock_execute.return_value = mock_result
 
         # Make request without focus_area
@@ -355,7 +359,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        mock_result: dict[str, Any] = self.create_mock_result()
+        mock_result = self.create_mock_result()
         mock_execute.return_value = mock_result
 
         response = self._make_api_request(session_ids=["single_session"])
