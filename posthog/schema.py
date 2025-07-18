@@ -1891,28 +1891,52 @@ class PropertyMathType(StrEnum):
 
 
 class PropertyOperator(StrEnum):
+    """The PropertyOperator specifies the operator to use for the comparison in a filter."""
+
     EXACT = "exact"
+    """Exact match"""
     IS_NOT = "is_not"
+    """Not equal to"""
     ICONTAINS = "icontains"
+    """Contains"""
     NOT_ICONTAINS = "not_icontains"
+    """Does not contain"""
     REGEX = "regex"
+    """Regex match"""
     NOT_REGEX = "not_regex"
+    """Not regex match"""
     GT = "gt"
+    """Greater than"""
     GTE = "gte"
+    """Greater than or equal to"""
     LT = "lt"
+    """Less than"""
     LTE = "lte"
+    """Less than or equal to"""
     IS_SET = "is_set"
+    """Is set"""
     IS_NOT_SET = "is_not_set"
+    """Is not set"""
     IS_DATE_EXACT = "is_date_exact"
+    """Is date exact"""
     IS_DATE_BEFORE = "is_date_before"
+    """Is date before"""
     IS_DATE_AFTER = "is_date_after"
+    """Is date after"""
     BETWEEN = "between"
+    """Between"""
     NOT_BETWEEN = "not_between"
+    """Not between"""
     MIN = "min"
+    """Minimum"""
     MAX = "max"
+    """Maximum"""
     IN_ = "in"
+    """In"""
     NOT_IN = "not_in"
+    """Not in"""
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    """Is cleaned path exact"""
 
 
 class QueryIndexUsage(StrEnum):
@@ -2212,7 +2236,7 @@ class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str
+    key: str = Field(description="The name of the session property, e.g. $start_timestamp, $entry_current_url")
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
@@ -3277,7 +3301,7 @@ class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str
+    key: str = Field(description="The name of the event property")
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
@@ -3682,7 +3706,7 @@ class PersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str
+    key: str = Field(description="The name of the person property, e.g. $browser, $device_type, email")
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
@@ -10611,7 +10635,9 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         extra="forbid",
     )
     type: FilterLogicalOperator = Field(description="Defines how filters should be combined")
-    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]] = (
+        Field(description="The filters and their values to be applied to the recordings")
+    )
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
@@ -10626,19 +10652,25 @@ class MaxRecordingUniversalFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[str] = Field(
+    date_from: str = Field(
         default="-5d",
-        description="The start date of the recording. If not provided, the default value is the last 5 days.",
+        description="The start date of the recording. If not provided, the default value is the last 5 days. "
+        + "\nRelative Date (Days): Use the format '-Nd' for the last N days (e.g., 'last 5 days' becomes '-5d')"
+        + "\nRelative Date (Hours): Use the format '-Nh' for the last N hours (e.g., 'last 5 hours' becomes '-5h')"
+        + "\nCustom Date: If a specific start date is provided, use the format ISO8601 date string",
     )
     date_to: Optional[str] = Field(
-        default=None, description="The end date of the recording. If not provided, the default value is today."
+        default=None,
+        description="ISO8601 date string. The end date of the recording. If not provided, the default value is today.",
     )
     duration: list[RecordingDurationFilter] = Field(
         default=[], description="The duration of the recording. If not provided, the default value is an empty list."
     )
     filter_group: MaxOuterUniversalFiltersGroup = Field(description="The filter group of the recording.")
     filter_test_accounts: Optional[bool] = Field(default=None, description="Whether to filter test accounts.")
-    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    order: Optional[RecordingOrder] = Field(
+        default=RecordingOrder.START_TIME, description="The order of the recordings"
+    )
 
 
 class PropertyGroupFilter(BaseModel):
