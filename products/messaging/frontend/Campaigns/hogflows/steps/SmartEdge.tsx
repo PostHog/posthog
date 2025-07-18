@@ -1,9 +1,6 @@
-import { BaseEdge, EdgeProps, getSmoothStepPath, useEdges, useNodes, Edge, Node, Position } from '@xyflow/react'
+import { BaseEdge, EdgeProps, getSmoothStepPath, useEdges, useNodes, Edge, Position } from '@xyflow/react'
 
-import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
-
-const MINIMUM_EDGE_SPACING = 100 // Minimum horizontal distance between parallel edges
-const NODE_COLLISION_PADDING = 50 // Minimum distance to keep from nodes
+const MINIMUM_EDGE_SPACING = 200 // Minimum horizontal distance between parallel edges
 
 // Programmatic function to get smart step path with horizontal branching
 // Handles both edge-to-edge spacing and edge-to-node collision avoidance
@@ -15,7 +12,6 @@ export function getSmartStepPath({
     targetY,
     targetPosition = Position.Top,
     edges = [],
-    nodes = [],
     currentEdgeId,
     borderRadius = 5,
 }: {
@@ -26,7 +22,6 @@ export function getSmartStepPath({
     targetY: number
     targetPosition?: Position
     edges?: Edge[]
-    nodes?: Node[]
     currentEdgeId?: string
     borderRadius?: number
 }): [string, number, number, number, number] {
@@ -78,71 +73,7 @@ export function getSmartStepPath({
             horizontalOffset = offsetMultiplier * MINIMUM_EDGE_SPACING
         }
 
-        // Check for node collisions and adjust offset if necessary
-        // This applies even when there are no conflicting edges to avoid node overlaps
-        if (nodes.length > 0) {
-            horizontalOffset = avoidNodeCollisions(horizontalOffset, sourceX, sourceY, targetY, nodes)
-        }
-
         return horizontalOffset
-    }
-
-    // Function to check and avoid collisions with other nodes
-    const avoidNodeCollisions = (
-        initialOffset: number,
-        sourceX: number,
-        sourceY: number,
-        targetY: number,
-        nodes: Node[]
-    ): number => {
-        // Calculate the proposed branch X position
-        const proposedBranchX = sourceX + initialOffset
-
-        // Define the vertical range where collision could occur (edge path area)
-        const edgeMinY = Math.min(sourceY, targetY)
-        const edgeMaxY = Math.max(sourceY, targetY)
-
-        // Check each node for potential collision
-        for (const node of nodes) {
-            // Skip nodes that don't have position data
-            if (!node.position) {
-                continue
-            }
-
-            const nodeX = node.position.x
-            const nodeY = node.position.y
-            const nodeWidth = node.width || NODE_WIDTH // Default width from constants
-            const nodeHeight = node.height || NODE_HEIGHT // Default height from constants
-
-            // Check if node overlaps with the edge's vertical range
-            const nodeMinY = nodeY
-            const nodeMaxY = nodeY + nodeHeight
-            const verticalOverlap = nodeMaxY >= edgeMinY && nodeMinY <= edgeMaxY
-
-            if (verticalOverlap) {
-                // Check if the proposed branch X would collide with this node
-                const nodeMinX = nodeX - NODE_COLLISION_PADDING
-                const nodeMaxX = nodeX + nodeWidth + NODE_COLLISION_PADDING
-
-                if (proposedBranchX >= nodeMinX && proposedBranchX <= nodeMaxX) {
-                    // Collision detected, adjust offset
-                    // Choose the direction that requires less movement
-                    const leftDistance = Math.abs(proposedBranchX - nodeMinX)
-                    const rightDistance = Math.abs(proposedBranchX - nodeMaxX)
-
-                    if (leftDistance < rightDistance) {
-                        // Move to the left of the node
-                        const newOffset = nodeMinX - sourceX
-                        return Math.min(newOffset, initialOffset - MINIMUM_EDGE_SPACING)
-                    }
-                    // Move to the right of the node
-                    const newOffset = nodeMaxX - sourceX
-                    return Math.max(newOffset, initialOffset + MINIMUM_EDGE_SPACING)
-                }
-            }
-        }
-
-        return initialOffset
     }
 
     const horizontalOffset = calculateHorizontalOffset()

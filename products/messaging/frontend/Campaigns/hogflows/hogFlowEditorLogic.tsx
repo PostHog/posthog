@@ -270,22 +270,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
                     const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
 
-                    const [edgePath] = getSmartStepPath({
+                    const [, labelX, labelY] = getSmartStepPath({
                         sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
                         sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                         targetX: targetNode.position.x + (targetHandle?.x || 0),
                         targetY: targetNode.position.y + (targetHandle?.y || 0),
                         sourcePosition: sourceHandle?.position || Position.Bottom,
                         targetPosition: targetHandle?.position || Position.Top,
+                        nodes: values.nodes,
                         edges: values.edges,
                         currentEdgeId: edge.id,
                     })
 
-                    // Calculate the midpoint along the actual path
-                    const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-                    pathElement.setAttribute('d', edgePath)
-                    const pathLength = pathElement.getTotalLength()
-                    const midPoint = pathElement.getPointAtLength(pathLength / 2)
+                    // Use the labelX and labelY from getSmartStepPath which accounts for branching
+                    const midPoint = { x: labelX, y: labelY }
 
                     dropzoneNodes.push({
                         id: `dropzone_edge_${edge.id}`,
