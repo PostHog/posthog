@@ -75,6 +75,8 @@ def mock_session_group_summary_inputs(
             user_id=mock_user.id,
             team_id=mock_team.id,
             redis_key_base=redis_key_base,
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
         )
 
     return _create_inputs
