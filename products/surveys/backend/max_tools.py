@@ -7,12 +7,14 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from asgiref.sync import sync_to_async
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, Survey
 
 from ee.hogai.tool import MaxTool
+from posthog.schema import SurveyCreationSchema
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
-from .survey_schema import SurveyCreationOutput, DEFAULT_SURVEY_APPEARANCE
 
 
 class SurveyCreatorArgs(BaseModel):
@@ -26,7 +28,7 @@ class CreateSurveyTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
-    async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationOutput:
+    async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationSchema:
         """
         Create a survey from natural language instructions.
         """
@@ -42,7 +44,7 @@ class CreateSurveyTool(MaxTool):
         # Set up the LLM with structured output
         model = (
             ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
-            .with_structured_output(SurveyCreationOutput, include_raw=False)
+            .with_structured_output(SurveyCreationSchema, include_raw=False)
             .with_retry()
         )
 
@@ -82,7 +84,7 @@ class CreateSurveyTool(MaxTool):
                     survey_data["start_date"] = datetime.now()
 
                 # Create the survey directly using Django ORM
-                survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
+                survey = await sync_to_async(Survey.objects.create)(team=team, created_by=user, **survey_data)
 
                 launch_msg = " and launched" if result.should_launch else ""
                 return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
@@ -116,13 +118,13 @@ class CreateSurveyTool(MaxTool):
     async def _get_existing_surveys_summary(self) -> str:
         """Get summary of existing surveys for context."""
         try:
-            surveys = [
-                survey
-                async for survey in Survey.objects.filter(
+            # Use sync_to_async to convert the Django QuerySet to async
+            surveys = await sync_to_async(list)(
+                Survey.objects.filter(
                     team_id=self._team.id,
                     archived=False,
                 )[:5]
-            ]
+            )
 
             if not surveys:
                 return "No existing surveys"
@@ -137,13 +139,13 @@ class CreateSurveyTool(MaxTool):
             capture_exception(e, {"team_id": self._team.id})
             return "Unable to load existing surveys"
 
-    def _convert_to_posthog_format(self, llm_output: SurveyCreationOutput, team: Team) -> dict[str, Any]:
+    def _convert_to_posthog_format(self, llm_output: SurveyCreationSchema, team: Team) -> dict[str, Any]:
         """Convert LLM output to PostHog survey format."""
         # Convert questions to PostHog format
         questions = []
         for q in llm_output.questions:
             question_data = {
-                "type": q.type.value,
+                "type": q.type,
                 "question": q.question,
                 "description": q.description or "",
                 "optional": q.optional,
@@ -151,22 +153,22 @@ class CreateSurveyTool(MaxTool):
             }
 
             # Add type-specific fields
-            if q.type.value in ["single_choice", "multiple_choice"] and q.choices:
+            if q.type in ["single_choice", "multiple_choice"] and q.choices:
                 question_data["choices"] = q.choices
-            elif q.type.value == "rating":
+            elif q.type == "rating":
                 if q.display:
-                    question_data["display"] = q.display.value
+                    question_data["display"] = q.display
                 if q.scale:
                     question_data["scale"] = q.scale
                 if q.lowerBoundLabel:
                     question_data["lowerBoundLabel"] = q.lowerBoundLabel
                 if q.upperBoundLabel:
                     question_data["upperBoundLabel"] = q.upperBoundLabel
-            elif q.type.value == "link" and q.link:
+            elif q.type == "link" and q.link:
                 question_data["link"] = q.link
 
             # Add skipSubmitButton for rating and single_choice questions
-            if q.type.value in ["rating", "single_choice"] and q.skipSubmitButton is not None:
+            if q.type in ["rating", "single_choice"] and q.skipSubmitButton is not None:
                 question_data["skipSubmitButton"] = q.skipSubmitButton
 
             questions.append(question_data)
@@ -175,7 +177,7 @@ class CreateSurveyTool(MaxTool):
         survey_data = {
             "name": llm_output.name,
             "description": llm_output.description,
-            "type": llm_output.type.value,
+            "type": llm_output.type,
             "questions": questions,
             "archived": False,
             "enable_partial_responses": llm_output.enable_partial_responses,
@@ -189,6 +191,12 @@ class CreateSurveyTool(MaxTool):
                 conditions["urlMatchType"] = llm_output.conditions.urlMatchType or "contains"
             if llm_output.conditions.selector:
                 conditions["selector"] = llm_output.conditions.selector
+            if llm_output.conditions.seenSurveyWaitPeriodInDays:
+                conditions["seenSurveyWaitPeriodInDays"] = llm_output.conditions.seenSurveyWaitPeriodInDays
+            if llm_output.conditions.deviceTypes:
+                conditions["deviceTypes"] = llm_output.conditions.deviceTypes
+            if llm_output.conditions.deviceTypesMatchType:
+                conditions["deviceTypesMatchType"] = llm_output.conditions.deviceTypesMatchType
 
             if conditions:
                 survey_data["conditions"] = conditions
@@ -204,7 +212,11 @@ class CreateSurveyTool(MaxTool):
 
         # Finally, override with LLM-specified appearance settings
         if llm_output.appearance:
-            llm_appearance = llm_output.appearance.model_dump(exclude_unset=False)
+            # Convert the appearance object to dict
+            if hasattr(llm_output.appearance, "model_dump"):
+                llm_appearance = llm_output.appearance.model_dump(exclude_unset=False)
+            else:
+                llm_appearance = llm_output.appearance.__dict__
             # Only update fields that are actually set (not None)
             appearance.update({k: v for k, v in llm_appearance.items() if v is not None})
 

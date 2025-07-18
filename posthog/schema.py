@@ -2282,6 +2282,66 @@ class SuggestedQuestionsQueryResponse(BaseModel):
     questions: list[str]
 
 
+class SurveyMatchType(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
+class SurveyPosition(StrEnum):
+    TOP_LEFT = "top_left"
+    TOP_CENTER = "top_center"
+    TOP_RIGHT = "top_right"
+    MIDDLE_LEFT = "middle_left"
+    MIDDLE_CENTER = "middle_center"
+    MIDDLE_RIGHT = "middle_right"
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+    NEXT_TO_TRIGGER = "next_to_trigger"
+
+
+class SurveyQuestionDescriptionContentType(StrEnum):
+    HTML = "html"
+    TEXT = "text"
+
+
+class Display1(StrEnum):
+    NUMBER = "number"
+    EMOJI = "emoji"
+
+
+class Scale(float, Enum):
+    NUMBER_5 = 5
+    NUMBER_7 = 7
+    NUMBER_10 = 10
+
+
+class SurveyQuestionType(StrEnum):
+    OPEN = "open"
+    MULTIPLE_CHOICE = "multiple_choice"
+    SINGLE_CHOICE = "single_choice"
+    RATING = "rating"
+    LINK = "link"
+
+
+class SurveyType(StrEnum):
+    POPOVER = "popover"
+    WIDGET = "widget"
+    FULL_SCREEN = "full_screen"
+    EMAIL = "email"
+    API = "api"
+
+
+class SurveyWidgetType(StrEnum):
+    BUTTON = "button"
+    TAB = "tab"
+    SELECTOR = "selector"
+
+
 class TaxonomicFilterGroupType(StrEnum):
     METADATA = "metadata"
     ACTIONS = "actions"
@@ -2508,7 +2568,7 @@ class WebVitalsPercentile(StrEnum):
     P99 = "p99"
 
 
-class Scale(StrEnum):
+class Scale1(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
 
@@ -2517,7 +2577,7 @@ class YAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    scale: Optional[Scale] = None
+    scale: Optional[Scale1] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
@@ -4199,6 +4259,77 @@ class SuggestedQuestionsQuery(BaseModel):
     response: Optional[SuggestedQuestionsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyAppearanceSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    autoDisappear: Optional[bool] = None
+    backgroundColor: Optional[str] = None
+    borderColor: Optional[str] = None
+    borderRadius: Optional[str] = None
+    boxPadding: Optional[str] = None
+    boxShadow: Optional[str] = None
+    disabledButtonOpacity: Optional[str] = None
+    displayThankYouMessage: Optional[bool] = None
+    fontFamily: Optional[str] = None
+    inputBackground: Optional[str] = None
+    maxWidth: Optional[str] = None
+    placeholder: Optional[str] = None
+    position: Optional[SurveyPosition] = None
+    ratingButtonActiveColor: Optional[str] = None
+    ratingButtonColor: Optional[str] = None
+    shuffleQuestions: Optional[bool] = None
+    submitButtonColor: Optional[str] = None
+    submitButtonText: Optional[str] = None
+    submitButtonTextColor: Optional[str] = None
+    surveyPopupDelaySeconds: Optional[float] = None
+    textSubtleColor: Optional[str] = None
+    thankYouMessageCloseButtonText: Optional[str] = None
+    thankYouMessageDescription: Optional[str] = None
+    thankYouMessageDescriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
+    thankYouMessageHeader: Optional[str] = None
+    whiteLabel: Optional[bool] = None
+    widgetColor: Optional[str] = None
+    widgetLabel: Optional[str] = None
+    widgetSelector: Optional[str] = None
+    widgetType: Optional[SurveyWidgetType] = None
+    zIndex: Optional[str] = None
+
+
+class SurveyDisplayConditionsSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    deviceTypes: Optional[list[str]] = None
+    deviceTypesMatchType: Optional[SurveyMatchType] = None
+    seenSurveyWaitPeriodInDays: Optional[float] = None
+    selector: Optional[str] = None
+    url: Optional[str] = None
+    urlMatchType: Optional[SurveyMatchType] = None
+
+
+class SurveyQuestionSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    buttonText: Optional[str] = None
+    choices: Optional[list[str]] = None
+    description: Optional[str] = None
+    descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
+    display: Optional[Display1] = None
+    hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
+    link: Optional[str] = None
+    lowerBoundLabel: Optional[str] = None
+    optional: Optional[bool] = None
+    question: str
+    scale: Optional[Scale] = None
+    shuffleOptions: Optional[bool] = None
+    skipSubmitButton: Optional[bool] = None
+    type: SurveyQuestionType
+    upperBoundLabel: Optional[str] = None
 
 
 class TableSettings(BaseModel):
@@ -9529,6 +9660,25 @@ class SessionsTimelineQuery(BaseModel):
     response: Optional[SessionsTimelineQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyCreationSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    appearance: Optional[SurveyAppearanceSchema] = None
+    conditions: Optional[SurveyDisplayConditionsSchema] = None
+    description: str
+    enable_partial_responses: Optional[bool] = None
+    end_date: Optional[str] = None
+    iteration_count: Optional[float] = None
+    iteration_frequency_days: Optional[float] = None
+    name: str
+    questions: list[SurveyQuestionSchema]
+    responses_limit: Optional[float] = None
+    should_launch: Optional[bool] = None
+    start_date: Optional[str] = None
+    type: SurveyType
 
 
 class TeamTaxonomyQueryResponse(BaseModel):
