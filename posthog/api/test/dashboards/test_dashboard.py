@@ -1534,7 +1534,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         variable.delete()
 
         # recreate the variable
-        variabl2 = InsightVariable.objects.create(
+        variable2 = InsightVariable.objects.create(
             team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
         )
 
@@ -1544,16 +1544,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert isinstance(response_data["variables"], dict)
         assert len(response_data["variables"].keys()) == 1
         for key, value in response_data["variables"].items():
-            assert key == str(variabl2.id)
-            assert value["code_name"] == variabl2.code_name
-            assert value["variableId"] == str(variabl2.id)
+            assert key == str(variable2.id)
+            assert value["code_name"] == variable2.code_name
+            assert value["variableId"] == str(variable2.id)
             assert value["value"] == "some override value"
 
         assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
         assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
-            str(variabl2.id): {
-                "code_name": variabl2.code_name,
-                "variableId": str(variabl2.id),
+            str(variable2.id): {
+                "code_name": variable2.code_name,
+                "variableId": str(variable2.id),
             }
         }
 
