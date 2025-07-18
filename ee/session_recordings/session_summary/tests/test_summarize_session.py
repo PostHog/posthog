@@ -10,7 +10,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
-    prepare_data_for_single_session_summary,
+    get_session_data_from_db,
     generate_single_session_summary_prompt,
 )
 from ee.session_recordings.session_summary.stream import stream_recording_summary
@@ -56,8 +56,7 @@ class TestSummarizeSession:
             )
 
     @pytest.mark.asyncio
-    async def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock, mock_session_id: str):
-        empty_context = ExtraSummaryContext()
+    async def test_prepare_data_no_metadata(self, mock_team: MagicMock, mock_session_id: str):
         with (
             patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch.object(
@@ -67,16 +66,8 @@ class TestSummarizeSession:
             ) as mock_get_db_metadata,
         ):
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {mock_session_id}"):
-                await prepare_data_for_single_session_summary(
-                    session_id=mock_session_id,
-                    user_id=mock_user.id,
-                    team_id=mock_team.id,
-                    extra_summary_context=empty_context,
-                )
-            mock_get_db_metadata.assert_called_once_with(
-                session_id=mock_session_id,
-                team_id=mock_team.id,
-            )
+                await get_session_data_from_db(session_id=mock_session_id, team_id=mock_team.id, local_reads_prod=False)
+            mock_get_db_metadata.assert_called_once_with(session_id=mock_session_id, team_id=mock_team.id)
 
     def test_prepare_data_no_events_returns_error_data(
         self, mock_team: MagicMock, mock_raw_metadata: dict[str, Any], mock_session_id: str
