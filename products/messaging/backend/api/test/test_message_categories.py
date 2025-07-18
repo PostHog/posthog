@@ -5,9 +5,9 @@ from posthog.test.base import APIBaseTest
 
 
 class TestMessageCategoryAPI(APIBaseTest):
-    def test_list_message_categories_for_team(self):
+    def test_list_messaging_categories_for_team(self):
         """
-        Tests that GET /message_categories only retrieves categories for the current team.
+        Tests that GET /messaging_categories only retrieves categories for the current team.
         """
         # Category for the current team
         MessageCategory.objects.create(team=self.team, name="Team 1 Category", key="team1_cat")
@@ -16,7 +16,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization)
         MessageCategory.objects.create(team=other_team, name="Team 2 Category", key="team2_cat")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/message_categories/")
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_categories/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
@@ -24,28 +24,28 @@ class TestMessageCategoryAPI(APIBaseTest):
 
     def test_get_message_category(self):
         """
-        Tests GET /message_categories/:id works as expected.
+        Tests GET /messaging_categories/:id works as expected.
         """
         category = MessageCategory.objects.create(team=self.team, name="My Category", key="my_cat")
-        response = self.client.get(f"/api/projects/{self.team.id}/message_categories/{category.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_categories/{category.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "My Category")
 
         # Test getting a category from another team
         other_team = Team.objects.create(organization=self.organization)
         other_category = MessageCategory.objects.create(team=other_team, name="Other Category", key="other_cat")
-        response = self.client.get(f"/api/projects/{self.team.id}/message_categories/{other_category.id}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_categories/{other_category.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_message_category(self):
         """
-        Tests PUT and PATCH /message_categories/:id work as expected.
+        Tests PUT and PATCH /messaging_categories/:id work as expected.
         """
         category = MessageCategory.objects.create(team=self.team, name="Initial Name", key="initial_key")
 
         # PATCH
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/message_categories/{category.id}/", {"name": "Patched Name"}
+            f"/api/projects/{self.team.id}/messaging_categories/{category.id}/", {"name": "Patched Name"}
         )
         self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
         category.refresh_from_db()
@@ -53,7 +53,7 @@ class TestMessageCategoryAPI(APIBaseTest):
 
         # PUT
         put_response = self.client.put(
-            f"/api/projects/{self.team.id}/message_categories/{category.id}/",
+            f"/api/projects/{self.team.id}/messaging_categories/{category.id}/",
             {"name": "Put Name", "key": "put_key", "category_type": "notification"},
         )
         self.assertEqual(put_response.status_code, status.HTTP_200_OK)
@@ -66,7 +66,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         Tests that creating a category automatically sets team_id and created_by.
         """
         response = self.client.post(
-            f"/api/projects/{self.team.id}/message_categories/",
+            f"/api/projects/{self.team.id}/messaging_categories/",
             {"name": "New Category", "key": "new_cat", "category_type": "notification"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -85,7 +85,7 @@ class TestMessageCategoryAPI(APIBaseTest):
 
         # Attempt to create with the same key for the same team
         response = self.client.post(
-            f"/api/projects/{self.team.id}/message_categories/",
+            f"/api/projects/{self.team.id}/messaging_categories/",
             {"name": "Category 2", "key": "duplicate-key", "category_type": "notification"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -95,15 +95,15 @@ class TestMessageCategoryAPI(APIBaseTest):
         # Verify it's possible to create with the same key for a different team
         other_team = Team.objects.create(organization=self.organization)
         response = self.client.post(
-            f"/api/projects/{other_team.id}/message_categories/",
+            f"/api/projects/{other_team.id}/messaging_categories/",
             {"name": "Category 3", "key": "duplicate-key", "category_type": "notification"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_delete_is_forbidden(self):
         """
-        Tests that DELETE /message_categories/:id is forbidden.
+        Tests that DELETE /messaging_categories/:id is forbidden.
         """
         category = MessageCategory.objects.create(team=self.team, name="To Delete", key="to_delete")
-        response = self.client.delete(f"/api/projects/{self.team.id}/message_categories/{category.id}/")
+        response = self.client.delete(f"/api/projects/{self.team.id}/messaging_categories/{category.id}/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
