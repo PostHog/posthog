@@ -585,6 +585,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
+                  touch frontend/dist/index.css
                   ./bin/download-mmdb
 
             - name: Wait for services to be available
@@ -783,6 +784,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
+                  touch frontend/dist/index.css
 
             - name: Wait for services to be available
               shell: bash

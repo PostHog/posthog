@@ -7,4 +7,5 @@ mkdir -p frontend/dist
 touch frontend/dist/index.html
 touch frontend/dist/layout.html
 touch frontend/dist/exporter.html
+touch frontend/dist/index.css
 pytest ee

@@ -156,6 +156,7 @@ runs:
               touch frontend/dist/index.html
               touch frontend/dist/layout.html
               touch frontend/dist/exporter.html
+              touch frontend/dist/index.css
               ./bin/download-mmdb
 
         - name: Wait for Clickhouse & Kafka
