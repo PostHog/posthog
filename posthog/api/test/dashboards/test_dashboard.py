@@ -1313,6 +1313,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 200
 
+        self_user_basic_serialized = {
+            "id": self.user.id,
+            "uuid": str(self.user.uuid),
+            "distinct_id": self.user.distinct_id,
+            "first_name": self.user.first_name,
+            "last_name": self.user.last_name,
+            "email": self.user.email,
+            "is_email_verified": None,
+            "hedgehog_config": None,
+            "role_at_organization": None,
+        }
+
         assert response.json()["tiles"] == [
             {
                 "color": None,
@@ -1320,7 +1332,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": {
                     "columns": None,
                     "created_at": ANY,
-                    "created_by": ANY,
+                    "created_by": self_user_basic_serialized,
                     "dashboard_tiles": [
                         {
                             "dashboard_id": response.json()["id"],
@@ -1342,7 +1354,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "is_cached": False,
                     "is_sample": True,
                     "last_modified_at": ANY,
-                    "last_modified_by": ANY,
+                    "last_modified_by": self_user_basic_serialized,
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
