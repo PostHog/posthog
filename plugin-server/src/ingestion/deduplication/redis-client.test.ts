@@ -601,7 +601,7 @@ describe('DeduplicationRedis Integration Tests', () => {
 
                 try {
                     const keys = [`${testId}:ids:ttl:1`]
-                    const options: DeduplicationOptions = { keys, ttl: 1 }
+                    const options: DeduplicationOptions = { keys, ttl: 2 }
                     const prefixedKeys = deduplicationRedis.prefixKeys(keys)
 
                     // First call - should be new
@@ -612,8 +612,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
                     expect(secondResult.duplicates).toEqual(prefixedKeys)
 
-                    // Wait for TTL to expire
-                    await new Promise((resolve) => setTimeout(resolve, 1000))
+                    // Wait for TTL to expire with buffer time
+                    await new Promise((resolve) => setTimeout(resolve, 2500))
 
                     // Third call after TTL expiration - should be new again
                     const thirdResult = await deduplicationRedis.deduplicateIds(options)
@@ -622,7 +622,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                     await deduplicationRedis.destroy()
                 }
             },
-            5000
+            8000
         )
 
         // it.concurrent(
