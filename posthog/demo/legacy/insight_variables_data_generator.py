@@ -128,7 +128,7 @@ class InsightVariablesDataGenerator(DataGenerator):
         insight5 = Insight.objects.create(
             team=self.team,
             name="Missing variable",
-            description="Shows a validatione error for a missing variable.",
+            description="Shows a validation error for a missing variable.",
             query={
                 "kind": "DataVisualizationNode",
                 "source": {
