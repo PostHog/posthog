@@ -350,7 +350,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/(environments|projects)/\\d+/performance_events/?$",
                 "^/?api/(environments|projects)/\\d+/performance_events/.*$",
                 "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
-                "^/?api/(environments|projects)/\\d+/activity_log/important_changes/?$",
+                "^/?api/(environments|projects)/\\d+/my_notifications/?$",
                 "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
