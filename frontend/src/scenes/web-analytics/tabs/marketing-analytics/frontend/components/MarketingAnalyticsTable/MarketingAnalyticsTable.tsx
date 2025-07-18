@@ -1,4 +1,4 @@
-import { IconChevronDown } from '@posthog/icons'
+import { IconEllipsis, IconSort, IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
@@ -14,6 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
+import { LemonMenu } from '@posthog/lemon-ui'
 
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
@@ -69,31 +70,53 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 const isAscending = orderDirection === 'ASC'
                 const isDescending = orderDirection === 'DESC'
 
-                const onClick = useCallback(() => {
-                    // 3-state cycle: None -> DESC -> ASC -> None (clear/reset to default)
-                    if (!isSortedByMyField) {
-                        // Not currently sorted by this field, start with DESC
-                        setMarketingAnalyticsOrderBy(index, 'DESC')
-                    } else if (isDescending) {
-                        // Currently DESC, change to ASC
-                        setMarketingAnalyticsOrderBy(index, 'ASC')
-                    } else if (isAscending) {
-                        // Currently ASC, clear the sort (reset to default order)
-                        clearMarketingAnalyticsOrderBy()
-                    }
-                }, [isSortedByMyField, isAscending, isDescending])
+                const menuItems = [
+                    {
+                        title: 'Sorting',
+                        items: [
+                            {
+                                label: 'Sort ascending',
+                                icon: <IconSort className="rotate-180" />,
+                                onClick: () => setMarketingAnalyticsOrderBy(index, 'ASC'),
+                                active: isSortedByMyField && isAscending,
+                                disabled: isSortedByMyField && isAscending,
+                            },
+                            {
+                                label: 'Sort descending',
+                                icon: <IconSort />,
+                                onClick: () => setMarketingAnalyticsOrderBy(index, 'DESC'),
+                                active: isSortedByMyField && isDescending,
+                                disabled: isSortedByMyField && isDescending,
+                            },
+                            ...(isSortedByMyField
+                                ? [
+                                      {
+                                          label: 'Clear sort',
+                                          icon: <IconSort />,
+                                          onClick: () => clearMarketingAnalyticsOrderBy(),
+                                      },
+                                  ]
+                                : []),
+                        ],
+                    },
+                ]
 
                 return (
-                    <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
-                        {name}
-                        <IconChevronDown
-                            fontSize="20px"
-                            className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
-                                'text-primary opacity-100': isSortedByMyField,
-                                'rotate-180': isSortedByMyField && isAscending,
-                            })}
-                        />
-                    </span>
+                    <LemonMenu items={menuItems}>
+                        <span className="group cursor-pointer inline-flex items-center">
+                            {name}
+                            {isSortedByMyField ? (
+                                <IconChevronDown
+                                    className={clsx('ml-1 transition-transform', {
+                                        'rotate-180': isAscending,
+                                        'rotate-0': isDescending,
+                                    })}
+                                />
+                            ) : (
+                                <IconEllipsis className="ml-1 opacity-0 group-hover:opacity-100" />
+                            )}
+                        </span>
+                    </LemonMenu>
                 )
             }
         },
