@@ -348,7 +348,8 @@ def render_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
         # Add vite dev scripts for development
-        context["vite_dev_scripts"] = """
+        if not settings.E2E_TESTING:
+            context["vite_dev_scripts"] = """
     <script type="module">
         import RefreshRuntime from 'http://localhost:8234/@react-refresh'
         RefreshRuntime.injectIntoGlobalHook(window)
