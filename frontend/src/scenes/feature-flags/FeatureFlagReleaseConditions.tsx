@@ -5,9 +5,8 @@ import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lem
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { isPropertyFilterWithOperator, getPropertyTypeFromFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
@@ -20,7 +19,40 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    dateFilterToText,
+    dateStringToComponents,
+    humanFriendlyNumber,
+    chooseOperatorMap,
+    genericOperatorMap,
+} from 'lib/utils'
+
+// Contextual operator display function that uses appropriate operator mapping based on property type
+function getContextualOperatorText(property: AnyPropertyFilter): string {
+    // Handle flag dependencies specifically
+    if (property.type === PropertyFilterType.FlagDependency) {
+        const operator = (property as any).operator
+        if (!operator) {
+            return '= equals'
+        }
+
+        const propertyType = getPropertyTypeFromFilter(property)
+        const operatorMap = chooseOperatorMap(propertyType)
+        return operatorMap[operator] || genericOperatorMap[operator] || '= equals'
+    }
+
+    // For regular property filters, check if they have an operator
+    if (!isPropertyFilterWithOperator(property)) {
+        return genericOperatorMap.exact || '= equals'
+    }
+
+    // For all other property types, use the generic operator mapping (without flag dependency override)
+    if (property.operator === PropertyOperator.In) {
+        return 'in'
+    }
+    return genericOperatorMap[property.operator]?.slice(2) || 'equals'
+}
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
@@ -294,7 +326,7 @@ export function FeatureFlagReleaseConditions({
                                         <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key}</LemonSnack>
                                     )}
                                     {isPropertyFilterWithOperator(property) ? (
-                                        <span>{allOperatorsToHumanName(property.operator)} </span>
+                                        <span>{getContextualOperatorText(property)} </span>
                                     ) : null}
 
                                     <PropertyValueComponent property={property} />

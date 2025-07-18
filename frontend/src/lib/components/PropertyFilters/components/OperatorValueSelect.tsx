@@ -2,7 +2,6 @@ import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
-    allOperatorsMapping,
     chooseOperatorMap,
     isMobile,
     isOperatorCohort,
@@ -11,6 +10,7 @@ import {
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
+import { getPropertyTypeFromFilter } from 'lib/components/PropertyFilters/utils'
 import { useEffect, useState } from 'react'
 
 import {
@@ -47,6 +47,7 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
     defaultOpen?: boolean
+    propertyType?: PropertyFilterType
 }
 
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
@@ -154,6 +155,7 @@ export function OperatorValueSelect({
                     <OperatorSelect
                         operator={currentOperator || PropertyOperator.Exact}
                         operators={operators}
+                        propertyType={type}
                         onChange={(newOperator: PropertyOperator) => {
                             const tentativeValidationError =
                                 newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
@@ -230,9 +232,20 @@ export function OperatorValueSelect({
     )
 }
 
-export function OperatorSelect({ operator, operators, onChange, className, size }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({
+    operator,
+    operators,
+    onChange,
+    className,
+    size,
+    propertyType,
+}: OperatorSelectProps): JSX.Element {
+    // Use contextual operator mapping based on property type
+    const propertyTypeForMapping = getPropertyTypeFromFilter({ type: propertyType })
+    const operatorMap = chooseOperatorMap(propertyTypeForMapping)
+
     const operatorOptions = operators.map((op) => ({
-        label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
+        label: <span className="operator-value-option">{operatorMap[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
     }))
     return (
