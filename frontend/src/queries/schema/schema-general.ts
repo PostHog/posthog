@@ -118,6 +118,7 @@ export enum NodeKind {
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
+    RevenueAnalyticsArpuQuery = 'RevenueAnalyticsArpuQuery',
     RevenueAnalyticsCustomerCountQuery = 'RevenueAnalyticsCustomerCountQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -162,6 +163,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsArpuQuery
     | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsOverviewQuery
@@ -228,6 +230,7 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
+    | RevenueAnalyticsArpuQuery
     | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsOverviewQuery
@@ -331,8 +334,6 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
-    revenueAnalyticsPersonsJoinMode?: RevenueAnalyticsPersonsJoinModeModifier
-    revenueAnalyticsPersonsJoinModeCustom?: string | null
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
@@ -349,12 +350,6 @@ export interface DataWarehouseEventsModifier {
     timestamp_field: string
     distinct_id_field: string
     id_field: string
-}
-
-export enum RevenueAnalyticsPersonsJoinModeModifier {
-    ID = 'id',
-    EMAIL = 'email',
-    CUSTOM = 'custom',
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
@@ -763,6 +758,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsArpuQuery
                     | RevenueAnalyticsCustomerCountQuery
                     | RevenueAnalyticsGrowthRateQuery
                     | RevenueAnalyticsOverviewQuery
@@ -795,6 +791,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsArpuQuery
         | RevenueAnalyticsCustomerCountQuery
         | RevenueAnalyticsGrowthRateQuery
         | RevenueAnalyticsOverviewQuery
@@ -1098,6 +1095,8 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -1249,6 +1248,8 @@ export interface FunnelsQueryResponse
         FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
     > {
     isUdf?: boolean
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -1590,7 +1591,10 @@ export type QueryStatus = {
     labels?: string[]
 }
 
-export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
+}
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
 
@@ -1949,6 +1953,17 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
+export interface RevenueAnalyticsArpuQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsArpuQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsArpuQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsArpuQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsArpuQueryResponse = CachedQueryResponse<RevenueAnalyticsArpuQueryResponse>
+
 export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
     kind: NodeKind.RevenueAnalyticsRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
@@ -1962,6 +1977,8 @@ export interface RevenueAnalyticsRevenueQueryResult {
 export interface RevenueAnalyticsRevenueQueryResponse
     extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
     columns?: string[]
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
@@ -1990,7 +2007,10 @@ export interface RevenueAnalyticsOverviewItem {
 }
 
 export interface RevenueAnalyticsOverviewQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
+}
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
@@ -2000,6 +2020,8 @@ export interface RevenueAnalyticsGrowthRateQuery
 
 export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     columns?: string[]
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
@@ -2012,6 +2034,8 @@ export interface RevenueAnalyticsTopCustomersQuery
 
 export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     columns?: string[]
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsTopCustomersQueryResponse =
     CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
@@ -2796,6 +2820,13 @@ export interface DateRange {
      * @default false
      * */
     explicitDate?: boolean | null
+}
+
+export interface ResolvedDateRangeResponse {
+    /**  @format date-time */
+    date_from: string
+    /**  @format date-time */
+    date_to: string
 }
 
 export type MultipleBreakdownType = Extract<

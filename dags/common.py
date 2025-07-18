@@ -108,17 +108,23 @@ def dagster_tags(
     )
 
     with suppress(Exception):
-        if isinstance(context, dagster.OpExecutionContext):
-            tags.op_name = context.op.name
-        elif isinstance(context, dagster.AssetExecutionContext) or isinstance(
-            context, dagster.AssetCheckExecutionContext
-        ):
-            tags.asset_key = context.asset_key.to_user_string()
+        if isinstance(context, dagster.AssetCheckExecutionContext):
+            op = context.op_execution_context
+            if op and op.op:
+                tags.op_name = op.op.name
+        elif isinstance(context, dagster.OpExecutionContext):
+            if context.op:
+                tags.op_name = context.op.name
+        elif isinstance(context, dagster.AssetExecutionContext):
+            if context.asset_key:
+                tags.asset_key = context.asset_key.to_user_string()
 
     return tags
 
 
-def settings_with_log_comment(context: dagster.OpExecutionContext | dagster.AssetExecutionContext) -> dict[str, str]:
+def settings_with_log_comment(
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext | dagster.AssetCheckExecutionContext,
+) -> dict[str, str]:
     qt = query_tagging.get_query_tags()
     qt.with_dagster(dagster_tags(context))
     return {"log_comment": qt.to_json()}

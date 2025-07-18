@@ -12,7 +12,7 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
@@ -450,7 +450,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
@@ -569,6 +569,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             this.distinctIdToPersonId.delete(distinctCacheKey)
             this.personCheckCache.delete(distinctCacheKey)
         }
+    }
+
+    removeDistinctIdFromCache(teamId: number, distinctId: string): void {
+        this.distinctIdToPersonId.delete(this.getDistinctCacheKey(teamId, distinctId))
     }
 
     clearAllCachesForDistinctId(teamId: number, distinctId: string): void {

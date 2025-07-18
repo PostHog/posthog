@@ -8,6 +8,7 @@ import structlog
 import chdb
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    HISTORICAL_DAILY_CRON_SCHEDULE,
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
@@ -72,7 +73,7 @@ def pre_aggregate_web_analytics_data(
     try:
         # Drop the partition first, ensuring a clean state before insertion
         # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
-        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start, on_cluster=False)
+        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start)
         context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
 
         try:
@@ -103,7 +104,6 @@ def pre_aggregate_web_analytics_data(
     name="web_analytics_bounces_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_bounces_daily"},
@@ -131,7 +131,6 @@ def web_bounces_daily(
     name="web_analytics_stats_table_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_stats_daily"},
@@ -325,7 +324,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
 
 
 @dagster.schedule(
-    cron_schedule="0 1 * * *",
+    cron_schedule=HISTORICAL_DAILY_CRON_SCHEDULE,
     job=web_pre_aggregate_daily_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
