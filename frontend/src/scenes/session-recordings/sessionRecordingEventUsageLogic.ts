@@ -101,7 +101,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                 const consoleLogFilters = propertyFilters.filter(isLogEntryPropertyFilter)
 
                 const filterBreakdown =
-                    filters && defaultDurationFilter
+                    filters && defaultDurationFilterpull
                         ? {
                               hasEventsFilters: !!eventFilters.length,
                               hasActionsFilters: !!actionFilters.length,
