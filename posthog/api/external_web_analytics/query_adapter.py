@@ -174,10 +174,10 @@ class ExternalWebAnalyticsQueryAdapter:
 
         response = runner.calculate()
 
-        return self._transform_breakdown_response(response, breakdown_by)
+        return self._transform_breakdown_response(response, breakdown_by, data.get("metrics", []))
 
     def _transform_breakdown_response(
-        self, response: WebStatsTableQueryResponse, breakdown: WebStatsBreakdown
+        self, response: WebStatsTableQueryResponse, breakdown: WebStatsBreakdown, requested_metrics: list[str]
     ) -> dict[str, Any]:
         """
         Transform the internal WebStatsTableQueryResponse to external API format.
@@ -213,7 +213,8 @@ class ExternalWebAnalyticsQueryAdapter:
         column_indices = {col: i for i, col in enumerate(response.columns)}
 
         transformed_results = [
-            self._transform_breakdown_row(row, column_indices, supported_metrics) for row in response.results
+            self._transform_breakdown_row(row, column_indices, supported_metrics, requested_metrics)
+            for row in response.results
         ]
 
         return {
@@ -236,6 +237,7 @@ class ExternalWebAnalyticsQueryAdapter:
         row: list,
         column_indices: dict[str, int],
         supported_metrics: dict[str, MetricDefinition],
+        requested_metrics: list[str],
     ) -> dict[str, Any]:
         result = {}
 
@@ -244,11 +246,16 @@ class ExternalWebAnalyticsQueryAdapter:
             if metric_def.internal_column not in column_indices:
                 continue
 
-            col_index = column_indices[metric_def.internal_column]
-            raw_value = row[col_index] if col_index < len(row) else None
-            result[metric_def.external_key] = metric_def.transformer(raw_value)
+            # Check if this metric should be included based on user request
+            if self._should_include_metric(metric_def.external_key, requested_metrics):
+                col_index = column_indices[metric_def.internal_column]
+                raw_value = row[col_index] if col_index < len(row) else None
+                result[metric_def.external_key] = metric_def.transformer(raw_value)
 
         return result
+
+    def _should_include_metric(self, metric_key: str, requested_metrics: list[str]) -> bool:
+        return not requested_metrics or metric_key == "breakdown_value" or metric_key in requested_metrics
 
     def _transform_overview_response(self, response: WebOverviewQueryResponse) -> dict[str, Any]:
         """

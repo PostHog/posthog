@@ -86,7 +86,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
-        DISABLE_MMDB: isTestEnv(),
         MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,

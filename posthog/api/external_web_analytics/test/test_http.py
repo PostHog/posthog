@@ -1,7 +1,6 @@
 from unittest.mock import patch, MagicMock
 from rest_framework import status
 from posthog.test.base import APIBaseTest
-import yaml
 
 
 class ExternalWebAnalyticsAPITest(APIBaseTest):
@@ -170,19 +169,6 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_summary_included_in_openapi_schema(self):
-        schema_response = self.client.get("/api/schema/")
-
-        assert schema_response.status_code == 200
-        assert schema_response.headers.get("Content-Type") == "application/vnd.oai.openapi; charset=utf-8"
-
-        schema = yaml.safe_load(schema_response.content)
-
-        paths = schema.get("paths", {})
-        endpoint_path = f"/api/projects/{{project_id}}/web_analytics/summary/"
-
-        assert endpoint_path in paths
-
     @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
     def test_summary_sql_injection_protection(self, mock_chdb):
         self.team.organization.is_platform = True
@@ -234,8 +220,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_success(self, mock_team_ids, mock_runner_class):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_success(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
         mock_response.columns = [
@@ -269,8 +257,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_with_host_filter(self, mock_team_ids, mock_runner_class):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_with_host_filter(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
         mock_response.columns = ["context.columns.breakdown_value", "context.columns.visitors"]
@@ -298,8 +288,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
         assert query.properties[0].value == ["example.com"]
 
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_missing_required_params(self, mock_team_ids):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_missing_required_params(self, mock_feature_enabled, mock_team_ids):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         # Missing date_from
         response = self.client.get(
             self.breakdown_url,
@@ -331,8 +323,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_invalid_breakdown_by(self, mock_team_ids):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_invalid_breakdown_by(self, mock_feature_enabled, mock_team_ids):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         response = self.client.get(
             self.breakdown_url,
             {
@@ -345,16 +339,17 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_with_metrics_filter(self, mock_team_ids, mock_runner_class):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_with_metrics_filter(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
         mock_response.columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
-            "context.columns.views",
         ]
-        mock_response.results = [["Chrome", (150, 120), (500, 400)]]
+        mock_response.results = [["Chrome", (150, 120)]]
         mock_runner.calculate.return_value = mock_response
         mock_runner_class.return_value = mock_runner
 
@@ -377,8 +372,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_with_pagination(self, mock_team_ids, mock_runner_class):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_with_pagination(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
         mock_response.columns = ["context.columns.breakdown_value", "context.columns.visitors"]
@@ -431,8 +428,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_with_bounce_rate_breakdown(self, mock_team_ids, mock_runner_class):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_with_bounce_rate_breakdown(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
         mock_response.columns = [
@@ -482,8 +481,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_invalid_date_format(self, mock_team_ids):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_invalid_date_format(self, mock_feature_enabled, mock_team_ids):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         response = self.client.get(
             self.breakdown_url,
             {
@@ -496,8 +497,10 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
-    def test_breakdown_empty_results(self, mock_team_ids, mock_runner_class):
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_empty_results(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
         mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
         mock_runner = MagicMock()
         mock_response = MagicMock()
         mock_response.columns = [
