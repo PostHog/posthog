@@ -68,6 +68,12 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
 
     offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of results to skip", required=False)
 
+    metrics = serializers.ListField(
+        child=serializers.ChoiceField(choices=EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS),
+        required=False,
+        help_text="List of metrics to return. If not specified, all metrics will be returned.",
+    )
+
 
 # Response serializers
 class WebAnalyticsOverviewResponseSerializer(serializers.Serializer):

@@ -154,6 +154,9 @@ class ExternalWebAnalyticsAPITest(APIBaseTest):
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_summary_team_isolation(self):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
         other_organization = self.create_organization_with_features([])
         other_team = self.create_team_with_organization(organization=other_organization)
         other_url = f"/api/projects/{other_team.id}/web_analytics/summary/"
