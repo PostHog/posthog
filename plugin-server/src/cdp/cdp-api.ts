@@ -187,8 +187,6 @@ export class CdpApi {
                 team_id: team.id,
             }
 
-            await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
-
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
