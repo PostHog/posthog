@@ -41,8 +41,6 @@ from .prompts import (
 )
 from posthog.schema import AssistantToolCallMessage
 from ee.hogai.llm import MaxChatOpenAI
-from posthog.sync import database_sync_to_async
-from ee.hogai.utils.exceptions import GenerationCanceled
 
 
 class FilterOptionsNode(AssistantNode):
@@ -51,22 +49,6 @@ class FilterOptionsNode(AssistantNode):
     def __init__(self, team, user, injected_prompts: Optional[dict] = None):
         super().__init__(team, user)
         self.injected_prompts = injected_prompts or {}
-
-    async def __call__(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
-        """
-        Override the base class __call__ method to use FilterOptionsState.
-        """
-        thread_id = (config.get("configurable") or {}).get("thread_id")
-        if thread_id and await self._is_conversation_cancelled(thread_id):
-            raise GenerationCanceled
-        try:
-            return await self.arun(state, config)
-        except NotImplementedError:
-            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
-
-    async def arun(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
-        """Override the base class arun method to use FilterOptionsState."""
-        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -199,22 +181,6 @@ class FilterOptionsNode(AssistantNode):
 
 class FilterOptionsToolsNode(AssistantNode, ABC):
     MAX_ITERATIONS = 10  # Maximum number of iterations for the ReAct agent
-
-    async def __call__(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
-        """
-        Override the base class __call__ method to use FilterOptionsState.
-        """
-        thread_id = (config.get("configurable") or {}).get("thread_id")
-        if thread_id and await self._is_conversation_cancelled(thread_id):
-            raise GenerationCanceled
-        try:
-            return await self.arun(state, config)
-        except NotImplementedError:
-            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
-
-    async def arun(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
-        """Override the base class arun method to use FilterOptionsState."""
-        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         toolkit = FilterOptionsToolkit(self._team)
