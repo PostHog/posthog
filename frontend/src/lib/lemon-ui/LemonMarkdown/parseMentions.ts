@@ -35,6 +35,14 @@ export function findMentionMatch(text: string, members: OrganizationMemberType[]
             continue
         }
 
+        // Check if this is a complete word match (followed by word boundary or end of string)
+        const charAfterName = text[firstName.length]
+        const isWordBoundary = !charAfterName || /\s|[^\w]/.test(charAfterName)
+
+        if (!isWordBoundary) {
+            continue
+        }
+
         if (firstName.length > (bestMatchMember?.user.first_name || '').length) {
             bestMatchMember = member
         }

@@ -165,7 +165,6 @@ describe('parseMentions', () => {
             ['alice', { displayName: 'Alice', userId: 1, length: 5 }],
             ['Alice how are you?', { displayName: 'Alice', userId: 1, length: 5 }],
             ['Al', { displayName: 'Al', userId: 4, length: 2 }],
-            ['Alic', { displayName: 'Al', userId: 4, length: 2 }],
         ])('finds match for "%s"', (input, expected) => {
             const result = findMentionMatch(input, mockMembers)
 
@@ -175,7 +174,13 @@ describe('parseMentions', () => {
             expect(result?.length).toBe(expected.length)
         })
 
-        it.each([['David'], ['']])('returns null for "%s"', (input) => {
+        it.each([
+            // not found in members, so no match
+            ['David'],
+            [''],
+            // neither Al not Alice, so no match
+            ['Alic'],
+        ])('returns null for "%s"', (input) => {
             expect(findMentionMatch(input, mockMembers)).toBeNull()
         })
     })
