@@ -27,7 +27,7 @@ import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/
 const SCROLL_TRIGGER_OFFSET = 100
 
 export const SidePanelActivityIcon = (props: { className?: string }): JSX.Element => {
-    const { unreadCount } = useValues(sidePanelActivityLogic)
+    const { unreadCount } = useValues(sidePanelNotificationsLogic)
 
     return (
         <IconWithCount count={unreadCount} {...props}>
