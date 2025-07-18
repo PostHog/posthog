@@ -105,9 +105,15 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                             {name}
                             {isSortedByMyField ? (
                                 isAscending ? (
-                                    <IconArrowUp className="ml-1" />
+                                    <>
+                                        <IconArrowUp className="ml-1 group-hover:hidden" />
+                                        <IconEllipsis className="ml-1 hidden group-hover:inline" />
+                                    </>
                                 ) : (
-                                    <IconArrowDown className="ml-1" />
+                                    <>
+                                        <IconArrowDown className="ml-1 group-hover:hidden" />
+                                        <IconEllipsis className="ml-1 hidden group-hover:inline" />
+                                    </>
                                 )
                             ) : (
                                 <IconEllipsis className="ml-1 opacity-0 group-hover:opacity-100" />
