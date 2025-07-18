@@ -77,15 +77,13 @@ Evaluation Criteria:
 How would you rate the relevance of this survey to the user's instructions? Choose one:
 - perfect: The survey perfectly matches the user's intent and requirements
 - good: The survey is relevant but could be slightly better aligned
-- fair: The survey is somewhat relevant but misses some key aspects
-- poor: The survey is barely relevant to the user's request
+- partial: The survey is somewhat relevant but misses some key aspects
 - irrelevant: The survey does not address the user's request at all
 """.strip(),
             choice_scores={
                 "perfect": 1.0,
-                "good": 0.8,
-                "fair": 0.6,
-                "poor": 0.3,
+                "good": 0.7,
+                "partial": 0.4,
                 "irrelevant": 0.0,
             },
             model="gpt-4.1",
@@ -158,18 +156,16 @@ Evaluation Criteria for IN-APP Surveys:
 CRITICAL: Surveys with more than 3 questions should be rated as "unacceptable" regardless of other quality factors.
 
 How would you rate the overall quality of these survey questions for IN-APP use? Choose one:
-- excellent: 1-2 focused, clear questions that respect user time and context
+- perfect: 1-2 focused, clear questions that respect user time and context
 - good: 1-3 good quality questions with minor issues but appropriate for in-app use
-- fair: Questions are adequate but may be slightly long or unfocused for in-app context
-- poor: Questions have significant issues or are borderline too long for in-app use
-- unacceptable: More than 3 questions, severely unfocused, or inappropriate for in-app context
+- partial: Questions are adequate but may be slightly long or unfocused for in-app context
+- irrelevant: More than 3 questions, severely unfocused, or inappropriate for in-app context
 """.strip(),
             choice_scores={
-                "excellent": 1.0,
-                "good": 0.8,
-                "fair": 0.6,
-                "poor": 0.3,
-                "unacceptable": 0.0,
+                "perfect": 1.0,
+                "good": 0.7,
+                "partial": 0.4,
+                "irrelevant": 0.0,
             },
             model="gpt-4.1",
             **kwargs,
@@ -302,28 +298,24 @@ class SurveyCreationBasicsScorer(Scorer):
         successes = []
 
         # Check 1: Has name
-        has_name = bool(survey_output.name)
         checks.append("name")
-        if has_name:
+        if survey_output.name:
             successes.append("name")
 
         # Check 2: Has description
-        has_description = bool(survey_output.description)
         checks.append("description")
-        if has_description:
+        if survey_output.description:
             successes.append("description")
 
         # Check 3: Has questions
-        has_questions = bool(survey_output.questions)
         checks.append("questions")
-        if has_questions:
+        if survey_output.questions:
             successes.append("questions")
 
         # Check 4: Meets minimum questions requirement
         min_questions = expected.get("min_questions", 1) if expected else 1
-        meets_min_questions = len(survey_output.questions) >= min_questions
         checks.append("min_questions")
-        if meets_min_questions:
+        if len(survey_output.questions) >= min_questions:
             successes.append("min_questions")
 
         # Calculate proportional score
@@ -383,8 +375,8 @@ async def eval_surveys(call_surveys_max_tool):
             ),
             # Test case 4: Comprehensive survey should still be kept short for in-app use
             EvalCase(
-                input="Create a comprehensive survey to understand user demographics, usage patterns, satisfaction levels, feature preferences, and improvement suggestions",
-                expected={"min_questions": 1},
+                input="Create a comprehensive survey to understand user demographics, usage patterns, satisfaction levels, feature preferences, and improvement suggestions. First question should be a single choice question.",
+                expected={"min_questions": 1, "first_question_type": "single_choice"},
                 metadata={"test_type": "comprehensive_survey_length_constraint"},
             ),
         ],
