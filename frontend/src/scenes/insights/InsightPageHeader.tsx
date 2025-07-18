@@ -1,6 +1,6 @@
 import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router, combineUrl } from 'kea-router'
+import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -265,13 +265,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         if (isDataVisualizationNode(query) && insight.short_id) {
                                             router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
                                         } else if (insight.short_id) {
-                                            push(
-                                                combineUrl(
-                                                    urls.insightEdit(insight.short_id),
-                                                    undefined,
-                                                    queryChanged ? { q: query } : undefined
-                                                ).url
-                                            )
+                                            push(urls.insightEdit(insight.short_id))
                                         } else {
                                             setInsightMode(ItemMode.Edit, null)
                                         }

@@ -76,7 +76,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                             </svg>
                         </div>
                     ) : (
-                        <div className="p-3">Chart</div>
+                        <div className="p-3" />
                     )}
                 </th>
                 <th className="w-1/30 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
