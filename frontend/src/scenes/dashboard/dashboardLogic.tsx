@@ -979,6 +979,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     .filter((n): n is { variable: Variable; insights: string[] } => Boolean(n?.variable))
             },
         ],
+        hasVariables: [
+            (s) => [s.dashboardVariables],
+            (dashboardVariables) => Object.keys(dashboardVariables).length > 0,
+        ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
             (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
@@ -1068,20 +1072,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortDayJsDates(validDates)
             },
         ],
-        sortedClientRefreshAllowed: [
-            (s) => [s.insightTiles],
-            (insightTiles): Dayjs[] => {
-                if (!insightTiles || !insightTiles.length) {
-                    return []
+        oldestRefreshed: [
+            // selecting page visibility to update the refresh when a page comes back into view
+            (s) => [s.sortedDates, s.pageVisibility],
+            (sortedDates): Dayjs | null => {
+                if (!sortedDates.length) {
+                    return null
                 }
 
-                const validDates = insightTiles
-                    .filter((i) => !!i.insight?.cache_target_age || !!i.insight?.next_allowed_client_refresh)
-                    .map((i) => dayjs(i.insight?.cache_target_age ?? i.insight?.next_allowed_client_refresh))
-                    .filter((date) => date.isValid())
-                return sortDayJsDates(validDates)
+                return sortedDates[0]
             },
         ],
+        effectiveLastRefresh: [
+            (s) => [s.lastDashboardRefresh, s.oldestRefreshed],
+            (lastDashboardRefresh, oldestRefreshed): Dayjs | null => {
+                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d): d is Dayjs => d != null)
+                return sortDayJsDates(dates)[dates.length - 1]
+            },
+        ],
+
         nextAllowedDashboardRefresh: [
             (s) => [s.lastDashboardRefresh],
             (lastDashboardRefresh): Dayjs | null => {
