@@ -80,7 +80,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1", "session_2"]
         summary_data = self.create_test_summary_data()
 
-        notebook = create_summary_notebook(session_ids, self.user, self.team, summary_data, "TestDomain")
+        notebook = create_summary_notebook(session_ids, self.user, self.team, summary_data)
 
         # Verify the notebook was created
         self.assertIsNotNone(notebook)
@@ -88,7 +88,7 @@ class TestNotebookCreation(APIBaseTest):
         self.assertEqual(notebook.created_by, self.user)
         self.assertEqual(notebook.last_modified_by, self.user)
         assert notebook.title is not None
-        self.assertIn("Session Summaries Report - TestDomain", notebook.title)
+        self.assertIn(f"Session Summaries Report - {self.team.name}", notebook.title)
 
         # Check content structure
         content = notebook.content
@@ -97,13 +97,13 @@ class TestNotebookCreation(APIBaseTest):
 
         # Check that it has the expected structure
         self.assertEqual(content["content"][0]["type"], "heading")
-        self.assertIn("Session Summaries Report - TestDomain", content["content"][0]["content"][0]["text"])
+        self.assertIn(f"Session Summaries Report - {self.team.name}", content["content"][0]["content"][0]["text"])
 
         # Check that pattern content is included
         content_text = json.dumps(content)
         self.assertIn("Login API Failures", content_text)
         self.assertIn("critical", content_text)
-        self.assertIn("TestDomain", content_text)
+        self.assertIn(self.team.name, content_text)
 
     def test_content_generation_function(self):
         """Test the content generation function directly"""
@@ -111,7 +111,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1", "session_2"]
         summary_data = self.create_test_summary_data()
 
-        content = _generate_notebook_content_from_summary(summary_data, session_ids, "TestDomain")
+        content = _generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
 
         # Check basic structure
         self.assertEqual(content["type"], "doc")
@@ -122,7 +122,7 @@ class TestNotebookCreation(APIBaseTest):
         content_text = json.dumps(content)
         self.assertIn("Login API Failures", content_text)
         self.assertIn("critical", content_text)
-        self.assertIn("TestDomain", content_text)
+        self.assertIn(self.team.name, content_text)
         self.assertIn("Issues to review", content_text)
         self.assertIn("How we detect this", content_text)
         self.assertIn("Examples", content_text)
@@ -133,15 +133,15 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1"]
         empty_summary = EnrichedSessionGroupSummaryPatternsList(patterns=[])
 
-        content = _generate_notebook_content_from_summary(empty_summary, session_ids, "TestDomain")
+        content = _generate_notebook_content_from_summary(empty_summary, session_ids, self.team.name, self.team.id)
 
         # Should still create valid content
         self.assertEqual(content["type"], "doc")
-        self.assertEqual(len(content["content"]), 3)
+        self.assertEqual(len(content["content"]), 4)
 
         content_text = json.dumps(content)
         self.assertIn("No patterns found", content_text)
-        self.assertIn("TestDomain", content_text)
+        self.assertIn(self.team.name, content_text)
 
     def test_pattern_with_multiple_examples(self):
         """Test pattern with multiple examples to ensure proper handling"""
@@ -180,7 +180,7 @@ class TestNotebookCreation(APIBaseTest):
         # Add the second event to the pattern
         summary_data.patterns[0].events.append(segment_context_2)
 
-        content = _generate_notebook_content_from_summary(summary_data, session_ids, "TestDomain")
+        content = _generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
 
         # Should contain both examples
         content_text = json.dumps(content)
@@ -243,7 +243,7 @@ class TestNotebookCreation(APIBaseTest):
             patterns.append(pattern)
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=patterns)
-        content = _generate_notebook_content_from_summary(summary_data, session_ids, "TestDomain")
+        content = _generate_notebook_content_from_summary(summary_data, session_ids, self.team.name, self.team.id)
 
         # Check that patterns appear in correct order: critical, high, medium, low
         content_text = json.dumps(content)
@@ -361,7 +361,7 @@ class TestNotebookCreation(APIBaseTest):
         )
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
-        content = _generate_notebook_content_from_summary(summary_data, ["test_session"], "TestDomain")
+        content = _generate_notebook_content_from_summary(summary_data, ["test_session"], self.team.name, self.team.id)
 
         # Find the outcome section in the content
         content_json = json.dumps(content, indent=2)
@@ -451,13 +451,15 @@ class TestNotebookCreation(APIBaseTest):
         )
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
-        content = _generate_notebook_content_from_summary(summary_data, ["test_session_id"], "TestDomain")
+        content = _generate_notebook_content_from_summary(
+            summary_data, ["test_session_id"], self.team.name, self.team.id
+        )
 
         # Convert content to JSON string to search for the replay link
         content_text = json.dumps(content)
 
         # Check that the replay link includes the timestamp parameter
-        self.assertIn("/project/1/replay/test_session_id?t=5", content_text)
+        self.assertIn(f"/project/{self.team.id}/replay/test_session_id?t=5", content_text)
 
         # Test with different milliseconds_since_start values
         test_cases = [
@@ -498,10 +500,12 @@ class TestNotebookCreation(APIBaseTest):
             )
 
             pattern.events = [segment_context_case]
-            content = _generate_notebook_content_from_summary(summary_data, ["test_session_id"], "TestDomain")
+            content = _generate_notebook_content_from_summary(
+                summary_data, ["test_session_id"], self.team.name, self.team.id
+            )
             content_text = json.dumps(content)
             self.assertIn(
-                f"/project/1/replay/test_session_id?t={expected_timestamp}",
+                f"/project/{self.team.id}/replay/test_session_id?t={expected_timestamp}",
                 content_text,
                 f"Failed for {millis}ms -> t={expected_timestamp}",
             )
