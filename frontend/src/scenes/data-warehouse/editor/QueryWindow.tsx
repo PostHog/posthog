@@ -1,5 +1,13 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import {
+    IconBook,
+    IconChevronRight,
+    IconDatabase,
+    IconDownload,
+    IconPlayFilled,
+    IconSearch,
+    IconSidebarClose,
+} from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -21,9 +29,135 @@ import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
+}
+
+const sampleQueries = {
+    'SQL query': `SELECT 1`,
+    'Hog program': `let query := (\n  SELECT 1\n)\n\nrun(query)`,
+    Trends: `<TrendsQuery
+    series={[
+        <EventsNode event='$pagaeview' math='total' />
+    ]}
+    dateRange={<DateRange date_from='-90d' date_to={null} />}
+    interval='day'
+    trendsFilter={
+        <TrendsFilter
+            smoothingIntervals={7}
+        />
+    }
+/>
+`,
+    Funnel: `<FunnelsQuery
+    series={[
+        <EventsNode event='$pageview' />,
+        <EventsNode event='$pageview' />
+    ]}
+    funnelsFilter={
+        <FunnelsFilter funnelVizType='steps' />
+    }
+    dateRange={<DateRange date_from='-90d' date_to={null} />}
+/>
+`,
+    Retention: `<RetentionQuery
+    version={2}
+    retentionFilter={
+        <RetentionFilter
+            period='Day'
+            totalIntervals={8}
+            targetEntity={
+                <RetentionEntity id='$pageview' type='events' />
+            }
+            returningEntity={
+                <RetentionEntity id='$pageview' type='events' />
+            }
+            retentionType='retention_first_time'
+            meanRetentionCalculation='simple'
+        />
+    }
+    dateRange={<DateRange date_from='-90d' date_to={null} />}
+/>
+`,
+    'User paths': `<PathsQuery
+    pathsFilter={<PathsFilter includeEventTypes={['$pageview']} />}
+    dateRange={<DateRange date_from='-90d' date_to={null} />}
+/>
+`,
+    Stickiness: `<StickinessQuery
+    series={[
+        <EventsNode event='$pagaeview' math='total' />
+    ]}
+    dateRange={<DateRange date_from='-90d' date_to={null} />}
+    interval='day'
+    stickinessFilter={
+        <StickinessFilter
+            computedAs='non_cumulative'
+        />
+    }
+/>
+`,
+    Lifecycle: `<LifecycleQuery
+    series={[
+        <EventsNode event='$pagaeview' />
+    ]}
+    dateRange={<DateRange date_from='-90d' date_to={null} />}
+    interval='day'
+/>
+`,
+    'Calendar heatmap': `<CalendarHeatmapQuery
+    series={[
+        <EventsNode event='$pagaeview' math='total' />
+    ]}
+    dateRange={<DateRange date_from='-30d' date_to={null} />}
+/>
+`,
+}
+
+const TagToQuery = {
+    TrendsQuery: 'Trends',
+    FunnelsQuery: 'Funnel',
+    RetentionQuery: 'Retention',
+    PathsQuery: 'User paths',
+    StickinessQuery: 'Stickiness',
+    LifecycleQuery: 'Lifecycle',
+    CalendarHeatmapQuery: 'Calendar heatmap',
+}
+
+function findSelectedLabel(query: string): string {
+    for (const [tag, label] of Object.entries(TagToQuery)) {
+        if (query.startsWith('<' + tag)) {
+            return label
+        }
+    }
+    if (query.includes('let ') || query.includes(':=') || query.includes('run(')) {
+        return 'Hog program'
+    }
+    return 'SQL query'
+}
+
+function languageForLabel(label: string): string | undefined {
+    if (label === 'SQL query') {
+        return 'hogQL'
+    }
+    if (label === 'Hog program') {
+        return 'hog'
+    }
+    return 'hogQLExpr'
 }
 
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
@@ -63,6 +197,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+    const { treeItemsNew } = useValues(projectTreeDataLogic)
+
+    const selectedLabel = findSelectedLabel(queryInput)
+    const detectedLanguage = languageForLabel(selectedLabel)
 
     const isMaterializedView =
         !!editingView?.last_run_at ||
@@ -147,6 +285,103 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive>
+                            <IconSearch />
+                            <strong>{selectedLabel}</strong>
+                            <IconChevronRight className="rotate-90 group-data-[state=open]/button-root:rotate-270" />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+
+                    <DropdownMenuContent loop align="start">
+                        <DropdownMenuLabel>Select Query</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                            <Link
+                                onClick={() => {
+                                    setQueryInput(sampleQueries['SQL query'])
+                                }}
+                                buttonProps={{
+                                    menuItem: true,
+                                    active: selectedLabel === 'SQL query',
+                                }}
+                            >
+                                <IconDatabase /> SQL query
+                            </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuLabel>Insights</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+
+                        {treeItemsNew
+                            .find(({ name }) => name === 'Insight')
+                            ?.children?.sort((a, b) => (a.visualOrder ?? 0) - (b.visualOrder ?? 0))
+                            ?.map((child) => (
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        onClick={() => {
+                                            setQueryInput(sampleQueries[child.name] || '')
+                                        }}
+                                        buttonProps={{
+                                            menuItem: true,
+                                            active: selectedLabel === child.name,
+                                        }}
+                                    >
+                                        {child.icon}
+                                        {child.name}
+                                    </Link>
+                                </DropdownMenuItem>
+                            ))}
+
+                        <DropdownMenuSeparator />
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger asChild>
+                                <Link
+                                    to="/"
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
+                                    More options
+                                    <IconChevronRight className="group-data-[state=open]/button-root:rotate-180" />
+                                </Link>
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent>
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        to="/"
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                    >
+                                        Sub link 1
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        to="/"
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                    >
+                                        Sub link 2
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        to="/"
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                    >
+                                        Sub link 3
+                                    </Link>
+                                </DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+
                 <RunButton />
                 <LemonDivider vertical />
                 {editingView && (
@@ -205,6 +440,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
+                language={detectedLanguage}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
                     onChange: (v) => {

@@ -18,6 +18,7 @@ interface QueryPaneProps {
     sourceQuery: HogQLQuery
     originalValue?: string
     onRun?: () => void
+    language?: string
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
@@ -29,7 +30,6 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
         reportAIQueryPromptOpen,
     } = useActions(multitabEditorLogic)
     const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
-
     return (
         <>
             <div
@@ -45,7 +45,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         <AutoSizer>
                             {({ height, width }) => (
                                 <CodeEditor
-                                    language="hogQL"
+                                    key={props.language || 'hogQL'}
+                                    language={props.language || 'hogQL'}
                                     value={props.queryInput}
                                     sourceQuery={props.sourceQuery}
                                     height={height}

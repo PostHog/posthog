@@ -869,7 +869,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.updateQueryTabState(skipBreakpoint)
         },
         runQuery: ({ queryOverride, switchTab }) => {
-            const query = queryOverride || values.queryInput
+            let query = queryOverride || values.queryInput
+
+            if (query.startsWith('<')) {
+                query = `select * from (\n${query}\n)\n`
+            }
 
             const newSource = {
                 ...values.sourceQuery.source,
