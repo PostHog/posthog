@@ -59,9 +59,8 @@ export function MetricRowGroup({
     const colors = useChartColors()
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const baselineResult = result?.baseline
-    const variantResults = result?.variant_results || []
-    const totalRows = isLoading || error || !result ? 1 : 1 + variantResults.length
+    // Calculate total rows for loading/error states
+    const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
 
     // Helper function to format data
     const formatData = (data: any): string => {
@@ -122,6 +121,10 @@ export function MetricRowGroup({
         )
     }
 
+    // At this point, we know result is defined, so we can safely access its properties
+    const baselineResult = result.baseline
+    const variantResults = result.variant_results || []
+
     return (
         <>
             {/* Baseline row */}
@@ -157,7 +160,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="text-xs font-semibold">{baselineResult!.key}</div>
+                    <div className="text-xs font-semibold">{baselineResult.key}</div>
                 </td>
 
                 {/* Value */}
@@ -168,9 +171,9 @@ export function MetricRowGroup({
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-sm">
-                        <div className="text-text-primary">{formatData(baselineResult!)}</div>
+                        <div className="text-text-primary">{formatData(baselineResult)}</div>
                         <div className="text-xs text-muted">
-                            {baselineResult!.sum} / {humanFriendlyNumber(baselineResult!.number_of_samples || 0)}
+                            {baselineResult.sum} / {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
                         </div>
                     </div>
                 </td>
