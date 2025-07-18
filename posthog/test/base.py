@@ -109,9 +109,7 @@ from posthog.models.raw_sessions.sql import (
 )
 from posthog.models.web_preaggregated.sql import (
     WEB_STATS_HOURLY_SQL,
-    DISTRIBUTED_WEB_STATS_HOURLY_SQL,
     WEB_STATS_DAILY_SQL,
-    DISTRIBUTED_WEB_STATS_DAILY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -1173,8 +1171,6 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
-            DISTRIBUTED_WEB_STATS_DAILY_SQL(),
-            DISTRIBUTED_WEB_STATS_HOURLY_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
