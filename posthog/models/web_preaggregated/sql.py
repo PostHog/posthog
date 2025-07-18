@@ -290,9 +290,9 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
-                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')) AS has_gclid,
-                equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), '1') AS has_gad_source_paid_search,
-                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')) AS has_fbclid,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
@@ -476,9 +476,9 @@ def WEB_BOUNCES_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
-                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')) AS has_gclid,
-                equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), '1') AS has_gad_source_paid_search,
-                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')) AS has_fbclid,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
