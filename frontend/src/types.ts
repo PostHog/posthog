@@ -2168,6 +2168,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+    private_project_access?: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
 }
 
 export enum PluginInstallationType {

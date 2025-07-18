@@ -19,7 +19,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 
 class TestWebAnalyticsPreAggregatedSchema:
     DEVICE_BROWSER_FIELD_NAMES = ["browser", "os", "viewport_width", "viewport_height"]
-    GEOIP_FIELD_NAMES = ["country_code", "city_name", "region_code", "region_name", "time_zone"]
+    GEOIP_FIELD_NAMES = ["country_code", "city_name", "region_code", "region_name"]
     UTM_FIELD_NAMES = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "referring_domain"]
     PATH_FIELD_NAMES = ["entry_pathname", "end_pathname"]
     AGGREGATION_FIELD_NAMES = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]

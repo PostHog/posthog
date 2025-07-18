@@ -19,7 +19,6 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { cn } from 'lib/utils/css-classes'
 import { globalModalsLogic } from '~/layout/GlobalModals'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
@@ -38,7 +37,6 @@ export function ProjectDropdownMenu({
 }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -159,10 +157,13 @@ export function ProjectDropdownMenu({
                             <Combobox.Item
                                 asChild
                                 onClick={() =>
-                                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {
-                                        closeAccountPopover()
-                                        showCreateProjectModal()
-                                    })
+                                    guardAvailableFeature(
+                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                        showCreateProjectModal,
+                                        {
+                                            currentUsage: currentOrganization?.teams?.length,
+                                        }
+                                    )
                                 }
                             >
                                 <ButtonPrimitive

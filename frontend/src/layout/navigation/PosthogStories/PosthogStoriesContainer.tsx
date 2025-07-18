@@ -42,7 +42,10 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                 </button>
             </div>
             {!storiesCollapsed && (
-                <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
+                <div
+                    id="dopamine-brainrot"
+                    className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto"
+                >
                     {sortedStories.map((storyGroup) => {
                         const { hasViewedEntireGroup } = storyGroup
                         const nextStoryIndex = hasViewedEntireGroup
