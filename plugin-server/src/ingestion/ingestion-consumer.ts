@@ -50,6 +50,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+const headerEventMismatchCounter = new Counter({
+    name: 'ingestion_header_event_mismatch_total',
+    help: 'Number of events where headers do not match the parsed event data',
+    labelNames: ['mismatch'],
+})
+
 type EventsForDistinctId = {
     token: string
     distinctId: string
@@ -579,11 +585,11 @@ export class IngestionConsumer {
 
             // Parse the headers so we can early exit if found and should be dropped
             message.headers?.forEach((header) => {
-                if (header.key === 'distinct_id') {
-                    distinctId = header.value.toString()
+                if ('distinct_id' in header) {
+                    distinctId = header['distinct_id'].toString()
                 }
-                if (header.key === 'token') {
-                    token = header.value.toString()
+                if ('token' in header) {
+                    token = header['token'].toString()
                 }
             })
 
@@ -598,6 +604,9 @@ export class IngestionConsumer {
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
+
+            // Validate that headers match the parsed event data
+            this.validateHeadersMatchEvent(event, token, distinctId)
 
             // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
@@ -688,6 +697,31 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    }
+
+    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
+        const mismatches: string[] = []
+
+        if (headerToken && event.token && headerToken !== event.token) {
+            mismatches.push('token')
+        }
+
+        if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
+            mismatches.push('distinct_id')
+        }
+
+        if (mismatches.length > 0) {
+            const mismatchType = mismatches.join('_')
+            headerEventMismatchCounter.labels(mismatchType).inc()
+
+            logger.warn('🔍', `Header/event mismatch detected`, {
+                headerToken,
+                eventToken: event.token,
+                headerDistinctId,
+                eventDistinctId: event.distinct_id,
+                mismatches,
+            })
+        }
     }
 
     private overflowEnabled() {
