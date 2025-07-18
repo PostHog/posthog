@@ -98,9 +98,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="text-xs font-semibold">
-                        <span className="text-[#2563eb]">—</span> {baselineResult.key}
-                    </div>
+                    <div className="text-xs font-semibold">{baselineResult.key}</div>
                 </td>
 
                 {/* Value */}
@@ -204,9 +202,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="text-xs font-semibold whitespace-nowrap">
-                                <span className="text-[#2563eb]">—</span> {variant.key}
-                            </div>
+                            <div className="text-xs font-semibold whitespace-nowrap">{variant.key}</div>
                         </td>
 
                         {/* Value */}
