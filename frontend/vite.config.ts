@@ -6,15 +6,15 @@ import { fileURLToPath, URL } from 'node:url'
 import { htmlGenerationPlugin } from './vite-html-plugin'
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command }) => {
-    const isDev = command === 'serve'
+export default defineConfig(({ mode }) => {
+    const isDev = mode === 'development'
 
     return {
         plugins: [
             react(),
             // toolbarDenylistPlugin(),
             // Only use HTML generation plugin for production builds
-            ...(isDev ? [] : [htmlGenerationPlugin()]),
+            htmlGenerationPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -58,7 +58,7 @@ export default defineConfig(({ command }) => {
             outDir: 'dist',
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/experimental_index.tsx'),
+                    index: resolve(__dirname, 'src/index.tsx'),
                     exporter: resolve(__dirname, 'src/exporter/index.tsx'),
                     toolbar: resolve(__dirname, 'src/toolbar/index.tsx'),
                 },
