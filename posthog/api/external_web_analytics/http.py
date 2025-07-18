@@ -138,9 +138,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
                 description="Example paginated response with trend data",
                 response_only=True,
                 value={
-                    "count": 3,
                     "next": None,
-                    "previous": None,
                     "results": [
                         {"time": "2024-01-01T00:00:00Z", "value": 420},
                         {"time": "2024-01-02T00:00:00Z", "value": 380},
@@ -175,9 +173,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
                 description="Example paginated response with breakdown data",
                 response_only=True,
                 value={
-                    "count": 25,
                     "next": f"{settings.SITE_URL}/api/web_analytics/breakdown?offset=2&limit=2",
-                    "previous": None,
                     "results": [
                         {"breakdown_value": "/home", "visitors": 8500, "views": 12000, "sessions": 9200},
                         {"breakdown_value": "/about", "visitors": 2100, "views": 2800, "sessions": 2300},
@@ -196,6 +192,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsBreakdownRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team, request=request)
         data = adapter.get_breakdown_data(serializer)
         return Response(data)
