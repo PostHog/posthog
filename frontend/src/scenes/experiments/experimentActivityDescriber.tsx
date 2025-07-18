@@ -15,6 +15,9 @@ function nameOrLinkToExperiment(id: string | undefined, name: string | null): JS
     return name || '(unknown)'
 }
 
+/**
+ * TODO: refactor the experiment view component to take a status prop so we can remove this component
+ */
 const StatusTag = ({
     status,
 }: {
