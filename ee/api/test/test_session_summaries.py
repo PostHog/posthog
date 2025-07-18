@@ -1,16 +1,18 @@
 import os
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from unittest.mock import patch, MagicMock, Mock
-
-from django.test.client import Client
-from rest_framework.response import Response
 
 from posthog.test.base import APIBaseTest
 
+if TYPE_CHECKING:
+    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
+else:
+    # Avoid using Any as a class at runtime to prevent pytest warnings
+    TestResponse = type("TestResponse", (), {})
+
 
 class TestSessionSummariesAPI(APIBaseTest):
-    client: Client
     url: str
     environment_patches: list[Any]
 
@@ -30,7 +32,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_instance.sessions_found_with_timestamps.return_value = return_value
         return mock_instance
 
-    def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> Response:
+    def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> "TestResponse":
         """Helper to make API requests with consistent formatting."""
         payload: dict[str, Any] = {"session_ids": session_ids}
         if focus_area is not None:
@@ -96,13 +98,13 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute.return_value = mock_result
 
         # Make request
-        response: Response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
+        response = self._make_api_request(session_ids=["session1", "session2"], focus_area="login process")
 
         # Assertions
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Content-Type"], "application/json")
 
-        data: dict[str, Any] = response.json()
+        data: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         # The response is the serialized EnrichedSessionGroupSummaryPatternsList
         self.assertIsInstance(data, dict)
         self.assertIn("patterns", data)
@@ -144,7 +146,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute.return_value = mock_result
 
         # Make request without focus_area
-        response: Response = self._make_api_request(session_ids=["session1", "session2"])
+        response = self._make_api_request(session_ids=["session1", "session2"])
 
         # Assertions
         self.assertEqual(response.status_code, 200)
@@ -165,14 +167,14 @@ class TestSessionSummariesAPI(APIBaseTest):
         """Test validation error when session_ids is missing"""
         mock_feature_enabled.return_value = True
 
-        response: Response = self.client.post(
+        response = self.client.post(
             self.url,
             {"focus_area": "test"},
             format="json",
         )
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertEqual(error["attr"], "session_ids")
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -180,10 +182,10 @@ class TestSessionSummariesAPI(APIBaseTest):
         """Test validation error when session_ids is empty"""
         mock_feature_enabled.return_value = True
 
-        response: Response = self._make_api_request(session_ids=[])
+        response = self._make_api_request(session_ids=[])
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertEqual(error["attr"], "session_ids")
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -192,10 +194,10 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         session_ids: list[str] = [f"session{i}" for i in range(55)]  # More than max of 50
 
-        response: Response = self._make_api_request(session_ids=session_ids)
+        response = self._make_api_request(session_ids=session_ids)
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertEqual(error["attr"], "session_ids")
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -204,17 +206,17 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         long_focus_area: str = "x" * 501  # More than max of 500
 
-        response: Response = self._make_api_request(session_ids=["session1"], focus_area=long_focus_area)
+        response = self._make_api_request(session_ids=["session1"], focus_area=long_focus_area)
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertEqual(error["attr"], "focus_area")
 
     def test_create_summaries_unauthenticated(self) -> None:
         """Test that unauthenticated requests are rejected"""
         self.client.logout()
 
-        response: Response = self._make_api_request(session_ids=["session1"])
+        response = self._make_api_request(session_ids=["session1"])
 
         self.assertEqual(response.status_code, 401)
 
@@ -223,10 +225,10 @@ class TestSessionSummariesAPI(APIBaseTest):
         """Test error when ai-session-summary feature is disabled"""
         mock_feature_enabled.return_value = False
 
-        response: Response = self._make_api_request(session_ids=["session1"])
+        response = self._make_api_request(session_ids=["session1"])
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Session summaries are not enabled", str(error))
 
     @patch("ee.api.session_summaries.is_cloud")
@@ -234,19 +236,19 @@ class TestSessionSummariesAPI(APIBaseTest):
         """Test error when not in cloud environment"""
         mock_is_cloud.return_value = False
 
-        response: Response = self._make_api_request(session_ids=["session1"])
+        response = self._make_api_request(session_ids=["session1"])
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
 
     @patch.dict(os.environ, {}, clear=True)  # Remove OPENAI_API_KEY
     def test_create_summaries_no_openai_key(self) -> None:
         """Test error when OPENAI_API_KEY is not set"""
-        response: Response = self._make_api_request(session_ids=["session1"])
+        response = self._make_api_request(session_ids=["session1"])
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Session summaries are only supported in PostHog Cloud", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -259,10 +261,10 @@ class TestSessionSummariesAPI(APIBaseTest):
             sessions_found=set()  # Empty set means no sessions found
         )
 
-        response: Response = self._make_api_request(session_ids=["nonexistent_session"])
+        response = self._make_api_request(session_ids=["nonexistent_session"])
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Sessions not found or do not belong to this team: nonexistent_session", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -279,10 +281,10 @@ class TestSessionSummariesAPI(APIBaseTest):
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        response: Response = self._make_api_request(session_ids=["session1", "session2"])
+        response = self._make_api_request(session_ids=["session1", "session2"])
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Sessions not found or do not belong to this team: session2", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -304,10 +306,10 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Mock execution failure
         mock_execute.side_effect = Exception("Workflow execution failed")
 
-        response: Response = self._make_api_request(session_ids=["session1"])
+        response = self._make_api_request(session_ids=["session1"])
 
         self.assertEqual(response.status_code, 500)
-        error: dict[str, Any] = response.json()
+        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Failed to generate session summaries", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
@@ -325,7 +327,7 @@ class TestSessionSummariesAPI(APIBaseTest):
             max_timestamp=datetime(2024, 1, 1, 11, 0, 0),
         )
 
-        response: Response = self._make_api_request(session_ids=["session1", "session2", "session3"])
+        response = self._make_api_request(session_ids=["session1", "session2", "session3"])
 
         self.assertEqual(response.status_code, 400)
         # Execution should never be called due to validation failure
@@ -361,7 +363,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_result: dict[str, Any] = self.create_mock_result()
         mock_execute.return_value = mock_result
 
-        response: Response = self._make_api_request(session_ids=["single_session"])
+        response = self._make_api_request(session_ids=["single_session"])
 
         self.assertEqual(response.status_code, 200)
 
