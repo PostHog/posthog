@@ -49,7 +49,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         # Check if this export is stuck (created over HOGQL_INCREASED_MAX_EXECUTION_TIME seconds ago,
         # has no content, and has no recorded exception)
-        timeout_threshold = self.context.get("timeout_threshold")
+        timeout_threshold = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 30)
         if (
             timeout_threshold
             and instance.created_at < timeout_threshold
@@ -186,12 +186,6 @@ class ExportedAssetViewSet(
         if self.action == "list":
             return queryset.filter(created_by=self.request.user)
         return queryset
-
-    def get_serializer_context(self):
-        """Add timeout threshold to serializer context."""
-        context = super().get_serializer_context()
-        context["timeout_threshold"] = now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
-        return context
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True, required_scopes=["export:read"])

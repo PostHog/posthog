@@ -493,17 +493,39 @@ class TestExports(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 2)
 
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
-        # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
-        stuck_export = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard_id=self.dashboard.id,
-            export_format="image/png",
-            created_by=self.user,
-            created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
-            content=None,
-            content_location=None,
-            exception=None,
-        )
+        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+            # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
+            stuck_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                content=None,
+                content_location=None,
+                exception=None,
+            )
+
+            # Create an export that already has content - should not be marked as failed
+            completed_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=b"some content",
+                exception=None,
+            )
+
+            # Create an export that has an exception - should not be overridden
+            errored_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=None,
+                exception="exception",
+            )
 
         # Create a recent export that should not be marked as failed
         recent_export = ExportedAsset.objects.create(
@@ -511,32 +533,9 @@ class TestExports(APIBaseTest):
             dashboard_id=self.dashboard.id,
             export_format="image/png",
             created_by=self.user,
-            created_at=now() - timedelta(seconds=100),
             content=None,
             content_location=None,
             exception=None,
-        )
-
-        # Create an export that already has content - should not be marked as failed
-        completed_export = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard_id=self.dashboard.id,
-            export_format="image/png",
-            created_by=self.user,
-            created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
-            content=b"some content",
-            exception=None,
-        )
-
-        # Create an export that has an exception - should not be overridden
-        errored_export = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard_id=self.dashboard.id,
-            export_format="image/png",
-            created_by=self.user,
-            created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
-            content=None,
-            exception="exception",
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
@@ -556,7 +555,7 @@ class TestExports(APIBaseTest):
         self.assertIsNone(completed_result["exception"])
 
         completed_result = results_by_id[errored_export.id]
-        self.assetEqual("exception", completed_result["exception"])
+        self.assertEqual("exception", completed_result["exception"])
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
@@ -567,17 +566,18 @@ class TestExports(APIBaseTest):
         self.assertIsNone(completed_export.exception)
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
-        # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
-        stuck_export = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard_id=self.dashboard.id,
-            export_format="image/png",
-            created_by=self.user,
-            created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
-            content=None,
-            content_location=None,
-            exception=None,
-        )
+        with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
+            # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME
+            stuck_export = ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.dashboard.id,
+                export_format="image/png",
+                created_by=self.user,
+                created_at=now() - timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 100),
+                content=None,
+                content_location=None,
+                exception=None,
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports/{stuck_export.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
