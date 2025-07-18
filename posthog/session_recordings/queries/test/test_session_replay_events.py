@@ -199,3 +199,48 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert metadata_dict["1"] is not None
         assert metadata_dict["nonexistent"] is None
         assert metadata_dict["3"] is not None
+
+    def test_sessions_found_with_timestamps(self) -> None:
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=["1", "2", "3"],
+            team=self.team,
+        )
+        assert sessions == {"1", "2", "3"}
+        assert min_ts == self.base_time
+        assert max_ts == self.base_time + relativedelta(seconds=3)
+
+    def test_sessions_found_with_timestamps_partial_match(self) -> None:
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=["1", "nonexistent", "3"],
+            team=self.team,
+        )
+        assert sessions == {"1", "3"}
+        assert min_ts == self.base_time
+        assert max_ts == self.base_time + relativedelta(seconds=3)
+
+    def test_sessions_found_with_timestamps_empty_list(self) -> None:
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=[],
+            team=self.team,
+        )
+        assert sessions == set()
+        assert min_ts is None
+        assert max_ts is None
+
+    def test_sessions_found_with_timestamps_no_matches(self) -> None:
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=["nonexistent1", "nonexistent2"],
+            team=self.team,
+        )
+        assert sessions == set()
+        assert min_ts is None
+        assert max_ts is None
+
+    def test_sessions_found_with_timestamps_single_session(self) -> None:
+        sessions, min_ts, max_ts = SessionReplayEvents().sessions_found_with_timestamps(
+            session_ids=["2"],
+            team=self.team,
+        )
+        assert sessions == {"2"}
+        assert min_ts == self.base_time
+        assert max_ts == self.base_time + relativedelta(seconds=2)
