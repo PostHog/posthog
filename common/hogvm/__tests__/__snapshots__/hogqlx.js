@@ -1,7 +1,9 @@
 function replaceAll(str, searchValue, replaceValue) {
     return str.replaceAll(searchValue, replaceValue)
 }
-function print(...args) {}
+function print(...args) {
+    console.log(...args.map(__printHogStringOutput))
+}
 function jsonStringify(value, spacing) {
     function convert(x, marked) {
         if (!marked) {
@@ -72,9 +74,7 @@ function __printHogValue(obj, marked = new Set()) {
                 const millis = String(obj.dt)
                 return `DateTime(${millis}${millis.includes('.') ? '' : '.0'}, ${__escapeString(obj.zone)})`
             }
-            if (__isHogDate(obj)) {
-                return `Date(${obj.year}, ${obj.month}, ${obj.day})`
-            }
+            if (__isHogDate(obj)) return `Date(${obj.year}, ${obj.month}, ${obj.day})`
             if (__isHogError(obj)) {
                 return `${String(obj.type)}(${__escapeString(obj.message)}${
                     obj.payload ? `, ${__printHogValue(obj.payload, marked)}` : ''
@@ -91,16 +91,10 @@ function __printHogValue(obj, marked = new Set()) {
         } finally {
             marked.delete(obj)
         }
-    } else if (typeof obj === 'boolean') {
-        return obj ? 'true' : 'false'
-    } else if (obj === null || obj === undefined) {
-        return 'null'
-    } else if (typeof obj === 'string') {
-        return __escapeString(obj)
-    }
-    if (typeof obj === 'function') {
-        return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`
-    }
+    } else if (typeof obj === 'boolean') return obj ? 'true' : 'false'
+    else if (obj === null || obj === undefined) return 'null'
+    else if (typeof obj === 'string') return __escapeString(obj)
+    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`
     return obj.toString()
 }
 function __lambda(fn) {
@@ -121,8 +115,9 @@ function __getProperty(objectOrArray, key, nullish) {
     }
     if (Array.isArray(objectOrArray)) {
         return key > 0 ? objectOrArray[key - 1] : objectOrArray[objectOrArray.length + key]
+    } else {
+        return objectOrArray[key]
     }
-    return objectOrArray[key]
 }
 function __escapeString(value) {
     const singlequoteEscapeCharsMap = {
@@ -153,12 +148,8 @@ function __escapeIdentifier(identifier) {
         '\\': '\\\\',
         '`': '\\`',
     }
-    if (typeof identifier === 'number') {
-        return identifier.toString()
-    }
-    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) {
-        return identifier
-    }
+    if (typeof identifier === 'number') return identifier.toString()
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier)) return identifier
     return `\`${identifier
         .split('')
         .map((c) => backquoteEscapeCharsMap[c] || c)
