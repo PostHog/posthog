@@ -1320,7 +1320,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": {
                     "columns": None,
                     "created_at": ANY,
-                    "created_by": None,
+                    "created_by": ANY,
                     "dashboard_tiles": [
                         {
                             "dashboard_id": response.json()["id"],
@@ -1342,7 +1342,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "is_cached": False,
                     "is_sample": True,
                     "last_modified_at": ANY,
-                    "last_modified_by": None,
+                    "last_modified_by": ANY,
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
