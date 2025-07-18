@@ -1,7 +1,10 @@
 from datetime import date, datetime
 from typing import Optional, Any
+from dataclasses import dataclass
+from collections.abc import Callable
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.schema import (
     WebOverviewQuery,
     DateRange,
@@ -9,9 +12,83 @@ from posthog.schema import (
     EventPropertyFilter,
     PropertyOperator,
     WebOverviewQueryResponse,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
+    WebStatsBreakdown,
 )
 from posthog.models import Team
-from posthog.api.external_web_analytics.serializers import WebAnalyticsOverviewRequestSerializer
+from posthog.api.external_web_analytics.serializers import (
+    WebAnalyticsOverviewRequestSerializer,
+    WebAnalyticsBreakdownRequestSerializer,
+    EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
+    EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
+)
+
+
+@dataclass
+class MetricDefinition:
+    internal_column: str
+    external_key: str
+    transformer: Callable[[Any], Any]
+    supported_breakdowns: set[WebStatsBreakdown] | None = None  # None = supported for all breakdowns
+
+
+class BreakdownMetricsConfig:
+    def __init__(self):
+        self.metrics = {
+            "breakdown_value": MetricDefinition(
+                internal_column="context.columns.breakdown_value",
+                external_key="breakdown_value",
+                transformer=self._transform_breakdown_value,
+                supported_breakdowns=None,
+            ),
+            "visitors": MetricDefinition(
+                internal_column="context.columns.visitors",
+                external_key="visitors",
+                transformer=self._transform_count_metric,
+                supported_breakdowns=None,
+            ),
+            "views": MetricDefinition(
+                internal_column="context.columns.views",
+                external_key="views",
+                transformer=self._transform_count_metric,
+                supported_breakdowns=None,
+            ),
+            "bounce_rate": MetricDefinition(
+                internal_column="context.columns.bounce_rate",
+                external_key="bounce_rate",
+                transformer=self._transform_rate_metric,
+                supported_breakdowns={WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE},
+            ),
+        }
+
+    def get_supported_metrics_for_breakdown(self, breakdown: WebStatsBreakdown) -> dict[str, MetricDefinition]:
+        supported = {}
+        for key, metric in self.metrics.items():
+            if metric.supported_breakdowns is None or breakdown in metric.supported_breakdowns:
+                supported[key] = metric
+        return supported
+
+    def is_metric_supported(self, metric_key: str, breakdown: WebStatsBreakdown) -> bool:
+        if metric_key not in self.metrics:
+            return False
+        metric = self.metrics[metric_key]
+        return metric.supported_breakdowns is None or breakdown in metric.supported_breakdowns
+
+    def _transform_breakdown_value(self, value: Any) -> str:
+        current_value = self._extract_current_period_value(value)
+        return EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE if current_value is None else str(current_value)
+
+    def _transform_count_metric(self, value: Any) -> int:
+        current_value = self._extract_current_period_value(value)
+        return int(current_value) if current_value is not None else 0
+
+    def _transform_rate_metric(self, value: Any) -> float:
+        current_value = self._extract_current_period_value(value)
+        return float(current_value) if current_value is not None else 0.0
+
+    def _extract_current_period_value(self, value: Any) -> Any:
+        return value[0] if isinstance(value, tuple) else value
 
 
 class ExternalWebAnalyticsQueryAdapter:
@@ -22,6 +99,7 @@ class ExternalWebAnalyticsQueryAdapter:
 
     def __init__(self, team: Team):
         self.team = team
+        self.breakdown_metrics_config = BreakdownMetricsConfig()
 
     def _get_base_properties(self, domain: Optional[str] = None) -> list[EventPropertyFilter]:
         properties = []
@@ -68,6 +146,116 @@ class ExternalWebAnalyticsQueryAdapter:
         response = runner.calculate()
 
         return self._transform_overview_response(response)
+
+    def get_breakdown_data(self, serializer: WebAnalyticsBreakdownRequestSerializer) -> dict[str, Any]:
+        data = serializer.validated_data
+
+        breakdown_by = WebStatsBreakdown(data["breakdown_by"])
+
+        query = WebStatsTableQuery(
+            kind="WebStatsTableQuery",
+            breakdownBy=breakdown_by,
+            dateRange=DateRange(
+                date_from=self._get_datetime_str(data["date_from"]),
+                date_to=self._get_datetime_str(data["date_to"]),
+            ),
+            properties=self._get_base_properties(data.get("domain")),
+            filterTestAccounts=data.get("filter_test_accounts", True),
+            doPathCleaning=data.get("do_path_cleaning", True),
+            includeBounceRate=self.breakdown_metrics_config.is_metric_supported("bounce_rate", breakdown_by),
+            limit=data.get("limit", EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT),
+        )
+
+        runner = WebStatsTableQueryRunner(
+            query=query,
+            team=self.team,
+            modifiers=self._get_default_modifiers(),
+        )
+
+        response = runner.calculate()
+
+        return self._transform_breakdown_response(response, breakdown_by, data.get("metrics", []))
+
+    def _transform_breakdown_response(
+        self, response: WebStatsTableQueryResponse, breakdown: WebStatsBreakdown, requested_metrics: list[str]
+    ) -> dict[str, Any]:
+        """
+        Transform the internal WebStatsTableQueryResponse to external API format.
+
+        Internal format:
+        - columns: ["context.columns.breakdown_value", "context.columns.visitors", "context.columns.views", ...]
+        - results: [["value1", (100, 90), (500, 450)], ...]
+
+        External format:
+        {
+            "count": total_count,
+            "results": [
+                {
+                    "breakdown_value": "value1",
+                    "visitors": 100,
+                    "views": 500,
+                    ...
+                }
+            ],
+            "next": null,
+            "previous": null
+        }
+        """
+
+        if not response.columns:
+            raise ValueError("Query response missing columns - indicates query execution error")
+
+        if not response.results:
+            return self._empty_breakdown_response()
+
+        supported_metrics = self.breakdown_metrics_config.get_supported_metrics_for_breakdown(breakdown)
+
+        column_indices = {col: i for i, col in enumerate(response.columns)}
+
+        transformed_results = [
+            self._transform_breakdown_row(row, column_indices, supported_metrics, requested_metrics)
+            for row in response.results
+        ]
+
+        return {
+            "count": len(transformed_results),
+            "results": transformed_results,
+            "next": None,
+            "previous": None,
+        }
+
+    def _empty_breakdown_response(self) -> dict[str, Any]:
+        return {
+            "count": 0,
+            "results": [],
+            "next": None,
+            "previous": None,
+        }
+
+    def _transform_breakdown_row(
+        self,
+        row: list,
+        column_indices: dict[str, int],
+        supported_metrics: dict[str, MetricDefinition],
+        requested_metrics: list[str],
+    ) -> dict[str, Any]:
+        result = {}
+
+        for metric_def in supported_metrics.values():
+            # Check if the internal column exists in the response
+            if metric_def.internal_column not in column_indices:
+                continue
+
+            # Check if this metric should be included based on user request
+            if self._should_include_metric(metric_def.external_key, requested_metrics):
+                col_index = column_indices[metric_def.internal_column]
+                raw_value = row[col_index] if col_index < len(row) else None
+                result[metric_def.external_key] = metric_def.transformer(raw_value)
+
+        return result
+
+    def _should_include_metric(self, metric_key: str, requested_metrics: list[str]) -> bool:
+        return not requested_metrics or metric_key == "breakdown_value" or metric_key in requested_metrics
 
     def _transform_overview_response(self, response: WebOverviewQueryResponse) -> dict[str, Any]:
         """

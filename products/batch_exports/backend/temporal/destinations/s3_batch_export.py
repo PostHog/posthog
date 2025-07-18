@@ -97,6 +97,8 @@ SUPPORTED_COMPRESSIONS = {
     "JSONLines": ["gzip", "brotli"],
 }
 
+MINIMUM_MULTIPART_UPLOAD_PART_SIZE = 5 * (1024**2)
+
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
 
@@ -175,6 +177,16 @@ def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
 def get_manifest_key(inputs: S3InsertInputs) -> str:
     key_prefix = get_s3_key_prefix(inputs)
     return posixpath.join(key_prefix, f"{inputs.data_interval_start}-{inputs.data_interval_end}_manifest.json")
+
+
+def calculate_part_size(inputs: S3InsertInputs) -> int:
+    if inputs.max_file_size_mb:
+        return min(
+            max(MINIMUM_MULTIPART_UPLOAD_PART_SIZE, inputs.max_file_size_mb * 1024**2),
+            settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+        )
+    else:
+        return settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
 
 
 class InvalidS3Key(Exception):
@@ -373,12 +385,15 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
         assert inputs.batch_export_id is not None
+
+        part_size = calculate_part_size(inputs)
+
         producer_task = await producer.start(
             queue=queue,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            max_record_batch_size_bytes=part_size,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -404,7 +419,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_inputs=inputs,
-            part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            part_size=part_size,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
