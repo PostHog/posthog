@@ -17,17 +17,15 @@ TipTapContent = list[TipTapNode]
 
 
 def create_summary_notebook(
-    session_ids: list[str],
-    user: User,
-    team: Team,
-    summary: EnrichedSessionGroupSummaryPatternsList,
-    domain: str = "PostHog",
+    session_ids: list[str], user: User, team: Team, summary: EnrichedSessionGroupSummaryPatternsList
 ) -> Notebook:
     """Create a notebook with session summary patterns."""
-    notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
+    notebook_content = _generate_notebook_content_from_summary(
+        summary=summary, session_ids=session_ids, project_name=team.name, team_id=team.id
+    )
     notebook = Notebook.objects.create(
         team=team,
-        title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
+        title=f"Session Summaries Report - {team.name} ({datetime.now().strftime('%Y-%m-%d')})",
         content=notebook_content,
         created_by=user,
         last_modified_by=user,
@@ -36,7 +34,7 @@ def create_summary_notebook(
 
 
 def _generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], domain: str
+    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
     patterns = summary.patterns
@@ -45,9 +43,10 @@ def _generate_notebook_content_from_summary(
         return {
             "type": "doc",
             "content": [
-                _create_heading_with_text(f"Session Summaries Report - {domain}", 1),
+                _create_heading_with_text(f"Session Summaries Report - {project_name}", 1),
                 _create_empty_paragraph(),
                 _create_paragraph_with_text("No patterns found."),
+                _create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
             ],
         }
 
@@ -59,18 +58,21 @@ def _generate_notebook_content_from_summary(
     content = []
 
     # Title
-    content.append(_create_heading_with_text(f"Session Summaries Report - {domain}", 1))
+    content.append(_create_heading_with_text(f"Session Summaries Report - {project_name}", 1))
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
     content.append(_create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
     # Summary table
     table_content = _create_summary_table(patterns_sorted, total_sessions)
     content.extend(table_content)
+    content.extend(
+        [_create_empty_paragraph(), _create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}")]
+    )
     content.append(_create_line_separator())
 
     # Pattern details
     for pattern in patterns_sorted:
-        pattern_content = _create_pattern_section(pattern, total_sessions)
+        pattern_content = _create_pattern_section(pattern=pattern, total_sessions=total_sessions, team_id=team_id)
         content.append(_create_empty_paragraph())
         content.extend(pattern_content)
 
@@ -197,7 +199,9 @@ def _create_summary_table(patterns: list[EnrichedSessionGroupSummaryPattern], to
     return content
 
 
-def _create_pattern_section(pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int) -> TipTapContent:
+def _create_pattern_section(
+    pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int, team_id: int
+) -> TipTapContent:
     """Create detailed pattern section content."""
     content = []
 
@@ -252,14 +256,14 @@ def _create_pattern_section(pattern: EnrichedSessionGroupSummaryPattern, total_s
     # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
     events_to_show = pattern.events
     for event_data in events_to_show:
-        example_content = _create_example_section(event_data)
+        example_content = _create_example_section(event_data=event_data, team_id=team_id)
         content.append(_create_line_separator())
         content.extend(example_content)
     content.append(_create_line_separator())
     return content
 
 
-def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> TipTapContent:
+def _create_example_section(event_data: PatternAssignedEventSegmentContext, team_id: int) -> TipTapContent:
     """Create example section content for an event."""
     content = []
     session_id = event_data.target_event.session_id
@@ -276,7 +280,7 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
                 {
                     "type": "ph-backlink",
                     "attrs": {
-                        "href": f"/project/1/replay/{session_id}?t={seconds_since_start}",
+                        "href": f"/project/{team_id}/replay/{session_id}?t={seconds_since_start}",
                         "type": None,
                         "title": session_id,
                     },
