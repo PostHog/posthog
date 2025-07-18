@@ -29,7 +29,7 @@ from posthog.schema import (
 from posthog.test.base import BaseTest
 
 
-class TestQuery(BaseModel):
+class TheTestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
     other_attr: Optional[list[Any]] = []
@@ -46,7 +46,7 @@ class TestQueryRunner(BaseTest):
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
-            query: TestQuery
+            query: TheTestQuery
             response: TheTestBasicQueryResponse
             cached_response: TheTestCachedBasicQueryResponse
 
@@ -76,16 +76,16 @@ class TestQueryRunner(BaseTest):
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        runner = TestQueryRunner(query=TestQuery(some_attr="bla"), team=self.team)
+        runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
 
-        self.assertEqual(runner.query, TestQuery(some_attr="bla"))
+        self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        self.assertEqual(runner.query, TestQuery(some_attr="bla"))
+        self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
