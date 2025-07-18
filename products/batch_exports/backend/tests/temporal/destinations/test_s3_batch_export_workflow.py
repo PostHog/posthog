@@ -73,6 +73,7 @@ from products.batch_exports.backend.tests.temporal.utils import (
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+COMPRESSION_OPTIONS = [*COMPRESSION_EXTENSIONS.keys(), None]
 TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
@@ -434,7 +435,7 @@ class TestInsertIntoS3ActivityFromStage:
             BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
         ):  # 5MB, the minimum for Multipart uploads
             assert insert_inputs.batch_export_id is not None
-            records_exported = await activity_environment.run(
+            await activity_environment.run(
                 insert_into_internal_stage_activity,
                 BatchExportInsertIntoInternalStageInputs(
                     team_id=insert_inputs.team_id,
@@ -451,9 +452,9 @@ class TestInsertIntoS3ActivityFromStage:
                 ),
             )
 
-            records_exported = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
+            result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
 
-        return records_exported
+        return result
 
     @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -527,7 +528,7 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported = await self._run_activity(activity_environment, insert_inputs)
+        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
         events_to_export_created, persons_to_export_created = generate_test_data
         assert (
             records_exported == len(events_to_export_created)
@@ -536,6 +537,9 @@ class TestInsertIntoS3ActivityFromStage:
             # NOTE: Sometimes a random extra session will pop up and I haven't figured out why.
             or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= records_exported <= 2)
         )
+
+        assert isinstance(bytes_exported, int)
+        assert bytes_exported > 0
 
         sort_key = "uuid"
         if isinstance(model, BatchExportModel) and model.name == "persons":
@@ -560,7 +564,7 @@ class TestInsertIntoS3ActivityFromStage:
             sort_key=sort_key,
         )
 
-    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_OPTIONS, indirect=True)
     @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
     # Use 0 to test that the file is not split up and 6MB since this is slightly
@@ -643,9 +647,11 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported = await self._run_activity(activity_environment, insert_inputs)
+        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
 
         assert records_exported == len(events_to_export_created)
+        assert isinstance(bytes_exported, int)
+        assert bytes_exported > 0
 
         # Takes a long time to re-read this data from ClickHouse, so we just make sure that:
         # 1. The file exists in S3.
@@ -726,16 +732,10 @@ class TestInsertIntoS3ActivityFromStage:
         file_format,
         data_interval_start,
         data_interval_end,
-        model: BatchExportModel | BatchExportSchema | None,
+        model: BatchExportModel,
         ateam,
     ):
         """Test the insert_into_s3_activity_from_stage_activity function fails with an invalid file format."""
-        batch_export_schema: BatchExportSchema | None = None
-        batch_export_model: BatchExportModel | None = None
-        if isinstance(model, BatchExportModel):
-            batch_export_model = model
-        elif model is not None:
-            batch_export_schema = model
 
         insert_inputs = S3InsertInputs(
             bucket_name=bucket_name,
@@ -750,8 +750,8 @@ class TestInsertIntoS3ActivityFromStage:
             compression=compression,
             exclude_events=exclude_events,
             file_format=file_format,
-            batch_export_schema=batch_export_schema,
-            batch_export_model=batch_export_model,
+            batch_export_schema=None,
+            batch_export_model=model,
             batch_export_id=str(uuid.uuid4()),
             destination_default_fields=s3_default_fields(),
         )
@@ -892,8 +892,12 @@ async def _run_s3_batch_export_workflow(
             and run.records_completed is not None
             and run.records_completed <= 1
         )
+        assert run.bytes_exported == 0
         await assert_no_files_in_s3(s3_client, bucket_name, expected_key_prefix)
         return run
+
+    assert run.bytes_exported is not None
+    assert run.bytes_exported > 0
 
     sort_key = "uuid"
     if isinstance(model, BatchExportModel) and model.name == "persons":
@@ -970,7 +974,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
     @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_OPTIONS, indirect=True)
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
     async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
         self,
@@ -1271,7 +1275,7 @@ class TestS3BatchExportWorkflowWithS3Bucket:
 
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
     @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
-    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_OPTIONS, indirect=True)
     @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     @pytest.mark.parametrize("exclude_events", [None], indirect=True)
@@ -1381,6 +1385,7 @@ class TestErrorHandling:
         assert run.status == "FailedRetryable"
         assert run.latest_error == "RetryableTestException: A useful error message"
         assert run.records_completed is None
+        assert run.bytes_exported is None
 
     async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
         self, ateam, s3_batch_export, interval
@@ -1596,6 +1601,7 @@ class TestErrorHandling:
         (events_to_export_created, persons_to_export_created) = generate_test_data
         assert run.status == "FailedRetryable"
         assert run.records_completed is None
+        assert run.bytes_exported is None
         assert (
             run.latest_error
             == "IntermittentUploadPartTimeoutError: An intermittent `RequestTimeout` was raised while attempting to upload part 1"
@@ -1607,6 +1613,8 @@ class TestErrorHandling:
         assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
             persons_to_export_created
         )
+        assert run.bytes_exported is not None
+        assert run.bytes_exported > 0
 
         assert runs[0].data_interval_end == runs[1].data_interval_end
 

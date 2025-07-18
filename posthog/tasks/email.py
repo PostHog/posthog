@@ -628,7 +628,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     AND app_source = 'hog_function'
     AND timestamp >= NOW() - INTERVAL 24 HOUR
     AND timestamp < NOW()
-    AND metric_name IN ('succeeded', 'failed', 'filtered')
+    AND metric_name IN ('succeeded', 'failed')
     {hog_function_filter}
     GROUP BY app_source_id, metric_name
     HAVING total_count > 0
@@ -659,7 +659,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     for row in metrics_data:
         hog_function_id, metric_name, count = str(row[0]), row[1], row[2]
         if hog_function_id not in metrics_by_function:
-            metrics_by_function[hog_function_id] = {"succeeded": 0, "failed": 0, "filtered": 0}
+            metrics_by_function[hog_function_id] = {"succeeded": 0, "failed": 0}
         metrics_by_function[hog_function_id][metric_name] = count
 
     # Only include functions that have failures
@@ -690,7 +690,6 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
                 "type": hog_function["type"],
                 "succeeded": metrics["succeeded"],
                 "failed": metrics["failed"],
-                "filtered": metrics["filtered"],
                 "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
             }
             function_metrics.append(function_info)
