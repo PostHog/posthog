@@ -200,7 +200,7 @@ async def prepare_data_for_single_session_summary(
     prompt_data = prepare_prompt_data(
         session_id=session_id,
         # Convert to a dict, so that we can amend its values freely
-        session_metadata=dict(session_db_data.session_metadata),  # type: ignore[arg-type]
+        session_metadata=dict(session_db_data.session_metadata),  # type: ignore[arg-type] - session_metadata is a TypedDict
         session_events_columns=session_db_data.session_events_columns,
         session_events=session_db_data.session_events,
     )
