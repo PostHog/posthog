@@ -1086,7 +1086,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         effectiveLastRefresh: [
             (s) => [s.lastDashboardRefresh, s.oldestRefreshed],
             (lastDashboardRefresh, oldestRefreshed): Dayjs | null => {
-                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d) => d != null)
+                const dates = [lastDashboardRefresh, oldestRefreshed].filter((d): d is Dayjs => d != null)
                 return sortDayJsDates(dates)[dates.length - 1]
             },
         ],
