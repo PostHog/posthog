@@ -9,6 +9,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { Link } from '../Link'
 import { MarkdownMention } from './MarkdownMention'
+import { parseMentions } from './mentionUtils'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -51,56 +52,16 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 </CodeSnippet>
             ),
             text: ({ value }: any): JSX.Element => {
-                // Split text by @ to get potential mentions
-                const parts = value.split(/(@)/g)
+                const parsedParts = parseMentions(value, meFirstMembers)
                 const result: React.ReactNode[] = []
 
-                for (let i = 0; i < parts.length; i++) {
-                    const part = parts[i]
-
-                    if (part === '@' && i + 1 < parts.length) {
-                        // This is a potential mention start
-                        const afterAt = parts[i + 1]
-
-                        // Find the longest matching username from the start of afterAt
-                        let bestMatch = ''
-                        let bestMatchMember = null
-
-                        for (const member of meFirstMembers) {
-                            const firstName = member.user.first_name
-
-                            // Check if afterAt starts with this member's first name
-                            if (afterAt.toLowerCase().startsWith(firstName.toLowerCase())) {
-                                if (firstName.length > bestMatch.length) {
-                                    bestMatch = firstName
-                                    bestMatchMember = member
-                                }
-                            }
-                        }
-
-                        if (bestMatch) {
-                            // Found a valid mention
-                            result.push(
-                                <MarkdownMention key={i} displayName={bestMatch} userId={bestMatchMember?.user.id} />
-                            )
-
-                            // Add the remaining text after the mention
-                            const remainingText = afterAt.slice(bestMatch.length)
-                            if (remainingText) {
-                                result.push(remainingText)
-                            }
-
-                            // Skip the next part since we've processed it
-                            i++
-                        } else {
-                            // Not a valid mention, just add @ and continue
-                            result.push('@')
-                        }
-                    } else if (part && part !== '@') {
-                        // Regular text
-                        result.push(part)
+                parsedParts.forEach((part, index) => {
+                    if (part.type === 'mention') {
+                        result.push(<MarkdownMention key={index} displayName={part.content} userId={part.userId} />)
+                    } else {
+                        result.push(part.content)
                     }
-                }
+                })
 
                 return <>{result}</>
             },
@@ -110,7 +71,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                   }
                 : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode, meFirstMembers]
     )
 
     return (
