@@ -839,10 +839,10 @@ function __printHogValue(obj, marked = new Set()) {
         } finally {
             marked.delete(obj);
         }
-    } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
-    else if (obj === null || obj === undefined) return 'null';
-    else if (typeof obj === 'string') return __escapeString(obj);
-            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
+    } else if (typeof obj === 'boolean') {return obj ? 'true' : 'false';}
+    else if (obj === null || obj === undefined) {return 'null';}
+    else if (typeof obj === 'string') {return __escapeString(obj);}
+    if (typeof obj === 'function') {return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;}
     return obj.toString();
 }
 """,
