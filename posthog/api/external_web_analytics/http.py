@@ -127,7 +127,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsBreakdownRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_breakdown_data(
-            serializer.validated_data, request=request, team_id=self.team_id
-        )
-        return Response(mock_data)
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        data = adapter.get_breakdown_data(serializer)
+        return Response(data)
