@@ -26,7 +26,9 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         - Array of objects with 'name' field containing possible values
         """
-        flag_id = request.GET.get("key")
+        flag_id = request.GET.get(
+            "key"
+        )  # "key" here is the property key, which happens to be the flag id for flag dependencies.
 
         if not flag_id:
             return response.Response({"error": "Missing flag ID parameter"}, status=400)
