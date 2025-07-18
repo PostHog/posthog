@@ -3,27 +3,23 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin
 from posthog.temporal.data_imports.pipelines.postgres.postgres import (
-    PostgreSQLSourceConfig,
     postgres_source,
     get_schemas as get_postgres_schemas,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources import PostgresSourceConfig
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.external_data_schema import filter_postgres_incremental_fields
 from posthog.warehouse.types import IncrementalField
 
 
 @SourceRegistry.register
-class PostgresSource(BaseSource[PostgreSQLSourceConfig], SSHTunnelMixin):
+class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin):
     @property
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.POSTGRES
 
-    @property
-    def config_class(self) -> type[PostgreSQLSourceConfig]:
-        return PostgreSQLSourceConfig
-
-    def get_schemas(self, config: PostgreSQLSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: PostgresSourceConfig) -> list[SourceSchema]:
         schemas = []
 
         # TODO: refactor get_postgres_schemas to not explictly set up ssh tunnel
@@ -54,7 +50,7 @@ class PostgresSource(BaseSource[PostgreSQLSourceConfig], SSHTunnelMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: PostgreSQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         with self.with_ssh_tunnel(config) as (host, port):
             return postgres_source(
                 host=host,

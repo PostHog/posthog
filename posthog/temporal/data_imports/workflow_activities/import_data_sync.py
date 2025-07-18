@@ -234,12 +234,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
+            from posthog.temporal.data_imports.sources import PostgresSourceConfig
             from posthog.temporal.data_imports.pipelines.postgres import (
-                PostgreSQLSourceConfig,
                 postgres_source,
             )
 
-            pg_config = PostgreSQLSourceConfig.from_dict(model.pipeline.job_inputs)
+            pg_config = PostgresSourceConfig.from_dict(model.pipeline.job_inputs)
 
             if pg_config.ssh_tunnel and pg_config.ssh_tunnel.enabled:
                 ssh_tunnel = SSHTunnel.from_config(pg_config.ssh_tunnel)

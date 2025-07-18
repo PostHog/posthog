@@ -24,25 +24,14 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources import PostgresSourceConfig
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
-@config.config
-class PostgreSQLSourceConfig(config.Config):
-    host: str
-    user: str
-    password: str
-    database: str
-    schema: str
-    port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig | None = None
-
-
-def get_schemas(config: PostgreSQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(config: PostgresSourceConfig) -> dict[str, list[tuple[str, str]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
     def inner(postgres_host: str, postgres_port: int):

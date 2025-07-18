@@ -24,9 +24,9 @@ from posthog.temporal.data_imports.pipelines.mysql import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.postgres import (
-    PostgreSQLSourceConfig,
     get_schemas as get_postgres_schemas,
 )
+from posthog.temporal.data_imports.sources import PostgresSourceConfig
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
     pause_external_data_schedule,
@@ -523,7 +523,7 @@ def get_sql_schemas_for_source_type(
     source_type: ExternalDataSource.Type, job_inputs: dict[str, Any]
 ) -> dict[str, list[tuple[str, str]]]:
     if source_type == ExternalDataSource.Type.POSTGRES:
-        schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(job_inputs))
+        schemas = get_postgres_schemas(PostgresSourceConfig.from_dict(job_inputs))
     elif source_type == ExternalDataSource.Type.MYSQL:
         schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(job_inputs))
     elif source_type == ExternalDataSource.Type.MSSQL:

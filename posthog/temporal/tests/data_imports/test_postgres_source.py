@@ -16,7 +16,8 @@ from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import TupleRow
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource, PostgreSQLSourceConfig
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.temporal.data_imports.sources import PostgresSourceConfig
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -195,7 +196,7 @@ def test_postgresql__source_config_loads():
         "database": "database",
         "password": "password",
     }
-    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+    config = PostgresSourceConfig.from_dict(job_inputs)
 
     assert config.host == "host.com"
     assert config.port == 5432
@@ -214,7 +215,7 @@ def test_postgresql_source_config_loads_int_port():
         "database": "database",
         "password": "password",
     }
-    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+    config = PostgresSourceConfig.from_dict(job_inputs)
 
     assert config.host == "host.com"
     assert config.port == 5432
@@ -239,7 +240,7 @@ def test_postgresql_source_config_loads_with_ssh_tunnel():
         "ssh_tunnel_auth_type_password": "password",
         "ssh_tunnel_auth_type_username": "username",
     }
-    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+    config = PostgresSourceConfig.from_dict(job_inputs)
 
     assert config.host == "host.com"
     assert config.port == 5432
@@ -275,7 +276,7 @@ def test_postgresql_source_config_loads_with_nested_dict_enabled_tunnel():
         },
     }
 
-    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+    config = PostgresSourceConfig.from_dict(job_inputs)
 
     assert config.host == "host.com"
     assert config.port == 5432
@@ -313,7 +314,7 @@ def test_postgresql_source_config_loads_with_nested_dict_disabled_tunnel():
         },
     }
 
-    config = PostgreSQLSourceConfig.from_dict(job_inputs)
+    config = PostgresSourceConfig.from_dict(job_inputs)
 
     assert config.host == "host.com"
     assert config.port == 5432

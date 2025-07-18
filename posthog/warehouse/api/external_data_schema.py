@@ -35,9 +35,9 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     get_schemas as get_mysql_schemas,
 )
 from posthog.temporal.data_imports.pipelines.postgres import (
-    PostgreSQLSourceConfig,
     get_schemas as get_postgres_schemas,
 )
+from posthog.temporal.data_imports.sources import PostgresSourceConfig
 from posthog.temporal.data_imports.pipelines.mongo import (
     MongoSourceConfig,
     get_schemas as get_mongo_schemas,
@@ -341,7 +341,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         incremental_columns: list[IncrementalField] = []
 
         if source.source_type == ExternalDataSource.Type.POSTGRES:
-            db_schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(source.job_inputs))
+            db_schemas = get_postgres_schemas(PostgresSourceConfig.from_dict(source.job_inputs))
             columns = db_schemas.get(instance.name, [])
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
