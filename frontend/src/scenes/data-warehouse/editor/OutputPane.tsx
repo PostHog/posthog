@@ -19,11 +19,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { SortColumn, RenderHeaderCellProps } from 'react-data-grid'
@@ -274,7 +273,7 @@ export function OutputPane(): JSX.Element {
     const { response: dataNodeResponse, dataLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
     const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
@@ -436,27 +435,21 @@ export function OutputPane(): JSX.Element {
                             label: 'Visualization',
                             icon: <IconGraph />,
                         },
-                        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
-                            ? [
-                                  {
-                                      key: OutputTab.Variables,
-                                      label: (
-                                          <Tooltip
-                                              title={editingView ? 'Variables are not allowed in views.' : undefined}
-                                          >
-                                              Variables
-                                          </Tooltip>
-                                      ),
-                                      disabled: editingView,
-                                      icon: <IconBrackets />,
-                                  },
-                                  {
-                                      key: OutputTab.Materialization,
-                                      label: 'Materialization',
-                                      icon: <IconBolt />,
-                                  },
-                              ]
-                            : []),
+                        {
+                            key: OutputTab.Variables,
+                            label: (
+                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
+                                    Variables
+                                </Tooltip>
+                            ),
+                            disabled: editingView,
+                            icon: <IconBrackets />,
+                        },
+                        {
+                            key: OutputTab.Materialization,
+                            label: 'Materialization',
+                            icon: <IconBolt />,
+                        },
                     ].map((tab) => (
                         <div
                             key={tab.key}

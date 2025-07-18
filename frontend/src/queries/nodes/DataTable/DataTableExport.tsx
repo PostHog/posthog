@@ -20,7 +20,13 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
-import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
+    isPersonsNode,
+} from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
 import { dataTableLogic, DataTableRow } from './dataTableLogic'
@@ -123,7 +129,7 @@ const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query
         return [filteredColumns, ...csvData]
     }
 
-    if (isHogQLQuery(query.source)) {
+    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         return [columns, ...dataTableRows.map((n) => (n.result as any[]) ?? [])]
     }
 
@@ -170,7 +176,7 @@ const getJsonTableData = (
         })
     }
 
-    if (isHogQLQuery(query.source)) {
+    if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         return dataTableRows.map((n) => {
             const data = n.result ?? {}
             return columns.reduce((acc, cur, index) => {
@@ -224,7 +230,8 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
         (isPersonsNode(source) && source.search ? 1 : 0)
     const canExportAllColumns =
         (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
-    const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
+    const showExportClipboardButtons =
+        isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source) || isMarketingAnalyticsTableQuery(source)
     const canSaveAsCohort = isActorsQuery(source)
 
     return (

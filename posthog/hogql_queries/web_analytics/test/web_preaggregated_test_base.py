@@ -92,3 +92,6 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         for timestamp, url in events:
             with freeze_time(timestamp):
                 self._create_session_event(distinct_id, session_id, timestamp, url, extra_properties=extra_properties)
+
+    def _sort_results(self, results, key=lambda x: str(x[0])):
+        return sorted(results, key=key)
