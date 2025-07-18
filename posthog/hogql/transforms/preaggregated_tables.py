@@ -404,54 +404,6 @@ def _contains_any_aggregation(expr: ast.Expr) -> bool:
     return False
 
 
-def _has_unsupported_aggregations(expr: ast.Expr) -> bool:
-    """Check if an expression contains unsupported aggregation functions."""
-    if isinstance(expr, ast.Call):
-        # Check for known aggregation functions that are NOT supported
-        aggregation_functions = [
-            "avg",
-            "sum",
-            "min",
-            "max",
-            "median",
-            "stddev",
-            "variance",
-            "quantile",
-            "topK",
-            "groupArray",
-            "groupUniqArray",
-            "argMin",
-            "argMax",
-        ]
-        if expr.name in aggregation_functions:
-            return True
-        # Also check for other uniq/count calls that aren't the supported ones
-        if expr.name == "count" and not _is_count_pageviews_call(expr):
-            return True
-        if expr.name == "uniq" and not (_is_uniq_persons_call(expr) or _is_uniq_sessions_call(expr)):
-            return True
-        # Check for CASE/WHEN expressions (which become if() calls)
-        if expr.name == "if":
-            return True
-        # Recursively check arguments for nested aggregations
-        for arg in expr.args:
-            if _has_unsupported_aggregations(arg):
-                return True
-    elif isinstance(expr, ast.ArithmeticOperation):
-        # Arithmetic operations with aggregations are not supported currently
-        return _contains_any_aggregation(expr.left) or _contains_any_aggregation(expr.right)
-    elif isinstance(expr, ast.WindowFunction):
-        # Window functions are not supported
-        return True
-    elif hasattr(expr, "expr") and hasattr(expr, "then_expr") and hasattr(expr, "else_expr"):
-        # CASE/WHEN expressions (simplified check)
-        # For now, we don't support these complex expressions
-        return True
-    elif isinstance(expr, ast.Alias):
-        return _has_unsupported_aggregations(expr.expr)
-    return False
-
-
 def _transform_select_expr(expr: ast.Expr) -> ast.Expr:
     """Transform a SELECT expression to use preaggregated fields."""
     if isinstance(expr, ast.Call):
