@@ -1375,7 +1375,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
-                    "user_access_level": "editor",
+                    "user_access_level": "manager",
                     "hogql": ANY,
                     "types": ANY,
                 },
