@@ -1504,10 +1504,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return // We hit a 404
             }
 
-            // access stored values from dashboardLoadData
-            // as we can't pass them down to this listener
-            const { action, manualDashboardRefresh } = values.dashboardLoadData
-            actions.updateDashboardItems({ action, manualDashboardRefresh })
+            if (values.placement !== DashboardPlacement.Export) {
+                // access stored values from dashboardLoadData
+                // as we can't pass them down to this listener
+                const { action, manualDashboardRefresh } = values.dashboardLoadData
+                actions.updateDashboardItems({ action, manualDashboardRefresh })
+            }
 
             if (values.shouldReportOnAPILoad) {
                 actions.setShouldReportOnAPILoad(false)
