@@ -61,12 +61,12 @@ class QuerySizeExceeded(APIException):
 
 class ClickHouseQueryTimeOut(APIException):
     status_code = 504
-    default_detail = "Your query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
+    default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
     status_code = 504
-    default_detail = "Your query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
 
 
 class ExceptionContext(TypedDict):
