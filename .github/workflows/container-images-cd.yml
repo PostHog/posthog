@@ -389,15 +389,12 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
-            - name: Build and push container image
+            - name: Build container image (local only)
               id: build_mirrored
-              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              uses: docker/build-push-action@v5
               with:
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: false
                   tags: |
-                      ghcr.io/posthog/posthog:${{ github.sha }}-mirrored,
-                      posthog/posthog:${{ github.sha }}-mirrored,
-                      ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}-mirrored
-                  platforms: linux/arm64,linux/amd64
+                      ghcr.io/posthog/posthog:${{ github.sha }}-mirrored
+                  platforms: linux/amd64,linux/arm64
                   build-args: COMMIT_HASH=${{ github.sha }}
