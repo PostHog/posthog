@@ -12,7 +12,9 @@ import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps } from '~/types'
 
 import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
-import funnelLeftToRightInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import funnelLeftToRightInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+
+const funnelLeftToRightInsight = funnelLeftToRightInsightData as unknown as any
 
 type Story = StoryObj<typeof FunnelPropertyCorrelationTable>
 const meta: Meta<typeof FunnelPropertyCorrelationTable> = {
