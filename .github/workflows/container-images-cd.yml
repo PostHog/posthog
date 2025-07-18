@@ -90,5 +90,5 @@ jobs:
                       ghcr.io/posthog/posthog:${{ github.sha }}-mirrored
                   platforms: linux/arm64
                   build-args: COMMIT_HASH=${{ github.sha }}
-                  cache-from: type=local,src=/mnt/buildkit-cache
-                  cache-to: type=local,dest=/mnt/buildkit-cache,mode=max
+                  cache-from: type=local,src=/buildkit-cache
+                  cache-to: type=local,dest=/buildkit-cache,mode=max
