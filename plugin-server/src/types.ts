@@ -403,7 +403,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
-    eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub
