@@ -285,7 +285,6 @@ async def test_assign_events_to_patterns_activity_standalone(
         mock_call_llm.assert_called()  # May be called multiple times for chunks
         # Verify Redis operations - gets session summaries, patterns, and session data
         assert spy_get.call_count >= len(session_ids) + 2  # Session summaries + patterns + session data
-        # Note: This activity doesn't store in Redis, it returns the result directly
 
 
 class TestSummarizeSessionGroupWorkflow:
