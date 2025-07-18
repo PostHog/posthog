@@ -1,9 +1,11 @@
-from typing import TypeVar, cast
+from dataclasses import dataclass
+from typing import TypeVar, cast, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
@@ -12,15 +14,152 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 _T_AST = TypeVar("_T_AST", bound=AST)
 
 
+@dataclass
+class PageviewCheckResult:
+    """Result of checking a WHERE clause for pageview filters."""
+
+    has_pageview: bool
+    has_unsupported: bool
+
+
+def flatten_and(node: Optional[ast.Expr]) -> Optional[ast.Expr]:
+    """Flatten AND expressions in the AST."""
+    if isinstance(node, ast.And):
+        # If it's an AND expression, recursively flatten its children
+        flattened_exprs = []
+        for expr in node.exprs:
+            flattened_child = flatten_and(expr)
+            if flattened_child:
+                flattened_exprs.append(flattened_child)
+        # Remove any constant True or 1 expressions
+        flattened_exprs = [expr for expr in flattened_exprs if not _is_simple_constant_comparison(expr)]
+        if len(flattened_exprs) <= 1:
+            return ast.Constant(value=True)
+        return ast.And(exprs=flattened_exprs)
+
+    if isinstance(node, ast.Call) and node.name == "and":
+        return flatten_and(ast.And(exprs=node.args))
+
+    return node
+
+
+def is_event_field(field: ast.Field) -> bool:
+    """Check if a field represents an event property."""
+    return (
+        field.chain == ["event"] or (len(field.chain) == 2 and field.chain[1] == "event")  # table_alias.event
+    )
+
+
+def is_pageview_filter(expr: ast.Expr) -> bool:
+    """Check if an expression is a straightforward event="$pageview" filter."""
+    if isinstance(expr, ast.CompareOperation) and expr.op == CompareOperationOp.Eq:
+        if isinstance(expr.left, ast.Field) and is_event_field(expr.left):
+            return isinstance(expr.right, ast.Constant) and expr.right.value == "$pageview"
+        if isinstance(expr.right, ast.Field) and is_event_field(expr.right):
+            return isinstance(expr.left, ast.Constant) and expr.left.value == "$pageview"
+        if (
+            isinstance(expr.left, ast.Alias)
+            and isinstance(expr.left.expr, ast.Field)
+            and is_event_field(expr.left.expr)
+        ):
+            return isinstance(expr.right, ast.Constant) and expr.right.value == "$pageview"
+        if (
+            isinstance(expr.right, ast.Alias)
+            and isinstance(expr.right.expr, ast.Field)
+            and is_event_field(expr.right.expr)
+        ):
+            return isinstance(expr.left, ast.Constant) and expr.left.value == "$pageview"
+    if isinstance(expr, ast.Call) and expr.name == "equals" and len(expr.args) == 2:
+        return is_pageview_filter(ast.CompareOperation(left=expr.args[0], right=expr.args[1], op=CompareOperationOp.Eq))
+    return False
+
+
+def is_timestamp_field(field: ast.Field) -> bool:
+    """Check if a field represents a timestamp."""
+    return (
+        field.chain == ["timestamp"]
+        or (len(field.chain) == 2 and field.chain[1] == "timestamp")  # table_alias.timestamp
+    )
+
+
+class CheckedUnsupportedWhereClauseVisitor(TraversingVisitor):
+    """Visitor to check if the query references the event column."""
+
+    has_unsupported_where_clause: bool
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_unsupported_where_clause = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        # Any references to anything BUT supported event/session properties or timestamp is unsupported
+        is_supported_property = _get_supported_property_field(node)
+        is_timestamp = is_timestamp_field(node)
+        if not is_supported_property and not is_timestamp:
+            self.has_unsupported_where_clause = True
+
+
+def _check_unsupported_expr_for_where_clause(node: ast.Expr) -> bool:
+    """Check if the query references the event column."""
+    checker = CheckedUnsupportedWhereClauseVisitor()
+    checker.visit(node)
+    return checker.has_unsupported_where_clause
+
+
+def _check_where_clause(expr: Optional[ast.Expr]) -> bool:
+    """Check if expression contains straightforward event="$pageview" and no other event filters."""
+    # Flatten the where clause to make life a bit easier
+    expr = flatten_and(expr)
+
+    if not expr:
+        return False
+
+    if isinstance(expr, ast.And):
+        exprs = expr.exprs
+    else:
+        exprs = [expr]
+
+    # Exactly one top-level expr here should be an equality check for event="$pageview"
+    has_pageview = False
+    for sub_expr in exprs:
+        # is this sub_expr an equality check for event="$pageview"?
+        if is_pageview_filter(sub_expr):
+            if has_pageview:
+                # More than one pageview filter - not allowed
+                return False
+            has_pageview = True
+        elif _check_unsupported_expr_for_where_clause(sub_expr):
+            # If it references event but is not a pageview filter, it's unsupported
+            return False
+
+    return has_pageview
+
+
 def _is_person_id_field(field: ast.Field) -> bool:
     """Check if a field represents person_id in any of its forms."""
-    return field.chain == ["person_id"] or field.chain == ["events", "person", "id"]
+
+    # TODO for the table_alias check, also look at the FROM part of the SELECT
+    return (
+        field.chain == ["person_id"]
+        or field.chain == ["person", "id"]  # person.id
+        or field.chain == ["events", "person_id"]  # events.person_id
+        or field.chain == ["events", "person", "id"]  # events.person.id
+        or (len(field.chain) == 2 and field.chain[1] == "person_id")  # table_alias.person_id
+        or (len(field.chain) == 3 and field.chain[1:] == ["person", "id"])  # table_alias.person.id
+    )
 
 
 def _is_session_id_field(field: ast.Field) -> bool:
     """Check if a field represents session_id in any of its forms."""
+
+    # TODO for the table_alias check, also look at the FROM part of the SELECT
     return (
-        field.chain == ["session", "id"] or field.chain == ["events", "$session_id"] or field.chain == ["$session_id"]
+        field.chain == ["session", "id"]  # session.id
+        or field.chain == ["events", "session", "id"]  # events.session.id
+        or field.chain == ["events", "$session_id"]  # events.$session_id
+        or field.chain == ["$session_id"]  # $session_id
+        or (len(field.chain) == 2 and field.chain[1] == "$session_id")  # table_alias.$session_id
+        or (len(field.chain) == 3 and field.chain[1:] == ["session", "id"])  # table_alias.session.id
     )
 
 
@@ -34,10 +173,7 @@ def _is_count_pageviews_call(call: ast.Call) -> bool:
         return True
     elif len(call.args) == 1:
         arg = call.args[0]
-        # count(*) - can be either Constant or Field depending on parser
-        return (isinstance(arg, ast.Constant) and arg.value == "*") or (
-            isinstance(arg, ast.Field) and arg.chain == ["*"]
-        )
+        return isinstance(arg, ast.Field) and arg.chain == ["*"]
 
     return False
 
@@ -47,16 +183,10 @@ def _is_uniq_persons_call(call: ast.Call) -> bool:
     if call.name != "uniq":
         return False
 
-    if len(call.args) == 0:
-        # uniq() - treat as persons (though not really valid HogQL)
-        return True
-    elif len(call.args) == 1:
+    if len(call.args) == 1:
         arg = call.args[0]
         if isinstance(arg, ast.Field):
             return _is_person_id_field(arg)
-        elif isinstance(arg, ast.Constant) and arg.value == "*":
-            # uniq(*) - treat as persons
-            return True
 
     return False
 
@@ -76,6 +206,7 @@ def _is_uniq_sessions_call(call: ast.Call) -> bool:
 
 def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) -> bool:
     """Check if a single SelectQuery can be transformed to use preaggregated tables."""
+    # TODO simplify this by just throwing on something invalid
 
     # Check FROM clause - must be from events table
     if not node.select_from or not isinstance(node.select_from.table, ast.Field):
@@ -83,8 +214,6 @@ def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) 
     if node.select_from.table.chain != ["events"]:
         return False
 
-    has_pageview_filter = False
-    has_unsupported_event = False
     supported_aggregations = set()
     has_sample = False
     sample_value = None
@@ -101,32 +230,34 @@ def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) 
                     sample_value = node.select_from.sample.sample_value.left.value
 
     # Check WHERE clause for pageview filter
-    if node.where:
-        pageview_filter_result = _check_pageview_filter(node.where)
-        has_pageview_filter = pageview_filter_result["has_pageview"]
-        has_unsupported_event = pageview_filter_result["has_unsupported"]
+    if not _check_where_clause(node.where):
+        return False
 
     # Check SELECT clause for supported aggregations
+    has_unsupported_aggregations = False
     for expr in node.select:
         _check_select_expr_for_aggregations(expr, supported_aggregations)
+        if _has_unsupported_aggregations(expr):
+            has_unsupported_aggregations = True
 
     # Check GROUP BY clause
     if node.group_by:
         for expr in node.group_by:
             if isinstance(expr, ast.Field):
-                # Only allow group by fields that are supported
-                if len(expr.chain) >= 2 and expr.chain[0] == "properties":
-                    property_name = expr.chain[1]
-                    # Check if the property is in EVENT_PROPERTY_TO_FIELD mapping
-                    if property_name not in EVENT_PROPERTY_TO_FIELD:
-                        has_unsupported_event = True
-                elif len(expr.chain) >= 2 and expr.chain[0] == "session":
-                    # Check if the session property is in SESSION_PROPERTY_TO_FIELD mapping
-                    if len(expr.chain) >= 2 and expr.chain[1] not in SESSION_PROPERTY_TO_FIELD:
-                        has_unsupported_event = True
+                # Check if this looks like a property field pattern
+                # Only reject if it's a property-like pattern that's not supported
+                is_property_pattern = (
+                    (len(expr.chain) >= 2 and expr.chain[0] == "properties")
+                    or (len(expr.chain) >= 3 and expr.chain[0] == "events" and expr.chain[1] == "properties")
+                    or (len(expr.chain) >= 2 and expr.chain[0] == "session")
+                    or (len(expr.chain) >= 3 and expr.chain[0] == "events" and expr.chain[1] == "session")
+                )
 
-    # Must have pageview filter and no unsupported events
-    if not has_pageview_filter or has_unsupported_event:
+                if is_property_pattern and _get_supported_property_field(expr) is None:
+                    return False
+
+    # Must not have any unsupported aggregations
+    if has_unsupported_aggregations:
         return False
 
     # Must have supported aggregations
@@ -140,63 +271,75 @@ def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) 
     return True
 
 
-def _check_pageview_filter(expr: ast.Expr) -> dict[str, bool]:
-    """Check if expression contains pageview filter and unsupported events."""
-    has_pageview = False
-    has_unsupported = False
+def _is_simple_constant_comparison(expr: ast.Expr) -> bool:
+    """Check if an expression is a simple constant that can be safely ignored."""
+    return isinstance(expr, ast.Constant) and expr.value in (1, True, "1")
 
-    if isinstance(expr, ast.CompareOperation):
-        if expr.op == ast.CompareOperationOp.Eq:
-            if (
-                isinstance(expr.left, ast.Field)
-                and expr.left.chain == ["event"]
-                and isinstance(expr.right, ast.Constant)
-            ):
-                if expr.right.value == "$pageview":
-                    has_pageview = True
-                else:
-                    has_unsupported = True
-            elif (
-                isinstance(expr.right, ast.Field)
-                and expr.right.chain == ["event"]
-                and isinstance(expr.left, ast.Constant)
-            ):
-                if expr.left.value == "$pageview":
-                    has_pageview = True
-                else:
-                    has_unsupported = True
-    elif isinstance(expr, ast.Call):
-        if expr.name == "equals" and len(expr.args) == 2:
-            if (
-                isinstance(expr.args[0], ast.Field)
-                and expr.args[0].chain == ["event"]
-                and isinstance(expr.args[1], ast.Constant)
-            ):
-                if expr.args[1].value == "$pageview":
-                    has_pageview = True
-                else:
-                    has_unsupported = True
-    elif isinstance(expr, ast.And):
-        for sub_expr in expr.exprs:
-            result = _check_pageview_filter(sub_expr)
-            has_pageview = has_pageview or result["has_pageview"]
-            has_unsupported = has_unsupported or result["has_unsupported"]
-    elif isinstance(expr, ast.Or):
-        for sub_expr in expr.exprs:
-            result = _check_pageview_filter(sub_expr)
-            has_pageview = has_pageview or result["has_pageview"]
-            has_unsupported = has_unsupported or result["has_unsupported"]
-    elif isinstance(expr, ast.Not):
-        # For negations, we recursively check but don't change logic
-        result = _check_pageview_filter(expr.expr)
-        has_pageview = has_pageview or result["has_pageview"]
-        has_unsupported = has_unsupported or result["has_unsupported"]
-    elif isinstance(expr, ast.Alias):
-        result = _check_pageview_filter(expr.expr)
-        has_pageview = has_pageview or result["has_pageview"]
-        has_unsupported = has_unsupported or result["has_unsupported"]
 
-    return {"has_pageview": has_pageview, "has_unsupported": has_unsupported}
+def _is_safe_timestamp_comparison(call: ast.Call) -> bool:
+    """Check if a function call is a safe timestamp comparison that can be ignored during validation."""
+    # Common timestamp comparison functions that don't affect aggregation logic
+    timestamp_functions = {
+        "greaterOrEquals",
+        "lessOrEquals",
+        "greater",
+        "less",
+        "greaterEquals",
+        "lessEquals",
+        "gte",
+        "lte",
+        "gt",
+        "lt",
+    }
+
+    if call.name not in timestamp_functions:
+        return False
+
+    if len(call.args) != 2:
+        return False
+
+    # Check if first argument is likely a timestamp field
+    first_arg = call.args[0]
+    if isinstance(first_arg, ast.Field):
+        # Allow timestamp field comparisons
+        if first_arg.chain == ["timestamp"] or (len(first_arg.chain) == 2 and first_arg.chain[1] == "timestamp"):
+            return True
+
+    return False
+
+
+def _get_supported_property_field(field: ast.Field) -> tuple[str, str] | None:
+    """
+    Check if a field represents a supported property and return (property_name, field_name) if valid.
+
+    Returns:
+        tuple[str, str] | None: (property_name, field_name) if supported, None otherwise
+    """
+    # Handle properties.x pattern
+    if len(field.chain) == 2 and field.chain[0] == "properties":
+        property_name = field.chain[1]
+        if property_name in EVENT_PROPERTY_TO_FIELD:
+            return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
+
+    # Handle events.properties.x pattern
+    elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
+        property_name = field.chain[2]
+        if property_name in EVENT_PROPERTY_TO_FIELD:
+            return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
+
+    # Handle session.x pattern
+    elif len(field.chain) == 2 and field.chain[0] == "session":
+        property_name = field.chain[1]
+        if property_name in SESSION_PROPERTY_TO_FIELD:
+            return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
+
+    # Handle events.session.x pattern
+    elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "session":
+        property_name = field.chain[2]
+        if property_name in SESSION_PROPERTY_TO_FIELD:
+            return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
+
+    return None
 
 
 def _check_select_expr_for_aggregations(expr: ast.Expr, supported_aggregations: set[str]) -> None:
@@ -210,6 +353,88 @@ def _check_select_expr_for_aggregations(expr: ast.Expr, supported_aggregations: 
             supported_aggregations.add("sessions_uniq_state")
     elif isinstance(expr, ast.Alias):
         _check_select_expr_for_aggregations(expr.expr, supported_aggregations)
+
+
+def _contains_any_aggregation(expr: ast.Expr) -> bool:
+    """Check if an expression contains any aggregation function (supported or unsupported)."""
+    if isinstance(expr, ast.Call):
+        # Check for any aggregation function
+        aggregation_functions = [
+            "count",
+            "uniq",
+            "avg",
+            "sum",
+            "min",
+            "max",
+            "median",
+            "stddev",
+            "variance",
+            "quantile",
+            "topK",
+            "groupArray",
+            "groupUniqArray",
+            "argMin",
+            "argMax",
+        ]
+        if expr.name in aggregation_functions:
+            return True
+        # Recursively check arguments
+        for arg in expr.args:
+            if _contains_any_aggregation(arg):
+                return True
+    elif isinstance(expr, ast.ArithmeticOperation):
+        return _contains_any_aggregation(expr.left) or _contains_any_aggregation(expr.right)
+    elif isinstance(expr, ast.Alias):
+        return _contains_any_aggregation(expr.expr)
+    return False
+
+
+def _has_unsupported_aggregations(expr: ast.Expr) -> bool:
+    """Check if an expression contains unsupported aggregation functions."""
+    if isinstance(expr, ast.Call):
+        # Check for known aggregation functions that are NOT supported
+        aggregation_functions = [
+            "avg",
+            "sum",
+            "min",
+            "max",
+            "median",
+            "stddev",
+            "variance",
+            "quantile",
+            "topK",
+            "groupArray",
+            "groupUniqArray",
+            "argMin",
+            "argMax",
+        ]
+        if expr.name in aggregation_functions:
+            return True
+        # Also check for other uniq/count calls that aren't the supported ones
+        if expr.name == "count" and not _is_count_pageviews_call(expr):
+            return True
+        if expr.name == "uniq" and not (_is_uniq_persons_call(expr) or _is_uniq_sessions_call(expr)):
+            return True
+        # Check for CASE/WHEN expressions (which become if() calls)
+        if expr.name == "if":
+            return True
+        # Recursively check arguments for nested aggregations
+        for arg in expr.args:
+            if _has_unsupported_aggregations(arg):
+                return True
+    elif isinstance(expr, ast.ArithmeticOperation):
+        # Arithmetic operations with aggregations are not supported currently
+        return _contains_any_aggregation(expr.left) or _contains_any_aggregation(expr.right)
+    elif isinstance(expr, ast.WindowFunction):
+        # Window functions are not supported
+        return True
+    elif hasattr(expr, "expr") and hasattr(expr, "then_expr") and hasattr(expr, "else_expr"):
+        # CASE/WHEN expressions (simplified check)
+        # For now, we don't support these complex expressions
+        return True
+    elif isinstance(expr, ast.Alias):
+        return _has_unsupported_aggregations(expr.expr)
+    return False
 
 
 def _transform_select_expr(expr: ast.Expr) -> ast.Expr:
@@ -229,14 +454,10 @@ def _transform_select_expr(expr: ast.Expr) -> ast.Expr:
         return expr
     elif isinstance(expr, ast.Field):
         # Transform properties.x to the corresponding field in the preaggregated table
-        if len(expr.chain) >= 2 and expr.chain[0] == "properties":
-            property_name = expr.chain[1]
-            if property_name in EVENT_PROPERTY_TO_FIELD:
-                return ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]])
-        elif len(expr.chain) >= 2 and expr.chain[0] == "session":
-            property_name = expr.chain[1]
-            if property_name in SESSION_PROPERTY_TO_FIELD:
-                return ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]])
+        property_result = _get_supported_property_field(expr)
+        if property_result is not None:
+            property_name, field_name = property_result
+            return ast.Field(chain=[field_name])
         # Pass through other fields unchanged
         return expr
     elif isinstance(expr, ast.Alias):
@@ -251,14 +472,10 @@ def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
     """Transform a GROUP BY expression to use preaggregated fields."""
     if isinstance(expr, ast.Field):
         # Transform properties.x to the corresponding field in the preaggregated table
-        if len(expr.chain) >= 2 and expr.chain[0] == "properties":
-            property_name = expr.chain[1]
-            if property_name in EVENT_PROPERTY_TO_FIELD:
-                return ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]])
-        elif len(expr.chain) >= 2 and expr.chain[0] == "session":
-            property_name = expr.chain[1]
-            if property_name in SESSION_PROPERTY_TO_FIELD:
-                return ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]])
+        property_result = _get_supported_property_field(expr)
+        if property_result is not None:
+            property_name, field_name = property_result
+            return ast.Field(chain=[field_name])
         # Pass through other fields unchanged
         return expr
     else:

@@ -1,3 +1,4 @@
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     EVENT_PROPERTY_TO_FIELD,
@@ -5,8 +6,11 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebStatsCombinedTable,
 )
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_tables import do_preaggregated_table_transforms
 from posthog.hogql.context import HogQLContext
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNode, BaseMathType
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.test.base import BaseTest
 from parameterized import parameterized
@@ -41,7 +45,7 @@ class TestPreaggregatedTables(BaseTest):
         assert query == self._normalize(original_query)
 
     @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
-    def test_all_session_properties_on_sessions_unsupported(self, property_name, field_name):
+    def test_all_session_properties_on_sessions_supported(self, property_name, field_name):
         original_query = (
             f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
         )
@@ -58,6 +62,40 @@ class TestPreaggregatedTables(BaseTest):
     def _normalize(self, query: str):
         node = parse_select(query)
         return str(node)
+
+    def _insert_stats_row(self, period_bucket=None):
+        if not period_bucket:
+            period_bucket = "toStartOfDay(toDateTime('2025-07-16'))"
+        sql = f"""
+    INSERT INTO web_stats_daily SELECT
+        {period_bucket} as period_bucket,
+        {self.team.id} as team_id,
+        '' as host,
+        '' as device_type,
+
+        '' as pathname,
+        '' as entry_pathname,
+        '' as end_pathname,
+        '' as browser,
+        '' as os,
+        0 as viewport_width,
+        0 as viewport_height,
+        '' as referring_domain,
+        '' as utm_source,
+        '' as utm_medium,
+        '' as utm_campaign,
+        '' as utm_term,
+        '' as utm_content,
+        '' as country_code,
+        '' as city_name,
+        '' as region_code,
+        '' as region_name,
+
+        initializeAggregation('uniqState', generateUUIDv7()) as persons_uniq,
+        initializeAggregation('uniqState', toString(generateUUIDv7())) as sessions_uniq,
+        initializeAggregation('sumState', toUInt64(1)) as pageview_state
+        """
+        sync_execute(sql, flush=True)
 
     def test_preaggregation_tables(self):
         original_query = """
@@ -536,21 +574,80 @@ class TestPreaggregatedTables(BaseTest):
         query = self._parse_and_transform(original_query)
         assert "web_stats_combined" in query
 
-    #
-    #
-    # def test_trends_query(self):
-    #     """Test that trends queries are handled correctly."""
-    #     original_query = TrendsQuery(
-    #         **{
-    #             "kind": "TrendsQuery",
-    #             "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
-    #             "trendsFilter": {},
-    #         },
-    #         dateRange=DateRange(date_from="all", date_to=None),
-    #         modifiers=HogQLQueryModifiers(
-    #             useWebAnalyticsPreAggregatedTables=True
-    #         )
-    #     )
-    #     tqr = TrendsQueryRunner(team=self.team, query=original_query)
-    #     query = tqr.calculate().clickhouse
-    #     assert "web_stats_combined" in query
+    def test_trends_inner_clickhouse_query(self):
+        original_query = """
+        SELECT count() AS total, toStartOfDay(timestamp) AS day_start
+            FROM events AS e SAMPLE 1
+            WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:21:15')),
+                                                                   toIntervalDay(1))),
+                      lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))),
+                      equals(event, '$pageview'))
+            GROUP BY day_start
+        """
+        query = self._parse_and_transform(original_query)
+        assert "web_stats_combined" in query
+
+    def test_full_trends_query(self):
+        original_query = """
+SELECT
+    arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date,
+    arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total
+FROM
+    (SELECT
+        sum(total) AS count,
+        day_start
+    FROM
+        (SELECT
+            count() AS total,
+            toStartOfDay(timestamp) AS day_start
+        FROM
+            events AS e SAMPLE 1
+        WHERE
+            and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))), equals(event, '$pageview'))
+        GROUP BY
+            day_start)
+    GROUP BY
+        day_start
+    ORDER BY
+        day_start ASC)
+ORDER BY
+    arraySum(total) DESC
+LIMIT 50000
+        """
+        query = self._parse_and_transform(original_query)
+        assert "web_stats_combined" in query
+
+    def test_full_trends_query_clickhouse(self):
+        original_query = """
+SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total FROM (SELECT sum(total) AS count, day_start FROM (SELECT count() AS total, toStartOfDay(timestamp) AS day_start FROM events AS e SAMPLE 1 WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))), equals(event, '$pageview')) GROUP BY day_start) GROUP BY day_start ORDER BY day_start ASC) ORDER BY arraySum(total) DESC LIMIT 50000
+            """
+        query = self._parse_and_transform(original_query)
+        assert "web_stats_combined" in query
+
+    def test_basic_hogql_query(self):
+        """Test that trends queries are handled correctly."""
+        # add a pageview to the combined table, so that we can be sure we are fetching the correct table
+        self._insert_stats_row()
+
+        response = execute_hogql_query(
+            parse_select("select count(), uniq(person_id) from events where equals(event, '$pageview')"),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        assert response.results == [(1, 1)]
+        assert "web_stats_combined" in response.hogql
+
+    def test_trends_query(self):
+        """Test that trends queries are handled correctly."""
+        # add a pageview to the combined table, so that we can be sure we are fetching the correct table
+        self._insert_stats_row()
+
+        original_query = TrendsQuery(
+            series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.TOTAL)],
+            dateRange=DateRange(date_from="all", date_to=None),
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=original_query)
+        response = tqr.calculate()
+        assert response.results == {}
+        assert "web_stats_combined" in response.hogql
