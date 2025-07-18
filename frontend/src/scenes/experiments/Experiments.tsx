@@ -250,128 +250,122 @@ export function Experiments(): JSX.Element {
                 tabs={[
                     { key: ExperimentsTabs.All, label: 'All experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
-                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
-                    { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' },
-                    { key: ExperimentsTabs.History, label: 'History' },
+                    { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
+                    { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics', content: <SharedMetrics /> },
+                    {
+                        key: ExperimentsTabs.History,
+                        label: 'History',
+                        content: <ActivityLog scope={ActivityScope.EXPERIMENT} />,
+                    },
                 ]}
             />
-
-            {tab === ExperimentsTabs.Holdouts ? (
-                <Holdouts />
-            ) : tab === ExperimentsTabs.SharedMetrics ? (
-                <SharedMetrics />
-            ) : tab === ExperimentsTabs.History ? (
-                <ActivityLog scope={ActivityScope.EXPERIMENT} />
-            ) : (
+            {tab === ExperimentsTabs.All && (
+                <ProductIntroduction
+                    productName="Experiments"
+                    productKey={ProductKey.EXPERIMENTS}
+                    thingName="experiment"
+                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                    docsURL="https://posthog.com/docs/experiments"
+                    action={() => router.actions.push(urls.experiment('new'))}
+                    isEmpty={shouldShowEmptyState}
+                    customHog={ExperimentsHog}
+                />
+            )}
+            {tab === ExperimentsTabs.Archived && (
+                <ProductIntroduction
+                    productName="Experiments"
+                    productKey={ProductKey.EXPERIMENTS}
+                    thingName="archived experiment"
+                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                    docsURL="https://posthog.com/docs/experiments"
+                    isEmpty={shouldShowEmptyState}
+                />
+            )}
+            {!shouldShowEmptyState && (tab === ExperimentsTabs.All || tab === ExperimentsTabs.Archived) && (
                 <>
-                    {tab === ExperimentsTabs.Archived ? (
-                        <ProductIntroduction
-                            productName="Experiments"
-                            productKey={ProductKey.EXPERIMENTS}
-                            thingName="archived experiment"
-                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                            docsURL="https://posthog.com/docs/experiments"
-                            isEmpty={shouldShowEmptyState}
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search experiments"
+                            onChange={(search) => setExperimentsFilters({ search, page: 1 })}
+                            value={filters.search || ''}
                         />
-                    ) : (
-                        <ProductIntroduction
-                            productName="Experiments"
-                            productKey={ProductKey.EXPERIMENTS}
-                            thingName="experiment"
-                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                            docsURL="https://posthog.com/docs/experiments"
-                            action={() => router.actions.push(urls.experiment('new'))}
-                            isEmpty={shouldShowEmptyState}
-                            customHog={ExperimentsHog}
-                        />
-                    )}
-                    {!shouldShowEmptyState && (
-                        <>
-                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
-                                <LemonInput
-                                    type="search"
-                                    placeholder="Search experiments"
-                                    onChange={(search) => setExperimentsFilters({ search, page: 1 })}
-                                    value={filters.search || ''}
-                                />
-                                <div className="flex items-center gap-2">
-                                    <span>
-                                        <b>Status</b>
-                                    </span>
-                                    <LemonSelect
-                                        size="small"
-                                        onChange={(status) => {
-                                            if (status === 'all') {
-                                                const { status: _, ...restFilters } = filters
-                                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
-                                            } else {
-                                                setExperimentsFilters({ status: status as ProgressStatus, page: 1 })
-                                            }
-                                        }}
-                                        options={
-                                            [
-                                                { label: 'All', value: 'all' },
-                                                { label: 'Draft', value: ProgressStatus.Draft },
-                                                { label: 'Running', value: ProgressStatus.Running },
-                                                { label: 'Complete', value: ProgressStatus.Complete },
-                                            ] as { label: string; value: string }[]
-                                        }
-                                        value={filters.status ?? 'all'}
-                                        dropdownMatchSelectWidth={false}
-                                        dropdownMaxContentWidth
-                                    />
-                                    <span className="ml-1">
-                                        <b>Created by</b>
-                                    </span>
-                                    <MemberSelect
-                                        defaultLabel="Any user"
-                                        value={filters.created_by_id ?? null}
-                                        onChange={(user) => {
-                                            if (!user) {
-                                                const { created_by_id, ...restFilters } = filters
-                                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
-                                            } else {
-                                                setExperimentsFilters({ created_by_id: user.id, page: 1 })
-                                            }
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                            <LemonDivider className="my-4" />
-                            <div className="mb-4">
-                                <span className="text-secondary">
-                                    {count
-                                        ? `${startCount}${
-                                              endCount - startCount > 1 ? '-' + endCount : ''
-                                          } of ${count} experiment${count === 1 ? '' : 's'}`
-                                        : null}
-                                </span>
-                            </div>
-                            <LemonTable
-                                dataSource={experiments.results}
-                                columns={columns}
-                                rowKey="id"
-                                loading={experimentsLoading}
-                                defaultSorting={{
-                                    columnKey: 'created_at',
-                                    order: -1,
+                        <div className="flex items-center gap-2">
+                            <span>
+                                <b>Status</b>
+                            </span>
+                            <LemonSelect
+                                size="small"
+                                onChange={(status) => {
+                                    if (status === 'all') {
+                                        const { status: _, ...restFilters } = filters
+                                        setExperimentsFilters({ ...restFilters, page: 1 }, true)
+                                    } else {
+                                        setExperimentsFilters({ status: status as ProgressStatus, page: 1 })
+                                    }
                                 }}
-                                noSortingCancellation
-                                pagination={pagination}
-                                nouns={['experiment', 'experiments']}
-                                data-attr="experiment-table"
-                                emptyState="No results for this filter, change filter or create a new experiment."
-                                onSort={(newSorting) =>
-                                    setExperimentsFilters({
-                                        order: newSorting
-                                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                            : undefined,
-                                        page: 1,
-                                    })
+                                options={
+                                    [
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Draft', value: ProgressStatus.Draft },
+                                        { label: 'Running', value: ProgressStatus.Running },
+                                        { label: 'Complete', value: ProgressStatus.Complete },
+                                    ] as { label: string; value: string }[]
                                 }
+                                value={filters.status ?? 'all'}
+                                dropdownMatchSelectWidth={false}
+                                dropdownMaxContentWidth
                             />
-                        </>
-                    )}
+                            <span className="ml-1">
+                                <b>Created by</b>
+                            </span>
+                            <MemberSelect
+                                defaultLabel="Any user"
+                                value={filters.created_by_id ?? null}
+                                onChange={(user) => {
+                                    if (!user) {
+                                        const { created_by_id, ...restFilters } = filters
+                                        setExperimentsFilters({ ...restFilters, page: 1 }, true)
+                                    } else {
+                                        setExperimentsFilters({ created_by_id: user.id, page: 1 })
+                                    }
+                                }}
+                            />
+                        </div>
+                    </div>
+                    <LemonDivider className="my-4" />
+                    <div className="mb-4">
+                        <span className="text-secondary">
+                            {count
+                                ? `${startCount}${
+                                      endCount - startCount > 1 ? '-' + endCount : ''
+                                  } of ${count} experiment${count === 1 ? '' : 's'}`
+                                : null}
+                        </span>
+                    </div>
+                    <LemonTable
+                        dataSource={experiments.results}
+                        columns={columns}
+                        rowKey="id"
+                        loading={experimentsLoading}
+                        defaultSorting={{
+                            columnKey: 'created_at',
+                            order: -1,
+                        }}
+                        noSortingCancellation
+                        pagination={pagination}
+                        nouns={['experiment', 'experiments']}
+                        data-attr="experiment-table"
+                        emptyState="No results for this filter, change filter or create a new experiment."
+                        onSort={(newSorting) =>
+                            setExperimentsFilters({
+                                order: newSorting
+                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                    : undefined,
+                                page: 1,
+                            })
+                        }
+                    />
                 </>
             )}
             {duplicateModalExperiment && (
