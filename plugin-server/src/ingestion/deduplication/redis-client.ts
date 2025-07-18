@@ -73,8 +73,8 @@ export class DeduplicationRedis {
         try {
             // Create Redis client directly with minimal retries and fast failure
             const redisOptions: Redis.RedisOptions = {
-                host: this.config.DEDUPLICATION_REDIS_HOST || 'localhost',
-                port: this.config.DEDUPLICATION_REDIS_PORT || 6379,
+                host: this.config.DEDUPLICATION_REDIS_HOST,
+                port: this.config.DEDUPLICATION_REDIS_PORT,
                 maxRetriesPerRequest: 1,
                 connectTimeout: 2000,
                 commandTimeout: 2000,
@@ -82,12 +82,7 @@ export class DeduplicationRedis {
                 enableReadyCheck: false,
             }
 
-            // Parse REDIS_URL if provided, otherwise use host/port
-            if (this.config.REDIS_URL && this.config.REDIS_URL !== 'redis://127.0.0.1') {
-                this.client = new Redis(this.config.REDIS_URL, redisOptions)
-            } else {
-                this.client = new Redis(redisOptions)
-            }
+            this.client = new Redis(redisOptions)
 
             // Test connection with timeout
             await Promise.race([
