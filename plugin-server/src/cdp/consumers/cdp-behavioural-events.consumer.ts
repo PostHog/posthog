@@ -5,6 +5,7 @@ import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
+import { Action } from '../../utils/action-manager-cdp'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogFunctionFilterGlobals } from '../types'
@@ -84,24 +85,17 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    private async loadActionsForTeam(teamId: number): Promise<Array<{ id: string; name: string; bytecode: any }>> {
+    private async loadActionsForTeam(teamId: number): Promise<Action[]> {
         try {
             const actions = await this.hub.actionManagerCDP.getActionsForTeam(teamId)
-            return actions.map((action) => ({
-                id: String(action.id),
-                name: action.name,
-                bytecode: action.bytecode,
-            }))
+            return actions
         } catch (error) {
             logger.error('Error loading actions for team', { teamId, error })
             return []
         }
     }
 
-    private async doesEventMatchAction(
-        filterGlobals: HogFunctionFilterGlobals,
-        action: { id: string; name: string; bytecode: any }
-    ): Promise<boolean> {
+    private async doesEventMatchAction(filterGlobals: HogFunctionFilterGlobals, action: Action): Promise<boolean> {
         if (!action.bytecode) {
             return false
         }
@@ -123,7 +117,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             return matchedFilter
         } catch (error) {
             logger.error('Error executing action bytecode', {
-                actionId: action.id,
+                actionId: String(action.id),
                 error,
             })
             return false
