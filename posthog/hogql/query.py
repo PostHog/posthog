@@ -20,7 +20,7 @@ from posthog.hogql.printer import (
 )
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.preaggregated_tables import do_preaggregated_table_transforms
+from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team

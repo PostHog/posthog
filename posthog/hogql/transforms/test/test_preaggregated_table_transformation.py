@@ -8,7 +8,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.transforms.preaggregated_tables import do_preaggregated_table_transforms
+from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.context import HogQLContext
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNode, BaseMathType
@@ -640,6 +640,9 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
          '' as city_name,
          '' as region_code,
          '' as region_name,
+         false as has_gclid,
+         false as has_gad_source_paid_search,
+         false as has_fbclid,
 
          initializeAggregation('uniqState', generateUUIDv7()) as persons_uniq,
          initializeAggregation('uniqState', toString(generateUUIDv7())) as sessions_uniq,
