@@ -350,7 +350,7 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days(self.team),
+                "ttl_days": ttl_days(team),
             },
         )
         recording_metadata = self.build_recording_block_listing(session_id, replay_response)
