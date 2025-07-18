@@ -86,7 +86,7 @@ def is_timestamp_field(field: ast.Expr) -> bool:
 
 
 def is_to_start_of_day_timestamp_call(expr: ast.Call) -> bool:
-    """Check if a field represents a timestamp."""
+    """Check if a call represents a toStartOfDay timestamp operation."""
     if expr.name == "toStartOfDay" and len(expr.args) == 1 and is_timestamp_field(expr.args[0]):
         return True
     # also accept toStartOfInterval(timestamp, toIntervalDay(1))
