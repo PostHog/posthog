@@ -726,6 +726,7 @@ export class IngestionConsumer {
             headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
 
             logger.warn('🔍', `Header/event validation issue detected`, {
+                eventUuid: event.uuid,
                 headerToken,
                 eventToken: event.token,
                 headerDistinctId,
