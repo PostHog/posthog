@@ -121,7 +121,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                     ...filterBreakdown,
                 })
             } catch (e) {
-                posthog.captureException(e)
+                posthog.captureException(e, { filters })
             }
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
