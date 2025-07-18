@@ -90,12 +90,7 @@ function NewSurveyButton(): JSX.Element {
             context={{
                 user_id: user.uuid,
             }}
-            callback={(toolOutput: {
-                survey_id?: string
-                survey_name?: string
-                launched?: boolean
-                error?: string
-            }) => {
+            callback={(toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
                 if (toolOutput?.error || !toolOutput?.survey_id) {
                     posthog.captureException('survey-creation-failed', {
                         error: toolOutput.error,

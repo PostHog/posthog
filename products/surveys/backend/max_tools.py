@@ -90,8 +90,7 @@ class CreateSurveyTool(MaxTool):
                 return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
                     "survey_id": str(survey.id),
                     "survey_name": survey.name,
-                    "launched": result.should_launch,
-                    "questions_count": len(survey.questions),
+                    "error": None,
                 }
 
             except Exception as validation_error:

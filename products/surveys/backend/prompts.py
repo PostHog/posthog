@@ -66,12 +66,15 @@ Convert natural language targeting into proper conditions:
 ## Context Utilization
 Use the provided context to make intelligent decisions:
 
-**Team Configuration (`{{{team_survey_config}}}`)**:
+**Team Configuration (Default Settings)**:
+The following team configuration will be applied as defaults:
+{{{team_survey_config}}}
 - Apply team's default appearance settings (colors, branding)
 - Use configured thank you messages and display preferences
 - Respect team's survey frequency limits
 
-**Existing Surveys (`{{{existing_surveys}}}`)**:
+**Existing Surveys**:
+{{{existing_surveys}}}
 - Avoid creating duplicate surveys with similar purposes
 - Reference existing survey names for consistency
 - Suggest complementary surveys if user has NPS but lacks CSAT
