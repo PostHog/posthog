@@ -6,7 +6,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
-from posthog.hogql.database.schema.web_analytics_preaggregated import (
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
 )
