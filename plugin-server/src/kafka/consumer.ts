@@ -112,6 +112,7 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    waitForBackgroundTasksOnRebalance?: boolean
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -130,6 +131,10 @@ export class KafkaConsumer {
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
+    private isRebalancing: boolean = false
+    private rebalanceCoordination: {
+        revokedPartitions: TopicPartitionOffset[]
+    } = { revokedPartitions: [] }
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.backgroundTask = []
@@ -246,10 +251,12 @@ export class KafkaConsumer {
         })
 
         // Set up rebalancing event handlers
-        consumer.on('rebalance', (err, topicPartitions) => {
+        consumer.on('rebalance', async (err, topicPartitions) => {
             logger.info('🔁', 'kafka_consumer_rebalancing', { err, topicPartitions })
 
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                // Mark rebalancing as complete when partitions are assigned
+                this.isRebalancing = false
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
@@ -262,6 +269,29 @@ export class KafkaConsumer {
                     )
                 })
             } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                // Mark rebalancing as starting when partitions are revoked
+                this.isRebalancing = true
+                // Store revoked partitions for offset committing
+                this.rebalanceCoordination.revokedPartitions = topicPartitions.map((tp) => ({
+                    topic: tp.topic,
+                    partition: tp.partition,
+                    offset: -1, // Will be set when committing
+                }))
+
+                logger.info('🔁', 'partition_revocation_starting', {
+                    backgroundTaskCount: this.backgroundTask.length,
+                    revokedPartitions: this.rebalanceCoordination.revokedPartitions.map((tp) => ({
+                        topic: tp.topic,
+                        partition: tp.partition,
+                    })),
+                })
+
+                // Wait for all background tasks to complete only if the feature flag is enabled
+                if (this.config.waitForBackgroundTasksOnRebalance) {
+                    await Promise.all(this.backgroundTask)
+                }
+
+                // Update metrics after coordination is complete
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
@@ -372,6 +402,14 @@ export class KafkaConsumer {
             try {
                 while (!this.isStopping) {
                     logger.debug('🔁', 'main_loop_consuming')
+
+                    // If we're rebalancing and feature flag is enabled, skip consuming to avoid processing messages
+                    // during rebalancing when background tasks might be running
+                    if (this.isRebalancing && this.config.waitForBackgroundTasksOnRebalance) {
+                        logger.info('🔁', 'main_loop_paused_for_rebalancing')
+                        await new Promise((resolve) => setTimeout(resolve, 10)) // Small delay to avoid busy waiting
+                        continue
+                    }
 
                     const consumeStartTime = performance.now()
                     if (lastConsumeTime > 0) {
@@ -496,6 +534,14 @@ export class KafkaConsumer {
         }
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
+
+        // Wait for background tasks to complete before disconnecting
+        logger.info('🔁', 'waiting_for_background_tasks_before_disconnect', {
+            backgroundTaskCount: this.backgroundTask.length,
+        })
+        await Promise.all(this.backgroundTask)
+
+        logger.info('🔁', 'background_tasks_completed_proceeding_with_disconnect')
 
         // Allow the in progress consumer loop to finish if possible
         if (this.consumerLoop) {
