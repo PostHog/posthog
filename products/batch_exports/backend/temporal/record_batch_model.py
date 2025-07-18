@@ -15,7 +15,6 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from products.batch_exports.backend.temporal import sql
 
 Query = str
@@ -58,7 +57,6 @@ class RecordBatchModel(abc.ABC):
             tags.batch_export_id = uuid.UUID(self.batch_export_id)
         tags.product = Product.BATCH_EXPORT
         tags.query_type = "batch_export"
-        update_query_tags_with_temporal_info(tags)
         return tags.to_json()
 
     @abc.abstractmethod
@@ -90,7 +88,6 @@ class SessionsRecordBatchModel(RecordBatchModel):
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
         hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
-        hogql_query.settings = sql.HogQLQueryBatchExportSettings(log_comment="{log_comment}")
 
         where_and = ast.And(
             exprs=[
@@ -176,6 +173,13 @@ class SessionsRecordBatchModel(RecordBatchModel):
             dialect="clickhouse",
             stack=[],
         )
+
+        log_comment = "log_comment={log_comment}"
+        if "settings" not in printed.lower():
+            log_comment = " SETTINGS log_comment={log_comment}"
+        else:
+            log_comment = ", " + log_comment
+
         insert_query = f"""
 INSERT INTO FUNCTION
    s3(
@@ -185,7 +189,7 @@ INSERT INTO FUNCTION
        'ArrowStream'
     )
     PARTITION BY rand() %% {num_partitions}
-{printed}
+{printed}{log_comment}
 """
 
         return insert_query, context.values

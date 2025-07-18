@@ -107,7 +107,6 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
-    log_comment: Optional[str] = None
 
 
 # Settings applied on top of all HogQL queries.
