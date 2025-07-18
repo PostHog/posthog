@@ -71,17 +71,12 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
             defaults: NEW_GROUP,
             errors: ({ group_key, name }: NewGroupFormData) => {
                 return {
-                    name: !name ? 'Group name cannot be empty' : undefined,
-                    group_key: !group_key ? 'Group key cannot be empty' : undefined,
+                    name: !name?.trim() ? 'Group name cannot be empty' : undefined,
+                    group_key: !group_key?.trim() ? 'Group key cannot be empty' : undefined,
                 }
             },
             submit: (formData: NewGroupFormData) => {
-                const flattenedCustomProperties = values.customProperties
-                    .filter((prop) => prop.name.trim() && prop.value.trim())
-                    .reduce((acc, prop) => {
-                        acc[prop.name] = prop.value
-                        return acc
-                    }, {} as Record<string, string>)
+                const flattenedCustomProperties = flattenProperties(values.customProperties)
                 const group_properties = {
                     name: formData.name,
                     ...flattenedCustomProperties,
@@ -130,3 +125,12 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
 
     beforeUnmount(({ actions }) => actions.resetGroup()),
 ])
+
+export function flattenProperties(properties: GroupProperty[]): Record<string, string> {
+    return properties
+        .filter((prop) => prop.name.trim() && prop.value.trim())
+        .reduce((acc, prop) => {
+            acc[prop.name.trim()] = prop.value
+            return acc
+        }, {} as Record<string, string>)
+}
