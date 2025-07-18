@@ -1,5 +1,4 @@
 from datetime import datetime
-import json
 from typing import Any
 
 from posthog.models.notebook.notebook import Notebook
@@ -25,9 +24,6 @@ def create_summary_notebook(
 ) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
-    # TODO: Remove after testing
-    with open("notebook_content.json", "w") as f:
-        f.write(json.dumps(notebook_content, indent=4))
     notebook = Notebook.objects.create(
         team=team,
         title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
@@ -81,6 +77,15 @@ def _generate_notebook_content_from_summary(
         "type": "doc",
         "content": content,
     }
+
+
+def _milliseconds_to_timestamp(milliseconds: int) -> str:
+    """Convert milliseconds to HH:MM:SS format."""
+    seconds = milliseconds // 1000
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def _sanitize_text_content(text: str) -> str:
@@ -259,8 +264,8 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
     """Create example section content for an event."""
     content = []
     session_id = event_data.target_event.session_id
-    # Calculate timestamp in seconds from milliseconds_since_start
-    timestamp = int(event_data.target_event.milliseconds_since_start / 1000)
+    # Calculate seconds till start, so link opens player on a proper position
+    seconds_since_start = int(event_data.target_event.milliseconds_since_start / 1000)
 
     # Example header with session link
     content.append(
@@ -272,10 +277,14 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
                 {
                     "type": "ph-backlink",
                     "attrs": {
-                        "href": f"/project/1/replay/{session_id}?t={timestamp}",
+                        "href": f"/project/1/replay/{session_id}?t={seconds_since_start}",
                         "type": None,
                         "title": session_id,
                     },
+                },
+                {
+                    "type": "text",
+                    "text": f" at {_milliseconds_to_timestamp(event_data.target_event.milliseconds_since_start)}",
                 },
             ],
         }
