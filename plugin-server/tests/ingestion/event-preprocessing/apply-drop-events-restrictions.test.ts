@@ -16,10 +16,7 @@ describe('applyDropEventsRestrictions', () => {
 
     it('should return message when token is present and not dropped', () => {
         const message = {
-            headers: [
-                { key: 'token', value: Buffer.from('valid-token-123') },
-                { key: 'distinct_id', value: Buffer.from('user-456') },
-            ],
+            headers: [{ token: Buffer.from('valid-token-123') }, { distinct_id: Buffer.from('user-456') }],
         } as unknown as Message
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
@@ -29,23 +26,20 @@ describe('applyDropEventsRestrictions', () => {
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith('valid-token-123', 'user-456')
     })
 
-    it('should return null when token is missing', () => {
+    it('should return message when token is missing', () => {
         const message = {
-            headers: [{ key: 'distinct_id', value: Buffer.from('anonymous-user-789') }],
+            headers: [{ distinct_id: Buffer.from('anonymous-user-789') }],
         } as unknown as Message
 
         const result = applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
 
-        expect(result).toBeNull()
+        expect(result).toBe(message)
         expect(eventIngestionRestrictionManager.shouldDropEvent).not.toHaveBeenCalled()
     })
 
     it('should return null when token is present but should be dropped', () => {
         const message = {
-            headers: [
-                { key: 'token', value: Buffer.from('blocked-token-abc') },
-                { key: 'distinct_id', value: Buffer.from('blocked-user-def') },
-            ],
+            headers: [{ token: Buffer.from('blocked-token-abc') }, { distinct_id: Buffer.from('blocked-user-def') }],
         } as unknown as Message
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 
@@ -63,7 +57,7 @@ describe('applyDropEventsRestrictions', () => {
 
         const result = applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
 
-        expect(result).toBeNull()
+        expect(result).toBe(message)
         expect(eventIngestionRestrictionManager.shouldDropEvent).not.toHaveBeenCalled()
     })
 
@@ -72,16 +66,13 @@ describe('applyDropEventsRestrictions', () => {
 
         const result = applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
 
-        expect(result).toBeNull()
+        expect(result).toBe(message)
         expect(eventIngestionRestrictionManager.shouldDropEvent).not.toHaveBeenCalled()
     })
 
     it('should increment metrics when dropping events', async () => {
         const message = {
-            headers: [
-                { key: 'token', value: Buffer.from('metrics-token-xyz') },
-                { key: 'distinct_id', value: Buffer.from('metrics-user-123') },
-            ],
+            headers: [{ token: Buffer.from('metrics-token-xyz') }, { distinct_id: Buffer.from('metrics-user-123') }],
         } as unknown as Message
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 
@@ -99,22 +90,14 @@ describe('applyDropEventsRestrictions', () => {
         ])
     })
 
-    it('should increment metrics with missing_token when no token present', async () => {
+    it('should not increment metrics when token is missing', async () => {
         const message = {
-            headers: [{ key: 'distinct_id', value: Buffer.from('no-token-user-999') }],
+            headers: [{ distinct_id: Buffer.from('no-token-user-999') }],
         } as unknown as Message
 
         applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
 
         const metrics = await getMetricValues('ingestion_event_dropped_total')
-        expect(metrics).toEqual([
-            {
-                labels: {
-                    drop_cause: 'missing_token',
-                    event_type: 'analytics',
-                },
-                value: 1,
-            },
-        ])
+        expect(metrics).toEqual([])
     })
 })

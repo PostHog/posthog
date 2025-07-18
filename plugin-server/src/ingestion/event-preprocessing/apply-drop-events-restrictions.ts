@@ -10,7 +10,6 @@ export function applyDropEventsRestrictions(
     let distinctId: string | undefined
     let token: string | undefined
 
-    // Parse the headers so we can early exit if found and should be dropped
     message.headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
             if (key === 'distinct_id') {
@@ -22,17 +21,7 @@ export function applyDropEventsRestrictions(
         })
     })
 
-    if (!token) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'missing_token',
-            })
-            .inc()
-        return null
-    }
-
-    if (eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {
+    if (token && eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
