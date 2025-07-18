@@ -1,9 +1,8 @@
 import requests
-from django.conf import settings
 
 
 def send_request(path, method, params=None, payload=None):
-    token = settings.AIRBYTE_API_KEY
+    token = "token"
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
 

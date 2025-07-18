@@ -50,6 +50,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+const headerEventMismatchCounter = new Counter({
+    name: 'ingestion_header_event_mismatch_total',
+    help: 'Number of events where headers do not match the parsed event data',
+    labelNames: ['token', 'distinct_id'],
+})
+
 type EventsForDistinctId = {
     token: string
     distinctId: string
@@ -263,7 +269,39 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
+    private logBatchStart(messages: Message[]): void {
+        // Log earliest message from each partition to detect duplicate processing across pods
+        const podName = process.env.HOSTNAME || 'unknown'
+        const partitionEarliestMessages = new Map<number, Message>()
+        const partitionBatchSizes = new Map<number, number>()
+
+        messages.forEach((message) => {
+            const existing = partitionEarliestMessages.get(message.partition)
+            if (!existing || message.offset < existing.offset) {
+                partitionEarliestMessages.set(message.partition, message)
+            }
+            partitionBatchSizes.set(message.partition, (partitionBatchSizes.get(message.partition) || 0) + 1)
+        })
+
+        // Create partition data array for single log entry
+        const partitionData = Array.from(partitionEarliestMessages.entries()).map(([partition, message]) => ({
+            partition,
+            offset: message.offset,
+            batchSize: partitionBatchSizes.get(partition) || 0,
+        }))
+
+        logger.info('📖', `KAFKA_BATCH_START: ${this.name}`, {
+            pod: podName,
+            totalMessages: messages.length,
+            partitions: partitionData,
+        })
+    }
+
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
+        if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
+            this.logBatchStart(messages)
+        }
+
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
@@ -299,9 +337,6 @@ export class IngestionConsumer {
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
         if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            logger.info('🔁', `${this.name} - queueing persons store messages`, {
-                count: personsStoreMessages.length,
-            })
             await this.kafkaProducer.queueMessages(personsStoreMessages)
             await this.kafkaProducer.flush()
         }
@@ -550,11 +585,11 @@ export class IngestionConsumer {
 
             // Parse the headers so we can early exit if found and should be dropped
             message.headers?.forEach((header) => {
-                if (header.key === 'distinct_id') {
-                    distinctId = header.value.toString()
+                if ('distinct_id' in header) {
+                    distinctId = header['distinct_id'].toString()
                 }
-                if (header.key === 'token') {
-                    token = header.value.toString()
+                if ('token' in header) {
+                    token = header['token'].toString()
                 }
             })
 
@@ -569,6 +604,9 @@ export class IngestionConsumer {
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
+
+            // Validate that headers match the parsed event data
+            this.validateHeadersMatchEvent(event, token, distinctId)
 
             // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
@@ -659,6 +697,44 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    }
+
+    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
+        let tokenStatus = 'ok'
+        if (!headerToken && event.token) {
+            tokenStatus = 'missing_in_header'
+        } else if (headerToken && !event.token) {
+            tokenStatus = 'missing_in_event'
+        } else if (!headerToken && !event.token) {
+            tokenStatus = 'missing'
+        } else if (headerToken && event.token && headerToken !== event.token) {
+            tokenStatus = 'different'
+        }
+
+        let distinctIdStatus = 'ok'
+        if (!headerDistinctId && event.distinct_id) {
+            distinctIdStatus = 'missing_in_header'
+        } else if (headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing_in_event'
+        } else if (!headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing'
+        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
+            distinctIdStatus = 'different'
+        }
+
+        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
+            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
+
+            logger.warn('🔍', `Header/event validation issue detected`, {
+                eventUuid: event.uuid,
+                headerToken,
+                eventToken: event.token,
+                headerDistinctId,
+                eventDistinctId: event.distinct_id,
+                tokenStatus,
+                distinctIdStatus,
+            })
+        }
     }
 
     private overflowEnabled() {

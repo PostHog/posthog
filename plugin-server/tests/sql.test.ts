@@ -121,7 +121,7 @@ describe('sql', () => {
             expect(rowsBefore[0].plugin_id).toEqual(60)
             expect(rowsBefore[0].enabled).toEqual(true)
 
-            const receivedMessage = redis.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
+            const receivedMessage = redis.subscribe('reload-plugins')
             await disablePlugin(hub, 39)
 
             const rowsAfter = await getPluginConfigRows(hub)
