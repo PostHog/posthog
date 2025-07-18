@@ -82,6 +82,25 @@ def is_timestamp_field(field: ast.Field) -> bool:
     )
 
 
+def is_to_start_of_day_timestamp_call(expr: ast.Call) -> bool:
+    """Check if a field represents a timestamp."""
+    if expr.name == "toStartOfDay" and len(expr.args) == 1 and is_timestamp_field(expr.args[0]):
+        return True
+    # also accept toStartOfInterval(timestamp, toIntervalDay(1))
+    if (
+        expr.name == "toStartOfInterval"
+        and len(expr.args) == 2
+        and is_timestamp_field(expr.args[0])
+        and isinstance(expr.args[1], ast.Call)
+        and expr.args[1].name == "toIntervalDay"
+        and len(expr.args[1].args) == 1
+        and isinstance(expr.args[1].args[0], ast.Constant)
+        and expr.args[1].args[0].value == 1
+    ):
+        return True
+    return False
+
+
 class CheckedUnsupportedWhereClauseVisitor(TraversingVisitor):
     """Visitor to check if the query references the event column."""
 
@@ -214,7 +233,6 @@ def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) 
     if node.select_from.table.chain != ["events"]:
         return False
 
-    supported_aggregations = set()
     has_sample = False
     sample_value = None
 
@@ -234,11 +252,9 @@ def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) 
         return False
 
     # Check SELECT clause for supported aggregations
-    has_unsupported_aggregations = False
     for expr in node.select:
-        _check_select_expr_for_aggregations(expr, supported_aggregations)
-        if _has_unsupported_aggregations(expr):
-            has_unsupported_aggregations = True
+        if not _is_select_expr_valid(expr):
+            return False
 
     # Check GROUP BY clause
     if node.group_by:
@@ -255,14 +271,6 @@ def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) 
 
                 if is_property_pattern and _get_supported_property_field(expr) is None:
                     return False
-
-    # Must not have any unsupported aggregations
-    if has_unsupported_aggregations:
-        return False
-
-    # Must have supported aggregations
-    if not supported_aggregations:
-        return False
 
     # If sample is specified, it must be 1
     if has_sample and sample_value != 1:
@@ -342,17 +350,24 @@ def _get_supported_property_field(field: ast.Field) -> tuple[str, str] | None:
     return None
 
 
-def _check_select_expr_for_aggregations(expr: ast.Expr, supported_aggregations: set[str]) -> None:
+def _is_select_expr_valid(expr: ast.Expr) -> bool:
     """Check a SELECT expression for supported aggregations."""
     if isinstance(expr, ast.Call):
         if _is_count_pageviews_call(expr):
-            supported_aggregations.add("pageviews_count_state")
+            return True
         elif _is_uniq_persons_call(expr):
-            supported_aggregations.add("persons_uniq_state")
+            return True
         elif _is_uniq_sessions_call(expr):
-            supported_aggregations.add("sessions_uniq_state")
+            return True
+        if is_to_start_of_day_timestamp_call(expr):
+            return True
     elif isinstance(expr, ast.Alias):
-        _check_select_expr_for_aggregations(expr.expr, supported_aggregations)
+        return _is_select_expr_valid(expr.expr)
+    elif isinstance(expr, ast.Field):
+        # Check if this is a supported property field
+        property_result = _get_supported_property_field(expr)
+        return property_result is not None
+    return False
 
 
 def _contains_any_aggregation(expr: ast.Expr) -> bool:
@@ -450,22 +465,21 @@ def _transform_select_expr(expr: ast.Expr) -> ast.Expr:
         elif _is_uniq_sessions_call(expr):
             # uniq(session.id) variants become uniqMerge(sessions_uniq_state)
             return ast.Call(name="uniqMerge", args=[ast.Field(chain=["sessions_uniq_state"])])
-        # Pass through other calls unchanged
-        return expr
+        elif is_to_start_of_day_timestamp_call(expr):
+            # toStartOfDay(timestamp) becomes toStartOfDay(period_bucket)
+            return ast.Call(name="toStartOfDay", args=[ast.Field(chain=["period_bucket"])])
+
     elif isinstance(expr, ast.Field):
         # Transform properties.x to the corresponding field in the preaggregated table
         property_result = _get_supported_property_field(expr)
         if property_result is not None:
             property_name, field_name = property_result
             return ast.Field(chain=[field_name])
-        # Pass through other fields unchanged
-        return expr
     elif isinstance(expr, ast.Alias):
         # Transform the inner expression but keep the alias
         return ast.Alias(alias=expr.alias, expr=_transform_select_expr(expr.expr))
-    else:
-        # Pass through other expressions unchanged
-        return expr
+
+    raise ValueError("Unsupported expression type in SELECT clause: {}".format(type(expr)))
 
 
 def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
@@ -483,17 +497,16 @@ def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
         return expr
 
 
-def _try_apply_all_transformations(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
-    """Try to apply transformations only to this specific query, no looking further into the ast."""
+def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
+    """Try to apply transformations only to this specific query"""
+
+    # TODO this should iterate over all possible preaggregated tables and apply the best one
+    table_name = "web_stats_daily"
 
     # Check if the query can be transformed to use preaggregated tables
     if not _validate_preaggregated_query(node, context):
         # Return the node unchanged - it already has any CTEs that were set
         return node
-
-    # For now, we'll use WebStatsCombinedTable for all valid queries
-    # In the future, we could add logic to choose between tables based on the query
-    table_name = "web_stats_combined"
 
     # Transform the query to use the preaggregated table
     new_select_from = ast.JoinExpr(
@@ -513,7 +526,7 @@ def _try_apply_all_transformations(node: ast.SelectQuery, context: HogQLContext)
         new_group_by = [_transform_group_by_expr(expr) for expr in node.group_by]
 
     # Create the transformed query, preserving CTEs from the original
-    return ast.SelectQuery(
+    new_query = ast.SelectQuery(
         select=new_select,
         select_from=new_select_from,
         group_by=new_group_by,
@@ -535,6 +548,7 @@ def _try_apply_all_transformations(node: ast.SelectQuery, context: HogQLContext)
         window_exprs=node.window_exprs,
         view_name=node.view_name,
     )
+    return new_query
 
 
 class PreaggregatedTableTransformer(CloningVisitor):
@@ -555,7 +569,7 @@ class PreaggregatedTableTransformer(CloningVisitor):
             for cte_name, cte in transformed_node.ctes.items():
                 # Transform the CTE's expression (which should be a SelectQuery)
                 if isinstance(cte.expr, ast.SelectQuery):
-                    transformed_cte_expr = _try_apply_all_transformations(cte.expr, self.context)
+                    transformed_cte_expr = _shallow_transform_select(cte.expr, self.context)
                     new_ctes[cte_name] = ast.CTE(name=cte.name, expr=transformed_cte_expr, cte_type=cte.cte_type)
                 else:
                     # Keep the CTE as-is if it's not a SelectQuery
@@ -584,7 +598,7 @@ class PreaggregatedTableTransformer(CloningVisitor):
         )
 
         # Then try to apply transformations to this specific query (not the CTEs)
-        return _try_apply_all_transformations(transformed_with_ctes, self.context)
+        return _shallow_transform_select(transformed_with_ctes, self.context)
 
 
 def do_preaggregated_table_transforms(node: _T_AST, context: HogQLContext) -> _T_AST:

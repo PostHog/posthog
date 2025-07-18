@@ -1,3 +1,5 @@
+from datetime import datetime, UTC
+
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -12,18 +14,18 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNode, BaseMathType
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, BaseTest
 from parameterized import parameterized
 
 
-class TestPreaggregatedTables(BaseTest):
+class TestPreaggregatedTableTransformation(BaseTest):
     @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
     def test_all_event_properties_on_events_supported(self, property_name, field_name):
         original_query = (
             f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
         )
         query = self._parse_and_transform(original_query)
-        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
+        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY {field_name})"
         assert query == expected
 
     @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
@@ -50,7 +52,7 @@ class TestPreaggregatedTables(BaseTest):
             f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
         )
         query = self._parse_and_transform(original_query)
-        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
+        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY {field_name})"
         assert query == expected
 
     def _parse_and_transform(self, query: str):
@@ -62,40 +64,6 @@ class TestPreaggregatedTables(BaseTest):
     def _normalize(self, query: str):
         node = parse_select(query)
         return str(node)
-
-    def _insert_stats_row(self, period_bucket=None):
-        if not period_bucket:
-            period_bucket = "toStartOfDay(toDateTime('2025-07-16'))"
-        sql = f"""
-    INSERT INTO web_stats_daily SELECT
-        {period_bucket} as period_bucket,
-        {self.team.id} as team_id,
-        '' as host,
-        '' as device_type,
-
-        '' as pathname,
-        '' as entry_pathname,
-        '' as end_pathname,
-        '' as browser,
-        '' as os,
-        0 as viewport_width,
-        0 as viewport_height,
-        '' as referring_domain,
-        '' as utm_source,
-        '' as utm_medium,
-        '' as utm_campaign,
-        '' as utm_term,
-        '' as utm_content,
-        '' as country_code,
-        '' as city_name,
-        '' as region_code,
-        '' as region_name,
-
-        initializeAggregation('uniqState', generateUUIDv7()) as persons_uniq,
-        initializeAggregation('uniqState', toString(generateUUIDv7())) as sessions_uniq,
-        initializeAggregation('sumState', toUInt64(1)) as pageview_state
-        """
-        sync_execute(sql, flush=True)
 
     def test_preaggregation_tables(self):
         original_query = """
@@ -114,7 +82,7 @@ class TestPreaggregatedTables(BaseTest):
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_combined)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_daily)"""
         assert query == expected
 
     def test_wrong_id(self):
@@ -140,15 +108,13 @@ class TestPreaggregatedTables(BaseTest):
     def test_nested_preaggregation_tables(self):
         original_query = "select * from (select count(), uniq(person_id) from events where event = '$pageview')"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT * FROM (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined))"""
+        expected = """sql(SELECT * FROM (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily))"""
         assert query == expected
 
     def test_equals_function(self):
         original_query = "select count(), uniq(person_id) from events where equals(event, '$pageview')"
         query = self._parse_and_transform(original_query)
-        expected = (
-            """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
-        )
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily)"""
         assert query == expected
 
     def test_unsupported_event(self):
@@ -175,9 +141,7 @@ class TestPreaggregatedTables(BaseTest):
     def test_sample_1(self):
         original_query = "select count(), uniq(person_id) from events sample 1 where event = '$pageview'"
         query = self._parse_and_transform(original_query)
-        expected = (
-            """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
-        )
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily)"""
         assert query == expected
 
     def test_sample_not_1(self):
@@ -192,7 +156,7 @@ class TestPreaggregatedTables(BaseTest):
             "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source"
         )
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY utm_source)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY utm_source)"""
         assert query == expected
 
     def test_preaggregation_tables_group_by_not_supported(self):
@@ -207,31 +171,30 @@ class TestPreaggregatedTables(BaseTest):
             "select count(), uniq(person_id) from events where event = '$pageview' group by session.$entry_pathname"
         )
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY entry_pathname)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY entry_pathname)"""
         assert query == expected
 
     def test_group_by_property(self):
         original_query = "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source, events.properties.utm_campaign, session.$entry_pathname, events.session.$end_pathname"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY utm_source, utm_campaign, entry_pathname, end_pathname)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY utm_source, utm_campaign, entry_pathname, end_pathname)"""
         assert query == expected
 
     def test_group_by_alias_supported(self):
         original_query = "select count(), uniq(person_id), properties.utm_source as u from events where event = '$pageview' group by u"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), utm_source AS u FROM web_stats_combined GROUP BY u)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), utm_source AS u FROM web_stats_daily GROUP BY u)"""
         assert query == expected
 
     def test_group_by_alias_not_supported(self):
         original_query = "select count(), uniq(person_id), properties.not_supported_property as n from events where event = '$pageview' group by n"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), properties.not_supported_property AS n FROM web_stats_combined GROUP BY n)"""
-        assert query == expected
+        assert query == self._normalize(original_query)
 
     def test_group_by_start_of_day(self):
         original_query = "SELECT count() AS total, toStartOfDay(e.timestamp) AS day_start FROM events WHERE event = '$pageview' GROUP BY day_start"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(e.timestamp) AS day_start FROM web_stats_combined GROUP BY day_start)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start FROM web_stats_daily GROUP BY day_start)"""
         assert query == expected
 
     def test_unsupported_table(self):
@@ -244,7 +207,7 @@ class TestPreaggregatedTables(BaseTest):
     def test_alias_intact(self):
         original_query = "select count() as c, uniq(person_id) as p, uniq($session_id) as s, properties.utm_medium as m from events where event = '$pageview' group by m"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m FROM web_stats_combined GROUP BY m)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m FROM web_stats_daily GROUP BY m)"""
         assert query == expected
 
     def test_all_supported_event_properties_are_in_taxonomy(self):
@@ -308,10 +271,10 @@ class TestPreaggregatedTables(BaseTest):
         assert "regular_events" in transformed.ctes
         assert "another_pageview_cte" in transformed.ctes
 
-        # Check that pageview_stats CTE was transformed (should use web_stats_combined)
+        # Check that pageview_stats CTE was transformed (should use web_stats_daily)
         pageview_stats_cte = transformed.ctes["pageview_stats"]
         pageview_stats_str = str(pageview_stats_cte.expr)
-        assert "web_stats_combined" in pageview_stats_str
+        assert "web_stats_daily" in pageview_stats_str
         assert "sumMerge(pageviews_count_state)" in pageview_stats_str
         assert "uniqMerge(persons_uniq_state)" in pageview_stats_str
 
@@ -319,14 +282,14 @@ class TestPreaggregatedTables(BaseTest):
         regular_events_cte = transformed.ctes["regular_events"]
         regular_events_str = str(regular_events_cte.expr)
         assert "events" in regular_events_str
-        assert "web_stats_combined" not in regular_events_str
+        assert "web_stats_daily" not in regular_events_str
         assert "count()" in regular_events_str
         assert "uniq(person_id)" in regular_events_str
 
-        # Check that another_pageview_cte CTE was transformed (should use web_stats_combined)
+        # Check that another_pageview_cte CTE was transformed (should use web_stats_daily)
         another_pageview_cte = transformed.ctes["another_pageview_cte"]
         another_pageview_str = str(another_pageview_cte.expr)
-        assert "web_stats_combined" in another_pageview_str
+        assert "web_stats_daily" in another_pageview_str
         assert "sumMerge(pageviews_count_state)" in another_pageview_str
         assert "utm_source" in another_pageview_str
 
@@ -346,9 +309,11 @@ class TestPreaggregatedTables(BaseTest):
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        # The main query should transform, nested one should also transform
-        assert "sumMerge(pageviews_count_state)" in query
-        assert "web_stats_combined" in query
+        # The inner query should be transformed, but not the outer one
+        assert (
+            query
+            == "sql(SELECT count() AS total, (SELECT sumMerge(pageviews_count_state) FROM web_stats_daily) AS pageviews FROM events WHERE equals(event, '$pageview'))"
+        )
 
     def test_union_queries(self):
         """Test that UNION queries are handled properly."""
@@ -360,7 +325,7 @@ class TestPreaggregatedTables(BaseTest):
         query = self._parse_and_transform(original_query)
         # Both parts of the union should be transformed
         assert query.count("sumMerge(pageviews_count_state)") == 2
-        assert query.count("web_stats_combined") == 2
+        assert query.count("web_stats_daily") == 2
 
     def test_mixed_aggregations_with_unsupported(self):
         """Test queries with both supported and unsupported aggregation functions."""
@@ -386,7 +351,7 @@ class TestPreaggregatedTables(BaseTest):
             HAVING c > 100
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_combined GROUP BY utm_source HAVING greater(c, 100))"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_daily GROUP BY utm_source HAVING greater(c, 100))"""
         assert query == expected
 
     def test_order_by_preservation(self):
@@ -399,7 +364,7 @@ class TestPreaggregatedTables(BaseTest):
             ORDER BY c DESC
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_combined GROUP BY utm_source ORDER BY c DESC)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_daily GROUP BY utm_source ORDER BY c DESC)"""
         assert query == expected
 
     def test_limit_offset_preservation(self):
@@ -411,7 +376,7 @@ class TestPreaggregatedTables(BaseTest):
             LIMIT 10 OFFSET 5
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined LIMIT 10 OFFSET 5)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily LIMIT 10 OFFSET 5)"""
         assert query == expected
 
     def test_complex_where_clause_with_and_or(self):
@@ -434,7 +399,7 @@ class TestPreaggregatedTables(BaseTest):
             WHERE event = '$pageview' AND 1 = 1
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_combined)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily)"""
         assert query == expected
 
     def test_distinct_queries(self):
@@ -445,7 +410,7 @@ class TestPreaggregatedTables(BaseTest):
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT DISTINCT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
+        expected = """sql(SELECT DISTINCT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily)"""
         assert query == expected
 
     def test_empty_select_query(self):
@@ -456,7 +421,7 @@ class TestPreaggregatedTables(BaseTest):
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_combined)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily)"""
         assert query == expected
 
     def test_transformation_with_table_alias(self):
@@ -572,20 +537,7 @@ class TestPreaggregatedTables(BaseTest):
         GROUP BY
             day_start"""
         query = self._parse_and_transform(original_query)
-        assert "web_stats_combined" in query
-
-    def test_trends_inner_clickhouse_query(self):
-        original_query = """
-        SELECT count() AS total, toStartOfDay(timestamp) AS day_start
-            FROM events AS e SAMPLE 1
-            WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:21:15')),
-                                                                   toIntervalDay(1))),
-                      lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))),
-                      equals(event, '$pageview'))
-            GROUP BY day_start
-        """
-        query = self._parse_and_transform(original_query)
-        assert "web_stats_combined" in query
+        assert "web_stats_daily" in query
 
     def test_full_trends_query(self):
         original_query = """
@@ -615,14 +567,53 @@ ORDER BY
 LIMIT 50000
         """
         query = self._parse_and_transform(original_query)
-        assert "web_stats_combined" in query
+        assert "web_stats_daily" in query
 
     def test_full_trends_query_clickhouse(self):
         original_query = """
 SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total FROM (SELECT sum(total) AS count, day_start FROM (SELECT count() AS total, toStartOfDay(timestamp) AS day_start FROM events AS e SAMPLE 1 WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))), equals(event, '$pageview')) GROUP BY day_start) GROUP BY day_start ORDER BY day_start ASC) ORDER BY arraySum(total) DESC LIMIT 50000
             """
         query = self._parse_and_transform(original_query)
-        assert "web_stats_combined" in query
+        assert "web_stats_daily" in query
+
+
+class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTestMixin):
+    CLASS_DATA_LEVEL_SETUP = False
+    TEST_DATA_DATE = datetime(2024, 11, 24, tzinfo=UTC)
+
+    def _insert_stats_row(self, period_bucket=None):
+        if not period_bucket:
+            period_bucket = f"toStartOfDay(toDateTime('{self.TEST_DATA_DATE.strftime('%Y-%m-%d')}'))"
+        sql = f"""
+     INSERT INTO web_stats_daily SELECT
+         {period_bucket} as period_bucket,
+         {self.team.id} as team_id,
+         '' as host,
+         '' as device_type,
+
+         '' as pathname,
+         '' as entry_pathname,
+         '' as end_pathname,
+         '' as browser,
+         '' as os,
+         0 as viewport_width,
+         0 as viewport_height,
+         '' as referring_domain,
+         '' as utm_source,
+         '' as utm_medium,
+         '' as utm_campaign,
+         '' as utm_term,
+         '' as utm_content,
+         '' as country_code,
+         '' as city_name,
+         '' as region_code,
+         '' as region_name,
+
+         initializeAggregation('uniqState', generateUUIDv7()) as persons_uniq,
+         initializeAggregation('uniqState', toString(generateUUIDv7())) as sessions_uniq,
+         initializeAggregation('sumState', toUInt64(1)) as pageview_state
+         """
+        sync_execute(sql, flush=True)
 
     def test_basic_hogql_query(self):
         """Test that trends queries are handled correctly."""
@@ -634,8 +625,50 @@ SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-
             team=self.team,
             modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
         )
+        assert "web_stats_daily" in response.hogql
         assert response.results == [(1, 1)]
-        assert "web_stats_combined" in response.hogql
+
+    def test_complex_hogql_select(self):
+        """Test that trends queries are handled correctly."""
+        # add a pageview to the combined table, so that we can be sure we are fetching the correct table
+        self._insert_stats_row()
+
+        response = execute_hogql_query(
+            parse_select(
+                "select count() as c, uniq(person_id) as p, uniq($session_id) as s, toStartOfDay(timestamp) as t, properties.utm_source as u from events where equals(event, '$pageview') and properties.utm_campaign == '' group by t, u, properties.utm_medium having c > 0 and u == ''"
+            ),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        assert "web_stats_daily" in response.hogql
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[0:3] == (1, 1, 1)
+        assert isinstance(row[3], datetime)
+        assert row[4] == ""
+
+    def test_hogql_inner_trend(self):
+        # execute a hogql query that roughly matchs the inner query of a trends query
+        self._insert_stats_row()
+        original_query = """
+            SELECT
+                count() AS total,
+                toStartOfDay(timestamp) AS day_start
+            FROM events AS e
+            SAMPLE 1
+            WHERE
+                and(
+                    greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00')), toIntervalDay(1))),
+                    lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-11-26 23:59:59'))), equals(event, '$pageview')
+                )
+            GROUP BY day_start
+        """
+        response = execute_hogql_query(
+            parse_select(original_query),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        assert response.results == [(1, self.TEST_DATA_DATE)]
 
     def test_trends_query(self):
         """Test that trends queries are handled correctly."""
@@ -644,10 +677,19 @@ SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-
 
         original_query = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.TOTAL)],
-            dateRange=DateRange(date_from="all", date_to=None),
+            dateRange=DateRange(date_from="2024-11-22", date_to="2024-11-26"),
             modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
         )
         tqr = TrendsQueryRunner(team=self.team, query=original_query)
         response = tqr.calculate()
-        assert response.results == {}
-        assert "web_stats_combined" in response.hogql
+        assert len(response.results) == 1
+        series = response.results[0]
+        assert series["count"] == 1
+        assert series["days"] == [
+            "2024-11-22",
+            "2024-11-23",
+            "2024-11-24",
+            "2024-11-25",
+            "2024-11-26",
+        ]
+        assert series["data"] == [0, 0, 1, 0, 0]
