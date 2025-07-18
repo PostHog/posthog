@@ -1,6 +1,32 @@
 import { kea, resetContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import { multitabEditorLogic } from './multitabEditorLogic'
+// try moving this up to the top
+jest.mock('lib/monaco/codeEditorLogic', () => ({
+    codeEditorLogic: {
+        actions: {
+            createModel: jest.fn((...args: unknown[]) => {
+                const [query, path, name] = args as [string, string, string]
+                return { query, path, name }
+            }),
+        },
+        values: {
+            editorModelQueries: [
+                {
+                    id: 'mock-id',
+                    path: 'mock-id',
+                    query: 'SELECT * FROM events WHERE timestamp > now() - 7d',
+                    name: 'Mock Tab',
+                },
+            ],
+        },
+        mount: jest.fn(),
+        unmount: jest.fn(),
+        findMounted: jest.fn(() => true),
+        build: jest.fn(),
+        extend: jest.fn(),
+    },
+}))
 
 jest.mock('./db', () => ({ get: jest.fn(), set: jest.fn() }))
 
@@ -37,20 +63,6 @@ function makeLogicStub(actionNames: string[] = [], defaults: Record<string, any>
     })
 }
 
-// mock parts of codeEditorLogic spesifically the APIs used by multitabEditorLogic
-const mockedCodeEditorLogic = {
-    actions: {
-        createModel: jest.fn((...args: unknown[]) => {
-            const [query, path, name] = args as [string, string, string]
-            return { query, path, name }
-        }),
-    },
-    values: {
-        editorModelQueries: [{ id: 'mock-id', path: 'mock-id', query: TEST_VALUE, name: 'Mock Tab' }],
-    },
-    mount: jest.fn(),
-    unmount: jest.fn(),
-}
 // mock the parts of monaco which are used by multitabEditorLogic
 const mockMonaco = {
     Uri: { parse: (p: string) => ({ path: p, toString: () => p }) },
@@ -69,15 +81,15 @@ const mockMonaco = {
 beforeEach(() => {
     resetContext({ createStore: true })
     _models.clear()
-    jest.mock('lib/monaco/codeEditorLogic', () => ({ codeEditorLogic: mockedCodeEditorLogic }))
-    mockedCodeEditorLogic.mount()
 
-    // mock localStorage
+    // Reset mock calls but keep the mock structure
+    jest.clearAllMocks()
+
+    // Mock localStorage
     Object.defineProperty(window, 'localStorage', {
         value: { getItem: jest.fn(), setItem: jest.fn(), removeItem: jest.fn() },
         writable: true,
     })
-    jest.clearAllMocks()
 })
 
 describe('Tabs storage', () => {
