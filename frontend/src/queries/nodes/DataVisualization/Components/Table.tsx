@@ -13,6 +13,7 @@ import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -35,6 +36,8 @@ export const Table = (props: TableProps): JSX.Element => {
         queryCancelled,
         response,
     } = useValues(dataVisualizationLogic)
+
+    const [isLastPage, setIsLastPage] = useState(tabularData.length < DEFAULT_PAGE_SIZE)
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
@@ -115,7 +118,12 @@ export const Table = (props: TableProps): JSX.Element => {
             dataSource={tabularData}
             columns={tableColumns}
             loading={responseLoading}
-            pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+            pagination={{
+                pageSize: DEFAULT_PAGE_SIZE,
+                onPageChange: (_, isLastPage) => {
+                    isLastPage !== undefined && setIsLastPage(isLastPage)
+                },
+            }}
             emptyState={
                 responseError ? (
                     <InsightErrorState
@@ -133,7 +141,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     <InsightEmptyState heading="There are no matching rows for this query" detail="" />
                 )
             }
-            footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
+            footer={tabularData.length > 0 && isLastPage ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
         />
     )
