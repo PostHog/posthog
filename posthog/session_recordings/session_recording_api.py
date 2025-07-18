@@ -787,7 +787,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
 
-        if not SessionReplayEvents().exists(str(recording.session_id), self.team):
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
@@ -1077,7 +1077,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         recording = self.get_object()
 
-        if not SessionReplayEvents().exists(str(recording.session_id), self.team):
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
         environment_is_allowed = settings.DEBUG or is_cloud()
@@ -1293,7 +1293,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
 
-        if not SessionReplayEvents().exists(str(recording.session_id), self.team):
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
         # Find recordings with similar event sequences using ClickHouse
