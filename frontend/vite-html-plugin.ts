@@ -46,7 +46,11 @@ function generateHtml(from: string, to: string, entry: string): void {
             console.warn('Could not find entry file in manifest')
         }
 
-        const modifiedHtml = htmlContent.replace(
+        // Replace the vite dev scripts placeholder with production scripts
+        let modifiedHtml = htmlContent.replace('{{ vite_dev_scripts|safe }}', scriptTag)
+
+        // Also replace the head tag injection for any other scripts
+        modifiedHtml = modifiedHtml.replace(
             '</head>',
             `   ${scriptTag}
             </head>`

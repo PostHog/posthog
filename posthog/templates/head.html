@@ -46,14 +46,5 @@
 </script>
 
 {% if debug %}
-    <script type="module">
-        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
-        RefreshRuntime.injectIntoGlobalHook(window)
-        window.$RefreshReg$ = () => {}
-        window.$RefreshSig$ = () => (type) => type
-        window.__vite_plugin_react_preamble_installed__ = true
-    </script>
-    <!-- Vite development server -->
-    <script type="module" src="http://localhost:8234/@vite/client"></script>
-    <script type="module" src="http://localhost:8234/src/index.tsx"></script>
+    {{ vite_dev_scripts|safe }}
 {% endif %}
