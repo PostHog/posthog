@@ -2157,10 +2157,3 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
         return null
     }
 }
-
-export function escapeHtml(raw: string): string {
-    // renders a string safe to use in dangerouslySetInnerHTML
-    const div = document.createElement('div')
-    div.textContent = raw
-    return div.innerHTML
-}

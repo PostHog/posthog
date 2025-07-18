@@ -224,7 +224,9 @@ class JSONLBrotliStreamTransformer:
     @property
     def brotli_compressor(self) -> brotli._brotli.Compressor:
         if self._brotli_compressor is None:
-            self._brotli_compressor = brotli.Compressor()
+            # Quality goes from 0 to 11.
+            # Default is 11, aka maximum compression and worst performance.
+            self._brotli_compressor = brotli.Compressor(quality=5)
         return self._brotli_compressor
 
 
