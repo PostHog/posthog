@@ -45,7 +45,7 @@
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
-        "start-vite": "vite --host 0.0.0.0"
+        "start-vite": "concurrently -n VITE,TYPEGEN -c green,blue  \"vite --host 0.0.0.0\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\""
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",

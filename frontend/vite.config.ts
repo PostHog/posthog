@@ -4,7 +4,6 @@ import { resolve } from 'path'
 import { fileURLToPath, URL } from 'node:url'
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
 import { htmlGenerationPlugin } from './vite-html-plugin'
-import { keaTypegenPlugin } from './vite-kea-typegen-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
@@ -16,8 +15,6 @@ export default defineConfig(({ command }) => {
             // toolbarDenylistPlugin(),
             // Only use HTML generation plugin for production builds
             ...(isDev ? [] : [htmlGenerationPlugin()]),
-            // Add kea-typegen HMR integration for development
-            ...(isDev ? [keaTypegenPlugin()] : []),
         ],
         resolve: {
             alias: {
