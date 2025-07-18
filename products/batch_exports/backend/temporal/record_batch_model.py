@@ -43,6 +43,9 @@ class RecordBatchModel(abc.ABC):
             team_id=team.id,
             enable_select_queries=True,
             limit_top_select=False,
+            values={
+                "log_comment": self.get_log_comment(),
+            },
         )
         context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
@@ -87,7 +90,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
         hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
-        hogql_query.settings = sql.HogQLQueryBatchExportSettings(log_comment=self.get_log_comment())
+        hogql_query.settings = sql.HogQLQueryBatchExportSettings(log_comment="{log_comment}")
 
         where_and = ast.And(
             exprs=[
