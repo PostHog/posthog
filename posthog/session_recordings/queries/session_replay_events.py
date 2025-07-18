@@ -191,7 +191,6 @@ class SessionReplayEvents:
                     team_id = %(team_id)s
                     AND session_id = %(session_id)s
                     AND min_first_timestamp <= %(python_now)s
-                    AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
@@ -341,7 +340,6 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
-        ttl_days: Optional[int] = None,
     ) -> Optional[RecordingBlockListing]:
         query = self.get_block_listing_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
@@ -351,7 +349,6 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days or 365,
             },
         )
         recording_metadata = self.build_recording_block_listing(session_id, replay_response)
