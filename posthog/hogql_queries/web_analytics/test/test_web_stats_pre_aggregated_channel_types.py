@@ -6,7 +6,7 @@ from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.schema import WebStatsTableQuery, DateRange, HogQLQueryModifiers, WebStatsBreakdown
+from posthog.schema import WebStatsTableQuery, DateRange, HogQLQueryModifiers, WebStatsBreakdown, SessionPropertyFilter
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 
@@ -28,6 +28,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$session_id": sessions[0],
                     "$current_url": "https://example.com/?utm_campaign=cross-network",
                     "utm_campaign": "cross-network",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -41,6 +42,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$session_id": sessions[1],
                     "$current_url": "https://example.com/?gclid=123",
                     "gclid": "123",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -54,6 +56,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$session_id": sessions[2],
                     "$current_url": "https://example.com/?gad_source=1",
                     "gad_source": "1",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -69,6 +72,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "utm_source": "shopping",
                     "utm_medium": "cpc",
                     "utm_campaign": "product_ads",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -85,6 +89,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "utm_medium": "cpc",
                     "utm_campaign": "video_ads",
                     "$referring_domain": "youtube.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -100,6 +105,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "utm_source": "facebook",
                     "utm_medium": "cpc",
                     "$referring_domain": "facebook.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -114,10 +120,11 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$current_url": "https://example.com/?utm_source=unknown_source&utm_medium=cpc",
                     "utm_source": "unknown_source",
                     "utm_medium": "cpc",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
-            # 8. Direct
+            # 8. Direct - THIS IS THE ONE WE'LL FILTER FOR
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -127,6 +134,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$session_id": sessions[7],
                     "$current_url": "https://example.com/",
                     "$referring_domain": "$direct",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -140,6 +148,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$session_id": sessions[8],
                     "$current_url": "https://example.com/",
                     "$referring_domain": "google.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -154,6 +163,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$current_url": "https://example.com/?utm_campaign=shopping_campaign",
                     "utm_campaign": "shopping_campaign",
                     "$referring_domain": "shopping.google.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -168,6 +178,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$current_url": "https://example.com/?utm_campaign=video_content",
                     "utm_campaign": "video_content",
                     "$referring_domain": "youtube.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -182,6 +193,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$current_url": "https://example.com/?fbclid=organic123",
                     "fbclid": "organic123",
                     "$referring_domain": "facebook.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -196,6 +208,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$current_url": "https://example.com/?utm_medium=push",
                     "utm_medium": "push",
                     "utm_source": "notification_service",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -209,6 +222,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$session_id": sessions[13],
                     "$current_url": "https://example.com/",
                     "$referring_domain": "techcrunch.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -221,6 +235,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                 properties={
                     "$session_id": sessions[14],
                     "$current_url": "https://example.com/",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -236,6 +251,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "utm_medium": "email",
                     "utm_campaign": "newsletter",
                     "utm_source": "mailchimp",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -250,6 +266,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "$current_url": "https://example.com/?utm_source=sms&utm_campaign=promo",
                     "utm_source": "sms",
                     "utm_campaign": "promo",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -265,6 +282,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "utm_medium": "audio",
                     "utm_campaign": "podcast",
                     "utm_source": "spotify",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -281,10 +299,11 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                     "utm_campaign": "partner",
                     "utm_source": "partner_site",
                     "$referring_domain": "partner.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
-            # 20. Another Paid Social (fbclid + paid medium)
+            # 20. Another Direct session for filtering test
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -292,10 +311,9 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                 timestamp="2024-01-01T11:35:00Z",
                 properties={
                     "$session_id": sessions[19],
-                    "$current_url": "https://example.com/?fbclid=paid123&utm_medium=paid",
-                    "fbclid": "paid123",
-                    "utm_medium": "paid",
-                    "$referring_domain": "facebook.com",
+                    "$current_url": "https://example.com/",
+                    "$referring_domain": "$direct",
+                    **self.STANDARD_EVENT_PROPERTIES,
                 },
             )
 
@@ -313,11 +331,16 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         insert_sql = f"INSERT INTO web_stats_daily\n{select_sql}"
         sync_execute(insert_sql)
 
-    def _calculate_channel_type_query(self, use_preagg: bool):
+    def _calculate_channel_type_query(
+        self,
+        use_preagg: bool,
+        properties: list[SessionPropertyFilter] | None = None,
+        breakdown_by: WebStatsBreakdown = WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+    ):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
-            properties=[],
-            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+            properties=properties or [],
+            breakdownBy=breakdown_by,
             limit=100,
         )
 
@@ -335,7 +358,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             ["Affiliate", (1.0, None), (1.0, None), ""],
             ["Audio", (1.0, None), (1.0, None), ""],
             ["Cross Network", (1.0, None), (1.0, None), ""],
-            ["Direct", (1.0, None), (1.0, None), ""],
+            ["Direct", (2.0, None), (2.0, None), ""],  # Now 2 Direct sessions
             ["Email", (1.0, None), (1.0, None), ""],
             ["Organic Search", (1.0, None), (1.0, None), ""],
             ["Organic Shopping", (1.0, None), (1.0, None), ""],
@@ -343,7 +366,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             ["Organic Video", (1.0, None), (1.0, None), ""],
             ["Paid Search", (1.0, None), (1.0, None), ""],  # gad_source=1
             ["Paid Shopping", (1.0, None), (1.0, None), ""],  # shopping source with cpc medium
-            ["Paid Social", (2.0, None), (2.0, None), ""],  # facebook cpc + fbclid with paid medium
+            ["Paid Social", (1.0, None), (1.0, None), ""],  # facebook cpc
             ["Paid Unknown", (2.0, None), (2.0, None), ""],  # gclid + unknown_source cpc
             ["Paid Video", (1.0, None), (1.0, None), ""],
             ["Push", (1.0, None), (1.0, None), ""],
@@ -378,3 +401,63 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         expected_channels = set(DEFAULT_CHANNEL_TYPES)
 
         assert expected_channels.issubset(actual_channels)
+
+    def test_channel_type_filtering_with_preaggregated_tables(self):
+        preagg_response = self._calculate_channel_type_query(
+            use_preagg=True,
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+        regular_response = self._calculate_channel_type_query(
+            use_preagg=False,
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+
+        # Verify that pre-aggregated tables were used
+        assert preagg_response.usedPreAggregatedTables
+        assert not regular_response.usedPreAggregatedTables
+
+        preagg_result = preagg_response.results[0]
+        regular_result = regular_response.results[0]
+
+        assert preagg_result[1] == (2.0, None)  # 2 visitors
+        assert preagg_result[2] == (2.0, None)  # 2 views
+        assert regular_result[1] == (2.0, None)  # 2 visitors
+        assert regular_result[2] == (2.0, None)  # 2 views
+
+        # Results should be identical between pre-agg and regular
+        assert preagg_response.results == regular_response.results
+
+    def test_channel_type_filtering_with_different_channel_types(self):
+        # Test "Paid Unknown" - should get 2 sessions (gclid + unknown_source cpc)
+        preagg_response = self._calculate_channel_type_query(
+            use_preagg=True,
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Unknown", operator="exact", type="session")
+            ],
+        )
+        assert len(preagg_response.results) == 1
+        assert preagg_response.results[0][1] == (2.0, None)  # 2 visitors
+        assert preagg_response.usedPreAggregatedTables
+
+        # Test "Organic Search" - should get 1 session
+        preagg_response = self._calculate_channel_type_query(
+            use_preagg=True,
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Organic Search", operator="exact", type="session")
+            ],
+        )
+        assert len(preagg_response.results) == 1
+        assert preagg_response.results[0][1] == (1.0, None)  # 1 visitor
+        assert preagg_response.usedPreAggregatedTables
+
+        # Test non-existent channel type - should get no results
+        preagg_response = self._calculate_channel_type_query(
+            use_preagg=True,
+            properties=[
+                SessionPropertyFilter(
+                    key="$channel_type", value="Non-existent Channel", operator="exact", type="session"
+                )
+            ],
+        )
+        assert len(preagg_response.results) == 0
+        assert preagg_response.usedPreAggregatedTables

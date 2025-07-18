@@ -30,6 +30,12 @@ PATH_PROPERTIES = {
     "$end_pathname": "end_pathname",
 }
 
+VIRTUAL_PROPERTIES = {
+    # Channel type is a virtual field computed from other session attributes
+    # It doesn't map to a single column but needs special handling
+    "$channel_type": None,
+}
+
 STATS_TABLE_SPECIFIC_PROPERTIES = {
     "$pathname": "pathname",
 }
@@ -48,6 +54,7 @@ STATS_TABLE_SUPPORTED_FILTERS = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,
     **PATH_PROPERTIES,
+    **VIRTUAL_PROPERTIES,
     **STATS_TABLE_SPECIFIC_PROPERTIES,
 }
 
@@ -55,5 +62,6 @@ WEB_OVERVIEW_SUPPORTED_PROPERTIES = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,
     **PATH_PROPERTIES,
+    **VIRTUAL_PROPERTIES,
     **WEB_OVERVIEW_SPECIFIC_PROPERTIES,
 }
