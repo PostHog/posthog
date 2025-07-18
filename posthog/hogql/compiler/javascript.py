@@ -153,14 +153,13 @@ class JavaScriptCompiler(Visitor):
     def _visit_hog_ast(self, node: AST | None) -> str:
         if node is None:
             return "null"
-        ast_name = node.__class__.__name__
-        if ast_name == "HogQLXTag":
+        if isinstance(node, ast.HogQLXTag):
             tag_name = node.kind
             tag_is_callable = any(local for local in self.locals if local.name == tag_name)
             if tag_is_callable:
                 return self.visit_hogqlx_tag(node)
 
-        fields = [f'"__hx_ast": {json.dumps(ast_name)}']
+        fields = [f'"__hx_ast": {json.dumps(node.__class__.__name__)}']
         for field in dataclasses.fields(node):
             if field.name in ["start", "end", "type"]:
                 continue
