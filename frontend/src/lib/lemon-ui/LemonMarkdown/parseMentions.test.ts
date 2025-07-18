@@ -28,27 +28,6 @@ const mockMembers: OrganizationMemberType[] = [
     },
 ] as OrganizationMemberType[]
 
-describe('findMentionMatch', () => {
-    it.each([
-        ['Alice', { displayName: 'Alice', userId: 1, length: 5 }],
-        ['alice', { displayName: 'Alice', userId: 1, length: 5 }],
-        ['Alice how are you?', { displayName: 'Alice', userId: 1, length: 5 }],
-        ['Al', { displayName: 'Al', userId: 4, length: 2 }],
-        ['Alic', { displayName: 'Al', userId: 4, length: 2 }],
-    ])('finds match for "%s"', (input, expected) => {
-        const result = findMentionMatch(input, mockMembers)
-
-        expect(result).not.toBeNull()
-        expect(result?.displayName).toBe(expected.displayName)
-        expect(result?.member.user.id).toBe(expected.userId)
-        expect(result?.length).toBe(expected.length)
-    })
-
-    it.each([['David'], ['']])('returns null for "%s"', (input) => {
-        expect(findMentionMatch(input, mockMembers)).toBeNull()
-    })
-})
-
 describe('parseMentions', () => {
     it.each([
         ['Hello world', [{ type: 'text', content: 'Hello world' }]],
@@ -144,11 +123,60 @@ describe('parseMentions', () => {
                 { type: 'text', content: '@' },
             ],
         ],
+
+        [
+            '@ @  @   ',
+            [
+                {
+                    content: '@',
+                    type: 'text',
+                },
+                {
+                    content: ' ',
+                    type: 'text',
+                },
+                {
+                    content: '@',
+                    type: 'text',
+                },
+                {
+                    content: '  ',
+                    type: 'text',
+                },
+                {
+                    content: '@',
+                    type: 'text',
+                },
+                {
+                    content: '   ',
+                    type: 'text',
+                },
+            ],
+        ],
+
+        ['', []],
     ])('handles invalid mentions in "%s"', (input, expected) => {
         expect(parseMentions(input, mockMembers)).toEqual(expected)
     })
 
-    it('handles empty string', () => {
-        expect(parseMentions('', mockMembers)).toEqual([])
+    describe('findMentionMatch', () => {
+        it.each([
+            ['Alice', { displayName: 'Alice', userId: 1, length: 5 }],
+            ['alice', { displayName: 'Alice', userId: 1, length: 5 }],
+            ['Alice how are you?', { displayName: 'Alice', userId: 1, length: 5 }],
+            ['Al', { displayName: 'Al', userId: 4, length: 2 }],
+            ['Alic', { displayName: 'Al', userId: 4, length: 2 }],
+        ])('finds match for "%s"', (input, expected) => {
+            const result = findMentionMatch(input, mockMembers)
+
+            expect(result).not.toBeNull()
+            expect(result?.displayName).toBe(expected.displayName)
+            expect(result?.member.user.id).toBe(expected.userId)
+            expect(result?.length).toBe(expected.length)
+        })
+
+        it.each([['David'], ['']])('returns null for "%s"', (input) => {
+            expect(findMentionMatch(input, mockMembers)).toBeNull()
+        })
     })
 })
