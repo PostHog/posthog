@@ -172,7 +172,7 @@ class ErrorTrackingSymbolSet(UUIDModel):
         ]
 
         constraints = [
-            models.UniqueConstraint(fields=["team_id", "ref"], name="unique_ref_per_team"),
+            models.UniqueConstraint(fields=["team_id", "ref", "release"], name="unique_release_ref_per_team"),
         ]
 
 
