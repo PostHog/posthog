@@ -556,7 +556,7 @@ class TestExports(APIBaseTest):
         self.assertIsNone(completed_result["exception"])
 
         completed_result = results_by_id[errored_export.id]
-        self.isEqual("exception", completed_result["exception"])
+        self.assetEqual("exception", completed_result["exception"])
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
