@@ -60,7 +60,6 @@ EVENT_PROPERTY_TO_FIELD = {
     "$geoip_city_name": "city_name",
     "$geoip_subdivision_1_code": "region_code",
     "$geoip_subdivision_1_name": "region_name",
-    "$timezone": "time_zone",
     "utm_source": "utm_source",
     "utm_medium": "utm_medium",
     "utm_campaign": "utm_campaign",
