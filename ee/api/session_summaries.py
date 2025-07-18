@@ -1,7 +1,9 @@
 from datetime import datetime
-import json
+import os
 from typing import cast
 
+from django.conf import settings
+import posthoganalytics
 import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, status
@@ -10,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
-
+from posthog.cloud_utils import is_cloud
 from ee.hogai.session_summaries.summary_notebooks import create_summary_notebook
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -54,14 +56,13 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         tag_queries(product=Product.SESSION_SUMMARY)
         user = cast(User, request.user)
 
-        # TODO: Enable back after testing
-        # # Validate environment requirements
-        # environment_is_allowed = settings.DEBUG or is_cloud()
-        # has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        # if not environment_is_allowed or not has_openai_api_key:
-        #     raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
-        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-        #     raise exceptions.ValidationError("Session summaries are not enabled for this user")
+        # Validate environment requirements
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        if not environment_is_allowed or not has_openai_api_key:
+            raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
+        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("Session summaries are not enabled for this user")
 
         # Validate input
         serializer = self.get_serializer(data=request.data)
@@ -87,8 +88,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 local_reads_prod=False,
             )
             create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
-            with open("summary.json", "w") as f:
-                f.write(json.dumps(summary.model_dump(exclude_none=True, mode="json"), indent=4))
             return Response(summary, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
