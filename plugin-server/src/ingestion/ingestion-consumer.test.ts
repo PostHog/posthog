@@ -214,11 +214,9 @@ describe('IngestionConsumer', () => {
                 processed_at: '2024-01-01T00:00:00.000Z',
                 consumer_id: 'previous-consumer',
             }
-            messages[0].headers = [
-                {
-                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
-                },
-            ]
+            messages[0].headers?.push({
+                'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
+            })
             await ingester.handleKafkaBatch(messages)
 
             const producedMessages =
@@ -427,14 +425,12 @@ describe('IngestionConsumer', () => {
 
                 if (distinctId) {
                     message.headers.push({
-                        key: 'distinct_id',
-                        value: Buffer.from(distinctId),
+                        distinct_id: Buffer.from(distinctId),
                     })
                 }
                 if (token) {
                     message.headers.push({
-                        key: 'token',
-                        value: Buffer.from(token),
+                        token: Buffer.from(token),
                     })
                 }
             }
@@ -1106,7 +1102,10 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "headers": {},
+                    "headers": {
+                      "distinct_id": "user-1",
+                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                    },
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {
