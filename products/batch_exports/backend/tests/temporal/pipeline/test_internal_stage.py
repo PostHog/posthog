@@ -49,17 +49,30 @@ class MockClickHouseClient:
         pattern = rf"FROM\s+{re.escape(table_name)}"
         assert re.search(pattern, query, re.IGNORECASE), f"Query does not select FROM {table_name}"
 
-    def expect_properties_in_log_comment(self, properties: dict[str, t.Any]) -> None:
-        """Assert that the executed query has the expected properties in the log comment."""
+    def expect_properties_in_log_comment(
+        self, properties: dict[str, t.Any], using_query_parameters: bool = False
+    ) -> None:
+        """Assert that the executed query has the expected properties in the log comment.
+
+        For some queries (eg events) we pass in the log_comment as a query parameter, for others (eg sessions) we
+        populate it in the query itself.
+        """
         assert self.mock_client.execute_query.call_count == 1
         call_args = self.mock_client.execute_query.call_args
         # assert that log_comment is in the query
         query = call_args[0][0]
         assert "log_comment" in query, "log_comment is not in the query"
 
-        # now check that the log_comment is passed in as a query parameter
-        query_parameters = call_args[1].get("query_parameters", {})
-        log_comment = query_parameters.get("log_comment")
+        if using_query_parameters:
+            # check that the log_comment is passed in as a query parameter
+            query_parameters = call_args[1].get("query_parameters", {})
+            log_comment = query_parameters.get("log_comment")
+        else:
+            # extract the log_comment from the query
+            match = re.search(r"log_comment\s*=\s*'(.*?)'", query, re.IGNORECASE)
+            assert match is not None, "log_comment not found in query"
+            log_comment = match.group(1)
+
         assert log_comment is not None
         assert isinstance(log_comment, str)
         log_comment_dict = json.loads(log_comment)
@@ -152,7 +165,8 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "team_id": insert_inputs.team_id,
             "batch_export_id": insert_inputs.batch_export_id,
             "product": "batch_export",
-        }
+        },
+        using_query_parameters=True,
     )
 
 

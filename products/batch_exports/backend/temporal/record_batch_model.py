@@ -15,6 +15,7 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from products.batch_exports.backend.temporal import sql
 
 Query = str
@@ -42,7 +43,6 @@ class RecordBatchModel(abc.ABC):
             team_id=team.id,
             enable_select_queries=True,
             limit_top_select=False,
-            values={"log_comment": self.get_log_comment()},
         )
         context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
@@ -55,6 +55,7 @@ class RecordBatchModel(abc.ABC):
             tags.batch_export_id = uuid.UUID(self.batch_export_id)
         tags.product = Product.BATCH_EXPORT
         tags.query_type = "batch_export"
+        update_query_tags_with_temporal_info(tags)
         return tags.to_json()
 
     @abc.abstractmethod
@@ -86,8 +87,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
         hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
-        # we pass in the log_comment as a query parameter
-        hogql_query.settings = sql.HogQLQueryBatchExportSettings(log_comment="{log_comment}")
+        hogql_query.settings = sql.HogQLQueryBatchExportSettings(log_comment=self.get_log_comment())
 
         where_and = ast.And(
             exprs=[
