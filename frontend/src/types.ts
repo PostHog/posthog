@@ -816,6 +816,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
+    History = 'history',
 }
 
 export enum ActivityTab {
@@ -4152,6 +4153,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'twilio'
     | 'linear'
     | 'github'
     | 'meta-ads'
