@@ -1,16 +1,15 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { HogFunctionInvocationGlobals } from '../types'
+import { HogFunctionFilterGlobals } from '../types'
 import { execHog } from '../utils/hog-exec'
-import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
+import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 export const counterParseError = new Counter({
@@ -38,27 +37,34 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    public async processBatch(filterGlobals: HogFunctionFilterGlobals[]): Promise<void> {
         return await this.runInstrumented('processBatch', async () => {
-            if (!invocationGlobals.length) {
+            if (!filterGlobals.length) {
                 return
             }
 
             // Track events consumed and matched (absolute numbers)
             let eventsMatched = 0
 
-            const results = await Promise.all(invocationGlobals.map((event) => this.processEvent(event)))
+            const results = await Promise.all(filterGlobals.map((event) => this.processEvent(event)))
             eventsMatched = results.reduce((sum, count) => sum + count, 0)
 
             // Update metrics with absolute numbers
-            counterEventsConsumed.inc(invocationGlobals.length)
+            counterEventsConsumed.inc(filterGlobals.length)
             counterEventsMatchedTotal.inc(eventsMatched)
         })
     }
 
-    private async processEvent(event: HogFunctionInvocationGlobals): Promise<number> {
+    private async processEvent(filterGlobals: HogFunctionFilterGlobals): Promise<number> {
         try {
-            const teamId = event.project.id
+            // Extract team ID from properties that we added during parsing
+            const teamId = filterGlobals.properties?.['team_id']
+
+            if (!teamId) {
+                logger.debug('No team ID found in filter globals')
+                return 0
+            }
+
             const actions = await this.loadActionsForTeam(teamId)
 
             if (!actions.length) {
@@ -66,13 +72,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 return 0
             }
 
-            const results = await Promise.all(actions.map((action) => this.doesEventMatchAction(event, action)))
+            const results = await Promise.all(actions.map((action) => this.doesEventMatchAction(filterGlobals, action)))
 
             return results.filter(Boolean).length
         } catch (error) {
             logger.error('Error processing event', {
-                teamId: event.project.id,
-                eventName: event.event.event,
+                eventName: filterGlobals.event,
                 error,
             })
             return 0
@@ -94,7 +99,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     private async doesEventMatchAction(
-        event: HogFunctionInvocationGlobals,
+        filterGlobals: HogFunctionFilterGlobals,
         action: { id: string; name: string; bytecode: any }
     ): Promise<boolean> {
         if (!action.bytecode) {
@@ -102,10 +107,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
 
         try {
-            // Convert event to filter globals format
-            const filterGlobals = convertToHogFunctionFilterGlobal(event)
-
-            // Execute bytecode directly
+            // Execute bytecode directly with the filter globals
             const execHogOutcome = await execHog(action.bytecode, {
                 globals: filterGlobals,
                 telemetry: false,
@@ -122,7 +124,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         } catch (error) {
             logger.error('Error executing action bytecode', {
                 actionId: action.id,
-                teamId: event.project.id,
                 error,
             })
             return false
@@ -130,33 +131,35 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer always parses from kafka
-    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionFilterGlobals[]> {
         return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages`,
-                func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
+                func: () => {
+                    const events: HogFunctionFilterGlobals[] = []
 
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                    messages.forEach((message) => {
+                        try {
+                            const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                const team = await this.hub.teamManager.getTeam(clickHouseEvent.team_id)
+                            // Convert directly to filter globals
+                            const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
 
-                                if (!team) {
-                                    return
-                                }
-                                events.push(
-                                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
-                                )
-                            } catch (e) {
-                                logger.error('Error parsing message', e)
-                                counterParseError.labels({ error: e.message }).inc()
+                            // Add team_id to properties so we can access it later
+                            filterGlobals.properties = {
+                                ...filterGlobals.properties,
+                                team_id: clickHouseEvent.team_id,
                             }
-                        })
-                    )
-                    return events
+
+                            events.push(filterGlobals)
+                        } catch (e) {
+                            logger.error('Error parsing message', e)
+                            counterParseError.labels({ error: e.message }).inc()
+                        }
+                    })
+                    // Return Promise.resolve to satisfy runInstrumentedFunction's Promise return type
+                    // without needing async/await since all operations are synchronous
+                    return Promise.resolve(events)
                 },
             })
         )
@@ -171,8 +174,8 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             })
 
             return await this.runInstrumented('handleEachBatch', async () => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                await this.processBatch(invocationGlobals)
+                const filterGlobals = await this._parseKafkaBatch(messages)
+                await this.processBatch(filterGlobals)
 
                 return { backgroundTask: Promise.resolve() }
             })

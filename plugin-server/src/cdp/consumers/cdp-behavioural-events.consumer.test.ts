@@ -1,8 +1,8 @@
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { Hub, Team } from '../../types'
+import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
 
 jest.setTimeout(5000)
@@ -58,9 +58,14 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const matchingEvent = createIncomingEvent(team.id, {
                 event: '$pageview',
                 properties: JSON.stringify({ $browser: 'Chrome' }),
-            })
+            } as RawClickHouseEvent)
 
-            const globals = convertToHogFunctionInvocationGlobals(matchingEvent, team, hub.SITE_URL)
+            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+            // Add team_id to properties so processEvent can access it
+            filterGlobals.properties = {
+                ...filterGlobals.properties,
+                team_id: team.id,
+            }
 
             // Verify the action was loaded
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
@@ -68,7 +73,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(actions[0].name).toBe('Test action')
 
             // Test processEvent directly and verify it returns 1 for matching event
-            const result = await (processor as any).processEvent(globals)
+            const result = await (processor as any).processEvent(filterGlobals)
             expect(result).toBe(1)
         })
 
@@ -105,9 +110,14 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const nonMatchingEvent = createIncomingEvent(team.id, {
                 event: '$pageview',
                 properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
-            })
+            } as RawClickHouseEvent)
 
-            const globals = convertToHogFunctionInvocationGlobals(nonMatchingEvent, team, hub.SITE_URL)
+            const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
+            // Add team_id to properties so processEvent can access it
+            filterGlobals.properties = {
+                ...filterGlobals.properties,
+                team_id: team.id,
+            }
 
             // Verify the action was loaded
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
@@ -115,7 +125,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(actions[0].name).toBe('Test action')
 
             // Test processEvent directly and verify it returns 0 for non-matching event
-            const result = await (processor as any).processEvent(globals)
+            const result = await (processor as any).processEvent(filterGlobals)
             expect(result).toBe(0)
         })
 
@@ -175,12 +185,17 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const matchingEvent = createIncomingEvent(team.id, {
                 event: '$pageview',
                 properties: JSON.stringify({ $browser: 'Chrome', $ip: '127.0.0.1' }),
-            })
+            } as RawClickHouseEvent)
 
-            const globals = convertToHogFunctionInvocationGlobals(matchingEvent, team, hub.SITE_URL)
+            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+            // Add team_id to properties so processEvent can access it
+            filterGlobals.properties = {
+                ...filterGlobals.properties,
+                team_id: team.id,
+            }
 
             // Test processEvent directly and verify it returns 2 for both matching actions
-            const result = await (processor as any).processEvent(globals)
+            const result = await (processor as any).processEvent(filterGlobals)
             expect(result).toBe(2)
         })
     })
