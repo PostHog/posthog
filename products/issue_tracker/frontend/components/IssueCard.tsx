@@ -28,7 +28,6 @@ export function IssueCard({ issue, onScope, onClick, draggable = false }: IssueC
         >
             <div className="flex justify-between items-start mb-2">
                 <h4 className="font-medium text-sm leading-tight">{issue.title}</h4>
-                <span className="text-xs text-muted ml-2">#{issue.priority}</span>
             </div>
 
             <p className="text-xs text-muted mb-3 line-clamp-2">{issue.description}</p>
@@ -36,10 +35,10 @@ export function IssueCard({ issue, onScope, onClick, draggable = false }: IssueC
             <div className="flex justify-between items-center">
                 <span
                     className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        ORIGIN_PRODUCT_COLORS[issue.originProduct]
+                        ORIGIN_PRODUCT_COLORS[issue.origin_product]
                     }`}
                 >
-                    {ORIGIN_PRODUCT_LABELS[issue.originProduct]}
+                    {ORIGIN_PRODUCT_LABELS[issue.origin_product]}
                 </span>
 
                 {issue.status === IssueStatus.BACKLOG && onScope && (

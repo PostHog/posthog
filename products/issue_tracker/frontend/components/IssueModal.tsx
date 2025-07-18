@@ -33,7 +33,7 @@ export function IssueModal({ issue, isOpen, onClose }: IssueModalProps): JSX.Ele
     }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title={`Issue #${issue.priority}`} width={600}>
+        <LemonModal isOpen={isOpen} onClose={onClose} title={issue.title} width={600}>
             <div className="space-y-6">
                 {/* Header with status and origin */}
                 <div className="flex justify-between items-start">
@@ -47,10 +47,10 @@ export function IssueModal({ issue, isOpen, onClose }: IssueModalProps): JSX.Ele
                         </span>
                         <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                ORIGIN_PRODUCT_COLORS[issue.originProduct]
+                                ORIGIN_PRODUCT_COLORS[issue.origin_product]
                             }`}
                         >
-                            {ORIGIN_PRODUCT_LABELS[issue.originProduct]}
+                            {ORIGIN_PRODUCT_LABELS[issue.origin_product]}
                         </span>
                     </div>
                     <span className="text-xs text-muted">Position: {issue.position}</span>
@@ -71,11 +71,11 @@ export function IssueModal({ issue, isOpen, onClose }: IssueModalProps): JSX.Ele
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                         <span className="font-medium text-default">Created:</span>
-                        <div className="text-muted">{formatDate(issue.createdAt)}</div>
+                        <div className="text-muted">{formatDate(issue.created_at)}</div>
                     </div>
                     <div>
                         <span className="font-medium text-default">Last Updated:</span>
-                        <div className="text-muted">{formatDate(issue.updatedAt)}</div>
+                        <div className="text-muted">{formatDate(issue.updated_at)}</div>
                     </div>
                 </div>
 
