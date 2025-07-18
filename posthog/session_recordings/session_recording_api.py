@@ -1060,8 +1060,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 ).personal_api_key.secure_value
             elif isinstance(request.user, AnonymousUser):
                 return request.GET.get("sharing_access_token") or "anonymous"
-            elif isinstance(request.user, User):
-                return str(request.user.distinct_id)
             else:
                 return "anonymous"
         except:
