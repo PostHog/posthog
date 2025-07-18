@@ -150,6 +150,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
+        updateDashboard: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
@@ -625,6 +626,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: state?.tiles?.map((tile) => ({ ...tile, layouts: itemLayouts[tile.id] })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
+                updateDashboard: (_, { dashboard }) => {
+                    return dashboard
+                },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
                     if (state?.id === dashboardId) {
                         return {
@@ -671,9 +675,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return null
-                },
-                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
-                    return state && dashboard && state.id === dashboard.id ? dashboard : state
                 },
                 [insightsModel.actionTypes.renameInsightSuccess]: (
                     state,
@@ -1270,6 +1271,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // this is a new tile created from an insight context we need to reload the dashboard
                 actions.loadDashboard({ action: 'update' })
             }
+        },
+        [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
+            if (values.dashboard == null || dashboard == null) {
+                return
+            }
+            if (values.dashboard.id !== dashboard.id) {
+                return
+            }
+            const newDashboard = { ...dashboard }
+            // Check if there are temporary filters
+            const temporaryFilters = values.temporaryFilters
+            if (
+                temporaryFilters.properties != null ||
+                temporaryFilters.breakdown_filter != null ||
+                temporaryFilters.date_from != null ||
+                temporaryFilters.date_to != null
+            ) {
+                // If filter value is not applied and preview, do not replace
+                if (!values.filtersUpdated) {
+                    newDashboard.filters = values.dashboard.filters
+                    newDashboard.tiles = values.dashboard.tiles
+                }
+            }
+            actions.updateDashboard(newDashboard)
         },
         moveToDashboardSuccess: ({ payload }) => {
             if (payload?.toDashboard === undefined || payload?.tile === undefined) {
