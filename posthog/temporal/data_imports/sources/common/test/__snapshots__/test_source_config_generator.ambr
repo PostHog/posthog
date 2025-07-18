@@ -35,7 +35,7 @@
       select_with_options: Literal["1", "0"] = "1"
   
   
-  def get_config_for_source(source: "ExternalDataSource.Type"):
+  def get_config_for_source(source: ExternalDataSource.Type):
       return {
           ExternalDataSource.Type.STRIPE: StripeSourceConfig,
       }[source]

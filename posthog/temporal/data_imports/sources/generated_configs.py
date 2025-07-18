@@ -175,7 +175,7 @@ class ZendeskSourceConfig(config.Config):
     email_address: str
 
 
-def get_config_for_source(source: "ExternalDataSource.Type"):
+def get_config_for_source(source: ExternalDataSource.Type):
     return {
         ExternalDataSource.Type.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSource.Type.BRAZE: BrazeSourceConfig,

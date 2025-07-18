@@ -422,7 +422,7 @@ class {class_name}(config.Config):
             parts.append("")
             parts.append("")
 
-        parts.append('def get_config_for_source(source: "ExternalDataSource.Type"):')
+        parts.append("def get_config_for_source(source: ExternalDataSource.Type):")
         parts.append("    return {")
         for source_type in sorted(AVAILABLE_SOURCES.keys(), key=lambda x: x.value):
             config_class = self._get_config_class_name(source_type)
