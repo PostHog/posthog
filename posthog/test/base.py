@@ -1155,6 +1155,8 @@ def reset_clickhouse_database() -> None:
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+            WEB_BOUNCES_DAILY_SQL(),
+            WEB_BOUNCES_HOURLY_SQL(),
             WEB_STATS_DAILY_SQL(),
             WEB_STATS_HOURLY_SQL(),
         ]
