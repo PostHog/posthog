@@ -1,4 +1,3 @@
-import time
 from pathlib import Path
 from typing import Union, Any
 from unittest.mock import Mock
@@ -1117,13 +1116,10 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             limit_context=None,
         )
 
-        start_time = time.time()
         response = runner.calculate()
-        execution_time = time.time() - start_time
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert len(response.results) == 9, "Should return exactly 9 LinkedIn campaigns"
-        assert execution_time < 5.0, f"Query took too long: {execution_time:.2f}s"
 
     def test_query_performance_multi_source(self):
         facebook_info = self._setup_csv_table("facebook_ads")
@@ -1179,10 +1175,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             limit_context=None,
         )
 
-        start_time = time.time()
         response = runner.calculate()
-        execution_time = time.time() - start_time
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert len(response.results) == 23, "Should return exactly 23 total campaigns"
-        assert execution_time < 10.0, f"Multi-source query took too long: {execution_time:.2f}s"

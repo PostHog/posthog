@@ -1,7 +1,6 @@
 from unittest.mock import Mock, patch
 
 from posthog.hogql import ast
-from posthog.models import Action
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -21,15 +20,6 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     DEFAULT_MARKETING_ANALYTICS_COLUMNS,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
-
-
-def _create_action(**kwargs):
-    """Helper function to create test actions"""
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
