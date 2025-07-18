@@ -1,3 +1,4 @@
+import './buffer-polyfill'
 import '~/styles'
 
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
