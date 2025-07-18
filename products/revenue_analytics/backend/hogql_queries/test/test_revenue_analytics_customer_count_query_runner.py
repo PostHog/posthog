@@ -1,5 +1,6 @@
 from freezegun import freeze_time
 from pathlib import Path
+from decimal import Decimal
 from unittest.mock import ANY
 
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
@@ -20,6 +21,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     snapshot_clickhouse_queries,
+    NaN,
 )
 from posthog.warehouse.models import ExternalDataSchema
 
@@ -27,6 +29,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
@@ -34,11 +37,13 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_CUSTOMER_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
+    STRIPE_INVOICE_COLUMNS,
 )
 
 SUBSCRIPTIONS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions"
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
+INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
 
 ALL_MONTHS_LABELS = [
     "Nov 2024",
@@ -129,6 +134,19 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             )
         )
 
+        self.invoices_csv_path = Path(__file__).parent / "data" / "stripe_invoices.csv"
+        self.invoices_table, _, _, self.invoices_csv_df, self.invoices_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.invoices_csv_path,
+                "stripe_invoice",
+                STRIPE_INVOICE_COLUMNS,
+                INVOICES_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
         # Besides the default creation above, also create the external data schema
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.subscriptions_schema = ExternalDataSchema.objects.create(
@@ -158,6 +176,15 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             last_synced_at="2024-01-01",
         )
 
+        self.invoices_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_INVOICE_RESOURCE_NAME,
+            source=self.source,
+            table=self.invoices_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
@@ -167,6 +194,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         self.subscriptions_cleanup_filesystem()
         self.products_cleanup_filesystem()
         self.customers_cleanup_filesystem()
+        self.invoices_cleanup_filesystem()
         super().tearDown()
 
     def _run_revenue_analytics_customer_count_query(
@@ -207,6 +235,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         self.subscriptions_table.delete()
         self.products_table.delete()
         self.customers_table.delete()
+        self.invoices_table.delete()
         results = self._run_revenue_analytics_customer_count_query().results
 
         self.assertEqual(results, [])
@@ -299,6 +328,44 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                         "name": "Churned Customer Count | stripe.posthog_test",
                     },
                 },
+                {
+                    "label": "ARPU | stripe.posthog_test",
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
+                    "data": [
+                        0,
+                        0,
+                        Decimal("8755.6188399999"),
+                        Decimal("4749.6936049999"),
+                        Decimal("3011.4910666666"),
+                        Decimal("2226.7642024999"),
+                        Decimal("1777.8678999999"),
+                        Decimal("4.0846249999"),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ],
+                    "action": {
+                        "days": ALL_MONTHS_FAKEDATETIMES,
+                        "id": "ARPU | stripe.posthog_test",
+                        "name": "ARPU | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "LTV | stripe.posthog_test",
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
+                    "data": [0.0, 0.0, NaN, NaN, NaN, NaN, NaN, 4.0846249999, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "action": {
+                        "days": ALL_MONTHS_FAKEDATETIMES,
+                        "id": "LTV | stripe.posthog_test",
+                        "name": "LTV | stripe.posthog_test",
+                    },
+                },
             ],
         )
 
@@ -378,6 +445,33 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                         "days": action_days,
                         "id": "Churned Customer Count | stripe.posthog_test",
                         "name": "Churned Customer Count | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "ARPU | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [
+                        Decimal("4749.6936049999"),
+                        Decimal("3011.4910666666"),
+                        Decimal("2226.7642024999"),
+                        Decimal("1777.8678999999"),
+                    ],
+                    "action": {
+                        "days": action_days,
+                        "id": "ARPU | stripe.posthog_test",
+                        "name": "ARPU | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "LTV | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [NaN, NaN, NaN, NaN],
+                    "action": {
+                        "days": action_days,
+                        "id": "LTV | stripe.posthog_test",
+                        "name": "LTV | stripe.posthog_test",
                     },
                 },
             ],
@@ -462,13 +556,35 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                         "name": "Churned Customer Count | stripe.posthog_test",
                     },
                 },
+                {
+                    "label": "ARPU | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [0],
+                    "action": {
+                        "days": action_days,
+                        "id": "ARPU | stripe.posthog_test",
+                        "name": "ARPU | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "LTV | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [0],
+                    "action": {
+                        "days": action_days,
+                        "id": "LTV | stripe.posthog_test",
+                        "name": "LTV | stripe.posthog_test",
+                    },
+                },
             ],
         )
 
     def test_with_data_and_product_grouping(self):
         results = self._run_revenue_analytics_customer_count_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
-        self.assertEqual(len(results), 36)  # 6 Products * 6 insights = 36
+        self.assertEqual(len(results), 48)  # 6 Products * 8 insights = 48
         self.assertEqual(
             [(result["data"], result["label"]) for result in results],
             [
@@ -478,36 +594,73 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                 ([0, 0, 1, 1, 1, 1, 1], "Customer Count | stripe.posthog_test - Product A"),
                 ([0, 0, 1, 0, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product A"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product A"),
+                (
+                    [
+                        0,
+                        0,
+                        Decimal("8.2024583333"),
+                        Decimal("8.2024583333"),
+                        Decimal("223.5518583333"),
+                        Decimal("8.2024583333"),
+                        Decimal("124.1659583333"),
+                    ],
+                    "ARPU | stripe.posthog_test - Product A",
+                ),
+                ([0, 0, NaN, NaN, NaN, NaN, NaN], "LTV | stripe.posthog_test - Product A"),
                 ([0, 0, 0, 1, 1, 1, 1], "Subscription Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 1, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 1, 1, 1, 1], "Customer Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 1, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product B"),
+                (
+                    [
+                        0,
+                        0,
+                        0,
+                        Decimal("16.3052916666"),
+                        Decimal("88.5931916666"),
+                        Decimal("16.3052916666"),
+                        Decimal("35.8317916666"),
+                    ],
+                    "ARPU | stripe.posthog_test - Product B",
+                ),
+                ([0, 0, 0, NaN, NaN, NaN, NaN], "LTV | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 0, 1, 1, 1], "Subscription Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 1, 0, 0], "New Subscription Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 1, 1, 1], "Customer Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 1, 0, 0], "New Customer Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product C"),
+                (
+                    [0, 0, 0, 0, Decimal("8722.32815"), 0, Decimal("8729.34175")],
+                    "ARPU | stripe.posthog_test - Product C",
+                ),
+                ([0, 0, 0, 0, NaN, NaN, NaN], "LTV | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 0, 1, 1], "Subscription Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 1, 0], "New Subscription Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 1, 1], "Customer Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 1, 0], "New Customer Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product D"),
+                ([0, 0, 0, 0, 0, Decimal("83.16695"), 0], "ARPU | stripe.posthog_test - Product D"),
+                ([0, 0, 0, 0, 0, NaN, NaN], "LTV | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 0, 1], "Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 1], "New Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 1], "Customer Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 1], "New Customer Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product E"),
+                ([0, 0, 0, 0, 0, 0, 0], "ARPU | stripe.posthog_test - Product E"),
+                ([0, 0, 0, 0, 0, 0, NaN], "LTV | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 0], "Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "Customer Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product F"),
+                ([0, 0, 0, 0, 0, 0, 0], "ARPU | stripe.posthog_test - Product F"),
+                ([0, 0, 0, 0, 0, 0, 0], "LTV | stripe.posthog_test - Product F"),
             ],
         )
 
@@ -519,6 +672,8 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             [0, 0, 0, 0, 1, 1, 1],  # Customer Count
             [0, 0, 0, 0, 1, 0, 0],  # New Customer Count
             [0, 0, 0, 0, 0, 0, 0],  # Churned Customer Count
+            [0, 0, 0, 0, Decimal("8722.32815"), 0, Decimal("8729.34175")],  # ARPU
+            [0, 0, 0, 0, NaN, NaN, NaN],  # LTV
         ]
 
         results = self._run_revenue_analytics_customer_count_query(
@@ -531,7 +686,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             ]
         ).results
 
-        self.assertEqual(len(results), 6)
+        self.assertEqual(len(results), 8)
         self.assertEqual([result["data"] for result in results], expected_data)
 
         # When grouping results should be exactly the same, just the label changes
@@ -546,7 +701,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             ],
         ).results
 
-        self.assertEqual(len(results), 6)
+        self.assertEqual(len(results), 8)
         self.assertEqual([result["data"] for result in results], expected_data)
 
         labels = [result["label"] for result in results]
@@ -563,7 +718,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             ]
         ).results
 
-        self.assertEqual(len(results), 6)
+        self.assertEqual(len(results), 8)
         self.assertEqual(
             [result["data"] for result in results],
             [
@@ -573,5 +728,15 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                 [0, 0, 1, 2, 2, 2, 2],  # Customer Count
                 [0, 0, 1, 1, 0, 0, 0],  # New Customer Count
                 [0, 0, 0, 0, 0, 0, 0],  # Churned Customer Count
+                [
+                    0,
+                    0,
+                    Decimal("24.5077499999"),
+                    Decimal("12.2538749999"),
+                    Decimal("156.0725249999"),
+                    Decimal("12.2538749999"),
+                    Decimal("79.9988749999"),
+                ],  # ARPU
+                [0, 0, NaN, NaN, NaN, NaN, NaN],  # LTV
             ],
         )

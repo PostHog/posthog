@@ -313,7 +313,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             )
                                         }
 
-                                        return error ? (
+                                        return error && status !== 'Completed' ? (
                                             <Tooltip title={error}>
                                                 <LemonTag type={type}>{status}</LemonTag>
                                             </Tooltip>

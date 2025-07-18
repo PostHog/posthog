@@ -14,6 +14,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useMentions } from './useMentions'
 import { MentionsPopover } from './MentionsPopover'
 
@@ -101,10 +102,17 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                             onChange={setFilesToUpload}
                                             loading={uploading}
                                             value={filesToUpload}
+                                            showUploadedFiles={false}
                                             callToAction={
                                                 <LemonButton
                                                     size="small"
-                                                    icon={<IconImage className="text-lg" />}
+                                                    icon={
+                                                        uploading ? (
+                                                            <Spinner className="text-lg" textColored={true} />
+                                                        ) : (
+                                                            <IconImage className="text-lg" />
+                                                        )
+                                                    }
                                                     disabledReason={
                                                         objectStorageAvailable
                                                             ? undefined

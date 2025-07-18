@@ -8,6 +8,8 @@ from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import (
 EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT = 100
 EXTERNAL_WEB_ANALYTICS_PAGINATION_MAX_LIMIT = 1000
 
+EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE = "Unknown"
+
 EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS = ["visitors", "views", "sessions", "bounce_rate", "session_duration"]
 
 
