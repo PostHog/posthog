@@ -547,7 +547,7 @@ class TestExports(APIBaseTest):
 
         stuck_result = results_by_id[stuck_export.id]
         self.assertIsNotNone(stuck_result["exception"])
-        self.assertIn(f"Export timed out after {HOGQL_INCREASED_MAX_EXECUTION_TIME} seconds", stuck_result["exception"])
+        self.assertIn(f"Export failed without throwing an exception", stuck_result["exception"])
 
         recent_result = results_by_id[recent_export.id]
         self.assertIsNone(recent_result["exception"])
@@ -586,7 +586,7 @@ class TestExports(APIBaseTest):
 
         # Check that the stuck export appears to have an exception in the response
         self.assertIsNotNone(result["exception"])
-        self.assertIn(f"Export timed out after {HOGQL_INCREASED_MAX_EXECUTION_TIME} seconds", result["exception"])
+        self.assertIn(f"Export failed without throwing an exception", result["exception"])
 
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
