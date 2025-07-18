@@ -65,9 +65,6 @@ def _generate_notebook_content_from_summary(
     # Summary table
     table_content = _create_summary_table(patterns_sorted, total_sessions)
     content.extend(table_content)
-    content.extend(
-        [_create_empty_paragraph(), _create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}")]
-    )
     content.append(_create_line_separator())
 
     # Pattern details
@@ -75,6 +72,14 @@ def _generate_notebook_content_from_summary(
         pattern_content = _create_pattern_section(pattern=pattern, total_sessions=total_sessions, team_id=team_id)
         content.append(_create_empty_paragraph())
         content.extend(pattern_content)
+
+    content.extend(
+        [
+            _create_empty_paragraph(),
+            _create_line_separator(),
+            _create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
+        ]
+    )
 
     return {
         "type": "doc",
