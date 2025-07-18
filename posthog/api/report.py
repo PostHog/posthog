@@ -41,15 +41,8 @@ def get_csp_event(request):
     if error_response:
         return error_response
 
-    first_distinct_id = None  # temp: only used for feature flag check
-    if csp_report and isinstance(csp_report, list):
-        # For list of reports, use the first one's distinct_id for feature flag check
-        first_distinct_id = csp_report[0].get("distinct_id", None)
-    elif csp_report and isinstance(csp_report, dict):
-        # For single report, use the distinct_id for the same
-        first_distinct_id = csp_report.get("distinct_id", None)
-    else:
-        # mimic what get_event does if no data is returned from process_csp_report
+    # mimic what get_event does if no data is returned from process_csp_report
+    if not csp_report:
         return cors_response(
             request,
             generate_exception_response(
@@ -78,8 +71,8 @@ def get_csp_event(request):
                 token=token,
                 event_name=csp_report.get("event", ""),
                 event_source="get_csp_report",
-                distinct_id=first_distinct_id,
-                timestamp=csp_report.get("timestamp", ""),
+                distinct_id=csp_report.get("distinct_id", ""),
+                timestamp=csp_report.get("timestamp", None),
                 properties=csp_report.get("properties", {}),
                 process_person_profile=False,
             )
