@@ -625,7 +625,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
             team=self.team,
             modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
         )
-        assert "web_stats_daily" in response.hogql
+        assert response.hogql and "web_stats_daily" in response.hogql
         assert response.results == [(1, 1)]
 
     def test_complex_hogql_select(self):
@@ -640,7 +640,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
             team=self.team,
             modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
         )
-        assert "web_stats_daily" in response.hogql
+        assert response.hogql and "web_stats_daily" in response.hogql
         assert len(response.results) == 1
         row = response.results[0]
         assert row[0:3] == (1, 1, 1)

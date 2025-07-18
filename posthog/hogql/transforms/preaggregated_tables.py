@@ -74,8 +74,11 @@ def is_pageview_filter(expr: ast.Expr) -> bool:
     return False
 
 
-def is_timestamp_field(field: ast.Field) -> bool:
+def is_timestamp_field(field: ast.Expr) -> bool:
     """Check if a field represents a timestamp."""
+    if not isinstance(field, ast.Field):
+        return False
+
     return (
         field.chain == ["timestamp"]
         or (len(field.chain) == 2 and field.chain[1] == "timestamp")  # table_alias.timestamp
@@ -326,25 +329,25 @@ def _get_supported_property_field(field: ast.Field) -> tuple[str, str] | None:
     # Handle properties.x pattern
     if len(field.chain) == 2 and field.chain[0] == "properties":
         property_name = field.chain[1]
-        if property_name in EVENT_PROPERTY_TO_FIELD:
+        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
             return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
 
     # Handle events.properties.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
         property_name = field.chain[2]
-        if property_name in EVENT_PROPERTY_TO_FIELD:
+        if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
             return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
 
     # Handle session.x pattern
     elif len(field.chain) == 2 and field.chain[0] == "session":
         property_name = field.chain[1]
-        if property_name in SESSION_PROPERTY_TO_FIELD:
+        if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
             return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
 
     # Handle events.session.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "session":
         property_name = field.chain[2]
-        if property_name in SESSION_PROPERTY_TO_FIELD:
+        if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
             return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
 
     return None
