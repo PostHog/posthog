@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from posthog.auth import SessionAuthentication, PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.limit import get_web_analytics_api_rate_limiter
+from posthog.rate_limit import WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle
 
 from .serializers import (
     WebAnalyticsOverviewRequestSerializer,
@@ -41,6 +42,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     scope_object_read_actions = ["summary", "overview", "trend", "breakdown"]
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     scope_object_write_actions: list[str] = []
+    throttle_classes = [WebAnalyticsAPIBurstThrottle, WebAnalyticsAPISustainedThrottle]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
