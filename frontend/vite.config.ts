@@ -48,6 +48,8 @@ export default defineConfig(({ command }) => {
                 '@posthog/ee/exports': resolve(__dirname, '../ee/frontend/exports.ts'),
                 public: resolve(__dirname, 'public'),
                 products: resolve(__dirname, '../products'),
+                // Node.js polyfills for browser compatibility
+                buffer: 'buffer',
             },
         },
         build: {
