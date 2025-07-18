@@ -18,11 +18,10 @@ export interface Issue {
     title: string
     description: string
     status: IssueStatus
-    originProduct: OriginProduct
-    priority: number
+    origin_product: OriginProduct
     position: number
-    createdAt: string
-    updatedAt: string
+    created_at: string
+    updated_at: string
 }
 
 export interface KanbanColumn {

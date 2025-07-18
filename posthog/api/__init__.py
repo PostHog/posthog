@@ -5,6 +5,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
+import products.issue_tracker.backend.api as issue_tracker
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet, MessagePreferencesViewSet
@@ -198,6 +199,10 @@ project_features_router = projects_router.register(
     early_access_feature.EarlyAccessFeatureViewSet,
     "project_early_access_feature",
     ["project_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"issues", issue_tracker.IssueViewSet, "environment_issues", ["team_id"]
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
