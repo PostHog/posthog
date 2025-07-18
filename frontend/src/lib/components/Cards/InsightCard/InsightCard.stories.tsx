@@ -3,20 +3,34 @@ import { useState } from 'react'
 
 import { InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
-import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
-import EXAMPLE_FUNNEL from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
-import EXAMPLE_LIFECYCLE from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
-import EXAMPLE_RETENTION from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
-import EXAMPLE_STICKINESS from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
-import EXAMPLE_TRENDS from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
-import EXAMPLE_TRENDS_BREAKDOWN_MANY from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdownMany.json'
-import EXAMPLE_TRENDS_MULTI from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
-import EXAMPLE_TRENDS_PIE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
-import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
-import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
+import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import EXAMPLE_FUNNEL_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import EXAMPLE_LIFECYCLE_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import EXAMPLE_RETENTION_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import EXAMPLE_STICKINESS_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import EXAMPLE_TRENDS_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import EXAMPLE_TRENDS_BREAKDOWN_MANY_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdownMany.json'
+import EXAMPLE_TRENDS_MULTI_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import EXAMPLE_TRENDS_PIE_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import EXAMPLE_TRENDS_TABLE_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import EXAMPLE_TRENDS_HORIZONTAL_BAR_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import EXAMPLE_TRENDS_WORLD_MAP_DATA from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 import { InsightCard as InsightCardComponent } from './index'
+
+const EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY = EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY_DATA as unknown as any
+const EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY = EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY_DATA as unknown as any
+const EXAMPLE_FUNNEL = EXAMPLE_FUNNEL_DATA as unknown as any
+const EXAMPLE_LIFECYCLE = EXAMPLE_LIFECYCLE_DATA as unknown as any
+const EXAMPLE_RETENTION = EXAMPLE_RETENTION_DATA as unknown as any
+const EXAMPLE_STICKINESS = EXAMPLE_STICKINESS_DATA as unknown as any
+const EXAMPLE_TRENDS = EXAMPLE_TRENDS_DATA as unknown as any
+const EXAMPLE_TRENDS_MULTI = EXAMPLE_TRENDS_MULTI_DATA as unknown as any
+const EXAMPLE_TRENDS_BREAKDOWN_MANY = EXAMPLE_TRENDS_BREAKDOWN_MANY_DATA as unknown as any
+const EXAMPLE_TRENDS_HORIZONTAL_BAR = EXAMPLE_TRENDS_HORIZONTAL_BAR_DATA as unknown as any
+const EXAMPLE_TRENDS_TABLE = EXAMPLE_TRENDS_TABLE_DATA as unknown as any
+const EXAMPLE_TRENDS_PIE = EXAMPLE_TRENDS_PIE_DATA as unknown as any
+const EXAMPLE_TRENDS_WORLD_MAP = EXAMPLE_TRENDS_WORLD_MAP_DATA as unknown as any
 
 const examples = [
     EXAMPLE_TRENDS,

@@ -3,21 +3,37 @@ import { Meta, StoryFn } from '@storybook/react'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightModel } from '~/types'
 
-import trendsLineInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
-import trendsLineMultiInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
-import trendsValueInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
-import trendsTableInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
-import trendsPieInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import trendsWorldMapInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
-import funnelLeftToRightInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
-import retentionInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
-import userPathsInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
-import stickinessInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
-import lifecycleInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
-import dataTableHogQLInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
-import dataVisualizationHogQLInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'
-import dataTableEventsInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
+import trendsLineInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import trendsLineMultiInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import trendsValueInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import trendsTableInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import trendsPieInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import trendsWorldMapInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import funnelLeftToRightInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import retentionInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import userPathsInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+import stickinessInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import lifecycleInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import dataTableHogQLInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import dataVisualizationHogQLInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'
+import dataTableEventsInsightData from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
+
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
+
+const trendsLineInsight = trendsLineInsightData as unknown as any
+const trendsLineMultiInsight = trendsLineMultiInsightData as unknown as any
+const trendsValueInsight = trendsValueInsightData as unknown as any
+const trendsTableInsight = trendsTableInsightData as unknown as any
+const trendsPieInsight = trendsPieInsightData as unknown as any
+const trendsWorldMapInsight = trendsWorldMapInsightData as unknown as any
+const funnelLeftToRightInsight = funnelLeftToRightInsightData as unknown as any
+const retentionInsight = retentionInsightData as unknown as any
+const userPathsInsight = userPathsInsightData as unknown as any
+const stickinessInsight = stickinessInsightData as unknown as any
+const lifecycleInsight = lifecycleInsightData as unknown as any
+const dataTableHogQLInsight = dataTableHogQLInsightData as unknown as any
+const dataVisualizationHogQLInsight = dataVisualizationHogQLInsightData as unknown as any
+const dataTableEventsInsight = dataTableEventsInsightData as unknown as any
 
 const meta: Meta = {
     title: 'Components/Cards/Insight Details',
