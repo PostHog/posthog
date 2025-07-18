@@ -72,7 +72,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
-        DEDUPLICATION_REDIS_HOST: '',
+        DEDUPLICATION_REDIS_HOST: '127.0.0.1',
         DEDUPLICATION_REDIS_PORT: 6379,
         DEDUPLICATION_REDIS_PASSWORD: '',
         DEDUPLICATION_TTL_SECONDS: 60,
