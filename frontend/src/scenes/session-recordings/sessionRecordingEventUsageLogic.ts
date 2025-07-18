@@ -107,7 +107,9 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                           hasPropertiesFilters: !!propertyFilters.length,
                           hasCohortFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Cohort),
                           hasPersonFilter: propertyFilters.some((p) => p.type === PropertyFilterType.Person),
-                          hasDurationFilters: (filters.duration[0].value || -1) > defaultDurationFilter.value,
+                          hasDurationFilters:
+                              ((filters.duration.length > 0 && filters.duration[0].value) || -1) >
+                              defaultDurationFilter.value,
                           hasConsoleLogsFilters: !!consoleLogFilters.length,
                       }
                     : {}
