@@ -396,5 +396,5 @@ jobs:
                   push: false
                   tags: |
                       ghcr.io/posthog/posthog:${{ github.sha }}-mirrored
-                  platforms: linux/amd64,linux/arm64
+                  platforms: linux/arm64
                   build-args: COMMIT_HASH=${{ github.sha }}
