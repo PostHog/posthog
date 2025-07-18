@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
-    allOperatorsMapping,
     capitalizeFirstLetter,
+    chooseOperatorMap,
     cohortOperatorMap,
     isOperatorCohort,
     isOperatorFlag,
@@ -123,6 +123,24 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     }
 
+export function getPropertyTypeFromFilter(filter: Record<string, any>): PropertyType | undefined {
+    // Map PropertyFilterType to PropertyType for operator selection
+    switch (filter.type) {
+        case PropertyFilterType.FlagDependency:
+            return PropertyType.Flag
+        case PropertyFilterType.Person:
+        case PropertyFilterType.Event:
+        case PropertyFilterType.Meta:
+        case PropertyFilterType.DataWarehouse:
+        case PropertyFilterType.DataWarehousePersonProperty:
+            // For most property filters, we'll use the default generic operator map
+            // which has 'exact: = equals'
+            return undefined
+        default:
+            return undefined
+    }
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>,
@@ -135,13 +153,17 @@ export function formatPropertyLabel(
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
+    // Use contextual operator mapping based on property type
+    const propertyType = getPropertyTypeFromFilter(item)
+    const operatorMap = chooseOperatorMap(propertyType)
+
     return type === 'cohort'
         ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
               (cohort_name || cohortsById[value]?.name || `ID ${value}`)
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || label || key) +
               (isOperatorFlag(operator)
-                  ? ` ${allOperatorsMapping[operator]}`
-                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
+                  ? ` ${operatorMap[operator]}`
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
                         value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
                     } `)
 }
