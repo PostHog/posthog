@@ -1,11 +1,15 @@
 from dataclasses import dataclass
 import numpy as np
 
+from posthog.errors import ExposedCHQueryError
 
-class StatisticError(Exception):
+
+class StatisticError(ExposedCHQueryError):
     """Base exception for statistic-related errors."""
 
-    pass
+    def __init__(self, message: str):
+        # Call ExposedCHQueryError with no code since this isn't from ClickHouse
+        super().__init__(message, code=None)
 
 
 class InvalidStatisticError(StatisticError):
