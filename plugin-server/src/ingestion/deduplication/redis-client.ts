@@ -83,7 +83,7 @@ export class DeduplicationRedis {
             }
 
             // Parse REDIS_URL if provided, otherwise use host/port
-            if (this.config.REDIS_URL && this.config.REDIS_URL !== 'redis://127.0.0.1:6379') {
+            if (this.config.REDIS_URL && this.config.REDIS_URL !== 'redis://127.0.0.1') {
                 this.client = new Redis(this.config.REDIS_URL, redisOptions)
             } else {
                 this.client = new Redis(redisOptions)
