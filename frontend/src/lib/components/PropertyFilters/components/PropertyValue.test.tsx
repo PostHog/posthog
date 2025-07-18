@@ -71,8 +71,8 @@ describe('PropertyValue with Flag Dependencies', () => {
             </Provider>
         )
 
-        // The component should render without errors for string values
-        const inputs = screen.getAllByRole('textbox')
-        expect(inputs.length).toBeGreaterThan(0)
+        // The component should render the string value
+        const input = screen.getByPlaceholderText('some-variant')
+        expect(input).toBeInTheDocument()
     })
 })
