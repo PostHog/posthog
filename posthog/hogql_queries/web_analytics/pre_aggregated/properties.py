@@ -20,20 +20,29 @@ BASE_SUPPORTED_PROPERTIES = {
 }
 
 ATTRIBUTION_PROPERTIES = {
-    "$entry_gclid": "has_gclid",
-    "$entry_gad_source": "has_gad_source_paid_search",
-    "$entry_fbclid": "has_fbclid",
+    "$entry_gclid": "gclid",
+    "$entry_gad_source": "gad_source",
+    "$entry_gclsrc": "gclsrc",
+    "$entry_dclid": "dclid",
+    "$entry_gbraid": "gbraid",
+    "$entry_wbraid": "wbraid",
+    "$entry_fbclid": "fbclid",
+    "$entry_msclkid": "msclkid",
+    "$entry_twclid": "twclid",
+    "$entry_li_fat_id": "li_fat_id",
+    "$entry_mc_cid": "mc_cid",
+    "$entry_igshid": "igshid",
+    "$entry_ttclid": "ttclid",
+    "$entry_epik": "epik",
+    "$entry_qclid": "qclid",
+    "$entry_sccid": "sccid",
+    "$entry__kx": "_kx",
+    "$entry_irclid": "irclid",
 }
 
 PATH_PROPERTIES = {
     "$entry_pathname": "entry_pathname",
     "$end_pathname": "end_pathname",
-}
-
-VIRTUAL_PROPERTIES = {
-    # Channel type is a virtual field computed from other session attributes
-    # It doesn't map to a single column but needs special handling
-    "$channel_type": None,
 }
 
 STATS_TABLE_SPECIFIC_PROPERTIES = {
@@ -54,7 +63,6 @@ STATS_TABLE_SUPPORTED_FILTERS = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,
     **PATH_PROPERTIES,
-    **VIRTUAL_PROPERTIES,
     **STATS_TABLE_SPECIFIC_PROPERTIES,
 }
 
@@ -62,6 +70,5 @@ WEB_OVERVIEW_SUPPORTED_PROPERTIES = {
     **BASE_SUPPORTED_PROPERTIES,
     **ATTRIBUTION_PROPERTIES,
     **PATH_PROPERTIES,
-    **VIRTUAL_PROPERTIES,
     **WEB_OVERVIEW_SPECIFIC_PROPERTIES,
 }
