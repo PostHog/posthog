@@ -86,11 +86,13 @@ def _get_db_columns(response_columns: list) -> list[str]:
 @temporalio.activity.defn
 async def fetch_session_batch_events_activity(
     inputs: SessionGroupSummaryInputs,
-) -> None:
-    """Fetch batch events for multiple sessions using query runner and store per-session data in Redis"""
+) -> list[str]:
+    """Fetch batch events for multiple sessions using query runner and store per-session data in Redis. Returns a list of successful sessions."""
     redis_client = get_async_client()
+    # Find sessions that were fetched successfully, already cached session are successful by default
+    fetched_session_ids = []
     # Check which sessions already have cached data
-    sessions_to_fetch = []
+    session_ids_to_fetch = []
     for session_id in inputs.session_ids:
         session_data_key = generate_state_key(
             key_base=inputs.redis_key_base,
@@ -105,16 +107,17 @@ async def fetch_session_batch_events_activity(
                 label=StateActivitiesEnum.SESSION_DB_DATA,
                 target_class=SingleSessionSummaryLlmInputs,
             )
+            fetched_session_ids.append(session_id)
         except ValueError:
             # Session data not cached, need to fetch
-            sessions_to_fetch.append(session_id)
+            session_ids_to_fetch.append(session_id)
     # If all sessions already cached
-    if not sessions_to_fetch:
-        return None
+    if not session_ids_to_fetch:
+        return fetched_session_ids
     # Fetch metadata for all sessions at once
     # TODO: Decide if we need a query runner for this (as a follow-up)
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
-        session_ids=sessions_to_fetch,
+        session_ids=session_ids_to_fetch,
         team_id=inputs.team_id,
         recordings_min_timestamp=datetime.fromisoformat(inputs.min_timestamp_str),
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
@@ -126,7 +129,7 @@ async def fetch_session_batch_events_activity(
     # Paginate
     while True:
         response = await database_sync_to_async(_get_db_events_per_page)(
-            session_ids=sessions_to_fetch,
+            session_ids=session_ids_to_fetch,
             team=team,
             min_timestamp_str=inputs.min_timestamp_str,
             max_timestamp_str=inputs.max_timestamp_str,
@@ -148,7 +151,7 @@ async def fetch_session_batch_events_activity(
             break
         offset += page_size
     # Store all per-session DB data in Redis
-    for session_id in sessions_to_fetch:
+    for session_id in session_ids_to_fetch:
         session_events = all_session_events.get(session_id)
         if not session_events:
             temporalio.activity.logger.exception(
@@ -189,6 +192,7 @@ async def fetch_session_batch_events_activity(
             state_id=session_id,
         )
         input_data_str = json.dumps(dataclasses.asdict(input_data))
+        fetched_session_ids.append(session_id)
         await store_data_in_redis(
             redis_client=redis_client,
             redis_key=session_data_key,
@@ -196,7 +200,7 @@ async def fetch_session_batch_events_activity(
             label=StateActivitiesEnum.SESSION_DB_DATA,
         )
     # Returning nothing as the data is stored in Redis
-    return None
+    return fetched_session_ids
 
 
 @temporalio.activity.defn
@@ -270,19 +274,19 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return SessionGroupSummaryInputs(**loaded)
 
     @staticmethod
-    async def _fetch_session_batch_data(inputs: SessionGroupSummaryInputs) -> None | Exception:
+    async def _fetch_session_batch_data(inputs: SessionGroupSummaryInputs) -> list[str] | Exception:
         """
         Fetch and handle the session data for all sessions in batch to avoid one activity failing the whole group.
         The data is stored in Redis to avoid hitting Temporal memory limits, so activity returns nothing if successful.
         """
         try:
-            await temporalio.workflow.execute_activity(
+            fetched_session_ids = await temporalio.workflow.execute_activity(
                 fetch_session_batch_events_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            return None
+            return fetched_session_ids
         except Exception as err:  # Activity retries exhausted
             # Let caller handle the error
             return err
@@ -304,7 +308,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             )
         # Create SingleSessionSummaryInputs for each session
         session_inputs: list[SingleSessionSummaryInputs] = []
-        for session_id in inputs.session_ids:
+        for session_id in fetch_result:
             single_session_input = SingleSessionSummaryInputs(
                 session_id=session_id,
                 user_id=inputs.user_id,
