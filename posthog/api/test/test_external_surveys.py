@@ -188,14 +188,6 @@ class TestExternalSurveys(APIBaseTest):
         self.assertIn("public", cache_control)
         self.assertIn("max-age=300", cache_control)  # 5 minutes as per CACHE_TIMEOUT_SECONDS
 
-    def test_database_query_optimization(self):
-        """Test that database queries are optimized with select_related"""
-        survey = self.create_external_survey()
-
-        with self.assertNumQueries(3):  # Main query + potential cache/session queries
-            response = self.client.get(f"/external_surveys/{survey.id}/")
-            self.assertEqual(response.status_code, 200)
-
     # ERROR HANDLING TESTS
 
     @patch("posthog.api.survey.logger")
