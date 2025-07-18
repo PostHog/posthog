@@ -118,7 +118,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                     description: (
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['launched']}
+                            listParts={['launched experiment']}
                             suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
                         />
                     ),
@@ -138,7 +138,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                     description: (
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['stopped']}
+                            listParts={['stopped experiment']}
                             suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
                         />
                     ),
@@ -159,6 +159,21 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['added the first metric to']}
+                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                        />
+                    ),
+                }
+            }
+
+            /**
+             * soft deletes
+             */
+            if (change.action === 'changed' && change.field === 'deleted' && !change.before && change.after) {
+                return {
+                    description: (
+                        <SentenceList
+                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                            listParts={['deleted experiment']}
                             suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
                         />
                     ),
