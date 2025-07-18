@@ -94,7 +94,7 @@ def _milliseconds_to_timestamp(milliseconds: int) -> str:
 def _sanitize_text_content(text: str) -> str:
     """Sanitize text content to ensure it's valid for TipTap editor."""
     if not text or not text.strip():
-        raise ValueError(f"Empty text should not be passed to create heading or paragraph")
+        raise ValueError("Empty text should not be passed to create heading or paragraph")
     return text.strip()
 
 
