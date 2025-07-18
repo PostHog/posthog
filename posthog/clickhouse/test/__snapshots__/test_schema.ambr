@@ -3193,9 +3193,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3225,10 +3222,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       
   '''
@@ -3259,9 +3253,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3290,10 +3281,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -3327,9 +3315,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3357,10 +3342,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       
   '''
@@ -3392,9 +3374,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -3421,10 +3400,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -4750,9 +4726,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -4782,10 +4755,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       
   '''
@@ -4816,9 +4786,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -4847,10 +4814,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
@@ -4884,9 +4848,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -4914,10 +4875,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       
   '''
@@ -4949,9 +4907,6 @@
   city_name String,
   region_code String,
   region_name String,
-  has_gclid Bool,
-  has_gad_source_paid_search Bool,
-  has_fbclid Bool,
       persons_uniq_state AggregateFunction(uniq, UUID),
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
@@ -4978,10 +4933,7 @@
       country_code,
       city_name,
       region_code,
-      region_name,
-      has_gclid,
-      has_gad_source_paid_search,
-      has_fbclid
+      region_name
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE

@@ -1,7 +1,6 @@
 from parameterized import parameterized
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    ATTRIBUTION_FIELDS,
     WebStatsDailyTable,
     WebBouncesDailyTable,
     WebStatsHourlyTable,
@@ -106,7 +105,6 @@ class TestWebAnalyticsPreAggregatedSchema:
                 len(GEOIP_FIELDS),
                 len(UTM_FIELDS),
                 len(PATH_FIELDS),
-                len(ATTRIBUTION_FIELDS),
             ]
         )
 
