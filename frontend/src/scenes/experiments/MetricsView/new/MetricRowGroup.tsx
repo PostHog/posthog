@@ -262,6 +262,7 @@ export function MetricRowGroup({
                             metricIndex={metricIndex}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
+                            isSecondary={isSecondary}
                         />
                     </tr>
                 )
