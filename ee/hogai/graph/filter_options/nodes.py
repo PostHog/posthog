@@ -225,7 +225,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         tool_result_msg: list[LangchainToolMessage] = []
 
         try:
-            input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
+            input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input})
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
