@@ -56,15 +56,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             and not instance.has_content
             and not instance.exception
         ):
-            timeout_message = f"Export timed out after {HOGQL_INCREASED_MAX_EXECUTION_TIME} seconds"
+            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
             data["exception"] = timeout_message
-
-            logger.info(
-                "export_shown_as_timed_out",
-                export_id=instance.id,
-                created_at=instance.created_at.isoformat(),
-                timeout_seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            )
 
         return data
 
