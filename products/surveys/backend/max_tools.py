@@ -101,10 +101,7 @@ class CreateSurveyTool(MaxTool):
                 }
 
         except Exception as e:
-            # Safely get team_id and user_id for exception capture
-            team_id = self._team.id if hasattr(self, "_team") and self._team else None
-            user_id = self._user.id if hasattr(self, "_user") and self._user else None
-            capture_exception(e, {"team_id": team_id, "user_id": user_id})
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}
 
     def _get_team_survey_config(self, team: Team) -> dict[str, Any]:
