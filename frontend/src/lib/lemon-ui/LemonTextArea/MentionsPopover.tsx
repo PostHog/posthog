@@ -1,4 +1,5 @@
 import { ProfilePicture } from '@posthog/lemon-ui'
+import { cn } from 'lib/utils/css-classes'
 
 export interface MentionsPopoverProps {
     isOpen: boolean
@@ -21,27 +22,19 @@ export function MentionsPopover({
 
     return (
         <div
-            style={{
-                position: 'absolute',
-                top: position.top + 20,
-                left: position.left,
-                zIndex: 1000,
-                backgroundColor: 'white',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                maxHeight: '200px',
-                overflowY: 'auto',
-                minWidth: '200px',
-            }}
+            className={cn(
+                'absolute bg-bg-light border rounded shadow-md max-h-[200px] overflow-y-auto min-w-[200px]',
+                `top-[${position.top + 20}px] left-[${position.left}px]`
+            )}
         >
             {members.length > 0 ? (
                 members.map((member, index) => (
                     <div
                         key={member.user.uuid}
-                        className={`flex items-center gap-2 px-3 py-2 cursor-pointer ${
+                        className={cn(
+                            'flex items-center gap-2 px-3 py-2 cursor-pointer',
                             index === selectedIndex ? 'bg-blue-50' : 'hover:bg-gray-50'
-                        }`}
+                        )}
                         onClick={() => onSelect(member)}
                     >
                         <ProfilePicture user={member.user} size="sm" />
