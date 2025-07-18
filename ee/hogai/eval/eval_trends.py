@@ -349,5 +349,78 @@ Time interval: day
                     ),
                 ),
             ),
-        ],
+            EvalCase(
+                input="on hedgebox.net, what is the % of mac os x users",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Events:
+- All events
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $host
+        - property type: String
+        - operator: equals
+        - property value: hedgebox.net
+- All events
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $host
+        - property type: String
+        - operator: equals
+        - property value: hedgebox.net
+    - property filter 2:
+        - entity: event
+        - property name: $os
+        - property type: String
+        - operator: equals
+        - property value: Mac OS X
+
+Formula:
+`B/A * 100`, where `A` is total unique users on hedgebox.net and `B` is unique users on hedgebox.net with Mac OS X
+""",
+                    query=AssistantTrendsQuery(
+                        dateRange={"date_from": "-30d", "date_to": None},
+                        filterTestAccounts=True,
+                        interval="day",
+                        trendsFilter=AssistantTrendsFilter(
+                            display="BoldNumber", showLegend=True, formulas=["B/A * 100"]
+                        ),
+                        series=[
+                            AssistantTrendsEventsNode(
+                                event=None,
+                                math="dau",
+                                properties=[
+                                    {
+                                        "key": "$host",
+                                        "value": "hedgebox.net",
+                                        "operator": "icontains",
+                                        "type": "event",
+                                    },
+                                ],
+                            ),
+                            AssistantTrendsEventsNode(
+                                event=None,
+                                math="dau",
+                                properties=[
+                                    {
+                                        "key": "$host",
+                                        "value": "hedgebox.net",
+                                        "operator": "icontains",
+                                        "type": "event",
+                                    },
+                                    {
+                                        "key": "$os",
+                                        "value": "Mac OS X",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+            ),
+        ][-1:],
     )

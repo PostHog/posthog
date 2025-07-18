@@ -159,7 +159,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 )}
                 <div
                     className={cn(
-                        'flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
+                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
                         {
                             'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
                             'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',

@@ -816,6 +816,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
+    History = 'history',
 }
 
 export enum ActivityTab {
@@ -2163,6 +2164,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+    private_project_access?: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
 }
 
 export enum PluginInstallationType {
@@ -4152,6 +4154,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'twilio'
     | 'linear'
     | 'github'
     | 'meta-ads'

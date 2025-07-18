@@ -396,7 +396,7 @@ jobs:
                   sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
                   sudo ldconfig
                   cd ..
-                  uv pip install ./common/hogql_parser
+                  pip install ./common/hogql_parser
 
             - name: Set up needed files
               if: needs.changes.outputs.shouldRun == 'true'
