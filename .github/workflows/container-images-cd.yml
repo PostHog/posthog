@@ -394,7 +394,7 @@ jobs:
               uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
+                  push: false
                   tags: |
                       ghcr.io/posthog/posthog:${{ github.sha }}-mirrored,
                       posthog/posthog:${{ github.sha }}-mirrored,
