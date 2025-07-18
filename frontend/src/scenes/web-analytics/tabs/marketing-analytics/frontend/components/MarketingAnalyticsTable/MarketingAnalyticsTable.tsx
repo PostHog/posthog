@@ -1,5 +1,5 @@
-import { IconEllipsis, IconSort, IconChevronDown } from '@posthog/icons'
-import clsx from 'clsx'
+import { IconEllipsis, IconSort } from '@posthog/icons'
+import { IconArrowUp, IconArrowDown } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
@@ -73,26 +73,24 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 const menuItems = [
                     {
                         title: 'Sorting',
+                        icon: <IconSort />,
                         items: [
                             {
                                 label: 'Sort ascending',
-                                icon: <IconSort className="rotate-180" />,
+                                icon: <IconArrowUp />,
                                 onClick: () => setMarketingAnalyticsOrderBy(index, 'ASC'),
-                                active: isSortedByMyField && isAscending,
                                 disabled: isSortedByMyField && isAscending,
                             },
                             {
                                 label: 'Sort descending',
-                                icon: <IconSort />,
+                                icon: <IconArrowDown />,
                                 onClick: () => setMarketingAnalyticsOrderBy(index, 'DESC'),
-                                active: isSortedByMyField && isDescending,
                                 disabled: isSortedByMyField && isDescending,
                             },
                             ...(isSortedByMyField
                                 ? [
                                       {
                                           label: 'Clear sort',
-                                          icon: <IconSort />,
                                           onClick: () => clearMarketingAnalyticsOrderBy(),
                                       },
                                   ]
@@ -106,12 +104,11 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                         <span className="group cursor-pointer inline-flex items-center">
                             {name}
                             {isSortedByMyField ? (
-                                <IconChevronDown
-                                    className={clsx('ml-1 transition-transform', {
-                                        'rotate-180': isAscending,
-                                        'rotate-0': isDescending,
-                                    })}
-                                />
+                                isAscending ? (
+                                    <IconArrowUp className="ml-1" />
+                                ) : (
+                                    <IconArrowDown className="ml-1" />
+                                )
                             ) : (
                                 <IconEllipsis className="ml-1 opacity-0 group-hover:opacity-100" />
                             )}
