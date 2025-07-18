@@ -381,7 +381,7 @@ FROM
         raw_sessions.session_id_v7) AS sessions
 WHERE
     ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)
-LIMIT 5000\
+LIMIT 10000\
 """
         )
 
@@ -419,7 +419,7 @@ WHERE
     and(equals(events.team_id, <TEAM_ID>), greater(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))
 GROUP BY
     sessions.session_id
-LIMIT 5000\
+LIMIT 10000\
 """
         )
 
@@ -437,7 +437,7 @@ WHERE events.timestamp < today()
             """\
 SELECT
     0 AS duration
-LIMIT 5000
+LIMIT 10000
 UNION ALL
 SELECT
     events__session.`$session_duration` AS duration
@@ -455,7 +455,7 @@ FROM
         raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_3)s)), events__session.session_id_v7)
 WHERE
     and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
-LIMIT 5000\
+LIMIT 10000\
 """
         )
 
@@ -541,7 +541,7 @@ WHERE
 GROUP BY
     day_start,
     breakdown_value
-LIMIT 5000\
+LIMIT 10000\
 """
         )
 
@@ -577,7 +577,7 @@ WHERE
     and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)))
 GROUP BY
     s.session_id
-LIMIT 5000\
+LIMIT 10000\
 """
         )
 
@@ -613,6 +613,6 @@ FROM
         raw_sessions.session_id_v7) AS sessions
 WHERE
     ifNull(greaterOrEquals(sessions.`$start_timestamp`, minus(now64(6, %(hogql_val_2)s), toIntervalDay(7))), 0)
-LIMIT 5000\
+LIMIT 10000\
 """
         )
