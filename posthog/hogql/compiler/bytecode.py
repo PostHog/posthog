@@ -860,7 +860,7 @@ class BytecodeCompiler(Visitor):
                 response.extend(self._visit_hogqlx_value(attribute.value))
             response.append(Operation.DICT)
             response.append(len(node.attributes))
-            # the the call itself
+            # then the call itself
             response.extend(self.visit_field(ast.Field(chain=[tag_name])))
             response.extend([Operation.CALL_LOCAL, 1])
         else:
