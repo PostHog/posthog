@@ -323,7 +323,7 @@ projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "projec
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(
-    r"external_web_analytics",
+    r"web_analytics",
     external_web_analytics.ExternalWebAnalyticsViewSet,
     "project_external_web_analytics",
     ["project_id"],
