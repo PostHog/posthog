@@ -840,7 +840,8 @@
                 "create_hog_function_inputs",
                 "navigate",
                 "search_error_tracking_issues",
-                "experiment_results_summary"
+                "experiment_results_summary",
+                "create_survey"
             ],
             "type": "string"
         },

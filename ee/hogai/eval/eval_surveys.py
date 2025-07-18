@@ -144,7 +144,7 @@ Generated Survey Questions:
 {{/output.survey_creation_output.questions}}
 
 Evaluation Criteria for IN-APP Surveys:
-1. **Appropriate Length**: 1-3 questions maximum (1-2 preferred). More than 3 questions is unacceptable for in-app surveys.
+1. **Appropriate Length**: 1-3 questions maximum. More than 3 questions is unacceptable for in-app surveys.
 2. **Focused Purpose**: Does the survey focus on ONE key insight rather than trying to gather everything?
 3. **User Respect**: Are the questions respectful of user time and context (they're in the middle of using the product)?
 4. **No Duplicates**: Are all questions distinct and non-repetitive?

@@ -82,6 +82,7 @@ class AssistantContextualTool(StrEnum):
     NAVIGATE = "navigate"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    CREATE_SURVEY = "create_survey"
 
 
 class AssistantDateRange(BaseModel):
