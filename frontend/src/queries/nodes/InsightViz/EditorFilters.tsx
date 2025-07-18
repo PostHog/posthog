@@ -56,7 +56,7 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
-import { compareTopLevelSections } from 'scenes/insights/utils'
+import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -484,7 +484,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {
-                                        const changedLabels = compareTopLevelSections(suggestedQuery, previousQuery)
+                                        const changedLabels = compareInsightTopLevelSections(
+                                            suggestedQuery,
+                                            previousQuery
+                                        )
                                         const diffString = `🔍 ${
                                             changedLabels.length
                                         } section(s) changed: \n${changedLabels.join('\n')}`

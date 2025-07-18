@@ -105,6 +105,7 @@ Follow these guidelines when searching insights:
 """.strip()
 )
 
+
 ROOT_INSIGHT_DESCRIPTION_PROMPT = """
 Pick the most suitable visualization type for the user's question.
 

@@ -646,7 +646,7 @@ function isObject(value: any): value is Record<string, any> {
     return value !== null && typeof value === 'object'
 }
 
-export function compareTopLevelSections(obj1: any, obj2: any): string[] {
+export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     const changedLabels: string[] = []
 
     // Top-level keys (e.g. kind, source)
