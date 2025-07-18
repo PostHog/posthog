@@ -11,8 +11,7 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
@@ -232,7 +231,9 @@ export function PropertyValue({
             value={isFlagDependencyProperty ? typedValues : formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
-            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+            onChange={(nextVal) =>
+                isMultiSelect ? setValue(nextVal as PropertyFilterValue) : setValue(nextVal[0] ?? null)
+            }
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             size={size}
@@ -256,7 +257,7 @@ export function PropertyValue({
                         : "Flag is disabled or doesn't match any conditions"
                 }
 
-                const option: LemonSelectOption<boolean | string> = {
+                const option: LemonInputSelectOption<PropertyFilterValue> = {
                     key: name,
                     label: name,
                     labelComponent: (
