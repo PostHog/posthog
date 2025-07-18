@@ -29,7 +29,7 @@ class SessionSummariesSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
-        max_length=50,
+        max_length=150,
         help_text="List of session IDs to summarize (max 50)",
     )
     focus_area = serializers.CharField(
