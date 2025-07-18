@@ -1,10 +1,9 @@
+import unittest
 from datetime import datetime, UTC
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
-    EVENT_PROPERTY_TO_FIELD,
-    SESSION_PROPERTY_TO_FIELD,
     WebStatsCombinedTable,
 )
 from posthog.hogql.parser import parse_select
@@ -16,6 +15,10 @@ from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNo
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, BaseTest
 from parameterized import parameterized
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    EVENT_PROPERTY_TO_FIELD,
+    SESSION_PROPERTY_TO_FIELD,
+)
 
 
 class TestPreaggregatedTableTransformation(BaseTest):
@@ -524,7 +527,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         # Should not transform due to IS NOT NULL comparison
         assert query == self._normalize(original_query)
 
-    def test_trends_inner_query(self):
+    def test_trends_line_inner_query(self):
         # This inner query comes from the default query in Product analytics
         original_query = """
         SELECT
@@ -539,7 +542,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
 
-    def test_full_trends_query(self):
+    def test_full_trends_line_query(self):
         original_query = """
 SELECT
     arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date,
@@ -573,6 +576,35 @@ LIMIT 50000
         original_query = """
 SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-17 23:59:59')), toIntervalDay(1)))), 1))) AS date, arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> equals(x, _match_date), _days_for_count), _index), 1))), date) AS total FROM (SELECT sum(total) AS count, day_start FROM (SELECT count() AS total, toStartOfDay(timestamp) AS day_start FROM events AS e SAMPLE 1 WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 20:59:19')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2025-07-17 23:59:59'))), equals(event, '$pageview')) GROUP BY day_start) GROUP BY day_start ORDER BY day_start ASC) ORDER BY arraySum(total) DESC LIMIT 50000
             """
+        query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" in query
+
+    @unittest.expectedFailure
+    def test_trends_pie_inner_query(self):
+        # This inner query comes from the default query in Trends pie chart
+        original_query = """
+SELECT
+    count() AS total
+FROM
+    events AS e SAMPLE 1
+WHERE
+    and(equals(e.team_id, 1), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-07-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-18 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+ORDER BY
+    1 DESC
+        """
+        query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" in query
+
+    @unittest.expectedFailure
+    def test_tuple(self):
+        original_query = """
+        SELECT
+    (uniq(distinct_id), count(), sumIf(1, event = '$pageview')) AS daily_metrics,
+    toDate(timestamp) as date
+FROM events
+WHERE toDate(timestamp) >= now() - interval 1 hour
+GROUP BY date
+        """
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
 

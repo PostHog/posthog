@@ -51,28 +51,6 @@ SHARED_SCHEMA_FIELDS = {
 }
 
 
-EVENT_PROPERTY_TO_FIELD = {
-    "$browser": "browser",
-    "$os": "os",
-    "$viewport_width": "viewport_width",
-    "$viewport_height": "viewport_height",
-    "$geoip_country_code": "country_code",
-    "$geoip_city_name": "city_name",
-    "$geoip_subdivision_1_code": "region_code",
-    "$geoip_subdivision_1_name": "region_name",
-    "utm_source": "utm_source",
-    "utm_medium": "utm_medium",
-    "utm_campaign": "utm_campaign",
-    "utm_term": "utm_term",
-    "utm_content": "utm_content",
-    "$referring_domain": "referring_domain",
-}
-
-SESSION_PROPERTY_TO_FIELD = {
-    "$entry_pathname": "entry_pathname",
-    "$end_pathname": "end_pathname",
-}
-
 # Web stats daily specific fields
 WEB_STATS_SPECIFIC_FIELDS = {
     "pathname": StringDatabaseField(name="pathname", nullable=True),
