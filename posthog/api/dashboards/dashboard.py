@@ -497,7 +497,7 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
             if variables_override is not None:
                 return self.override_variables(variables_override, list(self.context["insight_variables"]))
 
-        return self.override_variables(dashboard.variables, list(self.context["all_variables"]))
+        return self.override_variables(dashboard.variables, list(self.context["insight_variables"]))
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
@@ -526,7 +526,7 @@ class DashboardsViewSet(
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["all_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context
 
