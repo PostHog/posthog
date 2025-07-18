@@ -108,8 +108,10 @@ from posthog.models.raw_sessions.sql import (
     RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.models.web_preaggregated.sql import (
+    WEB_BOUNCES_HOURLY_SQL,
     WEB_STATS_HOURLY_SQL,
     WEB_STATS_DAILY_SQL,
+    WEB_BOUNCES_DAILY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
