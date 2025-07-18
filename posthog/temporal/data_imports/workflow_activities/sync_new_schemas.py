@@ -15,7 +15,7 @@ from posthog.temporal.data_imports.pipelines.mssql import MSSQLSourceConfig, get
 from posthog.temporal.data_imports.pipelines.mysql import MySQLSourceConfig, get_schemas as get_mysql_schemas
 from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, get_schemas as get_mongo_schemas
 from posthog.temporal.data_imports.pipelines.postgres import get_schemas as get_postgres_schemas
-from posthog.temporal.data_imports.sources import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )

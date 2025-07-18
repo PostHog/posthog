@@ -3,7 +3,7 @@ from __future__ import annotations
 import collections
 import math
 from collections.abc import Iterator
-from typing import Any, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
@@ -24,11 +24,13 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources import PostgresSourceConfig
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+if TYPE_CHECKING:
+    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 
 
 def get_schemas(config: PostgresSourceConfig) -> dict[str, list[tuple[str, str]]]:

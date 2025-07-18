@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -7,16 +8,20 @@ from posthog.temporal.data_imports.pipelines.postgres.postgres import (
     get_schemas as get_postgres_schemas,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources import PostgresSourceConfig
-from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.models.external_data_schema import filter_postgres_incremental_fields
+from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from posthog.warehouse.sql_schemas import filter_postgres_incremental_fields
 from posthog.warehouse.types import IncrementalField
+
+if TYPE_CHECKING:
+    from posthog.warehouse.models import ExternalDataSource
 
 
 @SourceRegistry.register
 class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin):
     @property
-    def source_type(self) -> ExternalDataSource.Type:
+    def source_type(self) -> "ExternalDataSource.Type":
+        from posthog.warehouse.models import ExternalDataSource
+
         return ExternalDataSource.Type.POSTGRES
 
     def get_schemas(self, config: PostgresSourceConfig) -> list[SourceSchema]:

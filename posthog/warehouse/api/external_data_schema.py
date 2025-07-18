@@ -37,7 +37,7 @@ from posthog.temporal.data_imports.pipelines.mysql import (
 from posthog.temporal.data_imports.pipelines.postgres import (
     get_schemas as get_postgres_schemas,
 )
-from posthog.temporal.data_imports.sources import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.pipelines.mongo import (
     MongoSourceConfig,
     get_schemas as get_mongo_schemas,
@@ -60,12 +60,14 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
+)
+from posthog.warehouse.sql_schemas import (
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    sync_frequency_interval_to_sync_frequency,
-    sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.types import IncrementalField

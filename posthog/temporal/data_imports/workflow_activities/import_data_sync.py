@@ -234,7 +234,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
-            from posthog.temporal.data_imports.sources import PostgresSourceConfig
+            from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
             from posthog.temporal.data_imports.pipelines.postgres import (
                 postgres_source,
             )

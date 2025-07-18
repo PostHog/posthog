@@ -82,13 +82,13 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from posthog.warehouse.models.external_data_schema import (
+from posthog.warehouse.sql_schemas import (
+    get_sql_schemas_for_source_type,
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
     get_postgres_row_count,
-    get_sql_schemas_for_source_type,
 )
 from posthog.temporal.data_imports.pipelines.mongo import (
     MongoSourceConfig,

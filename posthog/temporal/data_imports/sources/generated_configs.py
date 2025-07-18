@@ -104,8 +104,8 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    using_ssl: Literal["1", "0"] = "1"
     ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")
+    using_ssl: Literal["1", "0"] = "1"
 
 
 @config.config
@@ -115,9 +115,9 @@ class PostgresSourceConfig(config.Config):
     user: str
     password: str
     schema: str
-    connection_string: str | None = None
     port: int = config.value(converter=int)
     ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")
+    connection_string: str | None = None
 
 
 @config.config
@@ -175,27 +175,28 @@ class ZendeskSourceConfig(config.Config):
     email_address: str
 
 
-SOURCE_CONFIG_MAPPING = {
-    ExternalDataSource.Type.BIGQUERY: BigQuerySourceConfig,
-    ExternalDataSource.Type.BRAZE: BrazeSourceConfig,
-    ExternalDataSource.Type.CHARGEBEE: ChargebeeSourceConfig,
-    ExternalDataSource.Type.DOIT: DoItSourceConfig,
-    ExternalDataSource.Type.GOOGLEADS: GoogleAdsSourceConfig,
-    ExternalDataSource.Type.GOOGLESHEETS: GoogleSheetsSourceConfig,
-    ExternalDataSource.Type.HUBSPOT: HubspotSourceConfig,
-    ExternalDataSource.Type.KLAVIYO: KlaviyoSourceConfig,
-    ExternalDataSource.Type.MSSQL: MSSQLSourceConfig,
-    ExternalDataSource.Type.MAILCHIMP: MailchimpSourceConfig,
-    ExternalDataSource.Type.MAILJET: MailjetSourceConfig,
-    ExternalDataSource.Type.METAADS: MetaAdsSourceConfig,
-    ExternalDataSource.Type.MONGODB: MongoDBSourceConfig,
-    ExternalDataSource.Type.MYSQL: MySQLSourceConfig,
-    ExternalDataSource.Type.POSTGRES: PostgresSourceConfig,
-    ExternalDataSource.Type.REDSHIFT: RedshiftSourceConfig,
-    ExternalDataSource.Type.SALESFORCE: SalesforceSourceConfig,
-    ExternalDataSource.Type.SNOWFLAKE: SnowflakeSourceConfig,
-    ExternalDataSource.Type.STRIPE: StripeSourceConfig,
-    ExternalDataSource.Type.TEMPORALIO: TemporalIOSourceConfig,
-    ExternalDataSource.Type.VITALLY: VitallySourceConfig,
-    ExternalDataSource.Type.ZENDESK: ZendeskSourceConfig,
-}
+def get_config_for_source(source: "ExternalDataSource.Type"):
+    return {
+        ExternalDataSource.Type.BIGQUERY: BigQuerySourceConfig,
+        ExternalDataSource.Type.BRAZE: BrazeSourceConfig,
+        ExternalDataSource.Type.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSource.Type.DOIT: DoItSourceConfig,
+        ExternalDataSource.Type.GOOGLEADS: GoogleAdsSourceConfig,
+        ExternalDataSource.Type.GOOGLESHEETS: GoogleSheetsSourceConfig,
+        ExternalDataSource.Type.HUBSPOT: HubspotSourceConfig,
+        ExternalDataSource.Type.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSource.Type.MSSQL: MSSQLSourceConfig,
+        ExternalDataSource.Type.MAILCHIMP: MailchimpSourceConfig,
+        ExternalDataSource.Type.MAILJET: MailjetSourceConfig,
+        ExternalDataSource.Type.METAADS: MetaAdsSourceConfig,
+        ExternalDataSource.Type.MONGODB: MongoDBSourceConfig,
+        ExternalDataSource.Type.MYSQL: MySQLSourceConfig,
+        ExternalDataSource.Type.POSTGRES: PostgresSourceConfig,
+        ExternalDataSource.Type.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSource.Type.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSource.Type.SNOWFLAKE: SnowflakeSourceConfig,
+        ExternalDataSource.Type.STRIPE: StripeSourceConfig,
+        ExternalDataSource.Type.TEMPORALIO: TemporalIOSourceConfig,
+        ExternalDataSource.Type.VITALLY: VitallySourceConfig,
+        ExternalDataSource.Type.ZENDESK: ZendeskSourceConfig,
+    }[source]

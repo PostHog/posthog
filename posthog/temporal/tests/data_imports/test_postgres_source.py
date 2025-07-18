@@ -17,7 +17,7 @@ from psycopg.rows import TupleRow
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.temporal.data_imports.sources import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
