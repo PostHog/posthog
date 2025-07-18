@@ -12,6 +12,7 @@ import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/compone
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
@@ -255,7 +256,7 @@ export function PropertyValue({
                         : "Flag is disabled or doesn't match any conditions"
                 }
 
-                const option: any = {
+                const option: LemonSelectOption<boolean | string> = {
                     key: name,
                     label: name,
                     labelComponent: (
