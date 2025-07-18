@@ -1,5 +1,4 @@
-import { LemonTagType } from '@posthog/lemon-ui'
-import { PaginationManual } from '@posthog/lemon-ui'
+import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -37,6 +36,7 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     status: 'all',
     created_by_id: undefined,
     page: 1,
+    order: undefined,
 }
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
