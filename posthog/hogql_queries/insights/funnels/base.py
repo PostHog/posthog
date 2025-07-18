@@ -131,9 +131,7 @@ class FunnelBase(ABC):
                     and getattr(i, "optionalInFunnel", True)
                     and not getattr(j, "optionalInFunnel", False)
                 ):
-                    raise ValidationError(
-                        "An optional step cannot be the same as the immediately preceding required step."
-                    )
+                    raise ValidationError("An optional step cannot be the same as the following required step.")
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()

@@ -195,7 +195,6 @@ export function ActionFilterRow({
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
     const { insightProps } = useValues(insightLogic)
-    // const { isTrends, interval, trendsFilter } = useValues(funnelDataLogic(insightProps))
     const { isStepOptional } = useValues(funnelDataLogic(insightProps))
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
