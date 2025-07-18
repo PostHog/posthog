@@ -235,7 +235,7 @@ class TestOrganizationInvite(BaseTest):
         invite = OrganizationInvite.objects.create(
             organization=self.organization,
             target_email="no_access@posthog.com",
-            private_project_access=None,  # Empty list
+            private_project_access=None,
         )
 
         # Use the invite
