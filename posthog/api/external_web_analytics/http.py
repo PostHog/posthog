@@ -12,6 +12,7 @@ from posthog.api.utils import action
 from posthog.models.user import User
 
 from posthog.auth import SessionAuthentication, PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import get_web_analytics_api_rate_limiter
 
 from .serializers import (
     WebAnalyticsOverviewRequestSerializer,
@@ -70,19 +71,23 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     def summary(self, request: Request, **kwargs) -> Response:
         data = self.get_model(request.data, WebAnalyticsExternalSummaryRequest)
 
-        query = WebAnalyticsExternalSummaryQuery(
-            kind="WebAnalyticsExternalSummaryQuery",
-            dateRange=DateRange(date_from=data.date_from, date_to=data.date_to, explicitDate=data.explicit_date),
-            properties=[],
-        )
+        with get_web_analytics_api_rate_limiter().run(
+            team_id=self.team.pk,
+            task_id=f"web_analytics_summary_{self.team.pk}",
+        ):
+            query = WebAnalyticsExternalSummaryQuery(
+                kind="WebAnalyticsExternalSummaryQuery",
+                dateRange=DateRange(date_from=data.date_from, date_to=data.date_to, explicitDate=data.explicit_date),
+                properties=[],
+            )
 
-        query_runner = WebAnalyticsExternalSummaryQueryRunner(
-            query=query,
-            team=self.team,
-        )
+            query_runner = WebAnalyticsExternalSummaryQueryRunner(
+                query=query,
+                team=self.team,
+            )
 
-        result = query_runner.calculate()
-        return Response(result.model_dump())
+            result = query_runner.calculate()
+            return Response(result.model_dump())
 
     @extend_schema(
         parameters=[WebAnalyticsOverviewRequestSerializer],
@@ -96,9 +101,13 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsOverviewRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-        data = adapter.get_overview_data(serializer)
-        return Response(data)
+        with get_web_analytics_api_rate_limiter().run(
+            team_id=self.team.pk,
+            task_id=f"web_analytics_overview_{self.team.pk}",
+        ):
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            data = adapter.get_overview_data(serializer)
+            return Response(data)
 
     @extend_schema(
         parameters=[WebAnalyticsTrendRequestSerializer],
@@ -112,8 +121,14 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsTrendRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_trends_data(serializer.validated_data, request=request, team_id=self.team_id)
-        return Response(mock_data)
+        with get_web_analytics_api_rate_limiter().run(
+            team_id=self.team.pk,
+            task_id=f"web_analytics_trend_{self.team.pk}",
+        ):
+            mock_data = self.factory.generate_trends_data(
+                serializer.validated_data, request=request, team_id=self.team_id
+            )
+            return Response(mock_data)
 
     @extend_schema(
         parameters=[WebAnalyticsBreakdownRequestSerializer],
@@ -127,6 +142,10 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsBreakdownRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-        data = adapter.get_breakdown_data(serializer)
-        return Response(data)
+        with get_web_analytics_api_rate_limiter().run(
+            team_id=self.team.pk,
+            task_id=f"web_analytics_breakdown_{self.team.pk}",
+        ):
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            data = adapter.get_breakdown_data(serializer)
+            return Response(data)
