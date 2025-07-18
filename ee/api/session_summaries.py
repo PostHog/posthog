@@ -103,7 +103,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def _find_sessions_timestamps(self, session_ids: list[str]) -> tuple[datetime, datetime]:
         """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
         replay_events = SessionReplayEvents()
-        # TODO: Decide if to just check they exist and expect timestamps from the FE (to speed up queries)
         sessions_found, min_timestamp, max_timestamp = replay_events.sessions_found_with_timestamps(
             session_ids, self.team
         )
