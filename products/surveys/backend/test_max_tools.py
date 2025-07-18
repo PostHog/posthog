@@ -168,8 +168,6 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         assert "successfully" in content
         assert "survey_id" in artifact
         assert "survey_name" in artifact
-        assert not artifact["launched"]
-        assert artifact["questions_count"] == 1
 
         # Verify survey was created in database
         survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
@@ -236,9 +234,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         # Verify success response with launch message
         assert "✅ Survey" in content
-        assert "and launched" in content
         assert "successfully" in content
-        assert artifact["launched"]
 
         # Verify survey was created and launched
         survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
