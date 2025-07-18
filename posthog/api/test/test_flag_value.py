@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Team, Organization
 from posthog.test.base import APIBaseTest
 
 
@@ -77,7 +77,6 @@ class TestFlagValueViewSet(APIBaseTest):
     def test_flag_values_flag_from_different_team(self):
         """Test that flag from different team returns 404."""
         # Create a different team and flag
-        from posthog.models import Team, Organization
 
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
