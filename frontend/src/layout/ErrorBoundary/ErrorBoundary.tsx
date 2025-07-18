@@ -58,3 +58,23 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
         </PostHogErrorBoundary>
     )
 }
+
+export function LightErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const additionalProperties = { ...exceptionProps }
+    if (currentTeamId !== undefined) {
+        additionalProperties.team_id = currentTeamId
+    }
+    return (
+        <PostHogErrorBoundary
+            additionalProperties={additionalProperties}
+            fallback={({ error: { stack, name, message } }: { error: Error }) => (
+                <div className={clsx('text-danger', className)}>
+                    {stack || (name || message ? `${name}: ${message}` : 'Error')}
+                </div>
+            )}
+        >
+            {children}
+        </PostHogErrorBoundary>
+    )
+}

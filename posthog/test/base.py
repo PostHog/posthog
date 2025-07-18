@@ -1,4 +1,5 @@
 import inspect
+import math
 import re
 import resource
 import threading
@@ -1344,3 +1345,20 @@ def create_person_id_override_by_distinct_id(
         VALUES ({team_id}, '{distinct_id_from}', '{person_id_to}', {version})
     """
     )
+
+
+class NaNMatcher:
+    def __eq__(self, other):
+        try:
+            return math.isnan(other)
+        except (TypeError, ValueError):
+            return False
+
+    def __repr__(self):
+        return "<NaN>"
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+
+NaN = NaNMatcher()

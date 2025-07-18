@@ -6,7 +6,7 @@ import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPVi
 import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
 
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
@@ -72,16 +72,16 @@ export function renderHogQLX(value: any): JSX.Element {
         if (!tag) {
             return <JSONViewer src={rest} name={null} collapsed={Object.keys(rest).length > 10 ? 0 : 1} />
         } else if (tag === 'Sparkline') {
-            const { data, type, ...props } = rest
+            const { data, children, type, ...props } = rest
             return (
-                <ErrorBoundary>
-                    <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
-                </ErrorBoundary>
+                <LightErrorBoundary>
+                    <Sparkline className="h-8" {...props} data={data ?? children ?? []} type={type} />
+                </LightErrorBoundary>
             )
         } else if (tag === 'ExplainCSPReport') {
             const { properties } = rest
             return (
-                <ErrorBoundary>
+                <LightErrorBoundary>
                     <ExplainCSPViolationButton
                         properties={properties}
                         label="Explain this CSP violation"
@@ -96,12 +96,12 @@ export function renderHogQLX(value: any): JSX.Element {
                                 : 'Properties of a $csp_violation event must be provided when asking for an explanation of one'
                         }
                     />
-                </ErrorBoundary>
+                </LightErrorBoundary>
             )
         } else if (tag === 'RecordingButton') {
             const { sessionId, recordingStatus } = rest
             return (
-                <ErrorBoundary>
+                <LightErrorBoundary>
                     <ViewRecordingButton
                         inModal
                         sessionId={sessionId}
@@ -111,26 +111,26 @@ export function renderHogQLX(value: any): JSX.Element {
                         data-attr="hog-ql-view-recording-button"
                         className="inline-block"
                     />
-                </ErrorBoundary>
+                </LightErrorBoundary>
             )
         } else if (tag === 'a') {
             const { href, children, source, target } = rest
             return (
-                <ErrorBoundary>
+                <LightErrorBoundary>
                     <Link to={href} target={target ?? undefined}>
                         {children ?? source ? renderHogQLX(children ?? source) : href}
                     </Link>
-                </ErrorBoundary>
+                </LightErrorBoundary>
             )
         } else if (tag === 'blink' || tag === 'marquee' || tag === 'redacted') {
             const { children, source } = rest
             const renderedChildren = children ?? source ? renderHogQLX(children ?? source) : ''
             return (
-                <ErrorBoundary>
+                <LightErrorBoundary>
                     <span className={`hogqlx-${tag}`}>
                         {tag === 'marquee' ? <span>{renderedChildren}</span> : renderedChildren}
                     </span>
-                </ErrorBoundary>
+                </LightErrorBoundary>
             )
         } else if (HOGQLX_TAGS_NO_ATTRIBUTES.includes(tag)) {
             const { children, source, key } = rest
@@ -139,7 +139,7 @@ export function renderHogQLX(value: any): JSX.Element {
                 { key: key ?? undefined },
                 children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
             )
-            return <ErrorBoundary>{element}</ErrorBoundary>
+            return <LightErrorBoundary>{element}</LightErrorBoundary>
         }
         return <div>Unknown tag: {String(tag)}</div>
     }
