@@ -125,6 +125,11 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
+
+        if not self.private_project_access:
+            # If the invite doesn't have private project access, we can return early
+            return
+
         for item in self.private_project_access:
             try:
                 team: Team = self.organization.teams.get(id=item["id"])
