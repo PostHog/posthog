@@ -58,6 +58,8 @@ fi
 # Use minimal config if --minimal flag is passed
 if [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
+elif [[ "$*" == *"--vite"* ]]; then
+    exec mprocs --config bin/mprocs-vite.yaml
 else
     exec mprocs --config bin/mprocs.yaml
 fi
