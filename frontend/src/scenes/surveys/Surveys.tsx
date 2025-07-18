@@ -35,6 +35,7 @@ import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
+import { SurveyResponseLimitWidget } from './SurveyResponseLimitWidget'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -134,6 +135,7 @@ export function Surveys(): JSX.Element {
 
             {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
+                    <SurveyResponseLimitWidget />
                     <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
                     </div>

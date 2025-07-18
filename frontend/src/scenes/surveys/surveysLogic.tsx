@@ -15,6 +15,7 @@ import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLog
 import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -99,8 +100,15 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['loadCurrentTeam']],
+        values: [
+            userLogic,
+            ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            billingLogic,
+            ['billing'],
+        ],
+        actions: [teamLogic, ['loadCurrentTeam'], billingLogic, ['loadBilling']],
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -368,5 +376,6 @@ export const surveysLogic = kea<surveysLogicType>([
     afterMount(({ actions }) => {
         actions.loadSurveys()
         actions.loadResponsesCount()
+        actions.loadBilling()
     }),
 ])
