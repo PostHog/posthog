@@ -629,7 +629,7 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
         assert response.results == [(1, 1)]
 
     def test_complex_hogql_select(self):
-        """Test that trends queries are handled correctly."""
+        """Test that complex HogQL queries are handled correctly."""
         # add a pageview to the combined table, so that we can be sure we are fetching the correct table
         self._insert_stats_row()
 
