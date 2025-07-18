@@ -477,10 +477,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {
                                         const changedLabels = compareTopLevelSections(suggestedQuery, previousQuery)
-                                        let diffString = `🔍 ${changedLabels.length} section(s) changed: \n`
-                                        changedLabels.forEach((label) => {
-                                            diffString += `${label}\n`
-                                        })
+                                        const diffString = `🔍 ${
+                                            changedLabels.length
+                                        } section(s) changed: \n${changedLabels.join('\n')}`
 
                                         return (
                                             <div className="flex items-center gap-1">
