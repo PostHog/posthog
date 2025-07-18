@@ -229,7 +229,7 @@ class ExternalWebAnalyticsQueryAdapter:
         column_indices = {col: i for i, col in enumerate(response.columns)}
 
         transformed_results = [
-            self._transform_breakdown_row(row, column_indices, supported_metrics, requested_metrics)
+            self._transform_breakdown_row(row, column_indices, supported_metrics, requested_metrics or [])
             for row in response.results
         ]
 
