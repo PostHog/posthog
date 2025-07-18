@@ -37,10 +37,6 @@ def seconds_until_midnight():
 
 
 class SessionReplayEvents:
-    @staticmethod
-    def _get_cache_key(self, session_id: str, team: Team) -> str:
-        return f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
-
     def exists(self, session_id: str, team: Team) -> bool:
         cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
         cached_response = cache.get(cache_key)
@@ -90,6 +86,8 @@ class SessionReplayEvents:
             return set(), None, None
         # Check sessions within TTL
         found_sessions = self._find_within_days_with_timestamps(ttl_days(team), session_ids, team)
+        if not found_sessions:
+            return set(), None, None
         # Calculate min/max timestamps for the entire list of sessions and return
         sessions_found = {session_id for session_id, _, _ in found_sessions}
         min_timestamp = min(min_timestamp for _, min_timestamp, _ in found_sessions)
