@@ -128,7 +128,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         onReapplySuggestedInsight: true,
         setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
         setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
-        setHasRejected: (hasRejected: boolean) => ({ hasRejected }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -314,14 +313,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             null as Node | null,
             {
                 setPreviousQuery: (_, { previousQuery }) => previousQuery,
-                // setHasRejected: () => null,
             },
         ],
         suggestedQuery: [
             null as Node | null,
             {
                 setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
-                setQuery: (_, { query }) => query,
             },
         ],
         hasRejected: [
@@ -330,7 +327,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 onRejectSuggestedInsight: () => true,
                 onReapplySuggestedInsight: () => false,
                 handleInsightSuggested: () => false,
-                setHasRejected: (_, { hasRejected }) => hasRejected,
             },
         ],
     })),
