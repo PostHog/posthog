@@ -14,6 +14,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from dateutil.rrule import rrule, DAILY
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
+from django_deprecate_fields import deprecate_field
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -223,6 +224,15 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+    # Use the survey_type instead. If it's external_survey, it's publicly shareable.
+    is_publicly_shareable = deprecate_field(
+        models.BooleanField(
+            null=True,
+            blank=True,
+            help_text="Allow this survey to be accessed via public URL (https://app.posthog.com/surveys/[survey_id]) without authentication",
+        ),
+    )
+
     actions = models.ManyToManyField(Action)
 
     @classmethod
