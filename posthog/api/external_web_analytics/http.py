@@ -23,13 +23,6 @@ from .serializers import (
     WebAnalyticsBreakdownResponseSerializer,
 )
 
-from posthog.hogql_queries.web_analytics.external.summary_query_runner import WebAnalyticsExternalSummaryQueryRunner
-from posthog.schema import (
-    WebAnalyticsExternalSummaryQuery,
-    WebAnalyticsExternalSummaryRequest,
-    WebAnalyticsExternalSummaryQueryResponse,
-    DateRange,
-)
 from .data import WebAnalyticsDataFactory
 from .query_adapter import ExternalWebAnalyticsQueryAdapter
 
@@ -65,30 +58,6 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
 
         if not available:
             raise PermissionDenied("External web analytics is not available for this user - please contact support.")
-
-    @extend_schema(
-        request=WebAnalyticsExternalSummaryRequest,
-        responses={200: WebAnalyticsExternalSummaryQueryResponse},
-        description="Get an overview of web analytics data.",
-        exclude=True,
-    )
-    @action(methods=["POST"], detail=False)
-    def summary(self, request: Request, **kwargs) -> Response:
-        data = self.get_model(request.data, WebAnalyticsExternalSummaryRequest)
-
-        query = WebAnalyticsExternalSummaryQuery(
-            kind="WebAnalyticsExternalSummaryQuery",
-            dateRange=DateRange(date_from=data.date_from, date_to=data.date_to, explicitDate=data.explicit_date),
-            properties=[],
-        )
-
-        query_runner = WebAnalyticsExternalSummaryQueryRunner(
-            query=query,
-            team=self.team,
-        )
-
-        result = query_runner.calculate()
-        return Response(result.model_dump())
 
     @extend_schema(
         parameters=[WebAnalyticsOverviewRequestSerializer],
