@@ -347,8 +347,8 @@ def render_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
-        # Add vite dev scripts for development
-        if not settings.E2E_TESTING:
+        # Add vite dev scripts for development only when explicitly using Vite
+        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
             context["vite_dev_scripts"] = """
     <script type="module">
         import RefreshRuntime from 'http://localhost:8234/@react-refresh'
