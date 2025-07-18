@@ -15,6 +15,14 @@ export default defineConfig(({ command }) => {
             // toolbarDenylistPlugin(),
             // Only use HTML generation plugin for production builds
             ...(isDev ? [] : [htmlGenerationPlugin()]),
+            {
+                name: 'startup-message',
+                configureServer(server) {
+                    server.httpServer?.once('listening', () => {
+                        setTimeout(() => {}, 100)
+                    })
+                },
+            },
         ],
         resolve: {
             alias: {
