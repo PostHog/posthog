@@ -9,6 +9,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     EnrichedSessionGroupSummaryPattern,
     PatternAssignedEventSegmentContext,
 )
+import uuid
 
 # Type aliases for TipTap editor nodes
 TipTapNode = dict[str, Any]
@@ -118,8 +119,6 @@ def _create_paragraph_with_text(text: str, marks: list[dict[str, Any]] | None = 
 
 def _create_heading_with_text(text: str, level: int) -> TipTapNode:
     """Create a heading node with sanitized text content."""
-    import uuid
-
     heading_id = str(uuid.uuid4())
     return {
         "type": "heading",
