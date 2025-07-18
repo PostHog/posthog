@@ -391,7 +391,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.setElapsedTime(performance.now() - now)
                         return {
                             ...newResponse,
-                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            results: [
+                                ...((values.response as HogQLQueryResponse)?.results ?? []),
+                                ...(newResponse?.results ?? []),
+                            ],
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (
