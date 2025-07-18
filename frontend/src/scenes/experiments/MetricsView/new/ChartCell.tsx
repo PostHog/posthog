@@ -22,6 +22,7 @@ interface ChartCellProps {
     showGridLines?: boolean
     isAlternatingRow?: boolean
     isLastRow?: boolean
+    isSecondary?: boolean
 }
 
 export function ChartCell({
@@ -31,6 +32,7 @@ export function ChartCell({
     showGridLines = true,
     isAlternatingRow = false,
     isLastRow = false,
+    isSecondary = false,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -97,14 +99,18 @@ export function ChartCell({
                         <ChartGradients
                             lower={lower}
                             upper={upper}
-                            gradientId={`gradient-${metricIndex}-${variantResult.key}`}
+                            gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                variantResult.key
+                            }`}
                         />
 
                         {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
                         {isBayesianResult(variantResult) ? (
                             <path
                                 d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
+                                fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    variantResult.key
+                                })`}
                                 opacity={CHART_BAR_OPACITY}
                             />
                         ) : (
@@ -113,7 +119,9 @@ export function ChartCell({
                                 y={y}
                                 width={x2 - x1}
                                 height={barHeightPercent}
-                                fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
+                                fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                    variantResult.key
+                                })`}
                                 opacity={CHART_BAR_OPACITY}
                                 rx={3}
                                 ry={3}

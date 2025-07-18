@@ -47,7 +47,7 @@ def stripe_source(
 ):
     def get_rows():
         client = StripeClient(
-            api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=3
+            api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=5
         )
         default_params = {"limit": DEFAULT_LIMIT}
         resources: dict[str, StripeResource] = {

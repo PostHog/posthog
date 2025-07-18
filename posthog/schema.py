@@ -1552,6 +1552,7 @@ class IntegrationKind(StrEnum):
     SNAPCHAT = "snapchat"
     INTERCOM = "intercom"
     EMAIL = "email"
+    TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
     META_ADS = "meta-ads"
