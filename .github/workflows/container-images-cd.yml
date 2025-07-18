@@ -76,12 +76,12 @@ jobs:
             - name: Cache Docker layers
               uses: actions/cache@v4
               with:
-                  path: /tmp/.buildx-cache
+                  path: /mnt/buildkit-cache
                   key: ${{ runner.os }}-buildx-${{ github.sha }}
                   restore-keys: |
                       ${{ runner.os }}-buildx-
 
-            - name: Build container image (local only)
+            - name: Build container image
               id: build_mirrored
               uses: docker/build-push-action@v5
               with:
@@ -90,10 +90,5 @@ jobs:
                       ghcr.io/posthog/posthog:${{ github.sha }}-mirrored
                   platforms: linux/arm64
                   build-args: COMMIT_HASH=${{ github.sha }}
-                  cache-from: type=local,src=/tmp/.buildx-cache
-                  cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-            - name: Move updated cache into place
-              run: |
-                  rm -rf /tmp/.buildx-cache
-                  mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+                  cache-from: type=local,src=/mnt/buildkit-cache
+                  cache-to: type=local,dest=/mnt/buildkit-cache,mode=max
