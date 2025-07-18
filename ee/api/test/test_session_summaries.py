@@ -1,15 +1,10 @@
 import os
 from datetime import datetime
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional
 from unittest.mock import patch, MagicMock, Mock
 
+from django.http import HttpResponse
 from posthog.test.base import APIBaseTest
-
-if TYPE_CHECKING:
-    from django.test.client import _MonkeyPatchedWSGIResponse as TestResponse
-else:
-    # Avoid using Any as a class at runtime to prevent pytest warnings
-    TestResponse = type("TestResponse", (), {})
 
 
 class TestSessionSummariesAPI(APIBaseTest):
@@ -32,7 +27,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_instance.sessions_found_with_timestamps.return_value = return_value
         return mock_instance
 
-    def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> "TestResponse":
+    def _make_api_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> HttpResponse:
         """Helper to make API requests with consistent formatting."""
         payload: dict[str, Any] = {"session_ids": session_ids}
         if focus_area is not None:
