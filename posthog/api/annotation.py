@@ -37,6 +37,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "scope",
             "recording_id",
             "is_emoji",
+            "tagged_users",
         ]
         read_only_fields = [
             "id",
@@ -63,6 +64,19 @@ class AnnotationSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("When is_emoji is True, content must be a single emoji")
         elif is_emoji and not content:
             raise serializers.ValidationError("When is_emoji is True, content cannot be empty")
+
+        if attrs.get("tagged_users", []):
+            """
+            Each tagged user should be in the content
+            If they're not we can simply remove them,
+            it doesn't need to be rejected
+            """
+            validated_tagged_users = []
+            for tagged_user in attrs.get("tagged_users", []):
+                if tagged_user in content:
+                    validated_tagged_users.append(tagged_user)
+
+            attrs["tagged_users"] = validated_tagged_users
 
         return attrs
 

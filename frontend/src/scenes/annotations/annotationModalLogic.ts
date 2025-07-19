@@ -10,6 +10,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, DashboardBasicType, QueryBasedInsightModel } from '~/types'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { extractMentionedUsers } from './annotationMentionUtils'
 
 import type { annotationModalLogicType } from './annotationModalLogicType'
 
@@ -47,7 +49,16 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             annotationsModel,
             ['loadAnnotationsSuccess', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
         ],
-        values: [annotationsModel, ['annotations', 'annotationsLoading'], teamLogic, ['timezone'], userLogic, ['user']],
+        values: [
+            annotationsModel,
+            ['annotations', 'annotationsLoading'],
+            teamLogic,
+            ['timezone'],
+            userLogic,
+            ['user'],
+            membersLogic,
+            ['meFirstMembers'],
+        ],
     })),
     actions({
         openModalToCreateAnnotation: (
@@ -156,6 +167,9 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             submit: async (data) => {
                 const { dateMarker, content, scope, dashboardItemId, dashboardId } = data
 
+                // Extract tagged users from content
+                const taggedUsers = content ? extractMentionedUsers(content, values.meFirstMembers) : []
+
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
                     const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
@@ -166,6 +180,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_item: dashboardItemId,
                         // preserve existing dashboard id
                         dashboard_id: values.existingModalAnnotation.dashboard_id,
+                        tagged_users: taggedUsers,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
@@ -176,6 +191,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         scope,
                         dashboard_item: dashboardItemId,
                         dashboard_id: dashboardId,
+                        tagged_users: taggedUsers,
                     })
                     actions.appendAnnotations([createdAnnotation])
                 }

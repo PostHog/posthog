@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from zoneinfo import ZoneInfo
@@ -19,19 +20,48 @@ from posthog.test.base import (
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation(self, mock_capture: MagicMock) -> None:
-        Annotation.objects.create(
+        created_annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
             created_at="2020-01-04T12:00:00Z",
             content="hello world!",
+            tagged_users=["tomato"],
         )
 
         # Annotation creation is not reported to PostHog because it has no created_by!
         mock_capture.assert_not_called()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
-        assert len(response["results"]) == 1
-        assert response["results"][0]["content"] == "hello world!"
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "count": 1,
+            "next": None,
+            "previous": None,
+            "results": [
+                {
+                    "content": "hello world!",
+                    "created_at": "2020-01-04T12:00:00Z",
+                    "created_by": None,
+                    "creation_type": "USR",
+                    "dashboard_id": None,
+                    "dashboard_item": None,
+                    "dashboard_name": None,
+                    "date_marker": None,
+                    "deleted": False,
+                    "id": created_annotation.id,
+                    "insight_derived_name": None,
+                    "insight_name": None,
+                    "insight_short_id": None,
+                    "is_emoji": False,
+                    "recording_id": None,
+                    "scope": "dashboard_item",
+                    "tagged_users": [
+                        "tomato",
+                    ],
+                    "updated_at": mock.ANY,
+                }
+            ],
+        }
 
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
@@ -602,3 +632,118 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json()["detail"] == error
+
+    @parameterized.expand(
+        [
+            (
+                "Valid tagged users in content",
+                "Hey @paul luke, can you check @foobarbaz about this issue?",
+                ["paul luke", "foobarbaz"],
+                ["paul luke", "foobarbaz"],
+            ),
+            (
+                "Some tagged users not in content",
+                "Hey @paul luke, can you check this?",
+                ["paul luke", "foobarbaz", "missing user"],
+                ["paul luke"],
+            ),
+            (
+                "No tagged users in content",
+                "This is a plain annotation without any tags",
+                ["paul luke", "foobarbaz"],
+                [],
+            ),
+            (
+                "Empty tagged users list",
+                "This is a plain annotation",
+                [],
+                [],
+            ),
+            (
+                "Tagged users with special characters",
+                "Check with @user-name and @user_with_underscore",
+                ["user-name", "user_with_underscore", "not-in-content"],
+                ["user-name", "user_with_underscore"],
+            ),
+            (
+                "Partial name matches should not work",
+                "Hey @paul, can you check this?",
+                ["paul luke"],
+                [],
+            ),
+            (
+                "Case sensitive matching",
+                "Hey @Paul luke, can you check this?",
+                ["paul luke"],
+                [],
+            ),
+        ]
+    )
+    def test_create_annotation_tagged_users_validation(
+        self, _name: str, content: str, input_tagged_users: list[str], expected_tagged_users: list[str]
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": content,
+                "tagged_users": input_tagged_users,
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        annotation = Annotation.objects.get(pk=response.json()["id"])
+        assert annotation.tagged_users == expected_tagged_users
+        assert response.json()["tagged_users"] == expected_tagged_users
+
+    @parameterized.expand(
+        [
+            (
+                "Update to valid tagged users",
+                "Updated content with @paul luke and @foobarbaz",
+                ["paul luke", "foobarbaz"],
+                ["paul luke", "foobarbaz"],
+            ),
+            (
+                "Update to remove some tagged users",
+                "Updated content with @paul luke only",
+                ["paul luke", "foobarbaz"],
+                ["paul luke"],
+            ),
+            (
+                "Update to remove all tagged users",
+                "Updated content with no tagged users",
+                ["paul luke", "foobarbaz"],
+                [],
+            ),
+            (
+                "Update with new tagged users",
+                "Hey @new_user, please review",
+                ["new_user"],
+                ["new_user"],
+            ),
+        ]
+    )
+    def test_update_annotation_tagged_users_validation(
+        self, _name: str, new_content: str, new_tagged_users: list[str], expected_tagged_users: list[str]
+    ) -> None:
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Original content with @old_user",
+            tagged_users=["old_user"],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.pk}/",
+            {"content": new_content, "tagged_users": new_tagged_users},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        annotation.refresh_from_db()
+        assert annotation.tagged_users == expected_tagged_users
+        assert response.json()["tagged_users"] == expected_tagged_users
