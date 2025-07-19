@@ -2,6 +2,7 @@ from typing import Optional
 
 from django.db import models
 from django.utils import timezone
+from django.contrib.postgres.fields import ArrayField
 
 
 class Annotation(models.Model):
@@ -33,6 +34,19 @@ class Annotation(models.Model):
 
     # convenience so that we can load just emoji annotations, without checking the content
     is_emoji = models.BooleanField(default=False, null=True, blank=True)
+    # convenience field provided by API callers to indicate users are tagged in the content
+    tagged_users = ArrayField(
+        # text field because names don't have a size limit in reality
+        # https://www.kalzumeus.com/2010/06/17/falsehoods-programmers-believe-about-names/
+        models.TextField(),
+        default=None,
+        blank=True,
+        null=True,
+        # has a size limit because why not...
+        # if you really want to tag more than 10 users
+        # we should be providing a way to tag groups of users
+        size=10,
+    )
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)

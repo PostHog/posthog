@@ -23,7 +23,8 @@
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: Leave comments to explain tricky areas of the code or to explain WHY something is there, but don't just leave comments everywhere, the code should be default readable
-- comments should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment
+- comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment
+- Python tests do not need doc comments, give them good names, and leave off with the comments 
 - when writing jest tests, prefer a single top-level describe block in a file
 - when writing any tests prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - in python use the parameterized library for parameterized tests
