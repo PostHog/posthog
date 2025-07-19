@@ -15,6 +15,7 @@ from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.timings import HogQLTimings
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -22,13 +23,22 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
 )
+from posthog.hogql_queries.web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest
 from posthog.hogql.query import execute_hogql_query
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
 
 
 class TestPrinter(BaseTest):
@@ -2482,6 +2492,94 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    def test_web_analytics_database_reuse_optimization(self):
+        source = ExternalDataSource.objects.create(
+            source_id="web_analytics_test",
+            connection_id="test_connection",
+            destination_id="test_destination",
+            team=self.team,
+            status=ExternalDataSource.Status.RUNNING,
+            source_type="Stripe",
+        )
+        DataWarehouseTable.objects.create(
+            name="web_analytics_dw_table",
+            format="Parquet",
+            team_id=self.team.pk,
+            url_pattern="https://example.com/web_data.parquet",
+            external_data_source=source,
+        )
+
+        query = WebStatsTableQuery(breakdownBy=WebStatsBreakdown.PAGE, properties=[])
+        runner = WebStatsTableQueryRunner(query=query, team=self.team)
+
+        assert runner.skip_data_warehouse_tables is True
+        assert len(runner.database.get_warehouse_tables()) == 0
+        assert len(runner.database.get_posthog_tables()) > 0
+
+        hogql_output = runner.to_hogql()
+        assert isinstance(hogql_output, str)
+        assert len(hogql_output) > 0
+        assert "events" in hogql_output
+        assert "web_analytics_dw_table" not in hogql_output
+
+        reuse_timings = HogQLTimings()
+        reuse_context = HogQLContext(team_id=self.team.pk, database=runner.database, timings=reuse_timings)
+        test_query = parse_select("SELECT 1 FROM events LIMIT 1")
+        prepare_ast_for_printing(test_query, reuse_context, "clickhouse")
+        reuse_timing_names = [t.k for t in reuse_timings.to_list()]
+        reuse_database_timings = [t for t in reuse_timing_names if "reuse_hogql_database" in t]
+        create_database_timings = [t for t in reuse_timing_names if "create_hogql_database" in t]
+        assert len(reuse_database_timings) > 0
+        assert len(create_database_timings) == 0
+
+    def test_web_analytics_context_state_isolation(self):
+        query1 = WebOverviewQuery(properties=[])
+        query2 = WebOverviewQuery(properties=[])
+        runner1 = WebOverviewQueryRunner(query=query1, team=self.team)
+        runner2 = WebOverviewQueryRunner(query=query2, team=self.team)
+
+        assert runner1.database is not runner2.database
+        assert runner1.skip_data_warehouse_tables == runner2.skip_data_warehouse_tables
+        assert len(runner1.database.get_warehouse_tables()) == len(runner2.database.get_warehouse_tables()) == 0
+        assert runner1.hogql_context is not runner2.hogql_context
+        assert runner1.hogql_context.database is not runner2.hogql_context.database
+
+        posthog_tables_1 = set(runner1.database.get_posthog_tables())
+        posthog_tables_2 = set(runner2.database.get_posthog_tables())
+        assert posthog_tables_1 == posthog_tables_2
+
+    def test_web_analytics_fresh_context_creation(self):
+        query = WebPageURLSearchQuery(searchTerm="test", properties=[])
+        runner = PageUrlSearchQueryRunner(query=query, team=self.team)
+
+        contexts_used = []
+
+        def mock_execute_hogql_query(*args, **kwargs):
+            context = kwargs.get("context")
+            if context:
+                contexts_used.append(context)
+            return HogQLQueryResponse(results=[], columns=[], types=[])
+
+        with patch(
+            "posthog.hogql_queries.web_analytics.page_url_search_query_runner.execute_hogql_query",
+            side_effect=mock_execute_hogql_query,
+        ):
+            try:
+                runner.calculate()
+            except Exception:
+                pass
+
+        assert len(contexts_used) == 1
+        captured_context = contexts_used[0]
+        assert isinstance(captured_context, HogQLContext)
+        assert captured_context.database is not None
+        assert captured_context.database is runner.database
+        assert captured_context.enable_select_queries is True
+        assert captured_context.team_id == self.team.pk
+        assert len(captured_context.warnings) == 0
+        assert len(captured_context.errors) == 0
+        assert len(captured_context.notices) == 0
 
 
 class TestPrinted(APIBaseTest):

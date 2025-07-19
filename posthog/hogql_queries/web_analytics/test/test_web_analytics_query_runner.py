@@ -3,7 +3,10 @@ from typing import Union
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
+    _sample_rate_from_count,
+    WebAnalyticsQueryRunner,
+)
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import (
     DateRange,
@@ -113,3 +116,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(9_999_999))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(10_000_000))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(99_999_999))
+
+    def test_web_analytics_query_runner_can_skip_data_warehouse_tables(self):
+        stats_runner = WebStatsTableQueryRunner(
+            query=WebStatsTableQuery(breakdownBy=WebStatsBreakdown.PAGE, properties=[]), team=self.team
+        )
+        assert WebAnalyticsQueryRunner.skip_data_warehouse_tables
+        assert stats_runner.skip_data_warehouse_tables
+
+        overview_runner = WebOverviewQueryRunner(query=WebOverviewQuery(properties=[]), team=self.team)
+        assert overview_runner.skip_data_warehouse_tables
+
+        warehouse_tables = stats_runner.database.get_warehouse_tables()
+        assert len(warehouse_tables) == 0
