@@ -37,9 +37,10 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
         if user_bookmark is None:
             return True
         else:
-            # API call from browser only includes milliseconds but python datetime in created_at includes microseconds
+           
+            # The frontend sends microseconds via toISOString() and we should respect that precision
             bookmark_date = user_bookmark.last_viewed_activity_date
-            return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
+            return bookmark_date < obj.created_at
 
 
 class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
