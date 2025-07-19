@@ -1,26 +1,5 @@
 #!/bin/bash
 
-while test $# -gt 0; do
-  case "$1" in
-  -h | --help)
-    echo "USAGE:"
-    echo "    bin/plugin-server [FLAGS]"
-    echo " "
-    echo "FLAGS:"
-    echo "    -h, --help           Print this help information."
-    echo "    --no-restart-loop    Run without restart loop. Recommended when deferring resiliency to e.g. docker-compose."
-    exit 0
-    ;;
-  --no-restart-loop)
-    NO_RESTART_LOOP='true'
-    shift
-    ;;
-  *)
-    break
-    ;;
-  esac
-done
-
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
 
 export KAFKA_HOSTS=${KAFKA_HOSTS:-'kafka:9092'}
@@ -38,8 +17,6 @@ if [[ -n $INJECT_EC2_CLIENT_RACK ]]; then
   export KAFKA_CLIENT_ID=$(echo $KAFKA_CLIENT_ID | envsubst)
   export KAFKA_PRODUCER_CLIENT_ID=$(echo $KAFKA_PRODUCER_CLIENT_ID | envsubst)
 fi
-
-./bin/migrate-check
 
 cd plugin-server
 
