@@ -72,7 +72,11 @@ from products.batch_exports.backend.tests.temporal.utils import (
     remove_duplicates_from_records,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("truncate_clickhouse_tables"),
+]
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",

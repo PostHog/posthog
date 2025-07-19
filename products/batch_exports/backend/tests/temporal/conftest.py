@@ -216,6 +216,12 @@ async def truncate_sessions(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS raw_sessions")
 
 
+@pytest_asyncio.fixture
+async def truncate_clickhouse_tables(truncate_events, truncate_persons, truncate_sessions):
+    """Convenience fixture to truncate events, persons, and sessions after a test."""
+    yield
+
+
 @pytest.fixture
 def batch_export_schema(request) -> dict | None:
     """A parametrizable fixture to configure a batch export schema.
@@ -443,9 +449,7 @@ async def generate_test_data(
     test_properties,
     test_person_properties,
     insert_sessions,
-    truncate_events,
-    truncate_persons,
-    truncate_sessions,
+    truncate_clickhouse_tables,
 ):
     """Generate test data in ClickHouse."""
     if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
