@@ -58,6 +58,7 @@ export const seriesNodeToFilter = (
         math_property_type: node.math_property_type as TaxonomicFilterGroupType,
         math_hogql: node.math_hogql,
         math_group_type_index: node.math_group_type_index,
+        optionalInFunnel: node.optionalInFunnel,
         properties: node.properties as any, // TODO,
         ...(isDataWarehouseNode(node)
             ? {

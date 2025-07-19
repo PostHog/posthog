@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonCheckbox,
     LemonDivider,
     LemonMenu,
     LemonSelect,
@@ -28,8 +29,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
@@ -180,6 +183,7 @@ export function ActionFilterRow({
     const {
         updateFilter,
         selectFilter,
+        updateFilterOptional,
         updateFilterMath,
         removeLocalFilter,
         updateFilterProperty,
@@ -189,6 +193,9 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+
+    const { insightProps } = useValues(insightLogic)
+    const { isStepOptional } = useValues(funnelDataLogic(insightProps))
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -594,6 +601,30 @@ export function ActionFilterRow({
                                                         ),
                                                     },
                                                     {
+                                                        label: () => (
+                                                            <>
+                                                                {index > 0 && (
+                                                                    <>
+                                                                        <div className="px-2 py-1">
+                                                                            <LemonCheckbox
+                                                                                checked={!!filter.optionalInFunnel}
+                                                                                onChange={(checked) => {
+                                                                                    updateFilterOptional({
+                                                                                        ...filter,
+                                                                                        optionalInFunnel: checked,
+                                                                                        index,
+                                                                                    })
+                                                                                }}
+                                                                                label="Optional step"
+                                                                            />
+                                                                        </div>
+                                                                        <LemonDivider />
+                                                                    </>
+                                                                )}
+                                                            </>
+                                                        ),
+                                                    },
+                                                    {
                                                         label: () => renameRowButton,
                                                     },
                                                     {
@@ -615,7 +646,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math !== undefined}
+                                                visible={math !== undefined || isStepOptional(index + 1)}
                                             />
                                         </div>
                                     </>

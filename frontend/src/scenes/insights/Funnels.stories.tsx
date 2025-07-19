@@ -53,6 +53,20 @@ FunnelLeftToRightEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 
+export const FunnelTopToBottom: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
+)
+FunnelTopToBottom.parameters = {
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+}
+export const FunnelTopToBottomEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
+    'edit'
+)
+FunnelTopToBottomEdit.parameters = {
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+}
+
 export const FunnelLeftToRightBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
 )

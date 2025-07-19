@@ -105,7 +105,8 @@
                 {
                     "event": "$pageview",
                     "kind": "EventsNode",
-                    "name": "$pageview"
+                    "name": "$pageview",
+                    "optionalInFunnel": true
                 },
                 {
                     "event": "$pageview",

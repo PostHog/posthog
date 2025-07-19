@@ -1282,6 +1282,7 @@ export type EntityFilter = {
     custom_name?: string | null
     index?: number
     order?: number
+    optionalInFunnel?: boolean
 }
 
 export interface ActionFilter extends EntityFilter {
