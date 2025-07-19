@@ -626,7 +626,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             and query.get("kind") == "DataVisualizationNode"
             and query.get("source", {}).get("variables")
         ):
-            query["source"]["variables"] = self.map_stale_to_latest(
+            query["source"]["variables"] = self.override_variables(
                 query["source"]["variables"], list(self.context["insight_variables"])
             )
 
