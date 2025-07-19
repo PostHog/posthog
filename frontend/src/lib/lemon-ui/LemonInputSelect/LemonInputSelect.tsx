@@ -14,8 +14,14 @@ import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 import { TooltipTitle } from '../Tooltip/Tooltip'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List } from 'react-virtualized/dist/es/List'
 
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
+
+const DEFAULT_SELECT_OPTION_HEIGHT = 40
+
+const MAX_DROPDOWN_HEIGHT = 420
 
 export interface LemonInputSelectOption<T = string> {
     key: string
@@ -223,15 +229,22 @@ export function LemonInputSelect<T = string>({
                 continue
             }
             ret.push(option)
-            if (ret.length >= 100) {
-                // :HACKY: This is a quick fix to make the select dropdown work for large values, as it was getting slow when
-                // we'd load more than ~10k entries. Ideally we'd make this a virtualized list.
-                break
-            }
         }
 
         return ret
     }, [allOptionsMap, allowCustomValues, inputValue, mode, stringKeys, getDisplayLabel, getStringKey])
+
+    const listHeight = useMemo(() => {
+        if (visibleOptions.length <= 1) {
+            return DEFAULT_SELECT_OPTION_HEIGHT
+        }
+        const height = visibleOptions.length * DEFAULT_SELECT_OPTION_HEIGHT
+
+        if (height > MAX_DROPDOWN_HEIGHT) {
+            return MAX_DROPDOWN_HEIGHT
+        }
+        return height
+    }, [visibleOptions])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
@@ -550,57 +563,84 @@ export function LemonInputSelect<T = string>({
                     )}
 
                     {visibleOptions.length > 0 ? (
-                        visibleOptions.map((option, index) => {
-                            const isFocused = index === selectedIndex
-                            const isSelected = stringKeys.includes(option.key)
-                            const isDisabled = wasLimitReached && !isSelected
-                            return (
-                                <LemonButton
-                                    key={option.key}
-                                    type="tertiary"
-                                    size="small"
-                                    fullWidth
-                                    active={isFocused}
-                                    onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
-                                    onMouseEnter={() => setSelectedIndex(index)}
-                                    disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
-                                    tooltip={option.tooltip}
-                                    icon={
-                                        mode === 'multiple' && !option.__isInput ? (
-                                            // No pointer events, since it's only for visual feedback
-                                            <LemonCheckbox checked={isSelected} className="pointer-events-none" />
-                                        ) : undefined
-                                    }
-                                    sideAction={
-                                        !option.__isInput && allowCustomValues
-                                            ? {
-                                                  // To reduce visual clutter we only show the icon on focus or hover,
-                                                  // but we do want it present to make sure the layout is stable
-                                                  icon: <IconPencil className={!isFocused ? 'invisible' : undefined} />,
-                                                  tooltip: (
-                                                      <>
-                                                          Edit this value <KeyboardShortcut option enter />
-                                                      </>
-                                                  ),
-                                                  onClick: () => {
-                                                      setInputValue(option.key)
-                                                      inputRef.current?.focus()
-                                                      _onFocus()
-                                                  },
-                                              }
-                                            : undefined
-                                    }
-                                >
-                                    <span className="whitespace-nowrap ph-no-capture truncate">
-                                        {!option.__isInput
-                                            ? option.labelComponent ?? option.label // Regular option
-                                            : mode === 'multiple'
-                                            ? `Add "${option.key}"` // Input-based option
-                                            : option.key}
-                                    </span>
-                                </LemonButton>
-                            )
-                        })
+                        <div>
+                            <AutoSizer disableHeight>
+                                {({ width }) => (
+                                    <List
+                                        width={width}
+                                        height={listHeight}
+                                        rowCount={visibleOptions.length}
+                                        overscanRowCount={100}
+                                        rowHeight={DEFAULT_SELECT_OPTION_HEIGHT}
+                                        rowRenderer={({ index, style }) => {
+                                            const option = visibleOptions[index]
+                                            const isFocused = index === selectedIndex
+                                            const isSelected = stringKeys.includes(option.key)
+                                            const isDisabled = wasLimitReached && !isSelected
+                                            return (
+                                                <LemonButton
+                                                    style={style}
+                                                    key={option.key}
+                                                    type="tertiary"
+                                                    size="small"
+                                                    fullWidth
+                                                    active={isFocused}
+                                                    onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
+                                                    onMouseEnter={() => setSelectedIndex(index)}
+                                                    disabledReason={
+                                                        isDisabled ? `Limit of ${limit} options reached` : undefined
+                                                    }
+                                                    tooltip={option.tooltip}
+                                                    icon={
+                                                        mode === 'multiple' && !option.__isInput ? (
+                                                            // No pointer events, since it's only for visual feedback
+                                                            <LemonCheckbox
+                                                                checked={isSelected}
+                                                                className="pointer-events-none"
+                                                            />
+                                                        ) : undefined
+                                                    }
+                                                    sideAction={
+                                                        !option.__isInput && allowCustomValues
+                                                            ? {
+                                                                  // To reduce visual clutter we only show the icon on focus or hover,
+                                                                  // but we do want it present to make sure the layout is stable
+                                                                  icon: (
+                                                                      <IconPencil
+                                                                          className={
+                                                                              !isFocused ? 'invisible' : undefined
+                                                                          }
+                                                                      />
+                                                                  ),
+                                                                  tooltip: (
+                                                                      <>
+                                                                          Edit this value
+                                                                          <KeyboardShortcut option enter />
+                                                                      </>
+                                                                  ),
+                                                                  onClick: () => {
+                                                                      setInputValue(option.key)
+                                                                      inputRef.current?.focus()
+                                                                      _onFocus()
+                                                                  },
+                                                              }
+                                                            : undefined
+                                                    }
+                                                >
+                                                    <span className="whitespace-nowrap ph-no-capture truncate">
+                                                        {!option.__isInput
+                                                            ? option.labelComponent ?? option.label // Regular option
+                                                            : mode === 'multiple'
+                                                            ? `Add "${option.key}"` // Input-based option
+                                                            : option.key}
+                                                    </span>
+                                                </LemonButton>
+                                            )
+                                        }}
+                                    />
+                                )}
+                            </AutoSizer>
+                        </div>
                     ) : loading ? (
                         <>
                             {range(5).map((x) => (
