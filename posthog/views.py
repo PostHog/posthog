@@ -5,6 +5,7 @@ from typing import Union
 import uuid
 
 from posthog.exceptions_capture import capture_exception
+from django.apps import apps
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
@@ -39,6 +40,11 @@ from posthog.utils import (
     is_redis_alive,
 )
 from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference, PreferenceStatus
+from posthog.models.personal_api_key import (
+    PersonalAPIKey,
+    hash_key_value,
+    PERSONAL_API_KEY_MODES_TO_TRY,
+)
 
 
 import structlog
@@ -252,6 +258,70 @@ def redis_values_view(request: HttpRequest):
     }
 
     return render(request, template_name="redis/values.html", context=context, status=200)
+
+
+@staff_member_required
+def api_key_search_view(request: HttpRequest):
+    """A Django admin view to search for an API Key by value."""
+
+    query = request.POST.get("q", None)
+    if query is None:
+        if request.method != "GET":
+            return HttpResponseNotAllowed(permitted_methods=["GET"])
+    else:
+        if request.method != "POST":
+            return HttpResponseNotAllowed(permitted_methods=["POST"])
+
+    personal_api_key_object = None
+    personal_api_key_hash_mode = None
+    if query is not None and query.startswith("phx_"):
+        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+            secure_value = hash_key_value(query, mode=mode, iterations=iterations)
+            try:
+                personal_api_key_object = (
+                    PersonalAPIKey.objects.select_related("user")
+                    .filter(user__is_active=True)
+                    .get(secure_value=secure_value)
+                )
+                personal_api_key_hash_mode = mode
+                break
+
+            except PersonalAPIKey.DoesNotExist:
+                pass
+
+    team_object = None
+    team_object_key_type = None
+    if query is not None and query.startswith("phs_"):
+        Team = apps.get_model(app_label="posthog", model_name="Team")
+
+        try:
+            # don't use the cache so that we can differentiate btwn the primary and the backup key
+            team_object = Team.objects.get(secret_api_token=query)
+            team_object_key_type = "primary"
+
+        except Team.DoesNotExist:
+            pass
+
+        try:
+            team_object = Team.objects.get(secret_api_token_backup=query)
+            team_object_key_type = "backup"
+
+        except Team.DoesNotExist:
+            pass
+
+    context = {
+        **admin_site.each_context(request),
+        **{
+            "query": query or "",
+            "title": "Specify key to search",
+            "personal_api_key_object": personal_api_key_object,
+            "personal_api_key_hash_mode": personal_api_key_hash_mode,
+            "team_object": team_object,
+            "team_object_key_type": team_object_key_type,
+        },
+    }
+
+    return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
 @require_http_methods(["GET"])

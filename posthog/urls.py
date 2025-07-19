@@ -52,6 +52,7 @@ from .views import (
     login_required,
     preflight_check,
     redis_values_view,
+    api_key_search_view,
     robots_txt,
     security_txt,
     stats,
@@ -166,6 +167,7 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
+    re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
