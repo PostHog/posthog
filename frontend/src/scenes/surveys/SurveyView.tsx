@@ -22,6 +22,7 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { Query } from '~/queries/Query/Query'
 import {
     ActivityScope,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -33,6 +34,8 @@ import {
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveysDisabledBanner } from './SurveySettings'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
@@ -40,6 +43,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
@@ -81,7 +85,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     <LemonButton
                                                         data-attr="duplicate-survey"
                                                         fullWidth
-                                                        onClick={duplicateSurvey}
+                                                        onClick={() => {
+                                                            duplicateSurvey()
+                                                        }}
                                                     >
                                                         Duplicate
                                                     </LemonButton>

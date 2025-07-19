@@ -35,6 +35,8 @@ import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -58,6 +60,7 @@ export function Surveys(): JSX.Element {
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
         useActions(surveysLogic)
+    const { addProductIntent } = useActions(teamLogic)
 
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
@@ -403,10 +406,19 @@ export function Surveys(): JSX.Element {
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() =>
+                                                                    {
                                                                         updateSurvey({
                                                                             id: survey.id,
                                                                             updatePayload: { archived: false },
                                                                         })
+                                                                        addProductIntent({
+                                                                            product_type: ProductKey.SURVEYS,
+                                                                            intent_context: ProductIntentContext.SURVEY_UNARCHIVED,
+                                                                            metadata: {
+                                                                                survey_id: survey.id,
+                                                                            },
+                                                                        })
+                                                                    }
                                                                     }
                                                                 >
                                                                     Unarchive
@@ -433,6 +445,13 @@ export function Surveys(): JSX.Element {
                                                                                         id: survey.id,
                                                                                         updatePayload: {
                                                                                             archived: true,
+                                                                                        },
+                                                                                    })
+                                                                                    addProductIntent({
+                                                                                        product_type: ProductKey.SURVEYS,
+                                                                                        intent_context: ProductIntentContext.SURVEY_ARCHIVED,
+                                                                                        metadata: {
+                                                                                            survey_id: survey.id,
                                                                                         },
                                                                                     })
                                                                                 },
@@ -463,7 +482,9 @@ export function Surveys(): JSX.Element {
                                                                         primaryButton: {
                                                                             children: 'Delete',
                                                                             type: 'primary',
-                                                                            onClick: () => deleteSurvey(survey.id),
+                                                                            onClick: () => {
+                                                                                deleteSurvey(survey.id)
+                                                                            },
                                                                             size: 'small',
                                                                         },
                                                                         secondaryButton: {
