@@ -15,10 +15,10 @@ from temporalio.testing import ActivityEnvironment
 from posthog import constants
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger_async
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -184,7 +184,7 @@ def exclude_events(request) -> list[str] | None:
         return None
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def truncate_events(clickhouse_client):
     """Fixture to automatically truncate sharded_events after a test.
 
@@ -195,7 +195,7 @@ async def truncate_events(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS events_recent")
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def truncate_persons(clickhouse_client):
     """Fixture to automatically truncate person and person_distinct_id2 after a test.
 
@@ -206,7 +206,7 @@ async def truncate_persons(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person_distinct_id2")
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def truncate_sessions(clickhouse_client):
     """Fixture to automatically truncate raw_sessions after a test.
 
@@ -443,6 +443,9 @@ async def generate_test_data(
     test_properties,
     test_person_properties,
     insert_sessions,
+    truncate_events,
+    truncate_persons,
+    truncate_sessions,
 ):
     """Generate test data in ClickHouse."""
     if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
