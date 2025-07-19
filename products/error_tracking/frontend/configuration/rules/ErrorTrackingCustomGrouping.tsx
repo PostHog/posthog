@@ -1,4 +1,4 @@
-import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import ErrorTrackingRules from './ErrorTrackingRules'
@@ -9,16 +9,16 @@ export function ErrorTrackingCustomGrouping(): JSX.Element {
         <>
             <p>Use the properties of an exception to decide how it should be grouped as an issue.</p>
             <ErrorTrackingRules<ErrorTrackingGroupingRule> ruleType={ErrorTrackingRuleType.Grouping}>
-                {({ rule, editable }) => {
+                {({ rule, editable, disabled }) => {
                     return (
-                        <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
+                        <>
                             <div className="flex gap-2 justify-between px-2 py-3">
                                 <div className="flex gap-1 items-center">
                                     <div>Group exceptions as a single issue when</div>
                                     <ErrorTrackingRules.Operator rule={rule} editable={editable} />
                                     <div>filters match</div>
                                 </div>
-                                <ErrorTrackingRules.Actions rule={rule} editable={editable} />
+                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editable={editable} />}
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">
@@ -28,7 +28,7 @@ export function ErrorTrackingCustomGrouping(): JSX.Element {
                                     editable={editable}
                                 />
                             </div>
-                        </LemonCard>
+                        </>
                     )
                 }}
             </ErrorTrackingRules>
