@@ -115,7 +115,7 @@ class ActorsQueryRunner(QueryRunner):
         if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
             self.source_query_runner.source_runner, FunnelsQueryRunner
         ):
-            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+            settings = HogQLGlobalSettings(enable_analyzer=True)
 
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",

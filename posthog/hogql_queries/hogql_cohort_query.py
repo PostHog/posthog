@@ -118,7 +118,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
+            settings=HogQLGlobalSettings(enable_analyzer=None),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
