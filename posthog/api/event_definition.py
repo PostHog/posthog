@@ -8,7 +8,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -105,9 +104,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
         return validated_data
-
-    def update(self, event_definition: EventDefinition, validated_data):
-        raise EnterpriseFeatureException()
 
     def get_is_action(self, obj):
         return hasattr(obj, "action_id") and obj.action_id is not None
