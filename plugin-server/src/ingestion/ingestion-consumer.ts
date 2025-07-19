@@ -38,6 +38,8 @@ import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-b
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { deduplicateEvents } from './deduplication/events'
+import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -104,6 +106,7 @@ export class IngestionConsumer {
     private personStoreManager: PersonStoreManager
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
     constructor(
@@ -165,6 +168,7 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
+        this.deduplicationRedis = createDeduplicationRedis(this.hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
@@ -210,6 +214,8 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        logger.info('🔁', `${this.name} - stopping deduplication redis`)
+        await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -303,6 +309,9 @@ export class IngestionConsumer {
         }
 
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        // Fire-and-forget deduplication call
+        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, parsedMessages))
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(parsedMessages)
