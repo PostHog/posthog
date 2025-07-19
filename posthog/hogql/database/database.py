@@ -94,6 +94,8 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDailyS3Table,
+    WebStatsDailyS3Table,
     WebStatsDailyTable,
     WebBouncesDailyTable,
     WebStatsHourlyTable,
@@ -160,6 +162,8 @@ class Database(BaseModel):
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
     web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
+    web_stats_daily_s3: WebStatsDailyS3Table = WebStatsDailyS3Table()
+    web_bounces_daily_s3: WebBouncesDailyS3Table = WebBouncesDailyS3Table()
     web_stats_hourly: WebStatsHourlyTable = WebStatsHourlyTable()
     web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
     web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()

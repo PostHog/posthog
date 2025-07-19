@@ -29,24 +29,21 @@ partition_def = DailyPartitionsDefinition(start_date="2024-01-01")
 
 
 def ensure_s3_table_exists(context: dagster.AssetExecutionContext, table_name: str, sql_generator) -> None:
-    """
-    Ensure the S3-backed table exists by creating it if necessary.
-    Uses the existing TABLE_TEMPLATE with S3 storage policy via environment variable.
-    """
-    # Set environment variable to enable S3 storage policy
-    original_policy = os.environ.get("WEB_ANALYTICS_STORAGE_POLICY")
-    try:
-        os.environ["WEB_ANALYTICS_STORAGE_POLICY"] = "s3"
-        create_table_sql = sql_generator(table_name=table_name)
-        context.log.info(f"Creating S3-backed table: {table_name}")
-        context.log.info(create_table_sql)
-        sync_execute(create_table_sql)
-    finally:
-        # Restore original environment variable
-        if original_policy is not None:
-            os.environ["WEB_ANALYTICS_STORAGE_POLICY"] = original_policy
-        elif "WEB_ANALYTICS_STORAGE_POLICY" in os.environ:
-            del os.environ["WEB_ANALYTICS_STORAGE_POLICY"]
+    create_table_sql = sql_generator(table_name=table_name)
+    context.log.info(f"Creating S3-backed table: {table_name}")
+    context.log.info(create_table_sql)
+    sync_execute(create_table_sql)
+
+    # TRICKY, I will probably forget this, but is the smallest change to test this fast
+    non_s3_table_name = table_name.replace("_daily_s3", "")
+    drop_daily_sql = f"DROP TABLE IF EXISTS {non_s3_table_name}_daily"
+    drop_hourly_sql = f"DROP TABLE IF EXISTS {non_s3_table_name}_hourly"
+    drop_hourly_staging_sql = f"DROP TABLE IF EXISTS {non_s3_table_name}_hourly_staging"
+    create_view_sql = f"CREATE OR REPLACE VIEW {non_s3_table_name}_combined AS SELECT * FROM {table_name}"
+
+    for sql in [drop_daily_sql, drop_hourly_sql, drop_hourly_staging_sql, create_view_sql]:
+        context.log.info(sql)
+        sync_execute(sql)
 
 
 def pre_aggregate_web_analytics_s3_data(

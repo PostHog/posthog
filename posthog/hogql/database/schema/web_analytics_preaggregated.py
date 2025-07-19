@@ -95,6 +95,14 @@ class WebStatsDailyTable(Table):
         return "web_stats_daily"
 
 
+class WebStatsDailyS3Table(WebStatsDailyTable):
+    def to_printed_clickhouse(self, context):
+        return "web_stats_daily_s3"
+
+    def to_printed_hogql(self):
+        return "web_stats_daily_s3"
+
+
 class WebBouncesDailyTable(Table):
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
@@ -108,6 +116,14 @@ class WebBouncesDailyTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_daily"
+
+
+class WebBouncesDailyS3Table(WebBouncesDailyTable):
+    def to_printed_clickhouse(self, context):
+        return "web_bounces_daily_s3"
+
+    def to_printed_hogql(self):
+        return "web_bounces_daily_s3"
 
 
 class WebStatsHourlyTable(Table):
