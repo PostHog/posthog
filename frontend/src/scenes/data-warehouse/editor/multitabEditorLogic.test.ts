@@ -94,7 +94,7 @@ describe('multitabEditorLogic Storage', () => {
         const setMock = set as jest.Mock
         setMock.mockResolvedValue(undefined)
 
-        localStorage.setItem(key, initialData)
+        await set(key, initialData)
 
         try {
             await set(key, remainingData)
