@@ -16,10 +16,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
-
+    cancel-in-progress: true
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
