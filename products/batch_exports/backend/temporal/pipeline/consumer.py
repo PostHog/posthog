@@ -14,11 +14,11 @@ from products.batch_exports.backend.temporal.metrics import (
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_stream_transformer,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     raise_on_task_failure,
 )
-from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
