@@ -9,13 +9,26 @@ WORKDIR /work
 
 RUN npm install -g pnpm
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
 
+# Copy entire workspace directories for proper dependency resolution
+COPY common/ common/
+COPY cypress/ cypress/
+COPY ee/ ee/
+COPY frontend/ frontend/
+COPY playwright/ playwright/
+COPY plugin-server/ plugin-server/
+COPY products/ products/
+COPY rust/ rust/
+
 ENV CYPRESS_INSTALL_BINARY=0
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-RUN pnpm install --frozen-lockfile
+# Install dependencies for storybook and frontend workspaces
+RUN pnpm install --frozen-lockfile --filter=@posthog/storybook --filter=@posthog/frontend
 
-COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json test-runner-jest.config.js test-runner-jest-environment.js ./
+# Install prettier globally for build-products.mjs
+RUN npm install -g prettier
 
-COPY .storybook/ .storybook/
+COPY tsconfig.json test-runner-jest.config.js test-runner-jest-environment.js ./

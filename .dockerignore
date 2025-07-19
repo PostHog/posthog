@@ -6,7 +6,9 @@
 !common/esbuilder
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
+!common/storybook
 !common/tailwind
+!cypress
 !dags
 !ee
 !frontend/@posthog
@@ -23,6 +25,7 @@
 !turbo.json
 !package.json
 !patches
+!playwright
 !playwright.config.ts
 !plugin-server
 !plugin-server/.eslintrc.js
