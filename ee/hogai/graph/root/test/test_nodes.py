@@ -468,7 +468,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ),
             patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
             patch(
-                "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
                 return_value=("Success", {}),
             ),
         ):
@@ -636,7 +636,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with patch(
-            "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+            "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
             return_value=("Success", {}),
         ):
             result = await node.arun(

@@ -4,7 +4,9 @@ from enum import StrEnum
 from typing import Annotated, Literal, Optional, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage as LangchainBaseMessage
+from langchain_core.messages import (
+    BaseMessage as LangchainBaseMessage,
+)
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
@@ -20,7 +22,11 @@ from posthog.schema import (
 )
 
 AIMessageUnion = Union[
-    AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
+    AssistantMessage,
+    VisualizationMessage,
+    FailureMessage,
+    ReasoningMessage,
+    AssistantToolCallMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
@@ -197,6 +203,102 @@ class PartialAssistantState(_SharedAssistantState):
         )
 
 
+class FilterOptionsState(BaseModel):
+    """
+    State class specifically for filter options functionality.
+    Only includes fields relevant to filter options generation.
+    """
+
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
+    """
+    Messages exposed to the user.
+    """
+
+    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    """
+    Actions taken by the ReAct agent.
+    """
+
+    generated_filter_options: Optional[dict] = Field(default=None)
+    """
+    The filter options to apply to the product.
+    """
+
+    change: Optional[str] = Field(default=None)
+    """
+    The change requested for the filters.
+    """
+
+    current_filters: Optional[dict] = Field(default=None)
+    """
+    The current filters applied to the product.
+    """
+
+    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
+    """
+    The messages with tool calls to collect tool progress.
+    """
+
+    root_tool_call_id: Optional[str] = Field(default=None)
+    """
+    The ID of the tool call from the root node.
+    """
+
+
+class PartialFilterOptionsState(BaseModel):
+    """
+    Partial state class for filter options functionality.
+    Only includes fields relevant to filter options generation.
+    """
+
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    """
+    Messages exposed to the user.
+    """
+
+    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    """
+    Actions taken by the ReAct agent.
+    """
+
+    generated_filter_options: Optional[dict] = Field(default=None)
+    """
+    The filter options to apply to the product.
+    """
+
+    change: Optional[str] = Field(default=None)
+    """
+    The change requested for the filters.
+    """
+
+    current_filters: Optional[dict] = Field(default=None)
+    """
+    The current filters applied to the product.
+    """
+
+    root_tool_call_id: Optional[str] = Field(default=None)
+    """
+    The ID of the tool call from the root node.
+    """
+
+    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
+    """
+    The messages with tool calls to collect tool progress.
+    """
+
+    @classmethod
+    def get_reset_state(cls) -> "PartialFilterOptionsState":
+        return cls(
+            intermediate_steps=[],
+            generated_filter_options=None,
+            change="",
+            current_filters=None,
+            root_tool_call_id="",
+            tool_progress_messages=[],
+            messages=[],
+        )
+
+
 class AssistantNodeName(StrEnum):
     START = START
     END = END
@@ -226,6 +328,8 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
+    FILTER_OPTIONS = "filter_options"
+    FILTER_OPTIONS_TOOLS = "filter_options_tools"
 
 
 class AssistantMode(StrEnum):

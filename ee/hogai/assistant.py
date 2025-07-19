@@ -84,6 +84,8 @@ STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+    AssistantNodeName.FILTER_OPTIONS,
+    AssistantNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can stream messages to the client."""
 
@@ -91,6 +93,8 @@ STREAMING_NODES: set[AssistantNodeName] = {
 VERBOSE_NODES = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
+    AssistantNodeName.FILTER_OPTIONS,
+    AssistantNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can send messages to the client."""
 
@@ -325,7 +329,7 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER:
+            case AssistantNodeName.QUERY_PLANNER | AssistantNodeName.FILTER_OPTIONS_TOOLS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
