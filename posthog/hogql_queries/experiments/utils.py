@@ -15,6 +15,7 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
+    StatisticError,
 )
 from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
@@ -184,7 +185,20 @@ def get_frequentist_experiment_result_new_format(
 
     for test_variant in test_variants:
         test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
+
+        try:
+            result = method.run_test(test_stat, control_stat)
+        except StatisticError as e:
+            if "Control mean cannot be zero for relative difference calculation" in str(e):
+                # Fallback to absolute difference when control mean is zero
+                config_absolute = FrequentistConfig(
+                    alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.ABSOLUTE
+                )
+                method_absolute = FrequentistMethod(config_absolute)
+                result = method_absolute.run_test(test_stat, control_stat)
+            else:
+                # Re-raise other statistical errors
+                raise
         variants.append(
             ExperimentVariantResultFrequentist(
                 key=test_variant.key,
