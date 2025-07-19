@@ -309,6 +309,7 @@ export type HogFunctionInputSchemaType = {
     integration_field?: string
     requiredScopes?: string
     templating?: boolean
+    format?: 'date' | 'date-time' | 'email' | 'hostname' | 'ipv4' | 'ipv6' | 'time' | 'uri' | 'uuid'
 }
 
 export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
@@ -406,19 +407,27 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
-    perform: (
-        request: (
-            url: string,
-            options: {
-                method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
-                headers: Record<string, any>
-                json?: any
-                body?: string | URLSearchParams
-                throwHttpErrors?: boolean
-                searchParams?: Record<string, any>
-            }
-        ) => Promise<Response>,
-        inputs: Record<string, any>
-    ) => Promise<any> | any
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'mapping_templates'> & {
+    actions: Record<
+        string,
+        {
+            perform: (
+                request: (
+                    url: string,
+                    options: {
+                        method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
+                        headers: Record<string, any>
+                        json?: any
+                        body?: string | URLSearchParams
+                        throwHttpErrors?: boolean
+                        searchParams?: Record<string, any>
+                    }
+                ) => Promise<Response>,
+                inputs: Record<string, any>
+            ) => Promise<any> | any
+        }
+    >
+    mapping_templates: (HogFunctionMappingTemplate & {
+        associated_action: string
+    })[]
 }

@@ -1296,6 +1296,9 @@ importers:
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
+      chance:
+        specifier: ^1.1.13
+        version: 1.1.13
       dayjs:
         specifier: 1.11.11
         version: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
@@ -1453,6 +1456,9 @@ importers:
       '@types/babel__standalone':
         specifier: ^7.1.4
         version: 7.1.4
+      '@types/chance':
+        specifier: ^1.1.7
+        version: 1.1.7
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.21
@@ -7372,6 +7378,9 @@ packages:
   '@types/body-parser@1.19.5':
     resolution: {integrity: sha512-fB3Zu92ucau0iQ0JMCFQE7b/dv8Ot07NI3KaZIkIUNXq82k4eBAqUaneXfleGY9JWskeS9y+u0nXMyspcuQrCg==}
 
+  '@types/chance@1.1.7':
+    resolution: {integrity: sha512-40you9610GTQPJyvjMBgmj9wiDO6qXhbfjizNYod/fmvLSfUUxURAJMTD8tjmbcZSsyYE5iEUox61AAcCjW/wQ==}
+
   '@types/chart.js@2.9.37':
     resolution: {integrity: sha512-9bosRfHhkXxKYfrw94EmyDQcdjMaQPkU1fH2tDxu8DWXxf1mjzWQAV4laJF51ZbC2ycYwNDvIm1rGez8Bug0vg==}
 
@@ -8851,6 +8860,9 @@ packages:
   chalk@5.4.1:
     resolution: {integrity: sha512-zgVZuo2WcZgfUEmsn6eO3kINexW8RAE4maiQ8QNs8CtpPCSyMiYsULR3HQYkm3w8FIA3SberyMJMSldGsW+U3w==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
+
+  chance@1.1.13:
+    resolution: {integrity: sha512-V6lQCljcLznE7tUYUM9EOAnnKXbctE6j/rdQkYOHIWbfGQbrzTsAXNW9CdU5XCo4ArXQCj/rb6HgxPlmGJcaUg==}
 
   char-regex@1.0.2:
     resolution: {integrity: sha512-kWWXztvZ5SBQV+eRgKFeh8q5sLuZY2+8WUIzlxWVTg+oGwY14qylx1KbKzHd8P6ZYkAg0xyIDU9JMHhyJMZ1jw==}
@@ -24299,6 +24311,8 @@ snapshots:
       '@types/connect': 3.4.38
       '@types/node': 18.18.4
 
+  '@types/chance@1.1.7': {}
+
   '@types/chart.js@2.9.37':
     dependencies:
       moment: 2.29.4
@@ -26168,6 +26182,8 @@ snapshots:
       supports-color: 7.2.0
 
   chalk@5.4.1: {}
+
+  chance@1.1.13: {}
 
   char-regex@1.0.2: {}
 
