@@ -21,7 +21,7 @@ use tracing::{debug, error, info, instrument, warn, Span};
 
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::v0_request::{
-    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
+    Compression, DataType, ProcessedEvent, ProcessedEventMetadata, RawRequest,
 };
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
