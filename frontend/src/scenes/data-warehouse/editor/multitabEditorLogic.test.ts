@@ -37,7 +37,7 @@ describe('multitabEditorLogic Storage', () => {
                 await set(key, lsValue)
                 localStorage.removeItem(key)
             } catch {
-                // no actual catch, this is where the migration fails
+                // in this case, the try always succeeds, so nothing is needed
             }
         }
         expect(set).toHaveBeenCalledWith(key, data)
