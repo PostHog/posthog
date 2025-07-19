@@ -556,6 +556,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
+        currentPlaylistShortId: [
+            (s) => [s.playlistLogic],
+            (playlistLogic: BuiltLogic<sessionRecordingsPlaylistLogicType> | undefined): string | null => {
+                // the logic key is the playlist short id when present
+                return playlistLogic?.values.logicProps.logicKey ?? null
+            },
+        ],
+
         hasSnapshots: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {

@@ -72,7 +72,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     return getPlaylist(props.shortId)
                 },
                 updatePlaylist: async ({ properties, silent }) => {
-                    if (!values.playlist?.short_id) {
+                    if (!values.playlist?.short_id || values.playlist.short_id === 'history') {
                         return values.playlist
                     }
                     return updatePlaylist(
@@ -151,7 +151,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             }
         },
         markPlaylistViewed: async () => {
-            if (!values.playlist) {
+            if (!values.playlist || values.playlist.short_id === 'history') {
                 return
             }
             await api.recordings.playlistViewed(values.playlist.short_id)

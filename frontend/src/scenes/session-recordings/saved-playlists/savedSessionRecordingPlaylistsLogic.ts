@@ -155,11 +155,15 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))
+
                 breakpoint()
 
                 return response
             },
             updatePlaylist: async ({ shortId, properties }, breakpoint) => {
+                if (shortId === 'history') {
+                    throw new Error('cannot update the history collection')
+                }
                 await breakpoint(100)
                 const updatedPlaylist = await api.recordings.updatePlaylist(shortId, properties)
                 breakpoint()
@@ -172,6 +176,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 return { ...values.playlists, results: [...values.playlists.results] }
             },
             deletePlaylist: async ({ playlist }) => {
+                if (playlist.short_id === 'history') {
+                    throw new Error('cannot delete the history playlist')
+                }
                 await deletePlaylist(playlist, () => actions.loadPlaylists())
                 values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
                 actions.loadSavedFilters()
@@ -179,6 +186,10 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
 
             duplicatePlaylist: async ({ playlist }, breakpoint) => {
+                if (playlist.short_id === 'history') {
+                    throw new Error('cannot duplicate the history playlist')
+                }
+
                 await breakpoint(100)
 
                 const { id, short_id, ...partialPlaylist } = playlist

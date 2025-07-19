@@ -35,6 +35,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.schema import RecordingsQuery
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
@@ -90,6 +91,39 @@ def count_saved_filters(playlist: SessionRecordingPlaylist, user: User, team: Te
         "watched_count": None,
         "increased": None,
         "last_refreshed_at": None,
+    }
+
+
+def synthetic_history_list(team: Team, user: User) -> dict:
+    watched_count = SessionRecordingViewed.objects.filter(team=team, user=user).distinct("session_id").count()
+
+    return {
+        "id": "history",
+        "short_id": "history",
+        "name": "History",
+        "derived_name": "History",
+        "description": "",
+        "pinned": False,
+        "created_at": None,
+        "created_by": None,
+        "deleted": False,
+        "filters": {},
+        "last_modified_at": None,
+        "last_modified_by": None,
+        "recordings_counts": {
+            "saved_filters": {
+                "count": None,
+                "has_more": None,
+                "watched_count": None,
+                "increased": None,
+                "last_refreshed_at": None,
+            },
+            "collection": {
+                "count": watched_count,
+                "watched_count": watched_count,
+            },
+        },
+        "type": "collection",
     }
 
 
@@ -324,9 +358,82 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
                 queryset = queryset.filter(playlist_items__recording_id=request.GET["session_recording_id"])
         return queryset
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        should_include_history = self._should_include_synthetic_history(request)
+
+        page = self.paginate_queryset(queryset)
+        if page is None:
+            # we have a default paginator set and _should_ never get here
+            return ValidationError()
+
+        serializer = self.get_serializer(page, many=True)
+        data = serializer.data
+
+        # Add synthetic item to first page only
+        if should_include_history and request.GET.get("page", "1") == "1":
+            data.insert(0, synthetic_history_list(self.team, cast(User, request.user)))
+
+        paginated_response = self.get_paginated_response(data)
+
+        # Fix the count if we added the synthetic item
+        if should_include_history:
+            paginated_response.data["count"] = paginated_response.data.get("count", 0) + 1
+
+        return paginated_response
+
+    def retrieve(self, request, *args, **kwargs):
+        if kwargs.get("short_id", None) == "history":
+            return response.Response(synthetic_history_list(self.team, cast(User, request.user)))
+
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return response.Response(serializer.data)
+
+    @staticmethod
+    def _should_include_synthetic_history(request) -> bool:
+        """Check if synthetic history item should be included based on current filters"""
+        # Don't include if searching for something specific
+        if request.GET.get("search"):
+            return "history" in request.GET.get("search", "").lower()
+
+        # Only include for collection type (or no type specified, which defaults to showing all)
+        if request.GET.get("type") and request.GET.get("type") != "collection":
+            return False
+
+        # Don't include if filtering by specific user, date range, etc.
+        excluded_filters = ["user", "date_from", "date_to", "session_recording_id", "created_by"]
+        if any(f in request.GET for f in excluded_filters):
+            return False
+
+        return True
+
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["GET"], detail=True, url_path="recordings")
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Handle the special "history" playlist
+        if kwargs.get("short_id") == "history":
+            # Get session IDs from SessionRecordingViewed for current user
+            viewed_session_ids = list(
+                SessionRecordingViewed.objects.filter(team=self.team, user=cast(User, request.user))
+                .values_list("session_id", flat=True)
+                .distinct()
+            )
+
+            data_dict = query_as_params_to_dict(request.GET.dict())
+            query = RecordingsQuery.model_validate(data_dict)
+
+            # Override date filters to get ALL recordings for history
+            query.date_from = None
+            query.date_to = None
+            query.session_ids = viewed_session_ids
+
+            return list_recordings_response(
+                list_recordings_from_query(query, cast(User, request.user), team=self.team),
+                context=self.get_serializer_context(),
+            )
+
         playlist = self.get_object()
         playlist_items = list(
             SessionRecordingPlaylistItem.objects.filter(playlist=playlist)

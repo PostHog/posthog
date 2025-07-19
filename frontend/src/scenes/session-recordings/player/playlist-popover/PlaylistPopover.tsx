@@ -90,39 +90,44 @@ export function PlaylistPopoverButton({
 
                         {allPlaylists.length ? (
                             <div className="max-h-60 overflow-auto">
-                                {allPlaylists?.map(({ selected, playlist }) => (
-                                    <div key={playlist.short_id} className="flex items-center gap-1">
-                                        <LemonButton
-                                            className="flex-1"
-                                            icon={
-                                                currentPlaylistsLoading &&
-                                                modifyingPlaylist?.short_id === playlist.short_id ? (
-                                                    <Spinner className="text-sm" />
-                                                ) : (
-                                                    <LemonCheckbox className="pointer-events-none" checked={selected} />
-                                                )
-                                            }
-                                            onClick={() => {
-                                                if (
-                                                    setPinnedInCurrentPlaylist &&
-                                                    playlist.short_id === currentPlaylistId
-                                                ) {
-                                                    return setPinnedInCurrentPlaylist(!selected)
+                                {allPlaylists
+                                    ?.filter((p) => p.playlist.short_id !== 'history')
+                                    .map(({ selected, playlist }) => (
+                                        <div key={playlist.short_id} className="flex items-center gap-1">
+                                            <LemonButton
+                                                className="flex-1"
+                                                icon={
+                                                    currentPlaylistsLoading &&
+                                                    modifyingPlaylist?.short_id === playlist.short_id ? (
+                                                        <Spinner className="text-sm" />
+                                                    ) : (
+                                                        <LemonCheckbox
+                                                            className="pointer-events-none"
+                                                            checked={selected}
+                                                        />
+                                                    )
                                                 }
+                                                onClick={() => {
+                                                    if (
+                                                        setPinnedInCurrentPlaylist &&
+                                                        playlist.short_id === currentPlaylistId
+                                                    ) {
+                                                        return setPinnedInCurrentPlaylist(!selected)
+                                                    }
 
-                                                !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
-                                            }}
-                                        >
-                                            {playlist.name || playlist.derived_name}
-                                        </LemonButton>
+                                                    !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
+                                                }}
+                                            >
+                                                {playlist.name || playlist.derived_name}
+                                            </LemonButton>
 
-                                        <LemonButton
-                                            icon={<IconOpenInNew />}
-                                            to={urls.replayPlaylist(playlist.short_id)}
-                                            targetBlank
-                                        />
-                                    </div>
-                                ))}
+                                            <LemonButton
+                                                icon={<IconOpenInNew />}
+                                                to={urls.replayPlaylist(playlist.short_id)}
+                                                targetBlank
+                                            />
+                                        </div>
+                                    ))}
                             </div>
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
