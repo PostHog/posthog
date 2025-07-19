@@ -1,5 +1,5 @@
 import { editorModelsStateKey } from './multitabEditorLogic'
-import { set, del } from './db'
+import { set } from './db'
 
 jest.mock('posthog-js', () => ({ captureException: jest.fn() }))
 jest.mock('./db', () => ({
@@ -81,17 +81,29 @@ describe('multitabEditorLogic Storage', () => {
         expect(set).toHaveBeenCalledWith(key, data)
         expect(localStorage.getItem(key)).toBe(data)
     })
-    // if a tab is deleted, remove it from IndexedDB
-    it('removes tab state from IndexedDB when a tab is deleted', async () => {
+    // when a tab is deleted, the remaining tabs are saved to storage
+    it('updates storage with remaining tabs when a tab is deleted', async () => {
         const key = getEditorKey(TEST_EDITOR_ID)
-        const data = createTestData()
+        const initialData = JSON.stringify([
+            { uri: 'file://tab1', name: 'Tab 1', query: 'SELECT * FROM events' },
+            { uri: 'file://tab2', name: 'Tab 2', query: 'SELECT * FROM persons' },
+        ])
+        // expected output when Tab 1 is deleted (just Tab 2)
+        const remainingData = JSON.stringify([{ uri: 'file://tab2', name: 'Tab 2', query: 'SELECT * FROM persons' }])
 
-        localStorage.setItem(key, data)
-        const delMock = del as jest.Mock
-        delMock.mockResolvedValue(undefined)
+        const setMock = set as jest.Mock
+        setMock.mockResolvedValue(undefined)
 
-        await del(key)
-        expect(del).toHaveBeenCalledWith(key)
-        expect(localStorage.getItem(key)).toBe(data)
+        localStorage.setItem(key, initialData)
+
+        try {
+            await set(key, remainingData)
+            localStorage.removeItem(key)
+        } catch {
+            localStorage.setItem(key, remainingData)
+        }
+
+        expect(set).toHaveBeenCalledWith(key, remainingData)
+        expect(localStorage.getItem(key)).toBeNull()
     })
 })
