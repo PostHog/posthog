@@ -76,6 +76,7 @@ export const template: HogFunctionTemplate = {
     description: 'Send conversion events to Google Ads',
     icon_url: '/static/services/google-ads.png',
     category: ['Advertisement'],
+    code_language: 'hog',
     hog: `
 if (empty(inputs.gclid)) {
     print('Empty \`gclid\`. Skipping...')

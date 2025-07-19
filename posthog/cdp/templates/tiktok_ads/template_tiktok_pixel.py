@@ -60,6 +60,7 @@ template_tiktok_pixel: HogFunctionTemplate = HogFunctionTemplate(
     description="Track how many TikTok users interact with your website. Note that this destination will set third-party cookies.",
     icon_url="/static/services/tiktok.png",
     category=["Advertisement"],
+    code_language="javascript",
     hog="""
 // Adds window.snaptr and lazily loads the TikTok Pixel script
 function initSnippet() {

@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Make any website better by adding raining pineapples",
     icon_url="/static/services/pineapple.png",
     category=["Custom", "Analytics"],
+    code_language="javascript",
     hog="""
 const style = `
     .button {

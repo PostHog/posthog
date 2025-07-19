@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to June.so ",
     icon_url="/static/services/june.png",
     category=["Analytics"],
+    code_language="hog",
     hog="""
 let type := 'track'
 

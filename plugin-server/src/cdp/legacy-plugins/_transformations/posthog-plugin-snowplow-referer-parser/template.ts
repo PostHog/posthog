@@ -13,6 +13,7 @@ export const posthogPluginSnowplowRefererParser: LegacyTransformationPlugin = {
         description: 'UTM referrer snowplow parser',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

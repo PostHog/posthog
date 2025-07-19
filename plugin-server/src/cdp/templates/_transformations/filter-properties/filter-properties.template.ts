@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Filter out specific properties from the event by setting them to null or removing them completely.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // Check if the event has properties
 if (empty(event.properties)) {

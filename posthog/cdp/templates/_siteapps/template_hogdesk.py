@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="HogDesk bug reporter",
     icon_url="https://raw.githubusercontent.com/PostHog/bug-report-app/refs/heads/main/logo.png",
     category=["Custom"],
+    code_language="javascript",
     hog="""
 const style = (inputs) => `
     .form, .button, .thanks {

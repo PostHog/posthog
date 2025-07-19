@@ -12,6 +12,7 @@ export const currencyNormalizationPlugin: LegacyTransformationPlugin = {
         description: 'Normalizes currency amounts. NOTE: This plugin is deprecated.',
         icon_url: 'https://raw.githubusercontent.com/posthog/currency-normalization-plugin/main/logo.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

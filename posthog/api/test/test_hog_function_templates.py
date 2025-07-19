@@ -272,6 +272,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
             status="stable",
             free=True,
             category=["Customer Success"],
+            code_language="hog",
         )
 
         # Save the modified template - this should update the existing one

@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send conversion events to LinkedIn Ads",
     icon_url="/static/services/linkedin.png",
     category=["Advertisement"],
+    code_language="hog",
     hog="""
 let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',

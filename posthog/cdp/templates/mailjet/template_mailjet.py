@@ -43,6 +43,7 @@ template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
     description="Add contacts to Mailjet",
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     return false
@@ -97,6 +98,7 @@ template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     description="Update a Mailjet contact list",
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     return false

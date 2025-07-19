@@ -5235,6 +5235,7 @@ export type HogFunctionTemplateType = Pick<
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {

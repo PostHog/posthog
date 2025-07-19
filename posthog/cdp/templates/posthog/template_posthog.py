@@ -13,6 +13,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send a copy of the incoming data in realtime to another PostHog instance",
     icon_url="/static/posthog-icon.svg",
     category=["Custom", "Analytics"],
+    code_language="hog",
     hog="""
 let host := inputs.host
 let token := inputs.token

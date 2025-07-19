@@ -14,6 +14,7 @@ export const pluginAdvancedGeoip: LegacyTransformationPlugin = {
             'This plugin will add advanced geoip properties to your events. You will not be billed for any events that this plugin drops.',
         icon_url: 'https://raw.githubusercontent.com/posthog/advanced-geoip-plugin/main/logo.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

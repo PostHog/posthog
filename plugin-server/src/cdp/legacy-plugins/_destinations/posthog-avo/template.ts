@@ -15,6 +15,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
         description: 'Export PostHog events to Avo inspector.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-avo-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: 'return event',
         inputs_schema: [
             {

@@ -15,6 +15,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send data to a Google Pub/Sub topic",
     icon_url="/static/services/google-cloud.png",
     category=["Custom"],
+    code_language="hog",
     hog="""
 let headers := () -> {
   'Authorization': f'Bearer {inputs.auth.access_token}',

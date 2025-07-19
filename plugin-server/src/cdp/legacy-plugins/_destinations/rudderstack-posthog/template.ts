@@ -15,6 +15,7 @@ export const rudderstackPlugin: LegacyDestinationPlugin = {
         description: 'Send event data to RudderStack',
         icon_url: 'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: 'return event',
         inputs_schema: [
             {

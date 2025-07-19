@@ -16,6 +16,7 @@ export const posthogRouteCensorPlugin: LegacyTransformationPlugin = {
         description: 'Removes segments of URLs based on route patterns.',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

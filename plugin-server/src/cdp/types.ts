@@ -361,6 +361,7 @@ export type HogFunctionTemplate = {
     mapping_templates?: HogFunctionMappingTemplate[]
     masking?: HogFunctionMasking
     icon_url?: string
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
@@ -406,7 +407,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
     perform: (
         request: (
             url: string,

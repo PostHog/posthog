@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Show a notification bar for your users",
     icon_url="/static/hedgehog/list-hog.png",
     category=["Custom", "Analytics"],
+    code_language="javascript",
     hog="""
 export function onLoad({ inputs }) {
     if (inputs.domains) {

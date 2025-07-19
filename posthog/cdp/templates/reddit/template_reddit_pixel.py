@@ -26,6 +26,7 @@ template_reddit_pixel: HogFunctionTemplate = HogFunctionTemplate(
     description="Track how many Reddit users interact with your website. Note that this destination will set third-party cookies.",
     icon_url="/static/services/reddit.png",
     category=["Advertisement"],
+    code_language="javascript",
     hog="""
 // Adds window.rdt and lazily loads the Reddit Pixel script
 function initSnippet() {

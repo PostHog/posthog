@@ -13,6 +13,7 @@ export const posthogAppUnduplicator: LegacyTransformationPlugin = {
         description: 'Prevent duplicates in your data when ingesting.',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {
