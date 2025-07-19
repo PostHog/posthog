@@ -1,5 +1,6 @@
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
+    compareInsightTopLevelSections,
     extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
@@ -548,5 +549,62 @@ describe('getTrendDatasetKey()', () => {
         }
 
         expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+    })
+})
+
+describe('compareTopLevelSections()', () => {
+    it('compares top-level sections', () => {
+        const obj1 = { kind: 'trends', source: { interval: 'day' } }
+        const obj2 = { kind: 'funnels', source: { interval: 'day' } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Insight Type'])
+    })
+
+    it('compares source fields', () => {
+        const obj1 = { source: { interval: 'day', series: [] } }
+        const obj2 = { source: { interval: 'week', series: [] } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Interval'])
+    })
+
+    it('compares multiple source fields', () => {
+        const obj1 = { source: { interval: 'day', breakdownFilter: null, dateRange: 'last7d' } }
+        const obj2 = { source: { interval: 'week', breakdownFilter: { breakdown: '$browser' }, dateRange: 'last30d' } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Interval', 'Breakdowns', 'Date Range'])
+    })
+
+    it('handles unknown source fields', () => {
+        const obj1 = { source: { unknownField: 'value1' } }
+        const obj2 = { source: { unknownField: 'value2' } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['source.unknownField'])
+    })
+
+    it('handles nested objects in source fields', () => {
+        const obj1 = { source: { breakdownFilter: { breakdown: '$browser' } } }
+        const obj2 = { source: { breakdownFilter: { breakdown: '$os' } } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Breakdowns'])
+    })
+
+    it('handles arrays in source fields', () => {
+        const obj1 = { source: { series: [{ event: '$pageview' }] } }
+        const obj2 = { source: { series: [{ event: '$pageview' }, { event: '$autocapture' }] } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Series'])
+    })
+
+    it('returns empty array when no differences', () => {
+        const obj1 = { source: { interval: 'day', series: [] } }
+        const obj2 = { source: { interval: 'day', series: [] } }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('handles null/undefined objects', () => {
+        expect(compareInsightTopLevelSections(null, { kind: 'trends' })).toEqual(['Insight Type'])
+        expect(compareInsightTopLevelSections({ kind: 'trends' }, null)).toEqual(['Insight Type'])
+        expect(compareInsightTopLevelSections(null, null)).toEqual([])
     })
 })

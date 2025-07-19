@@ -1,8 +1,11 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -21,6 +24,7 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -52,6 +56,7 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
+import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -78,8 +83,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
-    const { setQuery } = useActions(insightVizDataLogic(insightProps))
+
+    const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
+    const { previousQuery, suggestedQuery, hasRejected } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { setQuery } = useActions(insightVizDataLogic(insightProps))
+
+    const hasScrolled = useRef(false)
+
+    // Reset scroll flag when banner disappears
+    useEffect(() => {
+        if (!previousQuery) {
+            hasScrolled.current = false
+        }
+    }, [previousQuery])
 
     if (!querySource) {
         return null
@@ -391,55 +408,115 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <>
-                <MaxTool
-                    name="create_and_query_insight"
-                    displayName="Edit insight"
-                    description="Max can tweak and rework the insight you're viewing"
-                    context={{
-                        current_query: querySource,
-                    }}
-                    callback={(
-                        toolOutput:
-                            | AssistantTrendsQuery
-                            | AssistantFunnelsQuery
-                            | AssistantRetentionQuery
-                            | AssistantHogQLQuery
-                    ) => {
-                        const source = castAssistantQuery(toolOutput)
-                        if (isHogQLQuery(source)) {
-                            const node = {
-                                kind: NodeKind.DataVisualizationNode,
-                                source,
-                            } satisfies DataVisualizationNode
+                <div>
+                    <MaxTool
+                        name="create_and_query_insight"
+                        displayName="Edit insight"
+                        description="Max can tweak and rework the insight you're viewing"
+                        context={{
+                            current_query: querySource,
+                        }}
+                        callback={(
+                            toolOutput:
+                                | AssistantTrendsQuery
+                                | AssistantFunnelsQuery
+                                | AssistantRetentionQuery
+                                | AssistantHogQLQuery
+                        ) => {
+                            const source = castAssistantQuery(toolOutput)
+                            let node: DataVisualizationNode | InsightVizNode
+                            if (isHogQLQuery(source)) {
+                                node = {
+                                    kind: NodeKind.DataVisualizationNode,
+                                    source,
+                                } satisfies DataVisualizationNode
+                            } else {
+                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            }
+                            handleInsightSuggested(node)
                             setQuery(node)
-                        } else {
-                            const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                            setQuery(node)
-                        }
-                    }}
-                    initialMaxPrompt="Show me users who "
-                    className="EditorFiltersWrapper"
-                    active={maxToolActive}
-                >
-                    <div
-                        className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                            'p-4 rounded border': !embedded,
-                        })}
+                        }}
+                        initialMaxPrompt="Show me users who "
+                        className="EditorFiltersWrapper"
+                        active={maxToolActive}
                     >
-                        {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                            <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                                {editorFilterGroups.map((editorFilterGroup) => (
-                                    <EditorFilterGroup
-                                        key={editorFilterGroup.title}
-                                        editorFilterGroup={editorFilterGroup}
-                                        insightProps={insightProps}
-                                        query={query}
-                                    />
+                        <div>
+                            <div
+                                className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                                    'p-4 rounded border': !embedded,
+                                })}
+                            >
+                                {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                                    <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                        {editorFilterGroups.map((editorFilterGroup) => (
+                                            <EditorFilterGroup
+                                                key={editorFilterGroup.title}
+                                                editorFilterGroup={editorFilterGroup}
+                                                insightProps={insightProps}
+                                                query={query}
+                                            />
+                                        ))}
+                                    </div>
                                 ))}
                             </div>
-                        ))}
-                    </div>
-                </MaxTool>
+                        </div>
+                    </MaxTool>
+
+                    {previousQuery && !hasRejected && (
+                        <div
+                            className="w-full px-2"
+                            ref={(el) => {
+                                if (el && !hasScrolled.current) {
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    hasScrolled.current = true
+                                }
+                            }}
+                        >
+                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
+                                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
+                                    <span className="size-2 bg-accent-active rounded-full" />
+                                    {(() => {
+                                        const changedLabels = compareInsightTopLevelSections(
+                                            suggestedQuery,
+                                            previousQuery
+                                        )
+                                        const diffString = `🔍 ${
+                                            changedLabels.length
+                                        } section(s) changed: \n${changedLabels.join('\n')}`
+
+                                        return (
+                                            <div className="flex items-center gap-1">
+                                                <span>
+                                                    {changedLabels.length}{' '}
+                                                    {changedLabels.length === 1 ? 'change' : 'changes'}
+                                                </span>
+                                                {diffString && (
+                                                    <Tooltip
+                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
+                                                    >
+                                                        <IconInfo className="text-sm text-muted cursor-help" />
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
+                                </div>
+
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        onRejectSuggestedInsight()
+                                    }}
+                                    tooltipPlacement="top"
+                                    size="small"
+                                    icon={<IconX />}
+                                >
+                                    Reject changes
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 {shouldShowSessionAnalysisWarning ? (
                     <LemonBanner type="info" className="mt-2">

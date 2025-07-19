@@ -37,7 +37,16 @@ class EditCurrentInsightTool(MaxTool):
         "Update the insight the user is currently working on, based on the current insight's JSON schema."
     )
     thinking_message: str = "Editing your insight"
-    root_system_prompt_template: str = "The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n```json\n{current_query}\n```"
+    root_system_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+
+```json
+{current_query}
+```
+
+IMPORTANT: THE CURRENT INSIGHT DEFINITION IS YOUR SOURCE OF TRUTH.
+
+""".strip()
+
     args_schema: type[BaseModel] = EditCurrentInsightArgs
 
     async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, None]:
@@ -45,6 +54,10 @@ class EditCurrentInsightTool(MaxTool):
 
         if "current_query" not in self.context:
             raise ValueError("Context `current_query` is required for the `create_and_query_insight` tool")
+
+        # Fix the type errors by ensuring team and user are not None
+        if self._team is None or self._user is None:
+            raise ValueError("Team and user must be available for the `create_and_query_insight` tool")
 
         graph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
         state = self._state
