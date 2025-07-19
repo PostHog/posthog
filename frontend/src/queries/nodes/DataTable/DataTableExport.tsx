@@ -30,6 +30,8 @@ import {
 import { ExporterFormat } from '~/types'
 
 import { dataTableLogic, DataTableRow } from './dataTableLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 
 // Sync with posthog/hogql/constants.py
 export const MAX_SELECT_RETURNED_ROWS = 50000
@@ -47,9 +49,12 @@ export async function startDownload(
 
     let exportSource = query.source
 
+    const team = teamLogic.findMounted()?.values?.currentTeam
+    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
     // Remove person column from the source otherwise export fails when there's 1000+ records
     if (shouldOptimize && isEventsQuery(query.source)) {
-        exportSource = transformQuerySourceForExport(query.source)
+        exportSource = transformQuerySourceForExport(query.source, personDisplayNameProperties)
     }
 
     const exportContext = isPersonsNode(query.source)
@@ -69,7 +74,7 @@ export async function startDownload(
 
         // Apply export optimizations to columns
         if (shouldOptimize && isEventsQuery(query.source)) {
-            columns = transformColumnsForExport(columns)
+            columns = transformColumnsForExport(columns, personDisplayNameProperties)
         } else if (isPersonsNode(query.source)) {
             columns = columns.map((c: string) => (removeExpressionComment(c) === 'person' ? 'email' : c))
         }
