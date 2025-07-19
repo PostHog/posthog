@@ -13,7 +13,7 @@ import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
-import { MAX_SELECT_RETURNED_ROWS, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
+import { CSV_EXPORT_LIMIT, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { ExporterFormat } from '~/types'
 
@@ -77,7 +77,7 @@ export function RetentionModal(): JSX.Element | null {
                                 onClick={() => {
                                     dataTableNodeQuery && void startDownload(dataTableNodeQuery, true, startExport)
                                 }}
-                                tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                                tooltip={`Up to ${CSV_EXPORT_LIMIT} persons will be exported`}
                             >
                                 Export all as CSV
                             </LemonButton>

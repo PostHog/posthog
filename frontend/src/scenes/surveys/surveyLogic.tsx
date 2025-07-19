@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
+import { CSV_EXPORT_LIMIT } from '~/queries/nodes/DataTable/DataTableExport'
 import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryString } from '~/queries/utils'
 import {
@@ -773,9 +773,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         consolidatedSurveyResults: {
-            loadConsolidatedSurveyResults: async (
-                limit = MAX_SELECT_RETURNED_ROWS
-            ): Promise<ConsolidatedSurveyResults> => {
+            loadConsolidatedSurveyResults: async (limit = CSV_EXPORT_LIMIT): Promise<ConsolidatedSurveyResults> => {
                 if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return { responsesByQuestion: {} }
                 }
