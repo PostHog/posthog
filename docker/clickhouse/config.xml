@@ -392,4 +392,25 @@
             <replace>\1(???)</replace>
         </rule>
     </query_masking_rules>
+
+    <!-- S3 Storage Configuration for S3BackedMergeTree -->
+    <storage_configuration>
+        <disks>
+            <s3>
+                <type>s3</type>
+                <endpoint>http://objectstorage:19000/posthog/clickhouse_disk/</endpoint>
+                <access_key_id>object_storage_root_user</access_key_id>
+                <secret_access_key>object_storage_root_password</secret_access_key>
+            </s3>
+        </disks>
+        <policies>
+            <s3_policy>
+                <volumes>
+                    <volume>
+                        <disk>s3</disk>
+                    </volume>
+                </volumes>
+            </s3_policy>
+        </policies>
+    </storage_configuration>
 </clickhouse>

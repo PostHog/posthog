@@ -1,10 +1,22 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
+from posthog.settings.utils import get_from_env
+
+
+def get_web_analytics_storage_policy():
+    """Get storage policy for web analytics tables based on environment configuration."""
+    policy = get_from_env("WEB_ANALYTICS_STORAGE_POLICY", "default")
+    return "s3_policy" if policy == "s3" else None
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    storage_policy = get_web_analytics_storage_policy()
+    engine = MergeTreeEngine(
+        table_name, 
+        replication_scheme=ReplicationScheme.REPLICATED,
+        storage_policy=storage_policy
+    )
 
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
@@ -21,7 +33,12 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
 
 
 def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    storage_policy = get_web_analytics_storage_policy()
+    engine = MergeTreeEngine(
+        table_name, 
+        replication_scheme=ReplicationScheme.REPLICATED,
+        storage_policy=storage_policy
+    )
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
