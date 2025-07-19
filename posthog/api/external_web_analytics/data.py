@@ -41,7 +41,7 @@ class WebAnalyticsDataFactory:
     def generate_trends_data(self, request_data: dict[str, Any], request: Request, team_id: int) -> dict[str, Any]:
         date_from = request_data["date_from"]
         date_to = request_data["date_to"]
-        domain = request_data["domain"]
+        host = request_data["host"]
 
         if isinstance(date_from, str):
             date_from = datetime.strptime(date_from, "%Y-%m-%d").date()
@@ -85,7 +85,7 @@ class WebAnalyticsDataFactory:
         base_params = {
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
-            "domain": domain,
+            "host": host,
             "interval": interval,
             "metric": metric,
             "limit": limit,

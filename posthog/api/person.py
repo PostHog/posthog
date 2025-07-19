@@ -1,7 +1,7 @@
 import builtins
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, UTC
 from requests import HTTPError
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
@@ -21,7 +21,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from posthog.api.capture import new_capture_internal
+from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import (
@@ -553,19 +553,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
+        event_name = "$delete_person_property"
+        distinct_id = person.distinct_ids[0]
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$unset": [request.data["$unset"]],
+        }
+
         try:
-            event = {
-                "event": "$delete_person_property",
-                "properties": {
-                    "$unset": [request.data["$unset"]],
-                },
-                "timestamp": datetime.now().isoformat(),
-            }
-            resp = new_capture_internal(
-                self.team.api_token,
-                person.distinct_ids[0],
-                event,
-                True,
+            resp = capture_internal(
+                token=self.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
             )
             resp.raise_for_status()
 
@@ -678,20 +681,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _set_properties(self, properties, user):
         instance = self.get_object()
         distinct_id = instance.distinct_ids[0]
+        event_name = "$set"
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$set": properties,
+        }
 
         try:
-            event = {
-                "event": "$set",
-                "properties": {
-                    "$set": properties,
-                },
-                "timestamp": datetime.now().isoformat(),
-            }
-            resp = new_capture_internal(
-                instance.team.api_token,
-                distinct_id,
-                event,
-                True,
+            resp = capture_internal(
+                token=instance.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
             )
             resp.raise_for_status()
 

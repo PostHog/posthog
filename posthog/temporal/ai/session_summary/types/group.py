@@ -12,6 +12,9 @@ class SessionGroupSummaryInputs:
     user_id: int
     team_id: int
     redis_key_base: str
+    # Timestamps required to avoid reading too many days from ClickHouse
+    min_timestamp_str: str
+    max_timestamp_str: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
 

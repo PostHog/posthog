@@ -4,7 +4,13 @@ from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded, ClickhouseAtCapacity
+from posthog.exceptions import (
+    EstimatedQueryExecutionTimeTooLong,
+    QuerySizeExceeded,
+    ClickHouseAtCapacity,
+    ClickHouseQueryTimeOut,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 
 
 class InternalCHQueryError(ServerException):
@@ -55,8 +61,17 @@ def wrap_query_error(err: Exception) -> Exception:
     if not isinstance(err, ServerException):
         return err
 
-    if err.code == 202:
-        return ClickhouseAtCapacity()
+    # 202 is too many simultanous queries, 439 is cannot schedule tasks - too many threads, both
+    if err.code in (202, 439):
+        return ClickHouseAtCapacity()
+    elif err.code == 159:
+        return ClickHouseQueryTimeOut()
+    elif err.code == 241:
+        return ClickHouseQueryMemoryLimitExceeded()
+    elif (
+        err.code == 62 and "query size exceeded" in err.message
+    ):  # Handle syntax error when "max query size exceeded" in the message
+        return QuerySizeExceeded()
 
     # Return a 512 error for queries which would time out
     match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
@@ -64,22 +79,16 @@ def wrap_query_error(err: Exception) -> Exception:
         return EstimatedQueryExecutionTimeTooLong(
             detail=f"{match.group(0)} Try reducing its scope by changing the time range."
         )
-    # Handle syntax error when "max query size exceeded" in the message
-    if "query size exceeded" in err.message:
-        return QuerySizeExceeded()
 
-    # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
-    if hasattr(err, "code"):
-        meta = look_up_error_code_meta(err)
+    meta = look_up_error_code_meta(err)
 
-        if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
-            return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
+    if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
+        return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
 
-        name = f"CHQueryError{meta.label}"
-        processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-        message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
-        return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
-    return err
+    name = f"CHQueryError{meta.label}"
+    processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
+    message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
+    return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
 
 
 def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
@@ -105,7 +114,6 @@ CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
     ),
     "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=439),
 }
-
 
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/23.12/src/Common/ErrorCodes.cpp#L16-L622
@@ -250,7 +258,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     153: ErrorCodeMeta("ILLEGAL_DIVISION", user_safe=True),
     156: ErrorCodeMeta("DICTIONARIES_WAS_NOT_LOADED"),
     158: ErrorCodeMeta("TOO_MANY_ROWS"),
-    159: ErrorCodeMeta("TIMEOUT_EXCEEDED"),
+    159: ErrorCodeMeta("TIMEOUT_EXCEEDED", user_safe=True),
     160: ErrorCodeMeta("TOO_SLOW"),
     161: ErrorCodeMeta("TOO_MANY_COLUMNS"),
     162: ErrorCodeMeta("TOO_DEEP_SUBQUERIES"),
@@ -282,7 +290,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     198: ErrorCodeMeta("DNS_ERROR"),
     199: ErrorCodeMeta("UNKNOWN_QUOTA"),
     201: ErrorCodeMeta("QUOTA_EXCEEDED"),
-    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES"),
+    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True),
     203: ErrorCodeMeta("NO_FREE_CONNECTION"),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),

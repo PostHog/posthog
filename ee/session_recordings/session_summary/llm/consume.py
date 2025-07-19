@@ -57,6 +57,8 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 
 def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk) -> str:
     """Return text content from a ChatCompletion or streaming chunk."""
+    if not llm_response or not llm_response.choices:
+        return ""  # If no choices generated yet
     if isinstance(llm_response, ChatCompletion):
         content = llm_response.choices[0].message.content
     elif isinstance(llm_response, ChatCompletionChunk):

@@ -13,13 +13,13 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { lastDashboardRefresh } = useValues(dashboardLogic)
+    const { effectiveLastRefresh } = useValues(dashboardLogic)
     return (
         <div className="flex items-center gap-1">
-            {lastDashboardRefresh && dayjs().diff(dayjs(lastDashboardRefresh), 'hour') < 24 ? (
+            {effectiveLastRefresh && dayjs().diff(dayjs(effectiveLastRefresh), 'hour') < 24 ? (
                 <div className="flex items-center gap-1">
                     <span>Last refreshed</span>
-                    <TZLabel time={lastDashboardRefresh} />
+                    <TZLabel time={effectiveLastRefresh} />
                 </div>
             ) : (
                 'Refresh'

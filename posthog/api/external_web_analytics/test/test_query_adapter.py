@@ -4,18 +4,19 @@ import pytest
 from typing import Any
 
 from freezegun import freeze_time
+from posthog.models.utils import uuid7
 from posthog.api.external_web_analytics.query_adapter import ExternalWebAnalyticsQueryAdapter
 from posthog.api.external_web_analytics.serializers import (
     EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
     WebAnalyticsOverviewRequestSerializer,
     WebAnalyticsBreakdownRequestSerializer,
 )
+from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
+from posthog.test.base import APIBaseTest
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
-from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
-from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 
 class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
@@ -24,9 +25,9 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         self.serializer_data = {
             "date_from": date(2025, 1, 1),
             "date_to": date(2025, 1, 31),
-            "domain": "example.com",
+            "host": "example.com",
             "filter_test_accounts": True,
-            "do_path_cleaning": True,
+            "apply_path_cleaning": True,
         }
 
         self.sample_overview_items = [
@@ -161,19 +162,19 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             assert result == case["expected"], f"Failed for case: {case}"
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
-    def test_query_configuration_with_domain(self, mock_runner_class):
+    def test_query_configuration_with_host(self, mock_runner_class):
         mock_runner = MagicMock()
         mock_runner.calculate.return_value = self._create_mock_overview_response([])
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_overview_request_serializer(domain="app.example.com")
+        serializer = self._create_mock_overview_request_serializer(host="app.example.com")
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_overview_data(serializer)
 
         _, kwargs = mock_runner_class.call_args
         query = kwargs["query"]
 
-        # Check domain filter
+        # Check host filter
         assert len(query.properties) == 1
         assert query.properties[0].key == "$host"
         assert query.properties[0].value == ["app.example.com"]
@@ -186,19 +187,19 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         assert query.conversionGoal is None
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
-    def test_query_configuration_without_domain(self, mock_runner_class):
+    def test_query_configuration_without_host(self, mock_runner_class):
         mock_runner = MagicMock()
         mock_runner.calculate.return_value = self._create_mock_overview_response([])
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_overview_request_serializer(domain=None)
+        serializer = self._create_mock_overview_request_serializer(host=None)
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_overview_data(serializer)
 
         _, kwargs = mock_runner_class.call_args
         query = kwargs["query"]
 
-        # Should have no properties when the domain is not provided
+        # Should have no properties when the host is not provided
         assert len(query.properties) == 0
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
@@ -239,10 +240,10 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
     def test_filter_configuration_variations(self, mock_runner_class):
         test_cases = [
-            {"filter_test_accounts": False, "do_path_cleaning": False},
-            {"filter_test_accounts": True, "do_path_cleaning": False},
-            {"filter_test_accounts": False, "do_path_cleaning": True},
-            {"filter_test_accounts": True, "do_path_cleaning": True},
+            {"filter_test_accounts": False, "apply_path_cleaning": False},
+            {"filter_test_accounts": True, "apply_path_cleaning": False},
+            {"filter_test_accounts": False, "apply_path_cleaning": True},
+            {"filter_test_accounts": True, "apply_path_cleaning": True},
         ]
 
         for filters in test_cases:
@@ -258,7 +259,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             query = kwargs["query"]
 
             assert query.filterTestAccounts == filters["filter_test_accounts"]
-            assert query.doPathCleaning == filters["do_path_cleaning"]
+            assert query.doPathCleaning == filters["apply_path_cleaning"]
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
     def test_ignores_unknown_metrics(self, mock_runner_class):
@@ -311,11 +312,10 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
             "date_from": date(2025, 1, 1),
             "date_to": date(2025, 1, 31),
             "breakdown_by": "Browser",
-            "domain": "example.com",
+            "host": "example.com",
             "filter_test_accounts": True,
-            "do_path_cleaning": True,
+            "apply_path_cleaning": True,
             "limit": 100,
-            "metrics": ["visitors", "views"],
         }
 
     def _create_mock_breakdown_request_serializer(self, **overrides):
@@ -379,9 +379,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_breakdown_request_serializer(
-            breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
-        )
+        serializer = self._create_mock_breakdown_request_serializer(breakdown_by="Page")
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
@@ -391,32 +389,6 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         assert first_result["visitors"] == 200
         assert first_result["views"] == 400
         assert first_result["bounce_rate"] == 0.25
-
-    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
-    def test_breakdown_filters_metrics_correctly(self, mock_runner_class):
-        columns = [
-            "context.columns.breakdown_value",
-            "context.columns.visitors",
-            "context.columns.views",
-            "context.columns.bounce_rate",
-        ]
-        results = [
-            ["Chrome", (150, 120), (500, 400), (0.25, 0.30)],
-        ]
-
-        mock_runner = MagicMock()
-        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
-        mock_runner_class.return_value = mock_runner
-
-        serializer = self._create_mock_breakdown_request_serializer(metrics=["visitors"])
-        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-        result = adapter.get_breakdown_data(serializer)
-
-        first_result = result["results"][0]
-        assert "breakdown_value" in first_result
-        assert "visitors" in first_result
-        assert "views" not in first_result
-        assert "bounce_rate" not in first_result
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     def test_breakdown_handles_null_values(self, mock_runner_class):
@@ -476,7 +448,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         mock_runner_class.return_value = mock_runner
 
         serializer = self._create_mock_breakdown_request_serializer(
-            breakdown_by="DeviceType", filter_test_accounts=False, do_path_cleaning=False, limit=50
+            breakdown_by="DeviceType", filter_test_accounts=False, apply_path_cleaning=False, limit=50
         )
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_breakdown_data(serializer)
@@ -536,13 +508,13 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
             assert query.breakdownBy == expected_enum, f"Failed for breakdown: {breakdown_str}"
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
-    def test_breakdown_with_domain_filter(self, mock_runner_class):
+    def test_breakdown_with_host_filter(self, mock_runner_class):
         mock_runner = MagicMock()
         columns = ["context.columns.breakdown_value", "context.columns.visitors"]
         mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_breakdown_request_serializer(domain="app.example.com")
+        serializer = self._create_mock_breakdown_request_serializer(host="app.example.com")
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_breakdown_data(serializer)
 
@@ -569,9 +541,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
         mock_runner_class.return_value = mock_runner
 
-        serializer = self._create_mock_breakdown_request_serializer(
-            breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
-        )
+        serializer = self._create_mock_breakdown_request_serializer(breakdown_by="Page")
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
@@ -735,7 +705,6 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
                 "breakdown_by": "DeviceType",
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
-                "metrics": "visitors,views",
             }
         )
         serializer.is_valid(raise_exception=True)
@@ -772,7 +741,6 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
                 "breakdown_by": "Page",
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
-                "metrics": "visitors,views,bounce_rate",
             }
         )
         serializer.is_valid(raise_exception=True)
@@ -787,7 +755,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
             assert "bounce_rate" in row
             assert isinstance(row["bounce_rate"], float)
 
-    def test_breakdown_data_with_domain_filter_integration(self):
+    def test_breakdown_data_with_host_filter_integration(self):
         adapter = ExternalWebAnalyticsQueryAdapter(self.team)
 
         serializer = WebAnalyticsBreakdownRequestSerializer(
@@ -795,8 +763,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
                 "breakdown_by": "DeviceType",
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
-                "domain": "example.com",
-                "metrics": "visitors,views",
+                "host": "example.com",
             }
         )
         serializer.is_valid(raise_exception=True)
@@ -806,14 +773,13 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         # Should still get results since all our test data is from example.com
         assert result["count"] == 2
 
-        # Test with different domain - should get no results
+        # Test with different host - should get no results
         serializer = WebAnalyticsBreakdownRequestSerializer(
             data={
                 "breakdown_by": "DeviceType",
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
-                "domain": "different.com",
-                "metrics": "visitors,views",
+                "host": "different.com",
             }
         )
         serializer.is_valid(raise_exception=True)
@@ -821,14 +787,14 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
         assert result["count"] == 0
 
-    def test_overview_data_with_domain_filter_integration(self):
+    def test_overview_data_with_host_filter_integration(self):
         adapter = ExternalWebAnalyticsQueryAdapter(self.team)
 
         serializer = WebAnalyticsOverviewRequestSerializer(
             data={
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
-                "domain": "example.com",
+                "host": "example.com",
             }
         )
         serializer.is_valid(raise_exception=True)
@@ -839,12 +805,12 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         assert result["visitors"] == 3
         assert result["views"] == 3
 
-        # Test with different domain - should get no results
+        # Test with different host - should get no results
         serializer = WebAnalyticsOverviewRequestSerializer(
             data={
                 "date_from": "2024-01-01",
                 "date_to": "2024-01-02",
-                "domain": "different.com",
+                "host": "different.com",
             }
         )
         serializer.is_valid(raise_exception=True)

@@ -213,6 +213,18 @@ function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query
     }
 }
 
+function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
+    try {
+        const tableData = getCsvTableData(dataTableRows, columns, query)
+
+        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
+
+        void copyToClipboard(tsv, 'table')
+    } catch {
+        lemonToast.error('Copy failed!')
+    }
+}
+
 interface DataTableExportProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
@@ -297,6 +309,19 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                                 }
                             },
                             'data-attr': 'copy-json-to-clipboard',
+                        },
+                        {
+                            label: 'Excel',
+                            onClick: () => {
+                                if (dataTableRows) {
+                                    copyTableToExcel(
+                                        dataTableRows,
+                                        columnsInResponse ?? columnsInQuery,
+                                        queryWithDefaults
+                                    )
+                                }
+                            },
+                            'data-attr': 'copy-excel-to-clipboard',
                         },
                     ],
                 },

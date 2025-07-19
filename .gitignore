@@ -105,3 +105,6 @@ target/*
 
 # Ignore user's Cursor rules
 .cursor/**/user*.mdc
+
+# Ignore Claude Code settings
+.claude/settings.local.json

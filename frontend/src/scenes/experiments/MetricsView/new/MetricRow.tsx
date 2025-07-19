@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
@@ -25,9 +25,9 @@ export function MetricRow({
     chartRadius,
     error,
 }: {
-    metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: ExperimentMetric[]
     metricIndex: number
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric
     result: any
     metricType: InsightType
     isSecondary: boolean
@@ -102,12 +102,9 @@ export function MetricRow({
                                 tickValues={tickValues}
                                 isSecondary={isSecondary}
                             />
-                            <DetailsButton
-                                metric={metric}
-                                isSecondary={isSecondary}
-                                experiment={experiment}
-                                setIsModalOpen={setIsModalOpen}
-                            />
+                            <div className="absolute top-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]">
+                                <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                            </div>
                             <DetailsModal
                                 isOpen={isModalOpen}
                                 onClose={() => setIsModalOpen(false)}

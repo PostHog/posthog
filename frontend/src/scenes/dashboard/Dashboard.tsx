@@ -60,11 +60,9 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        dashboardVariables,
+        hasVariables,
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
-
-    const hasVariables = Object.keys(dashboardVariables).length > 0
 
     useEffect(() => {
         reportDashboardViewed()

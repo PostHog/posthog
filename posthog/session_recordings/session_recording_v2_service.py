@@ -65,7 +65,9 @@ def load_blocks(recording: SessionRecording) -> RecordingBlockListing | None:
         else:
             BLOCK_URL_CACHE_HIT_COUNTER.labels(cache_hit=False).inc()
 
-    listed_blocks = SessionReplayEvents().list_blocks(recording.session_id, recording.team)
+    listed_blocks = SessionReplayEvents().list_blocks(
+        recording.session_id, recording.team, recording_start_time=recording.start_time, ttl_days=recording.ttl_days
+    )
 
     if listed_blocks is not None and not listed_blocks.is_empty() and cache_key is not None:
         # If a recording started more than 24 hours ago, then it is complete

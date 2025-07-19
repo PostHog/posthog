@@ -16,7 +16,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
 
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingAnnotation } = useActions(theBuiltOverlayLogic)
+    const { submitRecordingAnnotation, resetRecordingAnnotation } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
         <div className="absolute bottom-4 left-4 z-20 w-90">
@@ -32,7 +32,12 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                         <LemonField name="annotationId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
-                        <LemonField name="timeInRecording" label={<span>Comment at</span>} inline={true}>
+                        <LemonField
+                            name="timeInRecording"
+                            label={<span>Comment at</span>}
+                            inline={true}
+                            className="justify-end"
+                        >
                             <LemonInput disabled={true} />
                         </LemonField>
                     </div>
@@ -50,6 +55,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             data-attr="cancel-recording-annotation"
                             type="secondary"
                             onClick={() => {
+                                resetRecordingAnnotation()
                                 setIsCommenting(false)
                             }}
                         >

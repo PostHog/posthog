@@ -1,6 +1,9 @@
 import dataclasses
 import json
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
+from ee.session_recordings.session_summary.summarize_session import (
+    SingleSessionSummaryLlmInputs,
+    get_session_data_from_db,
+)
 from ee.session_recordings.session_summary.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
@@ -38,12 +41,16 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         )
     except ValueError:
         # If not yet, or TTL expired - fetch data from DB
+        session_db_data = await get_session_data_from_db(
+            session_id=inputs.session_id,
+            team_id=inputs.team_id,
+            local_reads_prod=inputs.local_reads_prod,
+        )
         summary_data = await prepare_data_for_single_session_summary(
             session_id=inputs.session_id,
             user_id=inputs.user_id,
-            team_id=inputs.team_id,
+            session_db_data=session_db_data,
             extra_summary_context=inputs.extra_summary_context,
-            local_reads_prod=inputs.local_reads_prod,
         )
         if summary_data.error_msg is not None:
             # If we weren't able to collect the required data - retry
@@ -60,6 +67,11 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         )
         # Store the input in Redis
         input_data_str = json.dumps(dataclasses.asdict(input_data))
-        await store_data_in_redis(redis_client=redis_client, redis_key=redis_input_key, data=input_data_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            data=input_data_str,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+        )
     # Nothing to return if the fetch was successful, as the data is stored in Redis
     return None

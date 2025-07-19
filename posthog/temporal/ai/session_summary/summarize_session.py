@@ -98,6 +98,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
             redis_client=redis_client,
             redis_key=redis_output_key,
             data=json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
+            label=StateActivitiesEnum.SESSION_SUMMARY,
         )
         # Heartbeat to avoid workflow timeout, throttle to 5 seconds to avoid sending too many
         if time.time() - last_heartbeat_timestamp > 5:

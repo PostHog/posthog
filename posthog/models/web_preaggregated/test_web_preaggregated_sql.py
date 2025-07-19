@@ -145,3 +145,50 @@ class TestHourlyPartitioningIntegration:
         assert "'20240115'" in daily_sql
         # Hourly should be YYYYMMDDHH format (defaulting to 00)
         assert "'2024011500'" in hourly_sql
+
+    def test_multi_day_partition_scenario_daily(self):
+        dates = ["2024-01-01", "2024-01-02", "2024-01-03"]
+
+        for date in dates:
+            sql = DROP_PARTITION_SQL("web_stats_daily", date, granularity="daily")
+            expected_partition = date.replace("-", "")
+            assert f"'{expected_partition}'" in sql
+            assert "ALTER TABLE web_stats_daily" in sql
+            assert "DROP PARTITION" in sql
+
+    def test_month_boundary_partitions(self):
+        test_cases = [
+            ("2024-01-31", "daily", "20240131"),
+            ("2024-02-01", "daily", "20240201"),
+            ("2024-02-29", "daily", "20240229"),  # Leap year
+            ("2024-03-01", "daily", "20240301"),
+        ]
+
+        for date, granularity, expected_partition in test_cases:
+            sql = DROP_PARTITION_SQL("web_stats_daily", date, granularity=granularity)
+            assert f"'{expected_partition}'" in sql
+
+    def test_year_boundary_partitions(self):
+        test_cases = [
+            ("2023-12-31", "daily", "20231231"),
+            ("2024-01-01", "daily", "20240101"),
+        ]
+
+        for date, granularity, expected_partition in test_cases:
+            sql = DROP_PARTITION_SQL("web_stats_daily", date, granularity=granularity)
+            assert f"'{expected_partition}'" in sql
+
+    def test_granularity_parameter_is_case_sensitive_and_invalid_defaults_to_daily(self):
+        date = "2024-01-15"
+
+        # Test valid granularities
+        daily_sql = DROP_PARTITION_SQL("test_table", date, granularity="daily")
+        hourly_sql = DROP_PARTITION_SQL("test_table", date, granularity="hourly")
+
+        assert "'20240115'" in daily_sql
+        assert "'2024011500'" in hourly_sql
+
+        # Test that invalid granularity defaults to daily behavior
+        # (This tests the else clause in the function)
+        invalid_sql = DROP_PARTITION_SQL("test_table", date, granularity="invalid")
+        assert "'20240115'" in invalid_sql

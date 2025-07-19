@@ -273,7 +273,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.3.5.42
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.3.6.56
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 

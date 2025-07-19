@@ -1,32 +1,15 @@
 import json
-import pathlib
-from typing import Any, cast
-from unittest.mock import MagicMock, patch
 
 from django.test.client import Client
-
-from prance import ResolvingParser
 from rest_framework import status
-
+from unittest.mock import MagicMock, patch
 
 from posthog.test.base import BaseTest
 
 
-def mocked_get_ingest_context_from_token(_: Any) -> None:
-    raise Exception("test exception")
-
-
-parser = ResolvingParser(
-    url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),
-    strict=True,
-)
-openapi_spec = cast(dict[str, Any], parser.specification)
-
-
-class TestCapture(BaseTest):
+class TestCspReport(BaseTest):
     """
-    Tests all data capture endpoints (e.g. `/capture` `/batch/`).
-    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    Test CSP /report/ endpoint that accepts CSP violation report requests and publishes events to capture-rs
     """
 
     CLASS_DATA_LEVEL_SETUP = False
@@ -36,8 +19,8 @@ class TestCapture(BaseTest):
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
 
-    @patch("posthog.api.capture.new_capture_internal")
-    def test_submit_csp_report_to_new_internal_capture(self, mock_new_capture) -> None:
+    @patch("posthog.api.report.capture_internal")
+    def test_submit_csp_report_to_new_internal_capture(self, mock_capture) -> None:
         payload = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -57,9 +40,9 @@ class TestCapture(BaseTest):
             f"/report/?token={self.team.api_token}", data=json.dumps(payload), content_type="application/csp-report"
         )
         assert resp.status_code == status.HTTP_204_NO_CONTENT
-        assert mock_new_capture.call_count == 1
+        assert mock_capture.call_count == 1
 
-    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.capture.capture_internal")
     def test_submit_csp_report_list_to_new_internal_capture(self, mock_capture) -> None:
         mock_capture.return_value = MagicMock(status_code=204)
 
@@ -118,7 +101,7 @@ class TestCapture(BaseTest):
         assert resp.status_code == status.HTTP_204_NO_CONTENT
         assert mock_capture.call_count == 3
 
-    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.report.capture_internal")
     def test_capture_csp_violation(self, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 
@@ -147,7 +130,7 @@ class TestCapture(BaseTest):
         assert status.HTTP_204_NO_CONTENT == response.status_code
         assert mock_capture.call_count == 1
 
-    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.report.capture_internal")
     def test_capture_csp_no_trailing_slash(self, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 
@@ -246,7 +229,7 @@ class TestCapture(BaseTest):
         assert response.json()["code"] == "invalid_payload"
         assert "Failed to submit CSP report" in response.json()["detail"]
 
-    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.capture.capture_internal")
     def test_integration_csp_report_with_report_to_format_returns_204(self, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204, content=b"")
 
@@ -277,7 +260,7 @@ class TestCapture(BaseTest):
         assert response.content == b""
         mock_capture.assert_called_once()
 
-    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.capture.capture_internal")
     def test_capture_csp_report_to_violation(self, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 
@@ -331,8 +314,8 @@ class TestCapture(BaseTest):
         # Verify we processed both events
         assert mock_capture.call_count == 2
 
-    @patch("posthog.api.capture.new_capture_internal")
-    @patch("posthog.api.capture.logger")
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.logger")
     def test_csp_debug_logging_enabled(self, mock_logger, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 
@@ -361,8 +344,8 @@ class TestCapture(BaseTest):
         assert call_args[1]["content_type"] == "application/csp-report"
         assert "body" in call_args[1]
 
-    @patch("posthog.api.capture.new_capture_internal")
-    @patch("posthog.api.capture.logger")
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.logger")
     def test_csp_debug_logging_disabled(self, mock_logger, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 
@@ -383,8 +366,8 @@ class TestCapture(BaseTest):
         mock_capture.assert_called_once()
         mock_logger.exception.assert_not_called()
 
-    @patch("posthog.api.capture.new_capture_internal")
-    @patch("posthog.api.capture.logger")
+    @patch("posthog.api.report.capture_internal")
+    @patch("posthog.api.report.logger")
     def test_csp_debug_logging_case_insensitive(self, mock_logger, mock_capture):
         mock_capture.return_value = MagicMock(status_code=204)
 

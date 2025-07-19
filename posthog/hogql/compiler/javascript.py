@@ -153,6 +153,11 @@ class JavaScriptCompiler(Visitor):
     def _visit_hog_ast(self, node: AST | None) -> str:
         if node is None:
             return "null"
+        if isinstance(node, ast.HogQLXTag):
+            tag_name = node.kind
+            tag_is_callable = any(local for local in self.locals if local.name == tag_name)
+            if tag_is_callable:
+                return self.visit_hogqlx_tag(node)
 
         fields = [f'"__hx_ast": {json.dumps(node.__class__.__name__)}']
         for field in dataclasses.fields(node):
@@ -547,7 +552,7 @@ class JavaScriptCompiler(Visitor):
             expr_code = self.visit(
                 ast.Block(declarations=[ast.ExprStatement(expr=node.expr.expr), ast.ReturnStatement(expr=None)])
             )
-        elif isinstance(node.expr, ast.Dict):
+        elif isinstance(node.expr, ast.Dict) or isinstance(node.expr, ast.HogQLXTag):
             expr_code = f"({self.visit(node.expr)})"
         else:
             expr_code = self.visit(node.expr)
@@ -577,10 +582,16 @@ class JavaScriptCompiler(Visitor):
         return f"tuple({items_code})"
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        attrs = [f'"__hx_tag": {json.dumps(node.kind)}']
-        for attr in node.attributes:
-            attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
-        return f'{{{", ".join(attrs)}}}'
+        if any(local for local in self.locals if local.name == node.kind):
+            attrs = []
+            for attr in node.attributes:
+                attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
+            return f'{self.visit_field(ast.Field(chain=[node.kind]))}({{{", ".join(attrs)}}})'
+        else:
+            attrs = [f'"__hx_tag": {json.dumps(node.kind)}']
+            for attr in node.attributes:
+                attrs.append(f'"{attr.name}": {self._visit_hogqlx_value(attr.value)}')
+            return f'{{{", ".join(attrs)}}}'
 
     def _visit_hogqlx_value(self, value: Any) -> str:
         if isinstance(value, AST):

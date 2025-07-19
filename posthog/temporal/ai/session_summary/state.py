@@ -12,10 +12,10 @@ T = TypeVar("T")
 
 
 class StateActivitiesEnum(Enum):
-    SESSION_DB_DATA = "session_db_data"
-    SESSION_SUMMARY = "session_summary"
-    SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"
-    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"
+    SESSION_DB_DATA = "session_db_data"  # Events from DB
+    SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
+    SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
+    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
 
 
 def get_redis_state_client(
@@ -91,11 +91,15 @@ def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
 
 
 async def store_data_in_redis(
-    redis_client: aioredis.Redis, redis_key: str | None, data: str, ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+    redis_client: aioredis.Redis,
+    redis_key: str | None,
+    data: str,
+    label: StateActivitiesEnum,
+    ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
 ) -> None:
     """Compress and store data in Redis with an expiry time."""
     if not redis_key:
-        raise ValueError(f"Redis key is required to store data in Redis ({data})")
+        raise ValueError(f"Redis key is required for {label.value} to store data in Redis ({data})")
     compressed_data = _compress_redis_data(data)
     await redis_client.setex(redis_key, ttl, compressed_data)
     return None

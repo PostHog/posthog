@@ -14,6 +14,7 @@ import IconMetaAds from 'public/services/meta-ads.png'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
+import { IconTwilio } from 'lib/lemon-ui/icons'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -29,6 +30,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     linear: IconLinear,
     github: IconGitHub,
     'meta-ads': IconMetaAds,
+    twilio: IconTwilio,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

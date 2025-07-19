@@ -381,6 +381,16 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_burst"
+    rate = "240/minute"
+
+
+class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_sustained"
+    rate = "2400/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
