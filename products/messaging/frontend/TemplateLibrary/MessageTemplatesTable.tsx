@@ -4,6 +4,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
 import { MessageTemplate, messageTemplatesLogic } from './messageTemplatesLogic'
@@ -11,7 +12,7 @@ import { MessageTemplate, messageTemplatesLogic } from './messageTemplatesLogic'
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
     const { templates, templatesLoading } = useValues(messageTemplatesLogic)
-    const { deleteTemplate } = useActions(messageTemplatesLogic)
+    const { deleteTemplate, createTemplate } = useActions(messageTemplatesLogic)
 
     const columns: LemonTableColumns<MessageTemplate> = [
         {
@@ -53,6 +54,17 @@ export function MessageTemplatesTable(): JSX.Element {
 
     return (
         <div className="templates-section">
+            <MaxTool
+                name="create_message_template"
+                displayName="Create a new message template"
+                description="Max can create a new template from a prompt"
+                context={{}}
+                callback={(toolOutput: any) => {
+                    createTemplate({ template: JSON.parse(toolOutput) })
+                }}
+            >
+                <div className="relative" />
+            </MaxTool>
             <LemonTable dataSource={templates} loading={templatesLoading} columns={columns} />
         </div>
     )
