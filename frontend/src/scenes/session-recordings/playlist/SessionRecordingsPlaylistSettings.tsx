@@ -159,6 +159,53 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
     )
 }
 
+function NewCollectionModal(): JSX.Element {
+    const { isNewCollectionDialogOpen, selectedRecordingsIds, newCollectionName } =
+        useValues(sessionRecordingsPlaylistLogic)
+    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
+        useActions(sessionRecordingsPlaylistLogic)
+
+    const handleClose = (): void => {
+        setIsNewCollectionDialogOpen(false)
+        setNewCollectionName('')
+    }
+
+    return (
+        <LemonModal isOpen={isNewCollectionDialogOpen} onClose={handleClose} title="Create collection" maxWidth="500px">
+            <div className="space-y-4">
+                <p>
+                    Collections help you organize and save recordings for later analysis. This will create a new
+                    collection with the {selectedRecordingsIds.length} selected recording
+                    {selectedRecordingsIds.length > 1 ? 's' : ''}.
+                </p>
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Collection name</label>
+                    <LemonInput
+                        value={newCollectionName}
+                        onChange={setNewCollectionName}
+                        placeholder="e.g., Bug reports, User onboarding, Feature usage"
+                        className="w-full"
+                        autoFocus
+                    />
+                </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-8">
+                <LemonButton type="secondary" onClick={handleClose}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
+                    onClick={() => handleCreateNewCollectionBulkAdd()}
+                >
+                    Create collection
+                </LemonButton>
+            </div>
+        </LemonModal>
+    )
+}
+
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -182,6 +229,7 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkDeleteFromPlaylist,
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
+        setIsNewCollectionDialogOpen,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
@@ -189,6 +237,12 @@ export function SessionRecordingsPlaylistTopSettings({
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems = []
+
+        menuItems.push({
+            label: 'Add to new collection...',
+            onClick: () => setIsNewCollectionDialogOpen(true),
+            'data-attr': 'add-to-new-collection',
+        })
 
         if (!playlistsLoading) {
             const collections =
@@ -285,6 +339,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
+            <NewCollectionModal />
         </SettingsBar>
     )
 }
