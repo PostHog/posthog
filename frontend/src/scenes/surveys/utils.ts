@@ -99,7 +99,7 @@ export function sanitizeSurveyDisplayConditions(
 
     return {
         ...displayConditions,
-        url: displayConditions.url.trim(),
+        url: displayConditions.url?.trim(),
         selector: displayConditions.selector?.trim(),
     }
 }
