@@ -466,7 +466,6 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
     ],
     select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
     order_by=[ast.OrderExpr(expr=ast.Field(chain=["_inserted_at"]), order="ASC")],
-    # TODO: Add log_comment
     settings=HogQLQueryBatchExportSettings(),
 )
 
