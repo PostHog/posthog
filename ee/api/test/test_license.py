@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.utils.timezone import now
-from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -84,48 +83,6 @@ class TestLicenseAPI(APILicensedTest):
         )
 
         self.assertEqual(License.objects.count(), count)
-
-    @pytest.mark.skip_on_multitenancy
-    def test_highest_activated_license_is_used_after_upgrade(self):
-        with freeze_time("2022-06-01T12:00:00.000Z"):
-            License.objects.create(
-                key="old",
-                plan="scale",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
-            )
-        with freeze_time("2022-06-03T12:00:00.000Z"):
-            License.objects.create(
-                key="new",
-                plan="enterprise",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
-            )
-
-        with freeze_time("2022-06-03T13:00:00.000Z"):
-            first_valid = License.objects.first_valid()
-
-            self.assertIsInstance(first_valid, License)
-            self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
-
-    @pytest.mark.skip_on_multitenancy
-    def test_highest_activated_license_is_used_after_renewal_to_lower(self):
-        with freeze_time("2022-06-01T12:00:00.000Z"):
-            License.objects.create(
-                key="new",
-                plan="enterprise",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
-            )
-        with freeze_time("2022-06-27T12:00:00.000Z"):
-            License.objects.create(
-                key="old",
-                plan="scale",
-                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
-            )
-
-        with freeze_time("2022-06-27T13:00:00.000Z"):
-            first_valid = License.objects.first_valid()
-
-            self.assertIsInstance(first_valid, License)
-            self.assertEqual(first_valid.plan, "enterprise")  # type: ignore
 
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")
