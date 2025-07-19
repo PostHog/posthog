@@ -24,13 +24,11 @@ class MergeTreeEngine:
         table: str,
         replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED,
         force_unique_zk_path=False,
-        storage_policy: Optional[str] = None,
         **kwargs,
     ):
         self.table = table
         self.replication_scheme = replication_scheme
         self.force_unique_zk_path = force_unique_zk_path
-        self.storage_policy = storage_policy
         self.kwargs = kwargs
 
         self.zookeeper_path_key: Optional[str] = None
@@ -43,10 +41,7 @@ class MergeTreeEngine:
         replication_scheme = self.replication_scheme
 
         if replication_scheme == ReplicationScheme.NOT_SHARDED:
-            engine_str = self.ENGINE.format(**self.kwargs)
-            if self.storage_policy:
-                engine_str += f" SETTINGS storage_policy = '{self.storage_policy}'"
-            return engine_str
+            return self.ENGINE.format(**self.kwargs)
 
         if replication_scheme == ReplicationScheme.SHARDED:
             shard_key, replica_key = "{shard}", "{replica}"
@@ -61,12 +56,7 @@ class MergeTreeEngine:
             shard_key = f"{self.zookeeper_path_key}_{shard_key}"
 
         zk_path = f"/clickhouse/tables/{shard_key}/posthog.{self.table}"
-        engine_str = self.REPLICATED_ENGINE.format(zk_path=zk_path, replica_key=replica_key, **self.kwargs)
-        
-        if self.storage_policy:
-            engine_str += f" SETTINGS storage_policy = '{self.storage_policy}'"
-        
-        return engine_str
+        return self.REPLICATED_ENGINE.format(zk_path=zk_path, replica_key=replica_key, **self.kwargs)
 
 
 class ReplacingMergeTree(MergeTreeEngine):

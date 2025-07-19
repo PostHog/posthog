@@ -5,7 +5,6 @@ from posthog.settings.utils import get_from_env
 
 
 def get_web_analytics_storage_policy():
-    """Get storage policy for web analytics tables based on environment configuration."""
     policy = get_from_env("WEB_ANALYTICS_STORAGE_POLICY", "default")
     return "s3_policy" if policy == "s3" else None
 
@@ -13,10 +12,12 @@ def get_web_analytics_storage_policy():
 def TABLE_TEMPLATE(table_name, columns, order_by):
     storage_policy = get_web_analytics_storage_policy()
     engine = MergeTreeEngine(
-        table_name, 
+        table_name,
         replication_scheme=ReplicationScheme.REPLICATED,
-        storage_policy=storage_policy
     )
+
+    # Must add a SETTINGS clause after ORDER BY if storage policy is specified
+    settings_clause = f"SETTINGS storage_policy = '{storage_policy}'" if storage_policy else ""
 
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
@@ -29,18 +30,21 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     ) ENGINE = {engine}
     PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
+    {settings_clause}
     """
 
 
 def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     storage_policy = get_web_analytics_storage_policy()
+    # MergeTreeEngine no longer adds SETTINGS clause, we handle it manually
     engine = MergeTreeEngine(
-        table_name, 
+        table_name,
         replication_scheme=ReplicationScheme.REPLICATED,
-        storage_policy=storage_policy
     )
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
+
+    settings_clause = f"SETTINGS storage_policy = '{storage_policy}'" if storage_policy else ""
 
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
@@ -54,6 +58,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     ORDER BY {order_by}
     PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
     {ttl_clause}
+    {settings_clause}
     """
 
 

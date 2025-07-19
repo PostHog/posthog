@@ -1,4 +1,3 @@
-import pytest
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 
@@ -18,23 +17,20 @@ class TestMergeTreeEngine:
 
     def test_merge_tree_engine_with_storage_policy(self):
         engine = MergeTreeEngine(
-            "test_table", 
-            replication_scheme=ReplicationScheme.NOT_SHARDED,
-            storage_policy="s3_policy"
+            "test_table", replication_scheme=ReplicationScheme.NOT_SHARDED, storage_policy="s3_policy"
         )
         result = str(engine)
-        assert result == "MergeTree() SETTINGS storage_policy = 's3_policy'"
+        # Storage policy is no longer added to engine string - handled by table templates
+        assert result == "MergeTree()"
 
     def test_replicated_merge_tree_engine_with_storage_policy(self):
         engine = MergeTreeEngine(
-            "test_table",
-            replication_scheme=ReplicationScheme.REPLICATED,
-            storage_policy="s3_policy"
+            "test_table", replication_scheme=ReplicationScheme.REPLICATED, storage_policy="s3_policy"
         )
         result = str(engine)
-        # Should contain ReplicatedMergeTree and storage policy setting
+        # Should contain ReplicatedMergeTree but storage policy is handled by table templates
         assert "ReplicatedMergeTree(" in result
-        assert "SETTINGS storage_policy = 's3_policy'" in result
+        assert "SETTINGS storage_policy" not in result
 
     def test_merge_tree_engine_without_storage_policy(self):
         engine = MergeTreeEngine("test_table", replication_scheme=ReplicationScheme.NOT_SHARDED)
@@ -43,10 +39,6 @@ class TestMergeTreeEngine:
         assert "SETTINGS" not in result
 
     def test_storage_policy_none_doesnt_add_settings(self):
-        engine = MergeTreeEngine(
-            "test_table",
-            replication_scheme=ReplicationScheme.NOT_SHARDED,
-            storage_policy=None
-        )
+        engine = MergeTreeEngine("test_table", replication_scheme=ReplicationScheme.NOT_SHARDED, storage_policy=None)
         result = str(engine)
         assert "SETTINGS" not in result
