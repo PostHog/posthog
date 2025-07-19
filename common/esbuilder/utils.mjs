@@ -18,6 +18,7 @@ const defaultHost = process.argv.includes('--host') && process.argv.includes('0.
 const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
+export const isVite = process.argv.includes('--vite')
 
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
@@ -41,6 +42,9 @@ export function copyIndexHtml(
     chunks = {},
     entrypoints = []
 ) {
+    if (isVite) {
+        return
+    }
     // Takes a html file, `from`, and some artifacts from esbuild, and injects
     // some javascript that will load these artifacts dynamically, based on an
     // expected `window.JS_URL` javascript variable.
@@ -91,26 +95,35 @@ export function copyIndexHtml(
         document.head.appendChild(link)
     `
 
-    fse.writeFileSync(
-        path.resolve(absWorkingDir, to),
-        fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
-            '</head>',
-            `   <script type="application/javascript">
-                    // NOTE: the link for the stylesheet will be added just
-                    // after this script block. The react code will need the
-                    // body to have been parsed before it is able to interact
-                    // with it and add anything to it.
-                    //
-                    // Fingers crossed the browser waits for the stylesheet to
-                    // load such that it's in place when react starts
-                    // adding elements to the DOM
-                    ${cssFile ? cssLoader : ''}
-                    ${scriptCode}
-                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
-                </script>
-            </head>`
+    // Skip ESBUILD script injection when using Vite
+    if (process.env.POSTHOG_USE_VITE) {
+        // Just copy the HTML file without injecting ESBUILD scripts
+        fse.writeFileSync(
+            path.resolve(absWorkingDir, to),
+            fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' })
         )
-    )
+    } else {
+        fse.writeFileSync(
+            path.resolve(absWorkingDir, to),
+            fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
+                '</head>',
+                `   <script type="application/javascript">
+                        // NOTE: the link for the stylesheet will be added just
+                        // after this script block. The react code will need the
+                        // body to have been parsed before it is able to interact
+                        // with it and add anything to it.
+                        //
+                        // Fingers crossed the browser waits for the stylesheet to
+                        // load such that it's in place when react starts
+                        // adding elements to the DOM
+                        ${cssFile ? cssLoader : ''}
+                        ${scriptCode}
+                        ${Object.keys(chunks).length > 0 ? chunkCode : ''}
+                    </script>
+                </head>`
+            )
+        )
+    }
 }
 
 /** Makes copies: "index-TMOJQ3VI.js" -> "index.js" */

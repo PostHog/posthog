@@ -1,5 +1,39 @@
 import { Logomark } from '~/toolbar/assets/Logomark'
 import { SDK, SDKKey, SDKTag } from '~/types'
+import nextjsImage from './logos/nextjs.svg'
+import htmlImage from './logos/html.svg'
+import jsImage from './logos/javascript_web.svg'
+import reactImage from './logos/react.svg'
+import reactNativeImage from './logos/react.svg'
+import androidImage from './logos/android.svg'
+import angularImage from './logos/angular.svg'
+import djangoImage from './logos/django.svg'
+import elixirImage from './logos/elixir.svg'
+import flutterImage from './logos/flutter.svg'
+import gatsbyImage from './logos/gatsby.svg'
+import goImage from './logos/go.svg'
+import heliconeImage from './logos/helicone.svg'
+import javaImage from './logos/java.svg'
+import langfuseImage from './logos/langfuse.svg'
+import laravelImage from './logos/laravel.svg'
+import nodejsImage from './logos/nodejs.svg'
+import nuxtImage from './logos/nuxt.svg'
+import phpImage from './logos/php.svg'
+import pythonImage from './logos/python.svg'
+import rubyImage from './logos/ruby.svg'
+import rustImage from './logos/rust.svg'
+import svelteImage from './logos/svelte.svg'
+import traceloopImage from './logos/traceloop.svg'
+import vueImage from './logos/vue.svg'
+import webflowImage from './logos/webflow.svg'
+import gtmImage from './logos/gtm.svg'
+import segmentImage from './logos/segment.svg'
+import rudderstackImage from './logos/rudderstack.svg'
+import docusaurusImage from './logos/docusaurus.svg'
+import shopifyImage from './logos/shopify.svg'
+import wordpressImage from './logos/wordpress.svg'
+import sentryImage from './logos/sentry.svg'
+import retoolImage from './logos/retool.svg'
 
 export const allSDKs: SDK[] = [
     // Web
@@ -8,7 +42,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.NEXT_JS,
         tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
         recommended: true,
-        image: require('./logos/nextjs.svg'),
+        image: nextjsImage,
         docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
     {
@@ -16,7 +50,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.HTML_SNIPPET,
         recommended: true,
         tags: [SDKTag.RECOMMENDED, SDKTag.WEB],
-        image: require('./logos/html.svg'),
+        image: htmlImage,
         docsLink: 'https://posthog.com/docs/libraries/js',
     },
     {
@@ -24,7 +58,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.JS_WEB,
         recommended: true,
         tags: [SDKTag.RECOMMENDED, SDKTag.WEB],
-        image: require('./logos/javascript_web.svg'),
+        image: jsImage,
         docsLink: 'https://posthog.com/docs/libraries/js',
     },
     {
@@ -32,7 +66,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.REACT,
         tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
         recommended: true,
-        image: require('./logos/react.svg'),
+        image: reactImage,
         docsLink: 'https://posthog.com/docs/libraries/react',
     },
     {
@@ -40,21 +74,21 @@ export const allSDKs: SDK[] = [
         key: SDKKey.REACT_NATIVE,
         tags: [SDKTag.MOBILE, SDKTag.RECOMMENDED],
         recommended: true,
-        image: require('./logos/react.svg'),
+        image: reactNativeImage,
         docsLink: 'https://posthog.com/docs/libraries/react-native',
     },
     {
         name: 'Android',
         key: SDKKey.ANDROID,
         tags: [SDKTag.MOBILE],
-        image: require('./logos/android.svg'),
+        image: androidImage,
         docsLink: 'https://posthog.com/docs/libraries/android',
     },
     {
         name: 'Angular',
         key: SDKKey.ANGULAR,
         tags: [SDKTag.WEB],
-        image: require('./logos/angular.svg'),
+        image: angularImage,
         docsLink: 'https://posthog.com/docs/libraries/angular',
     },
     {
@@ -144,21 +178,21 @@ export const allSDKs: SDK[] = [
         name: 'Django',
         key: SDKKey.DJANGO,
         tags: [SDKTag.SERVER],
-        image: require('./logos/django.svg'),
+        image: djangoImage,
         docsLink: 'https://posthog.com/docs/libraries/django',
     },
     {
         name: 'Elixir',
         key: SDKKey.ELIXIR,
         tags: [SDKTag.SERVER],
-        image: require('./logos/elixir.svg'),
+        image: elixirImage,
         docsLink: 'https://posthog.com/docs/libraries/elixir',
     },
     {
         name: 'Flutter',
         key: SDKKey.FLUTTER,
         tags: [SDKTag.MOBILE],
-        image: require('./logos/flutter.svg'),
+        image: flutterImage,
         docsLink: 'https://posthog.com/docs/libraries/flutter',
     },
     {
@@ -185,21 +219,21 @@ export const allSDKs: SDK[] = [
         name: 'Gatsby',
         key: SDKKey.GATSBY,
         tags: [SDKTag.WEB],
-        image: require('./logos/gatsby.svg'),
+        image: gatsbyImage,
         docsLink: 'https://posthog.com/docs/libraries/gatsby',
     },
     {
         name: 'Go',
         key: SDKKey.GO,
         tags: [SDKTag.SERVER],
-        image: require('./logos/go.svg'),
+        image: goImage,
         docsLink: 'https://posthog.com/docs/libraries/go',
     },
     {
         name: 'Helicone',
         key: SDKKey.HELICONE,
         tags: [SDKTag.LLM],
-        image: require('./logos/helicone.svg'),
+        image: heliconeImage,
         docsLink: 'https://posthog.com/docs/ai-engineering/helicone-posthog',
     },
     {
@@ -224,21 +258,21 @@ export const allSDKs: SDK[] = [
         name: 'Java',
         key: SDKKey.JAVA,
         tags: [SDKTag.SERVER],
-        image: require('./logos/java.svg'),
+        image: javaImage,
         docsLink: 'https://posthog.com/docs/libraries/java',
     },
     {
         name: 'Langfuse',
         key: SDKKey.LANGFUSE,
         tags: [SDKTag.LLM],
-        image: require('./logos/langfuse.svg'),
+        image: langfuseImage,
         docsLink: 'https://posthog.com/docs/ai-engineering/langfuse-posthog',
     },
     {
         name: 'Laravel',
         key: SDKKey.LARAVEL,
         tags: [SDKTag.SERVER],
-        image: require('./logos/laravel.svg'),
+        image: laravelImage,
         docsLink: 'https://posthog.com/docs/libraries/laravel',
     },
     {
@@ -246,21 +280,21 @@ export const allSDKs: SDK[] = [
         key: SDKKey.NODE_JS,
         tags: [SDKTag.SERVER, SDKTag.RECOMMENDED],
         recommended: true,
-        image: require('./logos/nodejs.svg'),
+        image: nodejsImage,
         docsLink: 'https://posthog.com/docs/libraries/node',
     },
     {
         name: 'Nuxt.js',
         key: SDKKey.NUXT_JS,
         tags: [SDKTag.WEB],
-        image: require('./logos/nuxt.svg'),
+        image: nuxtImage,
         docsLink: 'https://posthog.com/docs/libraries/nuxt-js',
     },
     {
         name: 'PHP',
         key: SDKKey.PHP,
         tags: [SDKTag.SERVER],
-        image: require('./logos/php.svg'),
+        image: phpImage,
         docsLink: 'https://posthog.com/docs/libraries/php',
     },
     {
@@ -268,7 +302,7 @@ export const allSDKs: SDK[] = [
         key: SDKKey.PYTHON,
         tags: [SDKTag.SERVER, SDKTag.RECOMMENDED],
         recommended: true,
-        image: require('./logos/python.svg'),
+        image: pythonImage,
         docsLink: 'https://posthog.com/docs/libraries/python',
     },
     {
@@ -300,42 +334,42 @@ export const allSDKs: SDK[] = [
         name: 'Ruby',
         key: SDKKey.RUBY,
         tags: [SDKTag.SERVER],
-        image: require('./logos/ruby.svg'),
+        image: rubyImage,
         docsLink: 'https://posthog.com/docs/libraries/ruby',
     },
     {
         name: 'Rust',
         key: SDKKey.RUST,
         tags: [SDKTag.SERVER],
-        image: require('./logos/rust.svg'),
+        image: rustImage,
         docsLink: 'https://posthog.com/docs/libraries/rust',
     },
     {
         name: 'Svelte',
         key: SDKKey.SVELTE,
         tags: [SDKTag.WEB],
-        image: require('./logos/svelte.svg'),
+        image: svelteImage,
         docsLink: 'https://posthog.com/docs/libraries/svelte',
     },
     {
         name: 'Traceloop',
         key: SDKKey.TRACELOOP,
         tags: [SDKTag.LLM],
-        image: require('./logos/traceloop.svg'),
+        image: traceloopImage,
         docsLink: 'https://posthog.com/docs/ai-engineering/traceloop-posthog',
     },
     {
         name: 'Vue.js',
         key: SDKKey.VUE_JS,
         tags: [SDKTag.WEB],
-        image: require('./logos/vue.svg'),
+        image: vueImage,
         docsLink: 'https://posthog.com/docs/libraries/vue-js',
     },
     {
         name: 'Webflow',
         key: SDKKey.WEBFLOW,
         tags: [SDKTag.WEB],
-        image: require('./logos/webflow.svg'),
+        image: webflowImage,
         docsLink: 'https://posthog.com/docs/libraries/webflow',
     },
     // integrations
@@ -343,56 +377,56 @@ export const allSDKs: SDK[] = [
         name: 'Google Tag Manager',
         key: SDKKey.GOOGLE_TAG_MANAGER,
         tags: [SDKTag.WEB, SDKTag.INTEGRATION],
-        image: require('./logos/gtm.svg'),
+        image: gtmImage,
         docsLink: 'https://posthog.com/docs/libraries/google-tag-manager',
     },
     {
         name: 'Segment',
         key: SDKKey.SEGMENT,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/segment.svg'),
+        image: segmentImage,
         docsLink: 'https://posthog.com/docs/libraries/segment',
     },
     {
         name: 'RudderStack',
         key: SDKKey.RUDDERSTACK,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/rudderstack.svg'),
+        image: rudderstackImage,
         docsLink: 'https://posthog.com/docs/libraries/rudderstack',
     },
     {
         name: 'Docusaurus',
         key: SDKKey.DOCUSAURUS,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/docusaurus.svg'),
+        image: docusaurusImage,
         docsLink: 'https://posthog.com/docs/libraries/docusaurus',
     },
     {
         name: 'Shopify',
         key: SDKKey.SHOPIFY,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/shopify.svg'),
+        image: shopifyImage,
         docsLink: 'https://posthog.com/docs/libraries/shopify',
     },
     {
         name: 'Wordpress',
         key: SDKKey.WORDPRESS,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/wordpress.svg'),
+        image: wordpressImage,
         docsLink: 'https://posthog.com/docs/libraries/wordpress',
     },
     {
         name: 'Sentry',
         key: SDKKey.SENTRY,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/sentry.svg'),
+        image: sentryImage,
         docsLink: 'https://posthog.com/docs/libraries/sentry',
     },
     {
         name: 'Retool',
         key: SDKKey.RETOOL,
         tags: [SDKTag.INTEGRATION],
-        image: require('./logos/retool.svg'),
+        image: retoolImage,
         docsLink: 'https://posthog.com/docs/libraries/retool',
     },
 ]
