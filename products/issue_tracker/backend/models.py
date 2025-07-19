@@ -24,6 +24,14 @@ class Issue(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.BACKLOG)
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
     position = models.IntegerField(default=0)
+
+    # GitHub integration fields
+    github_repo_url = models.URLField(
+        blank=True, null=True, help_text="GitHub repository URL (e.g., https://github.com/owner/repo)"
+    )
+    github_branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch created for this issue")
+    github_pr_url = models.URLField(blank=True, null=True, help_text="Pull request URL when created")
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

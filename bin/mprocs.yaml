@@ -36,6 +36,9 @@ procs:
         # added a sleep to give the docker stuff time to start
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006'
 
+    temporal-worker-issue-tracker:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue issue-tracker-task-queue --metrics-port 8007'
+
     dagster:
         shell: |-
             bin/check_postgres_up && \
