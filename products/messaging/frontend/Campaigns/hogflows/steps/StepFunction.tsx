@@ -21,10 +21,14 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
 
     if (templateLoading) {
         return (
-            <div className="flex items-center justify-center">
+            <div className="flex justify-center items-center">
                 <Spinner />
             </div>
         )
+    }
+
+    if (!template) {
+        return <div>Template not found!</div>
     }
 
     return (

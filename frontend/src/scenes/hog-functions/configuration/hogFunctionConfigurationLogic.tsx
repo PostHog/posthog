@@ -142,7 +142,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
-const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
+export const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
     function getInputs(inputs_schema?: CyclotronJobInputSchemaType[] | null): Record<string, CyclotronJobInputType> {
         const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
