@@ -1052,14 +1052,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     @staticmethod
     def _distinct_id_from_request(request):
         try:
-            if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if isinstance(request.user, User):
+                return str(request.user.distinct_id)
+            elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
                 return cast(
                     PersonalAPIKeyAuthentication, request.successful_authenticator
                 ).personal_api_key.secure_value
-            if isinstance(request.user, AnonymousUser):
+            elif isinstance(request.user, AnonymousUser):
                 return request.GET.get("sharing_access_token") or "anonymous"
-            elif isinstance(request.user, User):
-                return str(request.user.distinct_id)
             else:
                 return "anonymous"
         except:
