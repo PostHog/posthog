@@ -75,7 +75,7 @@ REQUIRED_ENV_VARS = (
 MISSING_REQUIRED_ENV_VARS = any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS)
 
 
-pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
+pytestmark = [pytest.mark.django_db, pytest.mark.asyncio, pytest.mark.usefixtures("truncate_clickhouse_tables")]
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",

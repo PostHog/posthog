@@ -67,7 +67,12 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     reason="Google credentials not set in environment",
 )
 
-pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [
+    SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("truncate_clickhouse_tables"),
+]
 
 TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 

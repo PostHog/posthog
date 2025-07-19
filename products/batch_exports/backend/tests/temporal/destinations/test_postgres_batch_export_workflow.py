@@ -67,6 +67,7 @@ from products.batch_exports.backend.tests.temporal.utils import (
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
+    pytest.mark.usefixtures("truncate_clickhouse_tables"),
 ]
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [

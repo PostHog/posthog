@@ -322,7 +322,7 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
             else:
                 # In this case, we fallback to the slower but more permissive stdlib
                 # json.
-                logger.exception("Orjson detected a deeply nested dict: %s", d)
+                logger.exception("Orjson detected a deeply nested dict")
                 dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
         elif str(err) == "Integer exceeds 64-bit range":
             logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)

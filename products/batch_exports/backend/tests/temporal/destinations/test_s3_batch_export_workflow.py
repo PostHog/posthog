@@ -71,7 +71,11 @@ from products.batch_exports.backend.tests.temporal.utils import (
     mocked_start_batch_export_run,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("truncate_clickhouse_tables"),
+]
 
 COMPRESSION_OPTIONS = [*COMPRESSION_EXTENSIONS.keys(), None]
 TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)

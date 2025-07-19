@@ -13,7 +13,11 @@ from products.batch_exports.backend.temporal.batch_exports import (
     iter_records,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+    pytest.mark.usefixtures("truncate_clickhouse_tables"),
+]
 
 
 def assert_records_match_events(records, events):
