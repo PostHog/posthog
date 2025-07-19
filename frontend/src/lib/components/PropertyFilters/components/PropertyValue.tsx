@@ -11,7 +11,7 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
 
@@ -62,8 +62,10 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+    const propertyOptions = options[propertyKey]
+    const isFlagDependencyProperty = type === PropertyFilterType.FlagDependency
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isMultiSelect = operator && !isFlagDependencyProperty && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
@@ -98,7 +100,7 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty])
 
-    const displayOptions = options[propertyKey]?.values || []
+    const displayOptions = propertyOptions?.values || []
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -141,6 +143,15 @@ export function PropertyValue({
     const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
+
+    // For flag dependencies, we need to preserve the original typed values
+    const typedValues = isFlagDependencyProperty
+        ? value === null || value === undefined
+            ? []
+            : Array.isArray(value)
+            ? value
+            : [value]
+        : formattedValues
 
     if (!editable) {
         return <>{formattedValues.join(' or ')}</>
@@ -199,15 +210,30 @@ export function PropertyValue({
         )
     }
 
+    function formatLabelContent(value: any): JSX.Element {
+        const name = toString(value)
+        if (name === '') {
+            return <i>(empty string)</i>
+        }
+        // Render boolean flag values with code tags to distinguish them from string values
+        // e.g. true vs "true" - this is important for flag dependencies where type matters
+        if (isFlagDependencyProperty && typeof value === 'boolean') {
+            return <code>{name}</code>
+        }
+        return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
+    }
+
     return (
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={options[propertyKey]?.status === 'loading'}
-            value={formattedValues}
+            loading={propertyOptions?.status === 'loading'}
+            value={isFlagDependencyProperty ? typedValues : formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
-            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+            onChange={(nextVal) =>
+                isMultiSelect ? setValue(nextVal as PropertyFilterValue) : setValue(nextVal[0] ?? null)
+            }
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
             size={size}
@@ -219,21 +245,36 @@ export function PropertyValue({
                     : undefined
             }
             popoverClassName="max-w-200"
-            options={displayOptions.map(({ name: _name }, index) => {
-                const name = toString(_name)
-                return {
+            options={displayOptions.map(({ name: value }, index) => {
+                const name = toString(value)
+                const hasVariants = isFlagDependencyProperty && displayOptions.length > 2
+                let tooltip: string | undefined = undefined
+
+                // Add tooltip for boolean values when flag has variants
+                if (isFlagDependencyProperty && typeof value === 'boolean' && hasVariants) {
+                    tooltip = value
+                        ? 'Matches any variant of the flag'
+                        : "Flag is disabled or doesn't match any conditions"
+                }
+
+                const option: LemonInputSelectOption<PropertyFilterValue> = {
                     key: name,
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? (
-                                <i>(empty string)</i>
-                            ) : (
-                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
-                            )}
+                            {formatLabelContent(value)}
                         </span>
                     ),
                 }
+
+                if (isFlagDependencyProperty) {
+                    option.value = value
+                    if (tooltip) {
+                        option.tooltip = tooltip
+                    }
+                }
+
+                return option
             })}
         />
     )

@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
-    allOperatorsMapping,
     capitalizeFirstLetter,
+    chooseOperatorMap,
     cohortOperatorMap,
     isOperatorCohort,
     isOperatorFlag,
@@ -40,6 +40,7 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    FlagDependencyPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -107,6 +108,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+        [PropertyFilterType.FlagDependency]: TaxonomicFilterGroupType.FeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
         [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -121,6 +123,24 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     }
 
+export function getPropertyTypeFromFilter(filter: Record<string, any>): PropertyType | undefined {
+    // Map PropertyFilterType to PropertyType for operator selection
+    switch (filter.type) {
+        case PropertyFilterType.FlagDependency:
+            return PropertyType.Flag
+        case PropertyFilterType.Person:
+        case PropertyFilterType.Event:
+        case PropertyFilterType.Meta:
+        case PropertyFilterType.DataWarehouse:
+        case PropertyFilterType.DataWarehousePersonProperty:
+            // For most property filters, we'll use the default generic operator map
+            // which has 'exact: = equals'
+            return undefined
+        default:
+            return undefined
+    }
+}
+
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>,
@@ -133,13 +153,17 @@ export function formatPropertyLabel(
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
+    // Use contextual operator mapping based on property type
+    const propertyType = getPropertyTypeFromFilter(item)
+    const operatorMap = chooseOperatorMap(propertyType)
+
     return type === 'cohort'
         ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
               (cohort_name || cohortsById[value]?.name || `ID ${value}`)
         : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || label || key) +
               (isOperatorFlag(operator)
-                  ? ` ${allOperatorsMapping[operator]}`
-                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
+                  ? ` ${operatorMap[operator]}`
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
                         value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
                     } `)
 }
@@ -250,6 +274,9 @@ export function isDataWarehousePersonPropertyFilter(
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
+export function isFlagDependencyPropertyFilter(filter?: AnyFilterLike | null): filter is FlagDependencyPropertyFilter {
+    return filter?.type === PropertyFilterType.FlagDependency
+}
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
     return filter?.type === PropertyFilterType.HogQL
 }
@@ -266,6 +293,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
+        isFlagDependencyPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter)
     )
@@ -297,6 +325,7 @@ export function isPropertyFilterWithOperator(
             isRecordingPropertyFilter(filter) ||
             isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
+            isFlagDependencyPropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
@@ -319,6 +348,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+    [PropertyFilterType.FlagDependency]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -375,6 +405,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.ErrorTrackingIssue]: PropertyDefinitionType.Resource,
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
+        [PropertyFilterType.FlagDependency]: PropertyDefinitionType.FlagValue,
     }
 
     return mapping[filterType as PropertyFilterType] ?? PropertyDefinitionType.Event
@@ -399,6 +430,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.FeatureFlags) {
+        // Feature flags dependencies (flag + value) as a property filter
+        return PropertyFilterType.FlagDependency
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {

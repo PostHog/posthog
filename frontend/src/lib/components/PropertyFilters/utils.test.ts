@@ -93,6 +93,12 @@ describe('propertyFilterTypeToTaxonomicFilterType()', () => {
         expect(propertyFilterTypeToTaxonomicFilterType({ ...baseFilter, type: PropertyFilterType.HogQL })).toEqual(
             TaxonomicFilterGroupType.HogQLExpression
         )
+        expect(
+            propertyFilterTypeToTaxonomicFilterType({
+                ...baseFilter,
+                type: PropertyFilterType.FlagDependency,
+            })
+        ).toEqual(TaxonomicFilterGroupType.FeatureFlags)
     })
 })
 

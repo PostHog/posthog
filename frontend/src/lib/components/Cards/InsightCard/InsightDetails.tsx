@@ -3,6 +3,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import {
     convertPropertiesToPropertyGroup,
     formatPropertyLabel,
+    getPropertyTypeFromFilter,
     isAnyPropertyfilter,
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
@@ -16,7 +17,8 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, chooseOperatorMap } from 'lib/utils'
+
 import React from 'react'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
@@ -130,12 +132,14 @@ function CompactPropertyFiltersDisplay({
                                                     />
                                                 )}
                                             </span>
-                                            {
-                                                allOperatorsMapping[
+                                            {(() => {
+                                                const propertyType = getPropertyTypeFromFilter(leafFilter)
+                                                const operatorMap = chooseOperatorMap(propertyType)
+                                                return operatorMap[
                                                     (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
                                                         'exact'
                                                 ]
-                                            }{' '}
+                                            })()}{' '}
                                             <b>
                                                 {isAnyPropertyfilter(leafFilter) &&
                                                     (Array.isArray(leafFilter.value)

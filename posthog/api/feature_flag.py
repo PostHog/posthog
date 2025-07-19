@@ -255,7 +255,7 @@ class FeatureFlagSerializer(
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters
+            return self.instance.filters  # type: ignore[union-attr]
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -267,9 +267,30 @@ class FeatureFlagSerializer(
             )
 
         if aggregation_group_type_index is None:
-            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
+            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort", "flag"])
             if not is_valid:
-                raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+                raise serializers.ValidationError(
+                    "Filters are not valid (can only use person, cohort, and flag properties)"
+                )
+
+            # Check for circular dependencies in flag properties
+            flag_properties = [
+                prop
+                for condition in filters["groups"]
+                for prop in condition.get("properties", [])
+                if prop.get("type") == "flag"
+            ]
+
+            if flag_properties:
+                # Get the current flag key
+                current_key = None
+                if self.instance:
+                    current_key = str(self.instance.key)  # type: ignore[union-attr]
+                elif "key" in self.initial_data:
+                    current_key = str(self.initial_data["key"])
+
+                if current_key:
+                    self._check_flag_circular_dependencies(filters, current_key)
         elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
             raise serializers.ValidationError(
                 "Cannot change this flag to a group-based when linked to an Early Access Feature."
@@ -312,8 +333,10 @@ class FeatureFlagSerializer(
 
                 if prop.type == "cohort":
                     try:
+                        # For cohorts, value should be a single ID
+                        cohort_id = prop.value if not isinstance(prop.value, list) else prop.value[0]
                         initial_cohort: Cohort = Cohort.objects.get(
-                            pk=prop.value, team__project_id=self.context["project_id"]
+                            pk=cohort_id, team__project_id=self.context["project_id"]
                         )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
@@ -375,6 +398,148 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
 
         return filters
+
+    def _check_flag_circular_dependencies(self, filters: dict, current_flag_key: str) -> None:
+        """Check for circular dependencies in flag properties."""
+
+        def extract_flag_references(filters: dict) -> set[str]:
+            """Extract all flag references (keys and IDs) from filters."""
+            references = set()
+            for group in filters.get("groups", []):
+                for prop in group.get("properties", []):
+                    if prop.get("type") == "flag":
+                        flag_key = prop.get("key", "")
+
+                        # Handle prefixed flag keys
+                        if flag_key.startswith("$feature/"):
+                            flag_key = flag_key[9:]  # Remove "$feature/" prefix
+                        elif flag_key.startswith("$feature_flag/"):
+                            flag_key = flag_key[14:]  # Remove "$feature_flag/" prefix
+
+                        if flag_key:
+                            references.add(flag_key)
+            return references
+
+        # 1. Collect ALL flag references from the new filters
+        initial_references = extract_flag_references(filters)
+        if not initial_references:
+            return
+
+        # 2. Iteratively build complete flag lookup maps with minimal queries
+        all_references = set(initial_references)
+        team_id = self.context["team_id"]
+
+        # Build lookup maps iteratively
+        key_to_id = {}  # flag_key -> flag_id
+        id_to_flag = {}  # flag_id -> flag_data
+
+        # We need to iteratively fetch flags because dependencies may reference flags
+        # not in the initial set
+        refs_to_fetch = set(all_references)
+        refs_fetched: set[str] = set()
+
+        while refs_to_fetch - refs_fetched:
+            current_refs = refs_to_fetch - refs_fetched
+
+            # Separate numeric IDs from keys for efficient querying
+            numeric_ids = {ref for ref in current_refs if ref.isdigit()}
+            flag_keys = {ref for ref in current_refs if not ref.isdigit()}
+
+            if not numeric_ids and not flag_keys:
+                break
+
+            # Single query to get all flags we need in this iteration
+            from django.db.models import Q
+
+            query_conditions = []
+            if numeric_ids:
+                query_conditions.append(Q(id__in=[int(id) for id in numeric_ids]))
+            if flag_keys:
+                query_conditions.append(Q(key__in=flag_keys))
+
+            if query_conditions:
+                flags_query = FeatureFlag.objects.filter(team_id=team_id, deleted=False)
+                if len(query_conditions) > 1:
+                    flags_query = flags_query.filter(query_conditions[0] | query_conditions[1])
+                else:
+                    flags_query = flags_query.filter(query_conditions[0])
+
+                flags_data = flags_query.values("id", "key", "filters")
+
+                # Update lookup maps
+                for flag in flags_data:
+                    flag_id = str(flag["id"])
+                    flag_key = flag["key"]
+
+                    key_to_id[flag_key] = flag_id
+                    id_to_flag[flag_id] = flag
+
+                    # Also map numeric string IDs
+                    key_to_id[flag_id] = flag_id
+
+                    # Extract dependencies from this flag and add to refs_to_fetch
+                    deps = extract_flag_references(flag["filters"])
+                    refs_to_fetch.update(deps)
+
+            refs_fetched.update(current_refs)
+
+        # 3. Build complete dependency graph
+        dependency_graph = {}
+        for flag_id, flag_data in id_to_flag.items():
+            deps = extract_flag_references(flag_data["filters"])
+            # Convert to IDs, only include deps that we actually found
+            dep_ids = {key_to_id[dep] for dep in deps if dep in key_to_id}
+            dependency_graph[flag_id] = dep_ids
+
+        def has_cycle_in_graph(start_id: str, graph: dict[str, set[str]]) -> bool:
+            """Check for cycles using pre-built graph."""
+            visited = set()
+            path = set()
+
+            def dfs(node_id: str) -> bool:
+                if node_id in path:
+                    return True
+                if node_id in visited:
+                    return False
+
+                visited.add(node_id)
+                path.add(node_id)
+
+                for dep_id in graph.get(node_id, set()):
+                    if dfs(dep_id):
+                        return True
+
+                path.remove(node_id)
+                return False
+
+            return dfs(start_id)
+
+        # 4. Check each new dependency for cycles
+        current_flag_id = str(self.instance.id) if self.instance and hasattr(self.instance, "id") else current_flag_key
+
+        for ref in initial_references:
+            dep_id = key_to_id.get(ref, ref)
+
+            # Skip if dependency doesn't exist
+            if not dep_id or dep_id not in id_to_flag:
+                continue
+
+            # Temporarily add this dependency to current flag
+            temp_graph = dict(dependency_graph)
+            current_deps = temp_graph.get(current_flag_id, set())
+            temp_graph[current_flag_id] = current_deps | {dep_id}
+
+            if has_cycle_in_graph(current_flag_id, temp_graph):
+                # Get flag name for error
+                dep_flag_name = next(
+                    (flag_data["key"] for flag_id, flag_data in id_to_flag.items() if flag_id == dep_id), dep_id
+                )
+
+                raise serializers.ValidationError(
+                    f"Circular dependency detected: This flag would depend on '{dep_flag_name}' "
+                    f"which eventually depends back on this flag.",
+                    code="circular_dependency",
+                )
 
     def check_flag_evaluation(self, data):
         # TODO: Once we move to no DB level evaluation, can get rid of this.
@@ -745,6 +910,16 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(~Q(experiment__isnull=True))
                 elif type == "remote_config":
                     queryset = queryset.filter(is_remote_configuration=True)
+            elif key == "excluded_properties":
+                import json
+
+                try:
+                    excluded_keys = json.loads(request.GET["excluded_properties"])
+                    if excluded_keys:
+                        queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
 
         return queryset
 
@@ -819,6 +994,13 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["boolean", "multivariant", "experiment"],
+            ),
+            OpenApiParameter(
+                "excluded_properties",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of feature flag keys to exclude from the results.",
             ),
         ]
     )
@@ -930,7 +1112,8 @@ class FeatureFlagViewSet(
             return Response([])
 
         groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
+        distinct_id = request.user.distinct_id or ""
+        matches, *_ = get_all_feature_flags(self.team, distinct_id, groups)
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
@@ -942,6 +1125,36 @@ class FeatureFlagViewSet(
             }
             for feature_flag in all_serialized_flags
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_keys(self, request: request.Request, **kwargs):
+        """
+        Get feature flag keys by IDs.
+        Accepts a list of feature flag IDs and returns a mapping of ID to key.
+        """
+        flag_ids = request.data.get("ids", [])
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Convert to integers and filter out invalid IDs
+        try:
+            flag_ids = [int(id) for id in flag_ids if str(id).isdigit()]
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid flag IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Fetch flags by IDs
+        flags = FeatureFlag.objects.filter(
+            id__in=flag_ids, team__project_id=self.project_id, deleted=False
+        ).values_list("id", "key")
+
+        # Create mapping of ID to key
+        keys_mapping = {str(flag_id): key for flag_id, key in flags}
+
+        return Response({"keys": keys_mapping})
 
     @action(
         methods=["GET"],
