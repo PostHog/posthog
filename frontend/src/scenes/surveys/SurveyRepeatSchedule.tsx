@@ -78,11 +78,6 @@ function AlwaysScheduleBanner({
 function SurveyIterationOptions(): JSX.Element {
     const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
-
-    const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
-        ? undefined
-        : 'Upgrade your plan to use repeating surveys'
 
     return (
         <>

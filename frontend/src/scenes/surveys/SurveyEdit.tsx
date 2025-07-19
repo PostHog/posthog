@@ -66,7 +66,6 @@ function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
         useActions(surveyLogic)
-    const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
     const [visible, setVisible] = useState(false)
 
     const surveyLimitOptions: LemonRadioOption<DataCollectionType>[] = [
@@ -87,9 +86,7 @@ function SurveyCompletionConditions(): JSX.Element {
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
             'data-attr': 'survey-collection-until-adaptive-limit',
-            disabledReason: surveysRecurringScheduleAvailable
-                ? undefined
-                : 'Upgrade your plan to use an adaptive limit on survey responses',
+            disabledReason: undefined,
         } as unknown as LemonRadioOption<DataCollectionType>)
     }
 
@@ -247,8 +244,6 @@ export default function SurveyEdit(): JSX.Element {
         deleteBranchingLogic,
         setSurveyManualErrors,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
-        useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -594,16 +589,6 @@ export default function SurveyEdit(): JSX.Element {
                                                 type="secondary"
                                                 className="w-max"
                                                 icon={<IconPlus />}
-                                                sideIcon={
-                                                    surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-secondary" />
-                                                    )
-                                                }
-                                                disabledReason={
-                                                    surveysMultipleQuestionsAvailable
-                                                        ? null
-                                                        : 'Upgrade your plan to get multiple questions'
-                                                }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
                                                         ...survey.questions,
@@ -614,11 +599,6 @@ export default function SurveyEdit(): JSX.Element {
                                             >
                                                 Add question
                                             </LemonButton>
-                                            {!surveysMultipleQuestionsAvailable && (
-                                                <Link to="/organization/billing" target="_blank" targetBlankIcon>
-                                                    Upgrade
-                                                </Link>
-                                            )}
                                         </div>
                                         {!survey.appearance?.displayThankYouMessage && (
                                             <LemonButton
@@ -982,8 +962,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     )}
                                                 </BindLogic>
                                             </LemonField.Pure>
-                                            {surveysEventsAvailable && (
-                                                <LemonField.Pure
+                                            <LemonField.Pure
                                                     label="User sends events"
                                                     info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
                                                 >
@@ -1056,8 +1035,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         )}
                                                     </>
                                                 </LemonField.Pure>
-                                            )}
-                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && surveysActionsAvailable && (
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
                                                 <LemonField.Pure
                                                     label="User performs actions"
                                                     info="Note that these actions are only observed, and activate this survey, in the current user session."
