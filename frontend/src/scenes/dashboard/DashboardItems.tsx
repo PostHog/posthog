@@ -167,6 +167,7 @@ export function DashboardItems(): JSX.Element {
                                 <TextCard
                                     key={tile.id}
                                     textTile={tile}
+                                    placement={placement}
                                     moreButtonOverlay={
                                         <>
                                             <LemonButton
