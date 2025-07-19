@@ -1,6 +1,6 @@
 import dagster
 
-from . import resources
+from . import resources, env
 
 from dags import (
     backups,
@@ -27,9 +27,15 @@ defs = dagster.Definitions(
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         property_definitions.property_definitions_ingestion_job,
-        backups.sharded_backup,
-        backups.non_sharded_backup,
-    ],
+    ]
+    + (
+        [
+            backups.sharded_backup,
+            backups.non_sharded_backup,
+        ]
+        if env != "local"
+        else []
+    ),
     schedules=[
         export_query_logs_to_s3.query_logs_export_schedule,
         person_overrides.squash_schedule,
