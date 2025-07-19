@@ -43,7 +43,7 @@ describe('multitabEditorLogic Storage', () => {
         expect(set).toHaveBeenCalledWith(key, data)
         expect(localStorage.getItem(key)).toBeNull()
     })
-
+    // protects existing data if IndexedDB migration fails
     it('keeps data in localStorage when IndexedDB migration fails', async () => {
         const key = getEditorKey(TEST_EDITOR_ID)
         const data = createTestData()
@@ -53,17 +53,16 @@ describe('multitabEditorLogic Storage', () => {
         setMock.mockRejectedValue(new Error('IndexedDB quota exceeded'))
 
         const lsValue = localStorage.getItem(key)
-        // simulate the actual migration behavior
         if (lsValue) {
             try {
                 await set(key, lsValue) // this will fail since IndexedDB has been mocked to fail
                 localStorage.removeItem(key)
             } catch {}
         }
-        // the data is still in localStorage
+
         expect(localStorage.getItem(key)).toBe(data)
     })
-    // if IndexedDB fails to write, keep using localStorage
+    // saves new data if IndexedDB fails
     it('falls back to localStorage when IndexedDB write fails', async () => {
         const key = getEditorKey(TEST_EDITOR_ID)
         const data = createTestData()
@@ -81,7 +80,7 @@ describe('multitabEditorLogic Storage', () => {
         expect(set).toHaveBeenCalledWith(key, data)
         expect(localStorage.getItem(key)).toBe(data)
     })
-    // when a tab is deleted, the remaining tabs are saved to storage
+    // when a tab is deleted, the remaining tabs are saved to storage (IndexedDB)
     it('updates storage with remaining tabs when a tab is deleted', async () => {
         const key = getEditorKey(TEST_EDITOR_ID)
         const initialData = JSON.stringify([
