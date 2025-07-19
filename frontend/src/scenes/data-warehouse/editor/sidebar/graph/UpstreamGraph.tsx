@@ -74,7 +74,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
 
     const handleEditView = async (): Promise<void> => {
         if (data.type === 'view') {
-            const view = dataWarehouseSavedQueries.find((v) => v.id.replace(/-/g, '') === data.id)
+            const view = dataWarehouseSavedQueries.find((v) => v.name === data.name)
             if (view?.query?.query) {
                 editView(view.query.query, view)
             }
