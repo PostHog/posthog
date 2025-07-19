@@ -1,8 +1,10 @@
 from collections import defaultdict
+
+from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from requests import HTTPError
-from typing import cast
+from typing import cast, Optional
 
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
@@ -21,8 +23,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
-from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group.util import raw_create_group_ch, create_group
 from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from loginas.utils import is_impersonated_session
 
@@ -100,7 +103,15 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
-class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class CreateGroupSerializer(serializers.ModelSerializer):
+    group_properties = serializers.JSONField(default=dict, required=False, allow_null=True)
+
+    class Meta:
+        model = Group
+        fields = ["group_type_index", "group_key", "group_properties"]
+
+
+class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
@@ -119,6 +130,29 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         )
 
         return get_object_or_404(queryset)
+
+    def safely_get_group_type_mapping(self, group_type_index: GroupTypeIndex):
+        try:
+            return GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound()
+
+    def trigger_group_identify(self, group: Group, group_properties: Optional[dict] = None):
+        group_type_mapping = self.safely_get_group_type_mapping(group.group_type_index)
+        properties = {
+            "$group_type": group_type_mapping.group_type,
+            "$group_key": group.group_key,
+            "$group_set": group_properties or group.group_properties,
+        }
+        capture_internal(
+            token=self.team.api_token,
+            event_name="$groupidentify",
+            event_source="ee_ch_views_groups",
+            distinct_id=str(self.team.uuid),
+            timestamp=timezone.now(),
+            properties=properties,
+            process_person_profile=False,
+        ).raise_for_status()
 
     @extend_schema(
         parameters=[
@@ -161,6 +195,54 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
+
+    def create(self, request, *args, **kwargs):
+        request_data = CreateGroupSerializer(data=request.data)
+        request_data.is_valid(raise_exception=True)
+
+        try:
+            group = create_group(
+                group_key=request_data.validated_data["group_key"],
+                group_type_index=request_data.validated_data["group_type_index"],
+                properties=request_data.validated_data["group_properties"],
+                team_id=self.team.pk,
+                timestamp=timezone.now(),
+            )
+        except IntegrityError as exc:
+            if "unique team_id/group_key/group_type_index combo" in str(exc):
+                raise ValidationError({"detail": "A group with this key already exists"})
+            raise ValidationError({"detail": str(exc)})
+
+        # TODO: Handle errors gracefully
+        self.trigger_group_identify(group=group)
+
+        details = [
+            Detail(
+                name=str(name),
+                changes=[
+                    Change(
+                        type="Group",
+                        action="created",
+                        before=None,
+                        after=value,
+                    )
+                ],
+            )
+            for name, value in group.group_properties.items()
+        ]
+        for detail in details:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=group.pk,
+                scope="Group",
+                activity="create_group",
+                detail=detail,
+            )
+
+        return response.Response(data=self.get_serializer(group).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         parameters=[
@@ -218,13 +300,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
-            try:
-                group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
-                )
-            except GroupTypeMapping.DoesNotExist:
-                raise NotFound()
-
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
@@ -241,26 +316,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             )
 
             # another internal event submission where we best-effort and don't handle failures...
-            team_uuid_as_distinct_id = str(self.team.uuid)
-            event_name = "$groupidentify"
-            properties = {
-                "$group_type": group_type_mapping.group_type,
-                "$group_key": group.group_key,
-                "$group_set": {request.data["key"]: request.data["value"]},
-            }
-
             try:
-                resp = capture_internal(
-                    token=self.team.api_token,
-                    event_name=event_name,
-                    event_source="ee_ch_views_groups",
-                    distinct_id=team_uuid_as_distinct_id,
-                    timestamp=timestamp,
-                    properties=properties,
-                    process_person_profile=False,  # don't process person profile
-                )
-                resp.raise_for_status()
-
+                self.trigger_group_identify(group=group, group_properties={request.data["key"]: request.data["value"]})
             except HTTPError as e:
                 return response.Response(
                     {
