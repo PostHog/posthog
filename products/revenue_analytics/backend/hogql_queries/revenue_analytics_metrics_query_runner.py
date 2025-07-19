@@ -5,9 +5,9 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
     HogQLQueryResponse,
-    CachedRevenueAnalyticsCustomerCountQueryResponse,
-    RevenueAnalyticsCustomerCountQueryResponse,
-    RevenueAnalyticsCustomerCountQuery,
+    CachedRevenueAnalyticsMetricsQueryResponse,
+    RevenueAnalyticsMetricsQueryResponse,
+    RevenueAnalyticsMetricsQuery,
 )
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
@@ -29,10 +29,10 @@ KINDS = [
 ]
 
 
-class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
-    query: RevenueAnalyticsCustomerCountQuery
-    response: RevenueAnalyticsCustomerCountQueryResponse
-    cached_response: CachedRevenueAnalyticsCustomerCountQueryResponse
+class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner):
+    query: RevenueAnalyticsMetricsQuery
+    response: RevenueAnalyticsMetricsQueryResponse
+    cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.revenue_subqueries.subscription is None:
@@ -464,7 +464,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         with self.timings.measure("build_results"):
             results = self._build_results(response)
 
-        return RevenueAnalyticsCustomerCountQueryResponse(
+        return RevenueAnalyticsMetricsQueryResponse(
             results=results,
             hogql=response.hogql,
             modifiers=self.modifiers,

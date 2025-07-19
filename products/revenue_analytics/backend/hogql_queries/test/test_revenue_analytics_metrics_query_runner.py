@@ -3,15 +3,15 @@ from pathlib import Path
 from decimal import Decimal
 from unittest.mock import ANY
 
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
-    RevenueAnalyticsCustomerCountQueryRunner,
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
+    RevenueAnalyticsMetricsQueryRunner,
 )
 from posthog.schema import (
     CurrencyCode,
     DateRange,
     PropertyOperator,
-    RevenueAnalyticsCustomerCountQuery,
-    RevenueAnalyticsCustomerCountQueryResponse,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMetricsQueryResponse,
     RevenueAnalyticsGroupBy,
     IntervalType,
     HogQLQueryModifiers,
@@ -87,7 +87,7 @@ LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
 @snapshot_clickhouse_queries
-class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
 
     def setUp(self):
@@ -197,7 +197,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         self.invoices_cleanup_filesystem()
         super().tearDown()
 
-    def _run_revenue_analytics_customer_count_query(
+    def _run_revenue_analytics_metrics_query(
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
@@ -214,7 +214,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsCustomerCountQuery(
+            query = RevenueAnalyticsMetricsQuery(
                 dateRange=date_range,
                 interval=interval,
                 groupBy=group_by,
@@ -222,13 +222,13 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
-            runner = RevenueAnalyticsCustomerCountQueryRunner(
+            runner = RevenueAnalyticsMetricsQueryRunner(
                 team=self.team,
                 query=query,
             )
             response = runner.calculate()
 
-            RevenueAnalyticsCustomerCountQueryResponse.model_validate(response)
+            RevenueAnalyticsMetricsQueryResponse.model_validate(response)
             return response
 
     def test_no_crash_when_no_data(self):
@@ -236,12 +236,12 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         self.products_table.delete()
         self.customers_table.delete()
         self.invoices_table.delete()
-        results = self._run_revenue_analytics_customer_count_query().results
+        results = self._run_revenue_analytics_metrics_query().results
 
         self.assertEqual(results, [])
 
     def test_no_crash_when_no_source_is_selected(self):
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -255,7 +255,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
 
     def test_with_data(self):
         # Use huge date range to collect all data
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             date_range=DateRange(date_from="2024-11-01", date_to="2026-01-01")
         ).results
 
@@ -370,7 +370,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         )
 
     def test_with_data_and_date_range(self):
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             date_range=DateRange(date_from="2025-02-01", date_to="2025-05-01")
         ).results
 
@@ -478,7 +478,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         )
 
     def test_with_empty_date_range(self):
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             date_range=DateRange(date_from="2024-12-01", date_to="2024-12-31")
         ).results
 
@@ -582,7 +582,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         )
 
     def test_with_data_and_product_grouping(self):
-        results = self._run_revenue_analytics_customer_count_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+        results = self._run_revenue_analytics_metrics_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
         self.assertEqual(len(results), 48)  # 6 Products * 8 insights = 48
         self.assertEqual(
@@ -676,7 +676,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             [0, 0, 0, 0, NaN, NaN, NaN],  # LTV
         ]
 
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",
@@ -690,7 +690,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         self.assertEqual([result["data"] for result in results], expected_data)
 
         # When grouping results should be exactly the same, just the label changes
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             group_by=[RevenueAnalyticsGroupBy.PRODUCT],
             properties=[
                 RevenueAnalyticsPropertyFilter(
@@ -708,7 +708,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
         self.assertIn("Subscription Count | stripe.posthog_test - Product C", labels)
 
     def test_with_country_filter(self):
-        results = self._run_revenue_analytics_customer_count_query(
+        results = self._run_revenue_analytics_metrics_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="country",

@@ -1,8 +1,7 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
-    RevenueAnalyticsArpuNode,
-    RevenueAnalyticsCustomerCountNode,
     RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsMetricsNode,
     RevenueAnalyticsOverviewNode,
     RevenueAnalyticsRevenueNode,
     RevenueAnalyticsTopCustomersNode,
@@ -38,9 +37,8 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
-    isRevenueAnalyticsArpuQuery,
-    isRevenueAnalyticsCustomerCountQuery,
     isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsMetricsQuery,
     isRevenueAnalyticsOverviewQuery,
     isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
@@ -157,21 +155,13 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsArpuQuery(query)) {
-        component = (
-            <RevenueAnalyticsArpuNode query={query} cachedResults={props.cachedResults} context={queryContext} />
-        )
-    } else if (isRevenueAnalyticsCustomerCountQuery(query)) {
-        component = (
-            <RevenueAnalyticsCustomerCountNode
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
             <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsMetricsQuery(query)) {
+        component = (
+            <RevenueAnalyticsMetricsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsRevenueQuery(query)) {
         component = (
