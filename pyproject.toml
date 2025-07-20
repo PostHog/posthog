@@ -218,6 +218,7 @@ dev = [
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
     "watchdog==5.0.3",
+    "deepdiff==8.5.0",
 ]
 
 [tool.uv]
