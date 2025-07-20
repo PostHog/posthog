@@ -389,7 +389,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     // Get insight props for the logic
     const insightProps = { dashboardItemId: insight?.short_id }
 
-    const { hasRejected, suggestedQuery } = useValues(insightLogic(insightProps))
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
     const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
@@ -436,15 +436,15 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               {isEditingInsight && suggestedQuery && (
                                   <LemonButton
                                       onClick={() => {
-                                          if (!hasRejected) {
+                                          if (previousQuery) {
                                               onRejectSuggestedInsight()
                                           } else {
                                               onReapplySuggestedInsight()
                                           }
                                       }}
-                                      sideIcon={!hasRejected ? <IconX /> : <IconRefresh />}
+                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                                       size="xsmall"
-                                      tooltip={!hasRejected ? "Reject Max's changes" : "Reapply Max's changes"}
+                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
                                   />
                               )}
                               {!isEditingInsight && (

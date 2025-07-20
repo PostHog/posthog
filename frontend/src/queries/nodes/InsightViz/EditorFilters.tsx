@@ -86,7 +86,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
 
     const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
-    const { previousQuery, suggestedQuery, hasRejected } = useValues(insightLogic(insightProps))
+    const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
@@ -470,7 +470,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         </div>
                     </MaxTool>
 
-                    {previousQuery && !hasRejected && (
+                    {previousQuery && (
                         <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
                             <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">

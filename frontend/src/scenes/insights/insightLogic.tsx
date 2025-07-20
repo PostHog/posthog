@@ -321,14 +321,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
             },
         ],
-        hasRejected: [
-            false,
-            {
-                onRejectSuggestedInsight: () => true,
-                onReapplySuggestedInsight: () => false,
-                handleInsightSuggested: () => false,
-            },
-        ],
     })),
     selectors({
         query: [
@@ -529,6 +521,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 if (insightDataLogicInstance) {
                     insightDataLogicInstance.actions.setQuery(values.previousQuery)
                 }
+                actions.setPreviousQuery(null)
+            } else {
             }
         },
         handleInsightSuggested: ({ suggestedInsight }) => {
@@ -546,8 +540,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (values.suggestedQuery) {
                 const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
                 if (insightDataLogicInstance) {
+                    const currentQuery = insightDataLogicInstance.values.query
+                    actions.setPreviousQuery(currentQuery)
                     insightDataLogicInstance.actions.setQuery(values.suggestedQuery)
                 }
+            } else {
             }
         },
     })),

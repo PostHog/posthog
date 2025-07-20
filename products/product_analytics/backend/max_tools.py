@@ -55,10 +55,6 @@ IMPORTANT: THE CURRENT INSIGHT DEFINITION IS YOUR SOURCE OF TRUTH.
         if "current_query" not in self.context:
             raise ValueError("Context `current_query` is required for the `create_and_query_insight` tool")
 
-        # Fix the type errors by ensuring team and user are not None
-        if self._team is None or self._user is None:
-            raise ValueError("Team and user must be available for the `create_and_query_insight` tool")
-
         graph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
         state = self._state
         last_message = state.messages[-1]
