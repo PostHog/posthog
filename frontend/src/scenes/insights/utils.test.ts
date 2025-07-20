@@ -557,7 +557,7 @@ describe('compareTopLevelSections()', () => {
         const obj1 = { kind: 'trends', source: { interval: 'day' } }
         const obj2 = { kind: 'funnels', source: { interval: 'day' } }
 
-        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Insight Type'])
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Insight type'])
     })
 
     it('compares source fields', () => {
@@ -571,7 +571,7 @@ describe('compareTopLevelSections()', () => {
         const obj1 = { source: { interval: 'day', breakdownFilter: null, dateRange: 'last7d' } }
         const obj2 = { source: { interval: 'week', breakdownFilter: { breakdown: '$browser' }, dateRange: 'last30d' } }
 
-        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Interval', 'Breakdowns', 'Date Range'])
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Interval', 'Breakdowns', 'Date range'])
     })
 
     it('handles unknown source fields', () => {
@@ -603,8 +603,8 @@ describe('compareTopLevelSections()', () => {
     })
 
     it('handles null/undefined objects', () => {
-        expect(compareInsightTopLevelSections(null, { kind: 'trends' })).toEqual(['Insight Type'])
-        expect(compareInsightTopLevelSections({ kind: 'trends' }, null)).toEqual(['Insight Type'])
+        expect(compareInsightTopLevelSections(null, { kind: 'trends' })).toEqual(['Insight type'])
+        expect(compareInsightTopLevelSections({ kind: 'trends' }, null)).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null, null)).toEqual([])
     })
 })
