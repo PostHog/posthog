@@ -2,8 +2,7 @@ import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { useActions } from 'kea'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -13,6 +12,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { useState, useEffect } from 'react'
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
@@ -118,6 +118,15 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
+    const [startingMaterialization, setStartingMaterialization] = useState(false)
+
+    useEffect(() => {
+        const mostRecentJob = dataModelingJobs?.results?.[0]
+        if (mostRecentJob?.status) {
+            setStartingMaterialization(false)
+        }
+    }, [dataModelingJobs?.results])
+
     if (initialDataWarehouseSavedQueryLoading) {
         return (
             <div className="w-full h-full flex items-center justify-center">
@@ -152,21 +161,35 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
                                         className="whitespace-nowrap"
-                                        loading={savedQuery?.status === 'Running'}
+                                        loading={startingMaterialization || savedQuery?.status === 'Running'}
                                         disabledReason={
-                                            savedQuery?.status === 'Running' && 'Materialization is already running'
+                                            startingMaterialization
+                                                ? 'Materialization is starting...'
+                                                : savedQuery?.status === 'Running'
+                                                ? 'Materialization is running'
+                                                : false
                                         }
-                                        onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                        onClick={() =>
+                                            editingView &&
+                                            (setStartingMaterialization(true),
+                                            runDataWarehouseSavedQuery(editingView.id))
+                                        }
                                         type="secondary"
                                         sideAction={{
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
                                             disabledReason:
-                                                savedQuery?.status !== 'Running' && 'Materialization is not running',
+                                                !startingMaterialization &&
+                                                savedQuery?.status !== 'Running' &&
+                                                'Materialization is not running',
                                         }}
                                     >
-                                        {savedQuery?.status === 'Running' ? 'Running...' : 'Sync now'}
+                                        {startingMaterialization
+                                            ? 'Starting...'
+                                            : savedQuery?.status === 'Running'
+                                            ? 'Running...'
+                                            : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
