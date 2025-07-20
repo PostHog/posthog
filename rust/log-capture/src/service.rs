@@ -13,8 +13,8 @@ use tracing::error;
 
 #[derive(Clone)]
 pub struct Service {
-    config: Config,
-    clickhouse_writer: ClickHouseWriter,
+    pub config: Config,
+    pub clickhouse_writer: ClickHouseWriter,
 }
 
 impl Service {

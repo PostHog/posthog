@@ -2,11 +2,26 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
-    #[envconfig(from = "BIND_HOST", default = "::")]
-    pub host: String,
+    // gRPC server configuration (OTLP)
+    #[envconfig(from = "GRPC_BIND_HOST", default = "::")]
+    pub grpc_host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "4317")]
-    pub port: u16,
+    #[envconfig(from = "GRPC_BIND_PORT", default = "4317")]
+    pub grpc_port: u16,
+
+    // HTTP server configuration (OTLP)
+    #[envconfig(from = "HTTP_BIND_HOST", default = "::")]
+    pub http_host: String,
+
+    #[envconfig(from = "HTTP_BIND_PORT", default = "4318")]
+    pub http_port: u16,
+
+    // Management server configuration (health checks, metrics)
+    #[envconfig(from = "MGMT_BIND_HOST", default = "::")]
+    pub mgmt_host: String,
+
+    #[envconfig(from = "MGMT_BIND_PORT", default = "8000")]
+    pub mgmt_port: u16,
 
     #[envconfig(from = "JWT_SECRET")]
     pub jwt_secret: String,
@@ -40,5 +55,17 @@ impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         let res = Self::init_from_env()?;
         Ok(res)
+    }
+
+    pub fn grpc_bind_address(&self) -> String {
+        format!("{}:{}", self.grpc_host, self.grpc_port)
+    }
+
+    pub fn http_bind_address(&self) -> String {
+        format!("{}:{}", self.http_host, self.http_port)
+    }
+
+    pub fn mgmt_bind_address(&self) -> String {
+        format!("{}:{}", self.mgmt_host, self.mgmt_port)
     }
 }

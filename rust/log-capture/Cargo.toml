@@ -27,6 +27,10 @@ serde_json = { workspace = true }
 futures = { workspace = true }
 base64 = { workspace = true }
 sha2 = "0.10.8"
+# Dependencies for HTTP OTLP
+prost = "0.13.5"
+bytes = "1.10.1"
+hex = "0.4.3"
 
 [dev-dependencies]
 
