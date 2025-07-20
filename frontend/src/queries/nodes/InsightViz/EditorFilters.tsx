@@ -57,6 +57,7 @@ import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
+import { pluralize } from 'lib/utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -89,12 +90,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
-    const hasScrolled = useRef(false)
+    const hasScrolledToMaxSuggestion = useRef(false)
 
     // Reset scroll flag when banner disappears
     useEffect(() => {
         if (!previousQuery) {
-            hasScrolled.current = false
+            hasScrolledToMaxSuggestion.current = false
         }
     }, [previousQuery])
 
@@ -474,9 +475,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <div
                             className="w-full px-2"
                             ref={(el) => {
-                                if (el && !hasScrolled.current) {
+                                if (el && !hasScrolledToMaxSuggestion.current) {
                                     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                    hasScrolled.current = true
+                                    hasScrolledToMaxSuggestion.current = true
                                 }
                             }}
                         >
@@ -488,16 +489,14 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                             suggestedQuery,
                                             previousQuery
                                         )
-                                        const diffString = `🔍 ${
-                                            changedLabels.length
-                                        } section(s) changed: \n${changedLabels.join('\n')}`
+                                        const diffString = `🔍 ${pluralize(
+                                            changedLabels.length,
+                                            'section'
+                                        )} changed: \n${changedLabels.join('\n')}`
 
                                         return (
                                             <div className="flex items-center gap-1">
-                                                <span>
-                                                    {changedLabels.length}{' '}
-                                                    {changedLabels.length === 1 ? 'change' : 'changes'}
-                                                </span>
+                                                <span>{pluralize(changedLabels.length, 'change')}</span>
                                                 {diffString && (
                                                     <Tooltip
                                                         title={<div className="whitespace-pre-line">{diffString}</div>}

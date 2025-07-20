@@ -386,8 +386,6 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     const { insight } = useValues(insightSceneLogic)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    // const [isRejected, setIsRejected] = useState(false)
-
     // Get insight props for the logic
     const insightProps = { dashboardItemId: insight?.short_id }
 

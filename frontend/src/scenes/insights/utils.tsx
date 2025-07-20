@@ -631,15 +631,15 @@ const TOP_LEVEL_LABELS: Record<string, string> = {
 
 const SOURCE_FIELD_LABELS: Record<string, string> = {
     breakdownFilter: 'Breakdowns',
-    compareFilter: 'Compare Filter',
-    dateRange: 'Date Range',
-    filterTestAccounts: 'Test Account Filtering',
+    compareFilter: 'Compare filter',
+    dateRange: 'Date range',
+    filterTestAccounts: 'Test account filtering',
     interval: 'Interval',
-    kind: 'Query Kind',
-    properties: 'Global Property Filters',
+    kind: 'Query kind',
+    properties: 'Global property filters',
     samplingFactor: 'Sampling',
     series: 'Series',
-    trendsFilter: 'Display Options',
+    trendsFilter: 'Display options',
 }
 
 function isObject(value: any): value is Record<string, any> {
