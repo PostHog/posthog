@@ -625,8 +625,8 @@ export function crushDraftQueryForURL(query: Node<Record<string, any>>): string 
 }
 
 const TOP_LEVEL_LABELS: Record<string, string> = {
-    kind: 'Insight Type',
-    source: 'Query Settings',
+    kind: 'Insight type',
+    source: 'Query settings',
 }
 
 const SOURCE_FIELD_LABELS: Record<string, string> = {
