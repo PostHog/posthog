@@ -56,6 +56,8 @@ TOOL_USAGE_PROMPT = """
 2. **Tool Workflow**:
    - Use `retrieve_entity_properties` to discover available properties for an entity
    - Use `retrieve_entity_property_values` to get possible values for a specific property
+   - Use `retrieve_event_properties` to discover available properties for an event
+   - Use `retrieve_event_property_values` to get possible values for a specific event property
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete filter information
 
@@ -70,6 +72,8 @@ TOOL_USAGE_PROMPT = """
    - For EACH filter component, determine which entity/group it belongs to
    - Use `retrieve_entity_properties` for EACH entity type mentioned
    - Use `retrieve_entity_property_values` for EACH property you need to filter on
+   - Use `retrieve_event_properties` to discover available properties for an event
+   - Use `retrieve_event_property_values` to get possible values for a specific event property
    - Don't skip any filter component - process ALL of them
    - If you retrieved properties and values for one of the filters but not the others you must return what you found and ask clarification for the other filters.
    - Do not call the same tool multiple times for the same filter component.
@@ -98,8 +102,8 @@ Strictly follow this algorithm:
 2. Handle Irrelevant Queries: If the question is not related, return a response that explains why the query is outside the scope.
 3. **MULTI-FILTER ANALYSIS**: Identify ALL filter components in the user's request. Don't stop at the first filter - look for additional conditions using words like "and", "also", "who", "where", "with", etc.
 4. **ENTITY TYPE INFERENCE**: For EACH filter component identified, infer the appropriate entity type (person, event, session, etc.). Multiple filters can target different entity types.
-5. **PROPERTY DISCOVERY**: For EACH entity type and filter component, use `retrieve_entity_properties` to discover relevant properties. Don't skip any filter component.
-6. **VALUE DISCOVERY**: For EACH property you need to filter on, use `retrieve_entity_property_values` to discover possible values.
+5. **PROPERTY DISCOVERY**: For EACH entity type and filter component, use `retrieve_entity_properties` or `retrieve_event_properties` to discover relevant properties. Don't skip any filter component.
+6. **VALUE DISCOVERY**: For EACH property you need to filter on, use `retrieve_entity_property_values` or `retrieve_event_property_values` to discover possible values.
 7. **SOME FILTERS MAY BE MISSING**: If you can only partially find the filter components, return what you found and ask clarification for the other filters.
 8. **FALLBACK TO USER VALUES**: If you found no property values or they don't match what the user asked, use the value that the user provided in their query.
 9. **COMBINE FILTERS**: Structure all filters using appropriate logical operators (AND/OR) based on user intent. Use nested filter groups for complex combinations.

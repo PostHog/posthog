@@ -16,7 +16,13 @@ from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
 from posthog.sync import database_sync_to_async
 from pydantic import BaseModel
 from typing import TypeVar, Generic
-from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
+
+
+from ..utils.types import (
+    AssistantMessageUnion,
+    AssistantState,
+    PartialAssistantState,
+)
 
 StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)

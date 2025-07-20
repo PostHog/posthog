@@ -12,7 +12,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
-from ee.hogai.graph.query_planner.toolkit import retrieve_entity_properties, retrieve_entity_property_values
+from ee.hogai.graph.query_planner.toolkit import (
+    retrieve_entity_properties,
+    retrieve_entity_property_values,
+    retrieve_event_properties,
+    retrieve_event_property_values,
+)
 
 from .prompts import (
     FILTER_INITIAL_PROMPT,
@@ -78,6 +83,8 @@ class FilterOptionsNode(AssistantNode):
             [
                 retrieve_entity_properties,
                 retrieve_entity_property_values,
+                retrieve_event_properties,
+                retrieve_event_property_values,
                 ask_user_for_help,
                 final_answer,
             ],
@@ -165,7 +172,7 @@ class FilterOptionsNode(AssistantNode):
             raise ValueError("No tool calls found in the output message.")
 
         tool_call = output_message.tool_calls[0]
-        result = AgentAction(tool_call["name"], tool_call["args"].get("arguments", {}), tool_call["id"])
+        result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
         intermediate_steps = state.intermediate_steps or []
 
         # Add the new AI message to the progress log
@@ -201,27 +208,23 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         else:
             # First check if we've reached the terminal stage and return the filter options
             if input.name == "final_answer":
-                try:
-                    # Extract the full response structure
-                    full_response = {
-                        "result": input.arguments.result,
-                        "data": input.arguments.data,
-                    }
+                # Extract the full response structure
+                full_response = {
+                    "result": input.arguments.result,  # type: ignore
+                    "data": input.arguments.data,  # type: ignore
+                }
 
-                    return PartialFilterOptionsState(
-                        generated_filter_options=full_response,
-                        change=state.change,
-                        intermediate_steps=[],
-                        messages=[
-                            AssistantToolCallMessage(
-                                tool_call_id=state.root_tool_call_id or "",  # Default to empty string if None
-                                content=json.dumps(full_response),
-                            )
-                        ],
-                    )
-                except Exception as e:
-                    # Fall through to handle as regular tool call
-                    output = f"Error processing final answer: {e}"
+                return PartialFilterOptionsState(
+                    generated_filter_options=full_response,
+                    change=state.change,
+                    intermediate_steps=[],
+                    messages=[
+                        AssistantToolCallMessage(
+                            tool_call_id=state.root_tool_call_id or "",  # Default to empty string if None
+                            content=json.dumps(full_response),
+                        )
+                    ],
+                )
 
             # The agent has requested help, so we return a message to the root node
             if input.name == "ask_user_for_help":
@@ -234,11 +237,16 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
 
         if input and not output:
             # Generate progress message before executing tool
-
             if input.name == "retrieve_entity_property_values":
                 output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
             elif input.name == "retrieve_entity_properties":
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
+            elif input.name == "retrieve_event_property_values":
+                output = toolkit.retrieve_event_or_action_property_values(
+                    input.arguments.event_name, input.arguments.property_name
+                )  # type: ignore
+            elif input.name == "retrieve_event_properties":
+                output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)  # type: ignore
             else:
                 output = toolkit.handle_incorrect_response(input)
 

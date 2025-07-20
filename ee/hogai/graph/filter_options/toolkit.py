@@ -6,6 +6,8 @@ from ee.hogai.graph.query_planner.toolkit import (
     TaxonomyAgentToolkit,
     retrieve_entity_properties,
     retrieve_entity_property_values,
+    retrieve_event_properties,
+    retrieve_event_property_values,
 )
 from posthog.models.property_definition import PropertyDefinition
 import yaml
@@ -45,7 +47,12 @@ class final_answer(BaseModel):
 
 
 FilterOptionsToolUnion = Union[
-    retrieve_entity_properties, retrieve_entity_property_values, ask_user_for_help, final_answer
+    retrieve_entity_properties,
+    retrieve_entity_property_values,
+    ask_user_for_help,
+    final_answer,
+    retrieve_event_properties,
+    retrieve_event_property_values,
 ]
 
 
