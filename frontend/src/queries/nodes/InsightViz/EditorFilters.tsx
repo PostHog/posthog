@@ -448,25 +448,23 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         className="EditorFiltersWrapper"
                         active={maxToolActive}
                     >
-                        <div>
-                            <div
-                                className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                                    'p-4 rounded border': !embedded,
-                                })}
-                            >
-                                {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                    <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                                        {editorFilterGroups.map((editorFilterGroup) => (
-                                            <EditorFilterGroup
-                                                key={editorFilterGroup.title}
-                                                editorFilterGroup={editorFilterGroup}
-                                                insightProps={insightProps}
-                                                query={query}
-                                            />
-                                        ))}
-                                    </div>
-                                ))}
-                            </div>
+                        <div
+                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                                'p-4 rounded border': !embedded,
+                            })}
+                        >
+                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                    {editorFilterGroups.map((editorFilterGroup) => (
+                                        <EditorFilterGroup
+                                            key={editorFilterGroup.title}
+                                            editorFilterGroup={editorFilterGroup}
+                                            insightProps={insightProps}
+                                            query={query}
+                                        />
+                                    ))}
+                                </div>
+                            ))}
                         </div>
                     </MaxTool>
 
