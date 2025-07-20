@@ -11,14 +11,12 @@ export function applyDropEventsRestrictions(
     let token: string | undefined
 
     message.headers?.forEach((header) => {
-        Object.keys(header).forEach((key) => {
-            if (key === 'distinct_id') {
-                distinctId = header[key].toString()
-            }
-            if (key === 'token') {
-                token = header[key].toString()
-            }
-        })
+        if ('distinct_id' in header) {
+            distinctId = header['distinct_id'].toString()
+        }
+        if ('token' in header) {
+            token = header['token'].toString()
+        }
     })
 
     if (token && eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {

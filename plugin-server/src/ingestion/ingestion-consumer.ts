@@ -50,6 +50,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+const headerEventMismatchCounter = new Counter({
+    name: 'ingestion_header_event_mismatch_total',
+    help: 'Number of events where headers do not match the parsed event data',
+    labelNames: ['token', 'distinct_id'],
+})
+
 type EventsForDistinctId = {
     token: string
     distinctId: string
@@ -325,9 +331,6 @@ export class IngestionConsumer {
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
         if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            logger.info('🔁', `${this.name} - queueing persons store messages`, {
-                count: personsStoreMessages.length,
-            })
             await this.kafkaProducer.queueMessages(personsStoreMessages)
             await this.kafkaProducer.flush()
         }
@@ -637,6 +640,44 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    }
+
+    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
+        let tokenStatus = 'ok'
+        if (!headerToken && event.token) {
+            tokenStatus = 'missing_in_header'
+        } else if (headerToken && !event.token) {
+            tokenStatus = 'missing_in_event'
+        } else if (!headerToken && !event.token) {
+            tokenStatus = 'missing'
+        } else if (headerToken && event.token && headerToken !== event.token) {
+            tokenStatus = 'different'
+        }
+
+        let distinctIdStatus = 'ok'
+        if (!headerDistinctId && event.distinct_id) {
+            distinctIdStatus = 'missing_in_header'
+        } else if (headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing_in_event'
+        } else if (!headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing'
+        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
+            distinctIdStatus = 'different'
+        }
+
+        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
+            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
+
+            logger.warn('🔍', `Header/event validation issue detected`, {
+                eventUuid: event.uuid,
+                headerToken,
+                eventToken: event.token,
+                headerDistinctId,
+                eventDistinctId: event.distinct_id,
+                tokenStatus,
+                distinctIdStatus,
+            })
+        }
     }
 
     private overflowEnabled() {

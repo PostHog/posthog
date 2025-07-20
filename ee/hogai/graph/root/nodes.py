@@ -353,7 +353,7 @@ class RootNode(RootNodeUIContextMixin):
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
         # only made evals less useful precisely because of the false determinism.
         base_model = MaxChatOpenAI(
-            model="gpt-4o",
+            model="gpt-4.1",
             temperature=0.3,
             streaming=True,
             stream_usage=True,
