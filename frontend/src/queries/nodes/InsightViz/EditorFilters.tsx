@@ -90,12 +90,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
-    const hasScrolledToMaxSuggestion = useRef(false)
+    const maxSuggestionActionsBanner = useRef<HTMLDivElement>(null)
 
-    // Reset scroll flag when banner disappears
     useEffect(() => {
-        if (!previousQuery) {
-            hasScrolledToMaxSuggestion.current = false
+        if (previousQuery && maxSuggestionActionsBanner.current) {
+            maxSuggestionActionsBanner.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
     }, [previousQuery])
 
@@ -472,15 +471,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     </MaxTool>
 
                     {previousQuery && !hasRejected && (
-                        <div
-                            className="w-full px-2"
-                            ref={(el) => {
-                                if (el && !hasScrolledToMaxSuggestion.current) {
-                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                    hasScrolledToMaxSuggestion.current = true
-                                }
-                            }}
-                        >
+                        <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
                             <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">
                                     <span className="size-2 bg-accent-active rounded-full" />
