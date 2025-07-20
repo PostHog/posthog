@@ -1068,6 +1068,8 @@ export type TrendsFilter = {
         | Record<numerical_key, ResultCustomizationByPosition>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    show_confidence_intervals?: boolean
+    confidence_level?: number
 }
 
 export type CalendarHeatmapFilter = {

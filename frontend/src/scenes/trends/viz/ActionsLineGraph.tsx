@@ -4,7 +4,7 @@ import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { capitalizeFirstLetter, isMultiSeriesFormula, hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -44,6 +44,9 @@ export function ActionsLineGraph({
         showMultipleYAxes,
         goalLines,
         insightData,
+        showConfidenceIntervals,
+        confidenceLevel,
+        getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
@@ -83,12 +86,42 @@ export function ActionsLineGraph({
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
+    const finalDatasets = []
+    if (showConfidenceIntervals) {
+        indexedResults.forEach((originalDataset) => {
+            const color = getTrendsColor(originalDataset)
+            const errorMargin = (v: number): number => (Math.abs(v) || 1) * (confidenceLevel / 100) * 0.2
+            finalDatasets.push({
+                ...originalDataset,
+                data: originalDataset.data.map((value) => value - errorMargin(value)),
+                borderColor: 'transparent',
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                borderWidth: 0,
+                showInLegend: false,
+                enableTooltips: false,
+            })
+            finalDatasets.push({
+                ...originalDataset,
+                data: originalDataset.data.map((value) => value + errorMargin(value)),
+                borderColor: 'transparent',
+                backgroundColor: hexToRGBA(color, 0.2),
+                pointRadius: 0,
+                borderWidth: 0,
+                fill: '-1',
+                showInLegend: false,
+                enableTooltips: false,
+            })
+        })
+    }
+    finalDatasets.push(...indexedResults)
+
     return (
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
             hiddenLegendIndexes={hiddenLegendIndexes}
-            datasets={indexedResults}
+            datasets={finalDatasets}
             labels={labels}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}

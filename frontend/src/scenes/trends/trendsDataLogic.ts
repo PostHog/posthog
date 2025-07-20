@@ -246,6 +246,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        showConfidenceIntervals: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | undefined | null): boolean => {
+                return trendsFilter?.show_confidence_intervals || false
+            },
+        ],
+
+        confidenceLevel: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | undefined | null): number => {
+                return trendsFilter?.confidence_level || 95
+            },
+        ],
+
         pieChartVizOptions: [
             () => [() => values.vizSpecificOptions],
             (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ActionsPie],

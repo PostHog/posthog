@@ -22519,6 +22519,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "confidence_level": {
+                    "type": "number"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -22606,6 +22609,9 @@
                 },
                 "showValuesOnSeries": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "show_confidence_intervals": {
                     "type": "boolean"
                 },
                 "smoothingIntervals": {

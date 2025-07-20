@@ -36,11 +36,15 @@ import { useDebouncedCallback } from 'use-debounce'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceIntervals'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { isTrendsQuery } from '~/queries/utils'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const {
+        querySource,
         isTrends,
         isFunnels,
         isRetention,
@@ -63,12 +67,11 @@ export function InsightDisplayConfig(): JSX.Element {
         compareFilter,
         supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
-
-    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -129,6 +132,37 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Y-axis scale',
                       items: [{ label: () => <ScalePicker /> }],
+                  },
+                  {
+                      title: 'Confidence intervals',
+                      items: [
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Show confidence intervals"
+                                      fullWidth
+                                      checked={!!trendsFilter?.show_confidence_intervals}
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  show_confidence_intervals: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                          ...(trendsFilter?.show_confidence_intervals
+                              ? [
+                                    {
+                                        label: () => <ConfidenceLevelInput />,
+                                    },
+                                ]
+                              : []),
+                      ],
                   },
               ]
             : []),
