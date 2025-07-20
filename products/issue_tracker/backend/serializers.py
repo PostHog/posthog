@@ -26,12 +26,12 @@ class IssueSerializer(serializers.ModelSerializer):
 
 class GitHubIntegrationSerializer(serializers.ModelSerializer):
     github_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    
+
     class Meta:
         model = GitHubIntegration
         fields = [
             "id",
-            "repo_url", 
+            "repo_url",
             "repo_owner",
             "repo_name",
             "default_branch",
@@ -44,11 +44,11 @@ class GitHubIntegrationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
-        
+
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
         return super().create(validated_data)
-        
+
     def validate_repo_url(self, value):
         """Validate and parse GitHub repo URL"""
         import re
@@ -59,7 +59,7 @@ class GitHubIntegrationSerializer(serializers.ModelSerializer):
                 "Invalid GitHub URL. Expected format: https://github.com/owner/repo"
             )
         return value
-        
+
     def validate(self, attrs):
         """Extract owner/repo from URL and validate consistency"""
         if 'repo_url' in attrs:
@@ -68,13 +68,13 @@ class GitHubIntegrationSerializer(serializers.ModelSerializer):
             match = re.match(pattern, attrs['repo_url'])
             if match:
                 url_owner, url_repo = match.groups()
-                
+
                 # Auto-populate owner/repo if not provided
                 if 'repo_owner' not in attrs:
                     attrs['repo_owner'] = url_owner
                 if 'repo_name' not in attrs:
                     attrs['repo_name'] = url_repo
-                    
+
                 # Validate consistency if provided
                 if attrs.get('repo_owner') != url_owner:
                     raise serializers.ValidationError(
@@ -84,5 +84,5 @@ class GitHubIntegrationSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         f"Repo name '{attrs['repo_name']}' doesn't match URL repo '{url_repo}'"
                     )
-        
+
         return attrs

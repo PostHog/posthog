@@ -50,7 +50,7 @@ class IssueProcessingWorkflow(PostHogWorkflow):
         # Only process if the issue was moved to 'todo' status
         if inputs.new_status == "todo":
             logger.info(f"Issue {inputs.issue_id} moved to TODO, starting GitHub workflow")
-            
+
             repo_info = None
             try:
                 # Step 1: Clone repository and create branch
@@ -65,14 +65,14 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=2,  # Don't retry too many times for git operations
                     ),
                 )
-                
+
                 if not repo_info.get("success"):
                     error_msg = f"Failed to clone repository: {repo_info.get('error', 'Unknown error')}"
                     logger.error(error_msg)
                     return error_msg
-                
+
                 logger.info(f"Repository cloned successfully. Branch: {repo_info['branch_name']}")
-                
+
                 # Step 2: Move issue to in_progress status
                 logger.info(f"Step 2: Moving issue {inputs.issue_id} to in_progress status")
                 await workflow.execute_activity(
@@ -85,7 +85,7 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=3,
                     ),
                 )
-                
+
                 # Step 3: Execute initial background processing
                 logger.info(f"Step 3: Running initial background processing for issue {inputs.issue_id}")
                 processing_result = await workflow.execute_activity(
@@ -98,9 +98,9 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=3,
                     ),
                 )
-                
+
                 logger.info(f"Background processing completed: {processing_result}")
-                
+
                 # Step 4: Execute AI agent work
                 logger.info(f"Step 4: Starting AI agent work for issue {inputs.issue_id}")
                 ai_result = await workflow.execute_activity(
@@ -113,24 +113,24 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=2,  # Don't retry too many times for expensive operations
                     ),
                 )
-                
+
                 if not ai_result.get("success"):
                     error_msg = f"AI agent work failed: {ai_result.get('error', 'Unknown error')}"
                     logger.error(error_msg)
                     return error_msg
-                
+
                 logger.info(f"AI agent work completed successfully for issue {inputs.issue_id}")
-                
+
                 # Step 5: Commit and push changes
                 logger.info(f"Step 5: Committing and pushing changes for issue {inputs.issue_id}")
-                
+
                 # Get issue details for commit message
                 issue_details = await workflow.execute_activity(
                     get_issue_details_activity,
                     {"issue_id": inputs.issue_id, "team_id": inputs.team_id},
                     start_to_close_timeout=timedelta(minutes=1),
                 )
-                
+
                 commit_result = await workflow.execute_activity(
                     commit_and_push_changes_activity,
                     {"repo_path": repo_info["repo_path"], "branch_name": repo_info["branch_name"], "issue_title": issue_details["title"], "issue_id": inputs.issue_id},
@@ -141,14 +141,14 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=3,
                     ),
                 )
-                
+
                 if not commit_result.get("success"):
                     error_msg = f"Failed to commit and push changes: {commit_result.get('error', 'Unknown error')}"
                     logger.error(error_msg)
                     return error_msg
-                
+
                 logger.info(f"Changes committed and pushed successfully for issue {inputs.issue_id}")
-                
+
                 # Step 6: Update issue with GitHub branch info
                 logger.info(f"Step 6: Updating issue {inputs.issue_id} with GitHub branch info")
                 await workflow.execute_activity(
@@ -156,7 +156,7 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                     {"issue_id": inputs.issue_id, "team_id": inputs.team_id, "branch_name": repo_info["branch_name"]},
                     start_to_close_timeout=timedelta(minutes=2),
                 )
-                
+
                 # Step 7: Create pull request (optional, depends on GitHub integration settings)
                 logger.info(f"Step 7: Creating pull request for issue {inputs.issue_id}")
                 pr_result = await workflow.execute_activity(
@@ -169,7 +169,7 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=2,
                     ),
                 )
-                
+
                 # Update issue with PR URL if PR was created successfully
                 if pr_result.get("success") and pr_result.get("pr_url"):
                     logger.info(f"Pull request created: {pr_result['pr_url']}")
@@ -180,7 +180,7 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                     )
                 else:
                     logger.info(f"Pull request creation skipped or failed: {pr_result.get('message', 'Unknown reason')}")
-                
+
                 # Step 8: Update issue status to testing
                 logger.info(f"Step 8: Moving issue {inputs.issue_id} to testing status")
                 await workflow.execute_activity(
@@ -193,16 +193,16 @@ class IssueProcessingWorkflow(PostHogWorkflow):
                         maximum_attempts=3,
                     ),
                 )
-                
+
                 success_msg = f"Issue {inputs.issue_id} processed successfully. Branch: {repo_info['branch_name']}"
                 logger.info(success_msg)
                 return success_msg
-                
+
             except Exception as e:
                 error_msg = f"Workflow failed for issue {inputs.issue_id}: {str(e)}"
                 logger.error(error_msg)
                 return error_msg
-                
+
             finally:
                 # Step 9: Always clean up the cloned repository
                 if repo_info and repo_info.get("repo_path"):

@@ -126,13 +126,13 @@ class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 issue=issue,
                 team=self.team
             ).order_by('-created_at').first()
-            
+
             if not progress:
                 return Response({
                     "has_progress": False,
                     "message": "No execution progress found for this issue"
                 })
-            
+
             return Response({
                 "has_progress": True,
                 "id": progress.id,
@@ -149,7 +149,7 @@ class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "workflow_id": progress.workflow_id,
                 "workflow_run_id": progress.workflow_run_id
             })
-            
+
         except Exception as e:
             return Response({
                 "error": f"Failed to fetch progress: {str(e)}"
@@ -160,21 +160,21 @@ class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Get real-time progress updates (polling endpoint)."""
         issue = self.get_object()
         since = request.query_params.get('since')  # Timestamp to get updates since
-        
+
         try:
             queryset = IssueProgress.objects.filter(
                 issue=issue,
                 team=self.team
             ).order_by('-created_at')
-            
+
             if since:
                 from django.utils.dateparse import parse_datetime
                 since_dt = parse_datetime(since)
                 if since_dt:
                     queryset = queryset.filter(updated_at__gt=since_dt)
-            
+
             progress_records = queryset[:5]  # Limit to 5 most recent
-            
+
             return Response({
                 "progress_updates": [
                     {
@@ -192,7 +192,7 @@ class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ],
                 "server_time": timezone.now().isoformat()
             })
-            
+
         except Exception as e:
             return Response({
                 "error": f"Failed to fetch progress stream: {str(e)}"
@@ -204,51 +204,51 @@ class GitHubIntegrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     required_scopes = ["issue:read"]
     scope_object = "issue"
-    
+
     queryset = GitHubIntegration.objects.all()
-    
+
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
-    
+
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
-    
+
     def perform_create(self, serializer):
         serializer.save(team=self.team)
-    
+
     @action(detail=True, methods=["post"])
     def test_connection(self, request, pk=None, **kwargs):
         """Test GitHub integration connection and permissions."""
         import logging
         logger = logging.getLogger(__name__)
-        
+
         integration = self.get_object()
-        
+
         if not integration.github_token:
             return Response(
-                {"success": False, "error": "No GitHub token configured"}, 
+                {"success": False, "error": "No GitHub token configured"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         try:
             # Import GitHub client
             from .temporal.github_client import GitHubClient
             import asyncio
-            
+
             client = GitHubClient(
                 token=integration.github_token,
                 repo_owner=integration.repo_owner,
                 repo_name=integration.repo_name
             )
-            
+
             # Test repository access
             async def test_repo_access():
                 repo_info = await client.get_repository_info()
                 return repo_info
-            
+
             # Run async test
             repo_result = asyncio.run(test_repo_access())
-            
+
             if repo_result["success"]:
                 logger.info(f"GitHub connection test successful for {integration.repo_full_name}")
                 return Response({
@@ -267,14 +267,14 @@ class GitHubIntegrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "success": False,
                     "error": repo_result["error"]
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
+
         except Exception as e:
             logger.error(f"GitHub connection test error: {str(e)}")
             return Response({
                 "success": False,
                 "error": f"Connection test failed: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=["get"])
     def status(self, request, **kwargs):
         """Get GitHub integration status for the team."""

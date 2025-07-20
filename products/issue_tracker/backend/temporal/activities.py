@@ -1,8 +1,7 @@
 import temporalio
 import os
 import subprocess
-import tempfile
-from typing import Dict, Any
+from typing import Any
 
 from posthog.temporal.common.logger import bind_contextvars, get_logger
 from posthog.sync import database_sync_to_async
@@ -77,9 +76,9 @@ async def process_issue_moved_to_todo_activity(inputs: IssueProcessingInputs) ->
 async def update_issue_status_activity(args: dict) -> str:
     """Update the status of an issue."""
     issue_id = args["issue_id"]
-    team_id = args["team_id"] 
+    team_id = args["team_id"]
     new_status = args["new_status"]
-    
+
     bind_contextvars(
         issue_id=issue_id,
         team_id=team_id,
@@ -114,7 +113,7 @@ async def update_issue_status_activity(args: dict) -> str:
 
 
 @temporalio.activity.defn
-async def get_issue_details_activity(args: dict) -> Dict[str, Any]:
+async def get_issue_details_activity(args: dict) -> dict[str, Any]:
     """Get issue details from the database."""
     issue_id = args["issue_id"]
     team_id = args["team_id"]
@@ -125,7 +124,7 @@ async def get_issue_details_activity(args: dict) -> Dict[str, Any]:
         Issue = apps.get_model("issue_tracker", "Issue")
 
         issue = await database_sync_to_async(Issue.objects.get)(id=issue_id, team_id=team_id)
-        
+
         return {
             "id": str(issue.id),
             "title": issue.title,
@@ -143,12 +142,12 @@ async def get_issue_details_activity(args: dict) -> Dict[str, Any]:
 
 
 @temporalio.activity.defn
-async def ai_agent_work_activity(args: dict) -> Dict[str, Any]:
+async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
     """Execute AI agent work using Claude Code SDK."""
     inputs = args["inputs"]
     repo_path = args["repo_path"]
     branch_name = args["branch_name"]
-    
+
     # Handle serialized inputs - Temporal converts objects to dicts
     if isinstance(inputs, dict):
         issue_id = inputs["issue_id"]
@@ -156,7 +155,7 @@ async def ai_agent_work_activity(args: dict) -> Dict[str, Any]:
     else:
         issue_id = inputs.issue_id
         team_id = inputs.team_id
-    
+
     bind_contextvars(
         issue_id=issue_id,
         team_id=team_id,
@@ -174,7 +173,7 @@ async def ai_agent_work_activity(args: dict) -> Dict[str, Any]:
         logger.info(f"Fetching issue details for {issue_id}")
         issue = await database_sync_to_async(Issue.objects.get)(id=issue_id, team_id=team_id)
         logger.info(f"Issue details: title='{issue.title}', origin='{issue.origin_product}'")
-        
+
         # Create progress tracking record
         def create_progress():
             from django.apps import apps
@@ -189,7 +188,7 @@ async def ai_agent_work_activity(args: dict) -> Dict[str, Any]:
                 workflow_run_id=getattr(temporalio.activity.info(), 'workflow_run_id', ''),
                 activity_id=getattr(temporalio.activity.info(), 'activity_id', '')
             )
-        
+
         progress = await database_sync_to_async(create_progress)()
 
         # Prepare the prompt for Claude Code SDK
@@ -214,12 +213,12 @@ Please implement this feature step by step, explaining what you're doing as you 
         # Use Claude Code SDK to execute the work
         logger.info("Calling Claude Code SDK...")
         result = await _execute_claude_code_sdk(prompt, repo_path, progress)
-        
+
         # Mark progress as completed
         def mark_completed():
             progress.mark_completed()
         await database_sync_to_async(mark_completed)()
-        
+
         logger.info(f"AI agent work completed for issue {issue_id} with result length: {len(result)}")
         return {
             "success": True,
@@ -231,7 +230,7 @@ Please implement this feature step by step, explaining what you're doing as you 
 
     except Exception as e:
         logger.exception(f"Error in AI agent work for issue {issue_id}: {str(e)}")
-        
+
         # Mark progress as failed if it exists
         try:
             if 'progress' in locals():
@@ -240,7 +239,7 @@ Please implement this feature step by step, explaining what you're doing as you 
                 await database_sync_to_async(mark_failed)()
         except Exception:
             pass  # Don't fail the main exception handling
-            
+
         return {
             "success": False,
             "error": str(e),
@@ -252,52 +251,52 @@ Please implement this feature step by step, explaining what you're doing as you 
 async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -> str:
     """Execute Claude Code SDK using Python SDK."""
     logger.info(f"Executing Claude Code SDK in {repo_path}")
-    
+
     # Check for API key
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         logger.error("ANTHROPIC_API_KEY not set, cannot use Claude Code SDK")
         raise Exception("ANTHROPIC_API_KEY environment variable is required for Claude Code SDK")
-    
+
     try:
         # Try to use the Python SDK first (more reliable)
         try:
             import anyio
             from claude_code_sdk import query, ClaudeCodeOptions
             from pathlib import Path
-            
+
             logger.info("Using Claude Code Python SDK")
-            
+
             if progress:
                 def update_step():
                     progress.update_progress("Starting Claude Code SDK execution", 0)
                     progress.append_output("🚀 Starting Claude Code SDK execution...")
                 await database_sync_to_async(update_step)()
-            
+
             options = ClaudeCodeOptions(
                 max_turns=20,  # Increased from 5 to allow more complex implementations
                 cwd=Path(repo_path),
                 permission_mode="acceptEdits",  # Auto-accept file edits
                 allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"]  # Allow all necessary tools
             )
-            
+
             result_text = ""
             message_count = 0
             async for message in query(prompt=prompt, options=options):
                 message_count += 1
-                
+
                 # Log the actual message structure for debugging
                 logger.info(f"Received message {message_count}: type={getattr(message, 'type', 'unknown')}")
                 if hasattr(message, '__dict__'):
                     logger.debug(f"Message attributes: {list(message.__dict__.keys())}")
-                
+
                 # Stream all message content to progress for visibility
                 if progress:
                     def append_message():
                         progress.append_output(f"📩 Message {message_count}: {str(message)[:200]}...")
                         progress.update_progress(f"Processing message {message_count}", 0)
                     await database_sync_to_async(append_message)()
-                
+
                 # Try different ways to extract content
                 if hasattr(message, 'type'):
                     if message.type == "assistant":
@@ -311,11 +310,11 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                             text_content = str(message.content)
                         elif hasattr(message, 'text'):
                             text_content = message.text
-                        
+
                         if text_content:
                             result_text += text_content + "\n"
                             logger.info(f"Extracted text content: {text_content[:100]}...")
-                                        
+
                     elif message.type == "result":
                         logger.info(f"SDK completed with result: {getattr(message, 'subtype', 'unknown')}")
                         if progress:
@@ -332,7 +331,7 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                                 progress.append_output(f"❌ Error: {error_msg}")
                             await database_sync_to_async(error_update)()
                         break
-                
+
                 # Also try to extract content from unknown message types
                 else:
                     # Log the raw message for debugging
@@ -341,14 +340,14 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                         def append_raw():
                             progress.append_output(f"🔍 Raw message: {str(message)[:150]}...")
                         await database_sync_to_async(append_raw)()
-            
+
             logger.info(f"Claude Code Python SDK execution completed, result length: {len(result_text)}, messages: {message_count}")
             return result_text or "Claude Code execution completed successfully"
-            
+
         except ImportError as e:
             logger.error(f"Claude Code Python SDK not available: {e}")
             raise Exception(f"Claude Code SDK is required but not installed: {e}")
-            
+
     except Exception as e:
         logger.error(f"Error executing Claude Code SDK: {str(e)}")
         raise
@@ -356,14 +355,14 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
 
 
 
-@temporalio.activity.defn 
-async def commit_and_push_changes_activity(args: dict) -> Dict[str, Any]:
+@temporalio.activity.defn
+async def commit_and_push_changes_activity(args: dict) -> dict[str, Any]:
     """Commit and push changes to the repository."""
     repo_path = args["repo_path"]
     branch_name = args["branch_name"]
     issue_title = args["issue_title"]
     issue_id = args["issue_id"]
-    
+
     bind_contextvars(
         repo_path=repo_path,
         branch_name=branch_name,
@@ -375,34 +374,34 @@ async def commit_and_push_changes_activity(args: dict) -> Dict[str, Any]:
     try:
         original_cwd = os.getcwd()
         os.chdir(repo_path)
-        
+
         try:
             # Check if there are any changes to commit
             result = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
             if not result.stdout.strip():
                 logger.info("No changes to commit")
                 return {"success": True, "message": "No changes to commit"}
-            
+
             # Add all changes
             subprocess.run(['git', 'add', '.'], check=True)
-            
+
             # Commit changes
             commit_message = f"feat: {issue_title}\n\nImplemented solution for issue {issue_id}\n\n🤖 Generated with Claude Code SDK"
             subprocess.run(['git', 'commit', '-m', commit_message], check=True)
-            
+
             # Push the branch (use force push to handle conflicts with existing branch)
             subprocess.run(['git', 'push', '--force', 'origin', branch_name], check=True)
-            
+
             logger.info(f"Successfully committed and pushed changes for issue {issue_id}")
             return {
                 "success": True,
                 "message": f"Changes committed and pushed to branch {branch_name}",
                 "branch_name": branch_name
             }
-            
+
         finally:
             os.chdir(original_cwd)
-            
+
     except subprocess.CalledProcessError as e:
         error_msg = f"Git operation failed: {e}"
         logger.error(error_msg)
@@ -414,14 +413,14 @@ async def commit_and_push_changes_activity(args: dict) -> Dict[str, Any]:
 
 
 @temporalio.activity.defn
-async def create_pull_request_activity(args: dict) -> Dict[str, Any]:
+async def create_pull_request_activity(args: dict) -> dict[str, Any]:
     """Create a pull request for the completed work."""
     repo_path = args["repo_path"]
     branch_name = args["branch_name"]
     issue_id = args["issue_id"]
     issue_title = args["issue_title"]
     issue_description = args["issue_description"]
-    
+
     bind_contextvars(
         repo_path=repo_path,
         branch_name=branch_name,
@@ -433,14 +432,14 @@ async def create_pull_request_activity(args: dict) -> Dict[str, Any]:
     try:
         original_cwd = os.getcwd()
         os.chdir(repo_path)
-        
+
         try:
             # Check if gh CLI is available
             gh_check = subprocess.run(['gh', '--version'], capture_output=True, text=True)
             if gh_check.returncode != 0:
                 logger.warning("GitHub CLI (gh) not available, skipping PR creation")
                 return {"success": True, "message": "GitHub CLI not available, PR creation skipped"}
-            
+
             # Create pull request
             pr_title = f"feat: {issue_title}"
             pr_body = f"""## Summary
@@ -455,14 +454,14 @@ Please review and test the changes before merging.
 🤖 Generated with Claude Code SDK
 Issue ID: {issue_id}
 """
-            
+
             result = subprocess.run([
                 'gh', 'pr', 'create',
                 '--title', pr_title,
                 '--body', pr_body,
                 '--head', branch_name
             ], capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 pr_url = result.stdout.strip()
                 logger.info(f"Pull request created successfully: {pr_url}")
@@ -475,10 +474,10 @@ Issue ID: {issue_id}
                 error_msg = f"Failed to create pull request: {result.stderr}"
                 logger.error(error_msg)
                 return {"success": False, "error": error_msg}
-                
+
         finally:
             os.chdir(original_cwd)
-            
+
     except subprocess.CalledProcessError as e:
         error_msg = f"GitHub CLI operation failed: {e}"
         logger.error(error_msg)
@@ -496,7 +495,7 @@ async def update_issue_github_info_activity(args: dict) -> str:
     team_id = args["team_id"]
     branch_name = args["branch_name"]
     pr_url = args.get("pr_url")
-    
+
     bind_contextvars(
         issue_id=issue_id,
         team_id=team_id,

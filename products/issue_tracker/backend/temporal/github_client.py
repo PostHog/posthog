@@ -1,10 +1,8 @@
 """
 GitHub API client utilities for issue tracker workflows.
 """
-import asyncio
 import aiohttp
-from typing import Dict, Any, Optional
-from urllib.parse import urljoin
+from typing import Any
 
 from posthog.temporal.common.logger import get_logger
 
@@ -13,7 +11,7 @@ logger = get_logger(__name__)
 
 class GitHubClient:
     """Async GitHub API client for issue tracker operations."""
-    
+
     def __init__(self, token: str, repo_owner: str, repo_name: str):
         self.token = token
         self.repo_owner = repo_owner
@@ -24,14 +22,14 @@ class GitHubClient:
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "PostHog-IssueTracker/1.0"
         }
-    
+
     async def create_pull_request(
         self,
         title: str,
         body: str,
         head_branch: str,
         base_branch: str = "main"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create a pull request.
         
@@ -45,14 +43,14 @@ class GitHubClient:
             Dict with PR information including URL, number, etc.
         """
         url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/pulls"
-        
+
         data = {
             "title": title,
             "body": body,
             "head": head_branch,
             "base": base_branch
         }
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, headers=self.headers, json=data) as response:
@@ -74,15 +72,15 @@ class GitHubClient:
                             "error": f"GitHub API error: {response.status} - {error_text}",
                             "status_code": response.status
                         }
-                        
+
         except Exception as e:
             logger.error(f"Error creating pull request: {str(e)}")
             return {
                 "success": False,
                 "error": f"Failed to create pull request: {str(e)}"
             }
-    
-    async def get_repository_info(self) -> Dict[str, Any]:
+
+    async def get_repository_info(self) -> dict[str, Any]:
         """
         Get repository information and validate access.
         
@@ -90,7 +88,7 @@ class GitHubClient:
             Dict with repository info or error details
         """
         url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=self.headers) as response:
@@ -115,15 +113,15 @@ class GitHubClient:
                             "error": f"Cannot access repository: {response.status} - {error_text}",
                             "status_code": response.status
                         }
-                        
+
         except Exception as e:
             logger.error(f"Error getting repository info: {str(e)}")
             return {
                 "success": False,
                 "error": f"Failed to get repository info: {str(e)}"
             }
-    
-    async def check_branch_exists(self, branch_name: str) -> Dict[str, Any]:
+
+    async def check_branch_exists(self, branch_name: str) -> dict[str, Any]:
         """
         Check if a branch exists in the repository.
         
@@ -134,7 +132,7 @@ class GitHubClient:
             Dict with exists status and branch info
         """
         url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/branches/{branch_name}"
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=self.headers) as response:
@@ -161,15 +159,15 @@ class GitHubClient:
                             "error": f"GitHub API error: {response.status} - {error_text}",
                             "status_code": response.status
                         }
-                        
+
         except Exception as e:
             logger.error(f"Error checking branch existence: {str(e)}")
             return {
                 "success": False,
                 "error": f"Failed to check branch: {str(e)}"
             }
-    
-    async def get_file_content(self, file_path: str, branch: str = None) -> Dict[str, Any]:
+
+    async def get_file_content(self, file_path: str, branch: str = None) -> dict[str, Any]:
         """
         Get the content of a file from the repository.
         
@@ -184,19 +182,19 @@ class GitHubClient:
         params = {}
         if branch:
             params["ref"] = branch
-            
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=self.headers, params=params) as response:
                     if response.status == 200:
                         file_data = await response.json()
-                        
+
                         # Decode base64 content if it's a file
                         if file_data.get("type") == "file" and "content" in file_data:
                             import base64
                             content = base64.b64decode(file_data["content"]).decode('utf-8')
                             file_data["decoded_content"] = content
-                        
+
                         return {
                             "success": True,
                             "file_path": file_path,
@@ -219,7 +217,7 @@ class GitHubClient:
                             "error": f"GitHub API error: {response.status} - {error_text}",
                             "status_code": response.status
                         }
-                        
+
         except Exception as e:
             logger.error(f"Error getting file content: {str(e)}")
             return {
