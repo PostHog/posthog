@@ -1,6 +1,6 @@
 import { IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
-import { getOutgoers, useReactFlow } from '@xyflow/react'
+import { getIncomers, getOutgoers, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
@@ -19,7 +19,19 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     }
 
     const canBeDeleted = (): boolean => {
+        const incomingNodes = getIncomers(selectedNode, nodes, edges)
         const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+
+        if (['trigger', 'exit'].includes(selectedNode.data.type)) {
+            // Trigger and exit nodes cannot be deleted
+            return false
+        }
+
+        if (incomingNodes.length === 0 && outgoingNodes.length === 0) {
+            // Orphaned nodes can always be deleted
+            return true
+        }
+
         if (outgoingNodes.length === 1) {
             return true
         }

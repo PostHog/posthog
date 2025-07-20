@@ -33,6 +33,10 @@ const _commonActionFields = {
     created_at: z.number(),
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
+    position: z.object({
+        x: z.number(),
+        y: z.number(),
+    }),
 }
 
 const CyclotronInputSchema = z.object({

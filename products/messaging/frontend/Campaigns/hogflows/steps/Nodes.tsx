@@ -1,21 +1,14 @@
-import { IconPlus } from '@posthog/icons'
-import { Handle, Node, useUpdateNodeInternals } from '@xyflow/react'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-
+import { Handle, useNodeConnections, useUpdateNodeInternals } from '@xyflow/react'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import type { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
-import { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
-import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
-
-export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
+import type { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
+import type { HogFlowAction, HogFlowActionNode } from '../types'
+import { useValues } from 'kea'
+import { useEffect } from 'react'
+export type ReactFlowNodeType = HogFlowAction['type']
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
-    dropzone: DropzoneNode,
-    // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
     function: HogFlowActionNode,
     function_email: HogFlowActionNode,
@@ -30,32 +23,44 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     wait_until_time_window: HogFlowActionNode,
 }
 
-function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
-    const [isHighlighted, setIsHighlighted] = useState(false)
-    const { setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
+function HogFlowActionNodeHandle({
+    handle,
+    node,
+}: {
+    handle: StepViewNodeHandle
+    node: HogFlowActionNode
+}): JSX.Element {
+    const connections = useNodeConnections({
+        handleType: handle.type,
+    })
 
-    useEffect(() => {
-        setHighlightedDropzoneNodeId(isHighlighted ? id : null)
-    }, [id, isHighlighted, setHighlightedDropzoneNodeId])
+    const getHandlePosition = (
+        handle: StepViewNodeHandle,
+        node: HogFlowActionNode
+    ): React.CSSProperties | undefined => {
+        if (handle.type === 'source') {
+            const sourceHandles = node.handles?.filter((h: any) => h.type === 'source') || []
+            const sourceHandleIndex = sourceHandles.findIndex((h: any) => h.id === handle.id)
+            const numSourceHandles = sourceHandles.length
+            return {
+                // Spread out outgoing ports evenly along bottom of nodes
+                left: `${((sourceHandleIndex + 1) / (numSourceHandles + 1)) * 100}%`,
+            }
+        }
+        return undefined
+    }
 
     return (
-        <div
-            onDragOver={() => setIsHighlighted(true)}
-            onDragLeave={() => setIsHighlighted(false)}
-            className={clsx(
-                'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer',
-                isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT,
-            }}
-        >
-            <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
-                <IconPlus className="text-sm text-primary" />
-            </div>
-        </div>
+        <Handle
+            key={handle.id}
+            {...handle}
+            // A single source handle can only connect to one edge at a time, but target handles can have multiple connections
+            isConnectable={handle.type === 'source' ? connections.length === 0 : true}
+            isConnectableStart={handle.type === 'source'}
+            isConnectableEnd={handle.type === 'target'}
+            style={getHandlePosition(handle, node)}
+            className="flex justify-center items-center rounded border-secondary transition-all cursor-pointer bg-surface-primary hover:bg-surface-secondary"
+        />
     )
 }
 
@@ -72,30 +77,10 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const node = nodesById[props.id]
 
-    const getHandleStyle = (handle: StepViewNodeHandle, node: Node): React.CSSProperties | undefined => {
-        if (handle.type === 'source') {
-            const sourceHandles = node.handles?.filter((h: any) => h.type === 'source') || []
-            const sourceHandleIndex = sourceHandles.findIndex((h: any) => h.id === handle.id)
-            const numSourceHandles = sourceHandles.length
-            return {
-                // Spread out outgoing ports evenly along bottom of nodes
-                left: `${((sourceHandleIndex + 1) / (numSourceHandles + 1)) * 100}%`,
-            }
-        }
-        return undefined
-    }
-
     return (
         <>
             {node?.handles?.map((handle) => (
-                // isConnectable={false} prevents edges from being manually added
-                <Handle
-                    key={handle.id}
-                    className="opacity-0"
-                    {...handle}
-                    isConnectable={false}
-                    style={getHandleStyle(handle, node)}
-                />
+                <HogFlowActionNodeHandle key={handle.id} handle={handle} node={node} />
             ))}
             {Step?.renderNode(props) || <StepView action={props.data} />}
         </>

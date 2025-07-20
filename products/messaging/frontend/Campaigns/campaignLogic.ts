@@ -30,17 +30,19 @@ const NEW_CAMPAIGN: HogFlow = {
                 type: 'event',
                 filters: {},
             },
+            position: { x: 0, y: 0 },
         },
         {
             id: 'exit_node',
             type: 'exit',
             name: 'Exit',
-            config: {
-                reason: 'Default exit',
-            },
             description: '',
             created_at: 0,
             updated_at: 0,
+            config: {
+                reason: 'Default exit',
+            },
+            position: { x: 0, y: 100 },
         },
     ],
     edges: [
