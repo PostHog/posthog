@@ -58,7 +58,7 @@ impl LogRow {
 
         let message = try_extract_message(&body).unwrap_or_default();
 
-        let mut severity_text = normalize_severity_text(record.severity_text);
+        let mut severity_text = normalize_severity_text(record.severity_text.clone());
         let mut severity_number = record.severity_number;
 
         if let Some(parsed_severity) = try_extract_severity(&body) {
@@ -66,8 +66,10 @@ impl LogRow {
             severity_number = convert_severity_text_to_number(&severity_text);
         }
 
-        // severity_number takes priority if both provided
-        if record.severity_number > 0 {
+        // severity_text takes priority if both provided
+        if !record.severity_text.is_empty() {
+            severity_number = convert_severity_text_to_number(&severity_text);
+        } else if record.severity_number > 0 {
             severity_text = convert_severity_number_to_text(record.severity_number);
         } else {
             severity_number = convert_severity_text_to_number(&severity_text);
