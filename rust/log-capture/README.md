@@ -1,19 +1,15 @@
 # PostHog Log Capture Service
 
-A service that receives OpenTelemetry Protocol (OTLP) logs via both gRPC and HTTP and processes them based on team authentication.
+A service that receives logs via multiple protocols and formats, processing them based on team authentication.
 
 ## Features
 
-- Receives OTLP logs via gRPC on port 4317 (default)
-- Receives OTLP logs via HTTP on port 4318 (default)
-- Receives OTLP traces via gRPC on port 4317 (default)
-- Receives OTLP traces via HTTP on port 4318 (default)
-- Authenticates clients using JWT tokens
-- Associates logs with specific team IDs
-- Stores logs in ClickHouse
-- Health check endpoints on port 8000 (default)
-- Prometheus metrics
-- CORS support for HTTP endpoints
+- **OTLP Support**: Receives OpenTelemetry Protocol logs via gRPC and HTTP
+- **Custom JSON**: Accepts simplified JSON log arrays for easy integration
+- **Multi-format ingestion**: Protobuf OTLP and JSON on HTTP endpoints
+- **JWT Authentication**: Secure team-based log isolation
+- **ClickHouse Storage**: High-performance log storage and querying
+- **Health & Metrics**: Monitoring endpoints and Prometheus metrics
 
 ## Configuration
 
@@ -60,14 +56,73 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMTIzN
 
 The JWT token must contain a `team_id` claim which is used to associate logs with a specific team.
 
-### Example JWT Payload
-
+**Example JWT Payload:**
 ```json
 {
   "team_id": "your-team-id",
-  "exp": 1735689600  // Optional expiration time
+  "exp": 1735689600
 }
 ```
+
+## Sending Logs
+
+### Option 1: Custom JSON (Recommended for new integrations)
+Simple JSON array format for easy integration:
+
+```bash
+curl -X POST http://localhost:4318/v1/logs/json \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-jwt-token" \
+  -d '[{
+    "message": "User login successful",
+    "timestamp": 1753016665117454000,
+    "severity_text": "INFO",
+    "trace_id": "b2ffad5e51d238eabf0b562869f29d25",
+    "span_id": "0513a32db4496fa7",
+    "attributes": {
+      "user.id": "12345",
+      "method": "POST",
+      "endpoint": "/login"
+    },
+    "resources": {
+      "service.name": "auth-service",
+      "host.name": "web-01"
+    }
+  }]'
+```
+
+### Option 2: OTLP Protobuf (Standard OpenTelemetry)
+
+**gRPC**: Configure OpenTelemetry client for `http://your-host:4317`  
+**HTTP**: Send protobuf to `http://your-host:4318/v1/logs` with `Content-Type: application/x-protobuf`
+
+Both require `Authorization: Bearer <jwt-token>` header.
+
+## JSON Log Format
+
+The `/v1/logs/json` endpoint accepts arrays of log objects with this structure:
+
+```json
+{
+  "message": "Log message text",
+  "timestamp": 1753016665117454000,
+  "severity_text": "INFO",
+  "severity_number": 9,
+  "trace_id": "hex-encoded-trace-id",
+  "span_id": "hex-encoded-span-id", 
+  "trace_flags": 0,
+  "attributes": {
+    "key": "value"
+  },
+  "resources": {
+    "service.name": "my-service",
+    "host.name": "server-01"
+  }
+}
+```
+
+**Required**: `message`, `timestamp`  
+**Optional**: All other fields
 
 ## Running the Service
 
@@ -113,41 +168,19 @@ export INSETER_PERIOD_MS=500
 export INSETER_MAX_ROWS=5000
 ```
 
-## Sending Logs
-
-### gRPC (Traditional OTLP)
-Configure your OpenTelemetry client to send to:
-- **Endpoint**: `http://your-service-host:4317`
-- **Protocol**: gRPC
-- **Headers**: `Authorization: Bearer <jwt-token>`
-
-### HTTP (OTLP over HTTP)
-Configure your OpenTelemetry client to send to:
-- **Logs Endpoint**: `http://your-service-host:4318/v1/logs`
-- **Traces Endpoint**: `http://your-service-host:4318/v1/traces`
-- **Protocol**: HTTP/1.1 or HTTP/2
-- **Content-Type**: `application/x-protobuf`
-- **Headers**: `Authorization: Bearer <jwt-token>`
-
-Both protocols use the same:
-- JWT authentication mechanism
-- Protobuf message format
-- Processing pipeline
-- ClickHouse storage
-
 ## Endpoints
 
-### gRPC Server (Port 4317)
-- OTLP gRPC services for logs and traces
-
 ### HTTP Server (Port 4318)
-- `/v1/logs` - OTLP logs endpoint (POST)
-- `/v1/traces` - OTLP traces endpoint (POST)
+- `/v1/logs/json` - **Custom JSON logs** (array of log objects)
+- `/v1/logs` - OTLP protobuf logs
+- `/v1/traces` - OTLP traces
+
+### gRPC Server (Port 4317)
+- OTLP services for logs and traces
 
 ### Management Server (Port 8000)
-- `/` - Basic information page
-- `/_readiness` - Readiness probe
-- `/_liveness` - Liveness probe
+- `/` - Service information
+- `/_readiness` / `/_liveness` - Health probes
 - `/metrics` - Prometheus metrics
 
 ## Development
