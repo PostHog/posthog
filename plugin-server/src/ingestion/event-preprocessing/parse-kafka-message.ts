@@ -10,9 +10,7 @@ export function parseKafkaMessage(message: Message): IncomingEvent | null {
         // Parse the message payload into the event object
         const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
         const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
-        const event: PipelineEvent = normalizeEvent({
-            ...combinedEvent,
-        })
+        const event: PipelineEvent = normalizeEvent(combinedEvent)
 
         return { message, event }
     } catch (error) {
