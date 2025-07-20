@@ -4,6 +4,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { issueTrackerLogic } from './IssueTrackerLogic'
 import { BacklogView } from './components/BacklogView'
 import { KanbanView } from './components/KanbanView'
+import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: IssueTracker,
@@ -13,6 +15,7 @@ export const scene: SceneExport = {
 export function IssueTracker(): JSX.Element {
     const { activeTab } = useValues(issueTrackerLogic)
     const { setActiveTab } = useActions(issueTrackerLogic)
+    const { user } = useValues(userLogic)
 
     const tabs = [
         {
@@ -24,6 +27,11 @@ export function IssueTracker(): JSX.Element {
             key: 'kanban' as const,
             label: 'Kanban Board',
             content: <KanbanView />,
+        },
+        {
+            key: 'settings' as const,
+            label: 'Settings',
+            content: <GitHubIntegrationSettings teamId={user?.team?.id || 0} />,
         },
     ]
 

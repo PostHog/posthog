@@ -1,4 +1,5 @@
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { IconGithub, IconBranch } from 'lib/lemon-ui/icons'
 import { Issue, IssueStatus } from '../types'
 import { ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
 
@@ -31,6 +32,31 @@ export function IssueCard({ issue, onScope, onClick, draggable = false }: IssueC
             </div>
 
             <p className="text-xs text-muted mb-3 line-clamp-2">{issue.description}</p>
+
+            {/* GitHub Integration Status */}
+            {(issue.github_branch || issue.github_pr_url) && (
+                <div className="flex items-center gap-1 mb-2">
+                    <IconGithub className="text-xs" />
+                    {issue.github_branch && (
+                        <div className="flex items-center gap-1 text-xs text-muted">
+                            <IconBranch />
+                            <span className="truncate max-w-32">{issue.github_branch}</span>
+                        </div>
+                    )}
+                    {issue.github_pr_url && (
+                        <a
+                            href={issue.github_pr_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-link hover:text-link-hover"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <span>↗</span>
+                            <span>PR</span>
+                        </a>
+                    )}
+                </div>
+            )}
 
             <div className="flex justify-between items-center">
                 <span

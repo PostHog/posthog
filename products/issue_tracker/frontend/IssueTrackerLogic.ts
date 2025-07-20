@@ -1,4 +1,4 @@
-import { kea, path, actions, reducers, selectors, afterMount } from 'kea'
+import { kea, path, actions, reducers, selectors, listeners, afterMount, beforeUnmount } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Issue, IssueStatus, KanbanColumn } from './types'
@@ -9,7 +9,7 @@ import type { issueTrackerLogicType } from './IssueTrackerLogicType'
 export const issueTrackerLogic = kea<issueTrackerLogicType>([
     path(['products', 'issue_tracker', 'frontend', 'IssueTrackerLogic']),
     actions({
-        setActiveTab: (tab: 'backlog' | 'kanban') => ({ tab }),
+        setActiveTab: (tab: 'backlog' | 'kanban' | 'settings') => ({ tab }),
         moveIssue: (issueId: string, newStatus: IssueStatus, newPosition?: number) => ({
             issueId,
             newStatus,
@@ -23,6 +23,9 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
         }),
         openIssueModal: (issueId: string) => ({ issueId }),
         closeIssueModal: true,
+        startPolling: true,
+        stopPolling: true,
+        pollForUpdates: true,
     }),
     loaders(({ values }) => ({
         issues: {
@@ -129,11 +132,21 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
 
                 return currentIssues
             },
+            pollForUpdates: async () => {
+                // Silent polling - just refresh issues without loading state
+                try {
+                    const response = await api.issues.list()
+                    return response.results
+                } catch (error) {
+                    console.error('Polling failed:', error)
+                    return values.issues // Return current state on error
+                }
+            },
         },
     })),
     reducers({
         activeTab: [
-            'backlog' as 'backlog' | 'kanban',
+            'backlog' as 'backlog' | 'kanban' | 'settings',
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -143,6 +156,13 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
             {
                 openIssueModal: (_, { issueId }) => issueId,
                 closeIssueModal: () => null,
+            },
+        ],
+        pollingInterval: [
+            null as number | null,
+            {
+                startPolling: () => null, // Set in listener
+                stopPolling: () => null,
             },
         ],
     }),
@@ -182,8 +202,52 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
             (issues, selectedIssueId): Issue | null =>
                 selectedIssueId ? issues.find((issue) => issue.id === selectedIssueId) || null : null,
         ],
+        hasActiveIssues: [
+            (s) => [s.issues],
+            (issues): boolean =>
+                issues.some((issue) => issue.status === IssueStatus.IN_PROGRESS || issue.status === IssueStatus.TODO),
+        ],
     }),
+    listeners(({ actions, values, cache }) => ({
+        startPolling: () => {
+            if (cache.pollingInterval) {
+                clearInterval(cache.pollingInterval)
+            }
+            cache.pollingInterval = setInterval(() => {
+                if (values.hasActiveIssues) {
+                    actions.pollForUpdates()
+                } else {
+                    actions.stopPolling()
+                }
+            }, 3000) // Poll every 3 seconds
+        },
+        stopPolling: () => {
+            if (cache.pollingInterval) {
+                clearInterval(cache.pollingInterval)
+                cache.pollingInterval = null
+            }
+        },
+        loadIssuesSuccess: () => {
+            // Start polling when issues are loaded if there are active issues
+            if (values.hasActiveIssues && !cache.pollingInterval) {
+                actions.startPolling()
+            } else if (!values.hasActiveIssues && cache.pollingInterval) {
+                actions.stopPolling()
+            }
+        },
+        pollForUpdatesSuccess: () => {
+            // Continue polling if there are still active issues
+            if (!values.hasActiveIssues) {
+                actions.stopPolling()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadIssues()
+    }),
+    beforeUnmount(({ actions, cache }) => {
+        if (cache.pollingInterval) {
+            clearInterval(cache.pollingInterval)
+        }
     }),
 ])

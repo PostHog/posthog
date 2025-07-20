@@ -3,6 +3,7 @@ import { useActions } from 'kea'
 import { Issue, IssueStatus } from '../types'
 import { issueTrackerLogic } from '../IssueTrackerLogic'
 import { STATUS_LABELS, STATUS_COLORS, ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
+import { IssueProgressDisplay } from './IssueProgressDisplay'
 
 interface IssueModalProps {
     issue: Issue | null
@@ -66,6 +67,11 @@ export function IssueModal({ issue, isOpen, onClose }: IssueModalProps): JSX.Ele
                     <h3 className="text-sm font-medium text-default mb-2">Description</h3>
                     <p className="text-sm text-muted leading-relaxed">{issue.description}</p>
                 </div>
+
+                {/* Progress Display - only show for in_progress, testing, or done issues */}
+                {[IssueStatus.IN_PROGRESS, IssueStatus.TESTING, IssueStatus.DONE].includes(issue.status) && (
+                    <IssueProgressDisplay issue={issue} />
+                )}
 
                 {/* Metadata */}
                 <div className="grid grid-cols-2 gap-4 text-sm">

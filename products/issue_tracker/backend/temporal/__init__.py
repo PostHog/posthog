@@ -1,5 +1,18 @@
 from .workflows import IssueProcessingWorkflow
-from .activities import process_issue_moved_to_todo_activity
+from .activities import (
+    process_issue_moved_to_todo_activity,
+    update_issue_status_activity,
+    ai_agent_work_activity,
+    commit_and_push_changes_activity,
+    get_issue_details_activity,
+    create_pull_request_activity,
+    update_issue_github_info_activity,
+)
+from .github_activities import (
+    clone_repo_and_create_branch_activity,
+    cleanup_repo_activity,
+    validate_github_integration_activity,
+)
 
 WORKFLOWS = [
     IssueProcessingWorkflow,
@@ -7,4 +20,13 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     process_issue_moved_to_todo_activity,
+    update_issue_status_activity,
+    ai_agent_work_activity,
+    commit_and_push_changes_activity,
+    get_issue_details_activity,
+    create_pull_request_activity,
+    update_issue_github_info_activity,
+    clone_repo_and_create_branch_activity,
+    cleanup_repo_activity,
+    validate_github_integration_activity,
 ]

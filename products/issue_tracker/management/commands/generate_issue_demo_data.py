@@ -100,10 +100,10 @@ class Command(BaseCommand):
                 "updated_at": parse_datetime("2024-01-09T10:15:00Z"),
             },
             {
-                "title": "Export functionality not working for team admin",
-                "description": "Support ticket: Team admin reports CSV export button returns empty files",
+                "title": "Background color of the dashboard is not correct",
+                "description": "The background color of the dashboard is not correct, it should be red",
                 "status": Issue.Status.BACKLOG,
-                "origin_product": Issue.OriginProduct.SUPPORT_QUEUE,
+                "origin_product": Issue.OriginProduct.USER_CREATED,
                 "position": 3,
                 "created_at": parse_datetime("2024-01-08T15:30:00Z"),
                 "updated_at": parse_datetime("2024-01-08T15:30:00Z"),
