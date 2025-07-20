@@ -12,6 +12,8 @@ import { GridLines } from './GridLines'
 import { ChartCell } from './ChartCell'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { IconTrending } from '@posthog/icons'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { ChartEmptyState } from '../shared/ChartEmptyState'
 import {
     CELL_HEIGHT,
     VIEW_BOX_WIDTH,
@@ -22,7 +24,7 @@ import {
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric
-    result: NewExperimentQueryResponse
+    result: NewExperimentQueryResponse | null
     experiment: Experiment
     metricType: InsightType
     metricIndex: number
@@ -32,6 +34,9 @@ interface MetricRowGroupProps {
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
     canDuplicateMetric?: boolean
+    error?: any
+    isLoading?: boolean
+    hasMinimumExposureForResults?: boolean
 }
 
 export function MetricRowGroup({
@@ -46,14 +51,16 @@ export function MetricRowGroup({
     isAlternatingRow,
     onDuplicateMetric,
     canDuplicateMetric,
+    error,
+    isLoading,
+    hasMinimumExposureForResults = true,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const colors = useChartColors()
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const baselineResult = result.baseline
-    const variantResults = result.variant_results || []
-    const totalRows = 1 + variantResults.length
+    // Calculate total rows for loading/error states
+    const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
 
     // Helper function to format data
     const formatData = (data: any): string => {
@@ -62,6 +69,61 @@ export function MetricRowGroup({
             ? primaryValue.toFixed(2)
             : `${(primaryValue * 100).toFixed(2)}%`
     }
+
+    // Handle loading or error states
+    if (isLoading || error || !result || !hasMinimumExposureForResults) {
+        return (
+            <tr
+                className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+            >
+                {/* Metric column - always visible */}
+                <td
+                    className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
+                        !isLastMetric ? 'border-b' : ''
+                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    style={{
+                        height: `${CELL_HEIGHT}px`,
+                        maxHeight: `${CELL_HEIGHT}px`,
+                    }}
+                >
+                    <MetricHeader
+                        metricIndex={metricIndex}
+                        metric={metric}
+                        metricType={metricType}
+                        isPrimaryMetric={!isSecondary}
+                        canDuplicateMetric={canDuplicateMetric || false}
+                        onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                    />
+                </td>
+
+                {/* Combined columns for loading/error state */}
+                <td
+                    colSpan={5}
+                    className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                        !isLastMetric ? 'border-b' : ''
+                    }`}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                >
+                    {isLoading ? (
+                        <ChartLoadingState height={CELL_HEIGHT} />
+                    ) : (
+                        <ChartEmptyState
+                            height={CELL_HEIGHT}
+                            experimentStarted={!!experiment.start_date}
+                            hasMinimumExposure={hasMinimumExposureForResults}
+                            metric={metric}
+                            error={error}
+                        />
+                    )}
+                </td>
+            </tr>
+        )
+    }
+
+    // At this point, we know result is defined, so we can safely access its properties
+    const baselineResult = result.baseline
+    const variantResults = result.variant_results || []
 
     return (
         <>
@@ -262,6 +324,7 @@ export function MetricRowGroup({
                             metricIndex={metricIndex}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
+                            isSecondary={isSecondary}
                         />
                     </tr>
                 )
