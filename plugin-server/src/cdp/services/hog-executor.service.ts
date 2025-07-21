@@ -16,6 +16,7 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionQueueParametersEmailRequest,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
     LogEntry,
@@ -466,6 +467,28 @@ export class HogExecutorService {
                             }
 
                             result.invocation.queueParameters = fetchQueueParameters
+                            break
+                        }
+
+                        case 'sendEmail': {
+                            // TODO: Use Zod to validate the args
+                            const emailQueueParameters: HogFunctionQueueParametersEmailRequest = {
+                                integrationId: 1,
+                                html: 'Test',
+                                type: 'email',
+                                from: {
+                                    email: 'test@test.com',
+                                    name: 'Test',
+                                },
+                                to: {
+                                    email: 'test@test.com',
+                                    name: 'Test',
+                                },
+                                subject: 'Test',
+                                text: 'Test',
+                            }
+
+                            result.invocation.queueParameters = emailQueueParameters
                             break
                         }
                         default:
