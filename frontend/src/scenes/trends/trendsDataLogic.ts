@@ -249,7 +249,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         showConfidenceIntervals: [
             (s) => [s.trendsFilter],
             (trendsFilter: TrendsFilter | undefined | null): boolean => {
-                return trendsFilter?.show_confidence_intervals || false
+                const display = trendsFilter?.display
+                const isLineGraph = display === ChartDisplayType.ActionsLineGraph || !display
+                return (trendsFilter?.show_confidence_intervals && isLineGraph) || false
             },
         ],
 
