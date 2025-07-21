@@ -892,14 +892,12 @@ async def _run_s3_batch_export_workflow(
             and run.records_completed is not None
             and run.records_completed <= 1
         )
-        # TODO: once we add this to the run node, we can assert this
-        # assert run.bytes_exported == 0
+        assert run.bytes_exported == 0
         await assert_no_files_in_s3(s3_client, bucket_name, expected_key_prefix)
         return run
 
-    # TODO: once we add this to the run node, we can assert this
-    # assert run.bytes_exported is not None
-    # assert run.bytes_exported > 0
+    assert run.bytes_exported is not None
+    assert run.bytes_exported > 0
 
     sort_key = "uuid"
     if isinstance(model, BatchExportModel) and model.name == "persons":
@@ -1387,6 +1385,7 @@ class TestErrorHandling:
         assert run.status == "FailedRetryable"
         assert run.latest_error == "RetryableTestException: A useful error message"
         assert run.records_completed is None
+        assert run.bytes_exported is None
 
     async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
         self, ateam, s3_batch_export, interval
@@ -1602,6 +1601,7 @@ class TestErrorHandling:
         (events_to_export_created, persons_to_export_created) = generate_test_data
         assert run.status == "FailedRetryable"
         assert run.records_completed is None
+        assert run.bytes_exported is None
         assert (
             run.latest_error
             == "IntermittentUploadPartTimeoutError: An intermittent `RequestTimeout` was raised while attempting to upload part 1"
@@ -1613,6 +1613,8 @@ class TestErrorHandling:
         assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
             persons_to_export_created
         )
+        assert run.bytes_exported is not None
+        assert run.bytes_exported > 0
 
         assert runs[0].data_interval_end == runs[1].data_interval_end
 
