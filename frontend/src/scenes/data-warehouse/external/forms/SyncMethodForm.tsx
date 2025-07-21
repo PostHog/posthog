@@ -61,7 +61,8 @@ interface SyncMethodFormProps {
 
 const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | undefined,
-    incrementalField: string | null
+    incrementalField: string | null,
+    appendField: string | null
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -70,6 +71,10 @@ const getSaveDisabledReason = (
     if (syncType === 'incremental' && !incrementalField) {
         return 'You must select an incremental field'
     }
+
+    if (syncType === 'append' && !appendField) {
+        return 'You must select an append field'
+    }
 }
 
 export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
@@ -77,13 +82,13 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
 
     const [radioValue, setRadioValue] = useState(
-        schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined)
+        schema.sync_type ?? (incrementalSyncSupported.disabled ? 'append' : 'incremental')
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
 
     useEffect(() => {
-        setRadioValue(schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined))
+        setRadioValue(schema.sync_type ?? (incrementalSyncSupported.disabled ? 'append' : 'incremental'))
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
     }, [schema.table])
@@ -203,7 +208,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                 <LemonButton
                     type="primary"
                     loading={saveButtonIsLoading}
-                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue)}
+                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)}
                     onClick={() => {
                         if (radioValue === 'incremental') {
                             const fieldSelected = schema.incremental_fields.find(

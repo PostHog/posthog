@@ -16,6 +16,7 @@ export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex
 }
 
+const INITIAL_SORTING = [] as string[]
 const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
 const persistConfig = (groupTypeIndex: GroupTypeIndex): { persist: boolean; prefix: string } => ({
     persist: true,
@@ -71,6 +72,18 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 },
             },
         ],
+        sorting: [
+            INITIAL_SORTING,
+            persistConfig(props.groupTypeIndex),
+            {
+                setQuery: (state, { query }) => {
+                    if (query.source.kind === NodeKind.GroupsQuery && query.source.orderBy !== undefined) {
+                        return query.source.orderBy
+                    }
+                    return state
+                },
+            },
+        ],
         queryWasModified: [
             false,
             {
@@ -119,6 +132,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                             source: {
                                 ...values.query.source,
                                 properties: parsedProperties,
+                                orderBy: values.sorting,
                             },
                         })
                     }
@@ -131,6 +145,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     source: {
                         ...values.query.source,
                         properties: values.groupFilters,
+                        orderBy: values.sorting,
                     },
                 })
             }
