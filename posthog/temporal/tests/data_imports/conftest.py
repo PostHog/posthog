@@ -92,6 +92,7 @@ async def run_external_data_job_workflow(
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",

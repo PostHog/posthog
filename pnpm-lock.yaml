@@ -602,14 +602,14 @@ importers:
         specifier: workspace:*
         version: link:../products/web_analytics
       '@posthog/rrweb':
-        specifier: 0.0.23
-        version: 0.0.23
+        specifier: 0.0.24
+        version: 0.0.24
       '@posthog/rrweb-plugin-console-record':
-        specifier: 0.0.23
-        version: 0.0.23(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.23)
+        specifier: 0.0.24
+        version: 0.0.24(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.24)
       '@posthog/rrweb-types':
-        specifier: 0.0.23
-        version: 0.0.23
+        specifier: 0.0.24
+        version: 0.0.24
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -5007,8 +5007,8 @@ packages:
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
 
-  '@posthog/rrweb-plugin-console-record@0.0.23':
-    resolution: {integrity: sha512-p4Wa/evunZCFxjtnwa3VPsp229UgH+E+oX2RDd+sMTm9DkVf0qz0y4uY44nSDbbG50zQuyJhW9mXYC96QVWz6Q==}
+  '@posthog/rrweb-plugin-console-record@0.0.24':
+    resolution: {integrity: sha512-3hX9scO14RjgdY8U6XGZbayOUyZM0+/mJ2A5q/tR1bRMmf8ZnlFrzEX0Ig2/HAajBvMIw01axmq9hj19WCvbqg==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
@@ -5016,8 +5016,8 @@ packages:
   '@posthog/rrweb-snapshot@0.0.4':
     resolution: {integrity: sha512-ifZH6T0FYjHtiCcqQOdrLn8YH9I7OOIWu2GSZMCzFd8F8oX1gtX4Tk/yX0sA6qAIWtfwDC0dKXgHWS2/EqGjgg==}
 
-  '@posthog/rrweb-types@0.0.23':
-    resolution: {integrity: sha512-dw5Zr9QFrZdjXn6U75Nd2VLW2GPBsc/WVhNGifEQkVTdpNi3LXXMkTSl5Tb59nbA3wjBao7D4oSD8sfHTqRW2g==}
+  '@posthog/rrweb-types@0.0.24':
+    resolution: {integrity: sha512-gyJC+EOUQgm/FuTgV2VUxJqyt+MdGWCbxC4pwIeOYlnz0cDOIQ3X766LeWhnt0+1NctJqsewJyFoNoyOlavTUA==}
 
   '@posthog/rrweb-types@0.0.8':
     resolution: {integrity: sha512-CdZkKgr6VhCNJZLRdw7TC1J4iI/H+nEt5NZSBjV8vglQ4o31kl0KUfo2g0r6EvAm3mX3p5/mGrqub+LxABwzQQ==}
@@ -5025,8 +5025,8 @@ packages:
   '@posthog/rrweb-utils@0.0.4':
     resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
 
-  '@posthog/rrweb@0.0.23':
-    resolution: {integrity: sha512-Li17SOnJJfEGT8XFaPPQkUsVVfSWb4w27iSxo48rUEQ2yk2Us0FjG5TI0Hx5xnDbZcAsou2hrl0dxA+pJ4shJg==}
+  '@posthog/rrweb@0.0.24':
+    resolution: {integrity: sha512-KCWCRq/ihzCU3ZELWhqKeOAjhkGii95IHvMXdfNAkdQTQ6Yy0ZUU4CkQSYGC6GYBo2g9+HjbnhbLwV8oeRqt5w==}
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
@@ -21124,26 +21124,26 @@ snapshots:
     dependencies:
       '@posthog/rrweb-snapshot': 0.0.4
 
-  '@posthog/rrweb-plugin-console-record@0.0.23(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.23)':
+  '@posthog/rrweb-plugin-console-record@0.0.24(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.24)':
     dependencies:
-      '@posthog/rrweb': 0.0.23
+      '@posthog/rrweb': 0.0.24
       '@posthog/rrweb-utils': 0.0.4
 
   '@posthog/rrweb-snapshot@0.0.4':
     dependencies:
       postcss: 8.5.6
 
-  '@posthog/rrweb-types@0.0.23': {}
+  '@posthog/rrweb-types@0.0.24': {}
 
   '@posthog/rrweb-types@0.0.8': {}
 
   '@posthog/rrweb-utils@0.0.4': {}
 
-  '@posthog/rrweb@0.0.23':
+  '@posthog/rrweb@0.0.24':
     dependencies:
       '@posthog/rrdom': 0.0.4
       '@posthog/rrweb-snapshot': 0.0.4
-      '@posthog/rrweb-types': 0.0.23
+      '@posthog/rrweb-types': 0.0.24
       '@posthog/rrweb-utils': 0.0.4
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
@@ -25602,7 +25602,7 @@ snapshots:
       loader-utils: 2.0.4
       make-dir: 3.1.0
       schema-utils: 2.7.1
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
 
   babel-loader@9.1.3(@babel/core@7.26.0)(webpack@5.88.2):
     dependencies:
@@ -26722,7 +26722,7 @@ snapshots:
       postcss-value-parser: 4.2.0
       schema-utils: 2.7.1
       semver: 6.3.1
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
 
   css-loader@6.8.1(webpack@5.88.2):
     dependencies:
@@ -28269,7 +28269,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
 
   file-system-cache@2.3.0:
     dependencies:
@@ -30556,7 +30556,7 @@ snapshots:
       less: 4.2.2
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
 
   less@3.13.1:
     dependencies:
@@ -32405,7 +32405,7 @@ snapshots:
       postcss: 8.5.6
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
 
   postcss-logical@8.0.0(postcss@8.5.2):
     dependencies:
@@ -34344,7 +34344,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
     optionalDependencies:
       sass: 1.56.0
 
@@ -34935,7 +34935,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
+      webpack: 5.88.2
 
   style-loader@3.3.3(webpack@5.88.2):
     dependencies:

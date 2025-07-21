@@ -191,7 +191,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'event_triggered_destination'
         | 'destination_invoked'
-
+        | 'dropped'
     count: number
 }
 

@@ -237,6 +237,16 @@ export class HogTransformerService {
 
                     if (!result.execResult) {
                         hogTransformationDroppedEvents.inc()
+                        this.hogFunctionMonitoringService.queueAppMetric(
+                            {
+                                team_id: event.team_id,
+                                app_source_id: hogFunction.id,
+                                metric_kind: 'other',
+                                metric_name: 'dropped',
+                                count: 1,
+                            },
+                            'hog_function'
+                        )
                         transformationsFailed.push(transformationIdentifier)
                         return {
                             event: null,
