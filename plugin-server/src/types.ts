@@ -23,6 +23,7 @@ import { IntegrationManagerService } from './cdp/services/managers/integration-m
 import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
+import { ActionManagerCDP } from './utils/action-manager-cdp'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
@@ -76,6 +77,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
+    cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -209,6 +211,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Redis params for the ingestion services
     INGESTION_REDIS_HOST: string
     INGESTION_REDIS_PORT: number
+    // Deduplication redis params
+    DEDUPLICATION_REDIS_HOST: string
+    DEDUPLICATION_REDIS_PORT: number
+    DEDUPLICATION_REDIS_PASSWORD: string
+    DEDUPLICATION_REDIS_PREFIX: string
+    DEDUPLICATION_TTL_SECONDS: number
     // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -281,12 +289,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    // dump profiles to disk, covering the first N seconds of runtime
-    STARTUP_PROFILE_DURATION_SECONDS: number
-    STARTUP_PROFILE_CPU: boolean
-    STARTUP_PROFILE_HEAP: boolean
-    STARTUP_PROFILE_HEAP_INTERVAL: number
-    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -392,6 +394,7 @@ export interface Hub extends PluginsServerConfig {
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     actionManager: ActionManager
+    actionManagerCDP: ActionManagerCDP
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
@@ -427,6 +430,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
+    cdpBehaviouralEvents?: boolean
     cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean

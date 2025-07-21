@@ -63,7 +63,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install dependencies
@@ -126,7 +126,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
@@ -360,7 +360,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Get pnpm cache directory path

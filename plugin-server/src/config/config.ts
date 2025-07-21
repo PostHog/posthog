@@ -72,6 +72,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
+        DEDUPLICATION_REDIS_HOST: '127.0.0.1',
+        DEDUPLICATION_REDIS_PORT: 6379,
+        DEDUPLICATION_REDIS_PASSWORD: '',
+        DEDUPLICATION_TTL_SECONDS: 60,
+        DEDUPLICATION_REDIS_PREFIX: 'deduplication:',
         BASE_DIR: '..',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
@@ -124,12 +129,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         // posthog
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
-
-        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
-        STARTUP_PROFILE_CPU: false,
-        STARTUP_PROFILE_HEAP: false,
-        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
-        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
