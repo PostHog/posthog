@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,7 +23,7 @@ export const scene: SceneExport = {
 
 export function GroupsNew(): JSX.Element {
     const { logicProps, group } = useValues(groupsNewLogic)
-    const { addFormProperty, removeFormProperty } = useActions(groupsNewLogic)
+    const { addFormProperty, removeFormProperty, setGroupValue } = useActions(groupsNewLogic)
 
     return (
         <div className="groups-new">
@@ -68,6 +68,7 @@ export function GroupsNew(): JSX.Element {
                         {group.customProperties && group.customProperties.length > 0 && (
                             <div className="flex gap-4 mb-2 text-s font-medium">
                                 <div className="flex-1">Name</div>
+                                <div className="flex-1">Type</div>
                                 <div className="flex-1">Value</div>
                                 <div className="w-8" /> {/* Space for trash button */}
                             </div>
@@ -83,8 +84,67 @@ export function GroupsNew(): JSX.Element {
                                             </LemonField>
                                         </div>
                                         <div className="flex-1">
+                                            <LemonField name="type">
+                                                <LemonSegmentedButton
+                                                    onChange={(value: 'string' | 'boolean') => {
+                                                        const currentProperties = group.customProperties || []
+                                                        const updatedProperties = currentProperties.map((prop, i) =>
+                                                            i === index
+                                                                ? {
+                                                                      ...prop,
+                                                                      type: value,
+                                                                      value: value === 'string' ? '' : 'true',
+                                                                  }
+                                                                : prop
+                                                        )
+                                                        setGroupValue('customProperties', updatedProperties)
+                                                    }}
+                                                    value={group.customProperties?.[index]?.type || 'string'}
+                                                    options={[
+                                                        {
+                                                            value: 'string',
+                                                            label: 'Text or Number',
+                                                        },
+                                                        {
+                                                            value: 'boolean',
+                                                            label: 'Boolean or Null',
+                                                        },
+                                                    ]}
+                                                    size="small"
+                                                />
+                                            </LemonField>
+                                        </div>
+                                        <div className="flex-1">
                                             <LemonField name="value">
-                                                <LemonInput placeholder="e.g. true" />
+                                                {group.customProperties?.[index]?.type === 'boolean' ? (
+                                                    <LemonSegmentedButton
+                                                        onChange={(value: string) => {
+                                                            const currentProperties = group.customProperties || []
+                                                            const updatedProperties = currentProperties.map((prop, i) =>
+                                                                i === index ? { ...prop, value } : prop
+                                                            )
+                                                            setGroupValue('customProperties', updatedProperties)
+                                                        }}
+                                                        value={group.customProperties?.[index]?.value || 'true'}
+                                                        options={[
+                                                            {
+                                                                value: 'true',
+                                                                label: 'True',
+                                                            },
+                                                            {
+                                                                value: 'false',
+                                                                label: 'False',
+                                                            },
+                                                            {
+                                                                value: 'null',
+                                                                label: 'Null',
+                                                            },
+                                                        ]}
+                                                        size="small"
+                                                    />
+                                                ) : (
+                                                    <LemonInput placeholder="e.g. subscription_tier" />
+                                                )}
                                             </LemonField>
                                         </div>
                                         <LemonButton

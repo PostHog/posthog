@@ -23,12 +23,12 @@ export interface NewGroupFormData {
     name: string
     group_key: string
     group_type_index: number
-    properties: Record<string, any>
     customProperties: GroupProperty[]
 }
 
 export interface GroupProperty {
     name: string
+    type: 'string' | 'boolean'
     value: string
 }
 
@@ -91,7 +91,7 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         customProperties: [
             [] as GroupProperty[],
             {
-                addProperty: (state) => [...state, { name: '', value: '' }],
+                addProperty: (state) => [...state, { name: '', type: 'string' as const, value: '' }],
                 removeProperty: (state, { index }) => state.filter((_, i) => i !== index),
                 updateProperty: (state, { index, field, value }) =>
                     state.map((prop, i) => (i === index ? { ...prop, [field]: value } : prop)),
@@ -104,7 +104,7 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         group: {
             defaults: NEW_GROUP,
             errors: ({ group_key, name, customProperties }: NewGroupFormData) => {
-                const errors: any = {
+                const errors: Record<string, string | object | undefined> = {
                     name: !name?.trim() ? 'Group name cannot be empty' : undefined,
                     group_key: !group_key?.trim() ? 'Group key cannot be empty' : undefined,
                 }
@@ -189,7 +189,10 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         saveGroupSuccess: () => actions.resetGroup(),
         addFormProperty: () => {
             const currentProperties = values.group.customProperties || []
-            actions.setGroupValue('customProperties', [...currentProperties, { name: '', value: '' }])
+            actions.setGroupValue('customProperties', [
+                ...currentProperties,
+                { name: '', type: 'string' as const, value: '' },
+            ])
         },
         removeFormProperty: ({ index }) => {
             const currentProperties = values.group.customProperties || []
@@ -214,11 +217,31 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
     beforeUnmount(({ actions }) => actions.resetGroup()),
 ])
 
-export function flattenProperties(properties: GroupProperty[]): Record<string, string> {
+export function flattenProperties(properties: GroupProperty[]): Record<string, any> {
     return properties
         .filter((prop) => prop.name.trim() && prop.value.trim())
         .reduce((acc, prop) => {
-            acc[prop.name.trim()] = prop.value
+            const key = prop.name.trim()
+            let value: any = prop.value
+
+            // Convert boolean type values to proper types
+            if (prop.type === 'boolean') {
+                if (value === 'true') {
+                    value = true
+                } else if (value === 'false') {
+                    value = false
+                } else if (value === 'null') {
+                    value = null
+                }
+            } else if (prop.type === 'string') {
+                // Convert numeric strings to numbers
+                const numericValue = Number(value)
+                if (!isNaN(numericValue) && isFinite(numericValue) && value.trim() !== '') {
+                    value = numericValue
+                }
+            }
+
+            acc[key] = value
             return acc
-        }, {} as Record<string, string>)
+        }, {} as Record<string, any>)
 }
