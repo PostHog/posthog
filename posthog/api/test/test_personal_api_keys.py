@@ -30,6 +30,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "label": label,
             "created_at": data["created_at"],
             "last_used_at": None,
+            "last_rolled_at": None,
             "user_id": self.user.id,
             "scopes": ["insight:read"],
             "scoped_organizations": [],
@@ -150,6 +151,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "id": my_key.id,
             "label": my_label,
             "last_used_at": None,
+            "last_rolled_at": None,
             "user_id": self.user.id,
             "scopes": ["*"],
             "scoped_organizations": None,
@@ -225,6 +227,39 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
         assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
+
+    def test_roll_api_key(self):
+        original_value = generate_random_token_personal()
+        original_key = PersonalAPIKey.objects.create(
+            label="Test roll",
+            user=self.user,
+            secure_value=hash_key_value(original_value),
+            scopes=[
+                "insight:read",
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/personal_api_keys/{original_key.id}/roll",
+            {},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # unchanged fields
+        assert data["id"] == original_key.id
+        assert data["label"] == original_key.label
+        assert data["created_at"] == original_key.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        assert data["last_used_at"] is None
+        assert data["scopes"] == original_key.scopes
+        assert data["scoped_teams"] == original_key.scoped_teams
+        assert data["scoped_organizations"] == original_key.scoped_organizations
+
+        # changed fields
+        assert data["value"] != original_value
+        assert data["value"].startswith("phx_")  # Personal API key prefix
+        assert data["last_rolled_at"] is not None
+        assert data["mask_value"] != original_key.mask_value
 
 
 class PersonalAPIKeysBaseTest(APIBaseTest):
