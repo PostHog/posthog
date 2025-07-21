@@ -36,7 +36,7 @@ class HogQLGeneratorMixin(AssistantNodeMixin):
 
         schema_description, core_memory = await asyncio.gather(
             serialize_database_schema(database, hogql_context),
-            self._aget_core_memory_text(self._team),
+            self._aget_core_memory_text(),
         )
 
         prompt = ChatPromptTemplate.from_messages(
