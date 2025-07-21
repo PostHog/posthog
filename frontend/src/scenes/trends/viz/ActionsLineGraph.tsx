@@ -94,27 +94,36 @@ export function ActionsLineGraph({
             const [lower, upper] = ciRanges(originalDataset.data, confidenceLevel / 100)
             finalDatasets.push({
                 ...originalDataset,
+                label: `${originalDataset.label} (CI Lower)`,
+                action: {
+                    ...originalDataset.action,
+                    name: `${originalDataset.label} (CI Lower)`,
+                },
                 data: lower,
                 borderColor: 'transparent',
                 backgroundColor: 'transparent',
                 pointRadius: 0,
                 borderWidth: 0,
-                showInLegend: false,
-                enableTooltips: false,
+                hideTooltip: true,
             })
             finalDatasets.push({
                 ...originalDataset,
+                label: `${originalDataset.label} (CI Upper)`,
+                action: {
+                    ...originalDataset.action,
+                    name: `${originalDataset.label} (CI Upper)`,
+                },
                 data: upper,
                 borderColor: 'transparent',
                 backgroundColor: hexToRGBA(color, 0.2),
                 pointRadius: 0,
                 borderWidth: 0,
                 fill: '-1',
-                showInLegend: false,
-                enableTooltips: false,
+                hideTooltip: true,
             })
         })
     }
+
     finalDatasets.push(...indexedResults)
 
     return (
@@ -148,6 +157,7 @@ export function ActionsLineGraph({
                       }
                     : {
                           groupTypeLabel: context?.groupTypeLabel,
+                          filter: (s) => !s.hideTooltip,
                       }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}

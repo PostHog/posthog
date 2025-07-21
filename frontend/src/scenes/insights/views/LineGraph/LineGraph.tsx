@@ -723,6 +723,10 @@ export function LineGraph_({
                             const dataset = datasets[referenceDataPoint.datasetIndex]
                             const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                if (tooltipConfig?.filter) {
+                                    return tooltipConfig.filter(dp)
+                                }
+
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
                                     dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
