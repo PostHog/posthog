@@ -425,10 +425,10 @@ class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"  # Since the authentication hash is valid for a short period, this is effectively per-user
-
-    if settings.DEBUG:
-        rate = "1000/day"
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "20/day"
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):
