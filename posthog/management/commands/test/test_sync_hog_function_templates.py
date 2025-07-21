@@ -56,6 +56,7 @@ class TestSyncHogFunctionTemplates:
                     "status": "beta",
                     "free": True,
                     "category": ["Custom"],
+                    "code_language": "javascript",
                 }
             )
 
