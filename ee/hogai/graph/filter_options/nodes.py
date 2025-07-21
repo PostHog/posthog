@@ -78,7 +78,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
 
     def _get_model(self, state: FilterOptionsState):
         return MaxChatOpenAI(
-            model="gpt-4o", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
         ).bind_tools(
             [
                 retrieve_entity_properties,
