@@ -8,7 +8,7 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets, status
-from posthog.api.capture import new_capture_internal
+from posthog.api.capture import capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -224,37 +224,43 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 )
             except GroupTypeMapping.DoesNotExist:
                 raise NotFound()
+
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+
             # Need to update ClickHouse too
+            timestamp = timezone.now()
             raw_create_group_ch(
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
                 group_key=group.group_key,
                 properties=group.group_properties,
                 created_at=group.created_at,
-                timestamp=timezone.now(),
+                timestamp=timestamp,
             )
 
             # another internal event submission where we best-effort and don't handle failures...
             team_uuid_as_distinct_id = str(self.team.uuid)
+            event_name = "$groupidentify"
+            properties = {
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group.group_key,
+                "$group_set": {request.data["key"]: request.data["value"]},
+            }
+
             try:
-                resp = new_capture_internal(
-                    self.team.api_token,
-                    team_uuid_as_distinct_id,
-                    {
-                        "event": "$groupidentify",
-                        "properties": {
-                            "$group_type": group_type_mapping.group_type,
-                            "$group_key": group.group_key,
-                            "$group_set": {request.data["key"]: request.data["value"]},
-                        },
-                        "timestamp": timezone.now().isoformat(),
-                    },
-                    False,  # don't process person profile
+                resp = capture_internal(
+                    token=self.team.api_token,
+                    event_name=event_name,
+                    event_source="ee_ch_views_groups",
+                    distinct_id=team_uuid_as_distinct_id,
+                    timestamp=timestamp,
+                    properties=properties,
+                    process_person_profile=False,  # don't process person profile
                 )
                 resp.raise_for_status()
+
             except HTTPError as e:
                 return response.Response(
                     {
@@ -338,34 +344,39 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
+
             # Need to update ClickHouse too
+            timestamp = timezone.now()
             raw_create_group_ch(
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
                 group_key=group.group_key,
                 properties=group.group_properties,
                 created_at=group.created_at,
-                timestamp=timezone.now(),
+                timestamp=timestamp,
             )
 
             # another internal event submission where we best-effort and don't handle failures...
             team_uuid_as_distinct_id = str(self.team.uuid)
+            event_name = "$delete_group_property"
+            properties = {
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group.group_key,
+                "$group_unset": [request.data["$unset"]],
+            }
+
             try:
-                resp = new_capture_internal(
-                    self.team.api_token,
-                    team_uuid_as_distinct_id,
-                    {
-                        "event": "$delete_group_property",
-                        "properties": {
-                            "$group_type": group_type_mapping.group_type,
-                            "$group_key": group.group_key,
-                            "$group_unset": [request.data["$unset"]],
-                        },
-                        "timestamp": timezone.now().isoformat(),
-                    },
-                    False,  # don't process person profile
+                resp = capture_internal(
+                    token=self.team.api_token,
+                    event_name=event_name,
+                    event_source="ee_ch_views_groups",
+                    distinct_id=team_uuid_as_distinct_id,
+                    timestamp=timestamp,
+                    properties=properties,
+                    process_person_profile=False,  # don't process person profile
                 )
                 resp.raise_for_status()
+
             except HTTPError as e:
                 return response.Response(
                     {

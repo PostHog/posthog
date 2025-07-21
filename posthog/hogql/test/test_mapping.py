@@ -244,6 +244,28 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["string_agg_null_result"], None)
         self.assertFalse(result_dict["every_null_result"])  # No values > 0
 
+    def test_function_mapping(self):
+        response = execute_hogql_query(
+            """
+            SELECT
+                toFloat(3.14),
+                toFloat(NULL),
+                toFloatOrDefault(3, 7.),
+                toFloatOrDefault(3.14, 7.),
+                toFloatOrZero('3.14'),
+                toFloatOrDefault('3.14', 7.),
+                toFloatOrZero(''),
+                toFloatOrDefault('', 7.),
+                toFloatOrZero('bla'),
+                toFloatOrDefault('bla', 7.),
+                toFloatOrZero(NULL),
+                toFloatOrDefault(NULL, 7.)
+        """,
+            self.team,
+        )
+        assert response.columns is not None
+        assert response.results[0] == (3.14, None, 3.0, 3.14, 3.14, 3.14, 0.0, 7.0, 0.0, 7.0, None, 7.0)
+
     def test_map_function_with_multiple_key_value_pairs(self):
         """Test that the map function accepts multiple key-value pairs."""
         response = execute_hogql_query(

@@ -48,7 +48,6 @@ import pytest_asyncio
 import boto3
 import functools
 from django.conf import settings
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 import psycopg
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
@@ -689,11 +688,11 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         with (
             override_settings(
                 BUCKET_URL=f"s3://{BUCKET_NAME}",
+                BUCKET_PATH=BUCKET_NAME,
                 AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 AIRBYTE_BUCKET_REGION="us-east-1",
                 AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-                BUCKET_NAME=BUCKET_NAME,
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -783,37 +782,13 @@ async def test_run_postgres_job(
 
     job_1, job_1_inputs = await setup_job_1()
 
-    def mock_to_session_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "aws_session_token": None,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    def mock_to_object_store_rs_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region": "us-east-1",
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-            BUCKET_NAME=BUCKET_NAME,
-        ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    with override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        BUCKET_PATH=BUCKET_NAME,
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
 

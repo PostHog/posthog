@@ -1,6 +1,7 @@
 import { type ExperimentVariantResult } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { GridLines } from './GridLines'
+import { useAxisScale } from './useAxisScale'
 import { useTooltipHover } from './useTooltipHover'
 import { VariantBar } from './VariantBar'
 import { VariantTooltip } from './VariantTooltip'
@@ -21,6 +22,7 @@ export function Chart({
     isSecondary: boolean
 }): JSX.Element {
     const { showTooltip, hideTooltip, showTooltipFromTooltip, isTooltipVisible } = useTooltipHover()
+    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH)
 
     const chartHeight = Math.max(BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length, 70)
 
@@ -35,7 +37,7 @@ export function Chart({
                 >
                     <g className="grid-lines-layer">
                         {/* Vertical grid lines */}
-                        <GridLines tickValues={tickValues} chartRadius={chartRadius} chartHeight={chartHeight} />
+                        <GridLines tickValues={tickValues} scale={scale} height={chartHeight} />
                     </g>
                     <g className="variant-bars-layer">
                         {/* Variant bars */}
