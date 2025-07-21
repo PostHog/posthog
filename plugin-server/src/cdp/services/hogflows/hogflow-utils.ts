@@ -97,5 +97,5 @@ export async function shouldSkipAction(
         eventUuid: invocation.state.event.uuid,
     })
 
-    return filterResults.match
+    return !filterResults.match
 }

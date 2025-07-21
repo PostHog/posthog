@@ -1,5 +1,5 @@
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { UniversalFiltersGroup } from '~/types'
+import { JsonType, UniversalFiltersGroup } from '~/types'
 
 type ErrorTrackingBaseRule = {
     id: string
@@ -10,10 +10,12 @@ export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule
 
 export type ErrorTrackingAssignmentRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
+    disabled_data: JsonType | null
 }
 
 export type ErrorTrackingGroupingRule = ErrorTrackingBaseRule & {
     assignee: ErrorTrackingIssueAssignee | null
+    disabled_data: JsonType | null
     description?: string
 }
 

@@ -61,6 +61,7 @@ import {
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -495,6 +496,8 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
+    const { submitZendeskTicket } = useActions(supportLogic)
+    const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -512,11 +515,24 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId) {
+        if (!feedback || !traceId || !user) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
+        // Also create a support ticket for thumbs down feedback, for the support hero to see
+        submitZendeskTicket({
+            name: user.first_name,
+            email: user.email,
+            kind: 'feedback',
+            target_area: 'max-ai',
+            severity_level: 'medium',
+            message: [
+                feedback,
+                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
+                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+            ].join('\n'),
+        })
     }
 
     return (
@@ -562,7 +578,9 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                             icon={<IconX />}
                             type="tertiary"
                             size="xsmall"
-                            onClick={() => setFeedbackInputStatus('hidden')}
+                            onClick={() => {
+                                setFeedbackInputStatus('hidden')
+                            }}
                         />
                     </div>
                     {feedbackInputStatus === 'pending' && (
