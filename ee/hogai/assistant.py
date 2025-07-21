@@ -331,7 +331,7 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER:
+            case AssistantNodeName.QUERY_PLANNER | AssistantNodeName.FILTER_OPTIONS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:

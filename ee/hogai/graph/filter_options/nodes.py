@@ -78,7 +78,7 @@ class FilterOptionsNode(AssistantNode):
 
     def _get_model(self, state: FilterOptionsState):
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4o", streaming=False, temperature=0.3, user=self._user, team=self._team
         ).bind_tools(
             [
                 retrieve_entity_properties,
@@ -243,8 +243,9 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
             elif input.name == "retrieve_event_property_values":
                 output = toolkit.retrieve_event_or_action_property_values(
-                    input.arguments.event_name, input.arguments.property_name
-                )  # type: ignore
+                    input.arguments.event_name,
+                    input.arguments.property_name,  # type: ignore
+                )
             elif input.name == "retrieve_event_properties":
                 output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)  # type: ignore
             else:
