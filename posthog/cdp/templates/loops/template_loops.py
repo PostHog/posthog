@@ -11,6 +11,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
@@ -109,6 +110,7 @@ template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Loops.so",
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
