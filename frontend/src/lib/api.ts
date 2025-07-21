@@ -1296,7 +1296,7 @@ export class ApiRequest {
     }
 
     public authenticateWizard(): ApiRequest {
-        return this.organizations().current().addPathComponent('authenticate_wizard')
+        return this.wizard().addPathComponent('authenticate')
     }
 
     public messagingTemplates(): ApiRequest {
@@ -1317,6 +1317,10 @@ export class ApiRequest {
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
         return this.hogFlows().addPathComponent(hogFlowId)
+    }
+
+    public wizard(): ApiRequest {
+        return this.addPathComponent('wizard')
     }
 }
 
