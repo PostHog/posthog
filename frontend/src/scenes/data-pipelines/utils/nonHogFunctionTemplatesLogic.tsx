@@ -13,12 +13,16 @@ import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionTemplatesLogicType } from './nonHogFunctionTemplatesLogicType'
 import { SourceConfig } from '~/queries/schema/schema-general'
 
+export interface NonHogFunctionTemplatesLogicProps {
+    availableSources: Record<string, SourceConfig>
+}
+
 export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType>([
     path((key) => ['scenes', 'data-pipelines', 'utils', 'nonHogFunctionTemplatesLogic', key]),
 
-    connect(() => ({
+    connect(({ availableSources }: NonHogFunctionTemplatesLogicProps) => ({
         values: [
-            sourceWizardLogic,
+            sourceWizardLogic({ availableSources }),
             ['connectors', 'manualConnectors'],
             featureFlagLogic,
             ['featureFlags'],
