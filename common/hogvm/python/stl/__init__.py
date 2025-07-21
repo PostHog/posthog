@@ -24,7 +24,7 @@ from .date import (
     is_hog_datetime,
     is_hog_date,
 )
-from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
+from .crypto import sha256, md5, sha256HmacChain
 from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure, to_hog_interval
 from ..utils import like, get_nested_value
 
@@ -959,10 +959,25 @@ STL: dict[str, STLFunction] = {
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
-    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256Hex(args[0]), minArgs=1, maxArgs=1),
-    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5Hex(args[0]), minArgs=1, maxArgs=1),
+    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
+    "sha256": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
+    ),
+    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
+    "md5": STLFunction(
+        fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
+    ),
     "sha256HmacChainHex": STLFunction(
-        fn=lambda args, team, stdout, timeout: sha256HmacChainHex(args[0]), minArgs=1, maxArgs=1
+        fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),
+        minArgs=1,
+        maxArgs=1,
+    ),
+    "sha256HmacChain": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
     ),
     "isIPAddressInRange": STLFunction(
         fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2

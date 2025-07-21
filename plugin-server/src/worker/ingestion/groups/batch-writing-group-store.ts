@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { TopicMessage } from '../../../kafka/producer'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
@@ -141,13 +142,17 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         this.databaseOperationCounts = new Map()
     }
 
-    async flush(): Promise<void> {
+    getGroupCache(): GroupCache {
+        return this.groupCache
+    }
+
+    async flush(): Promise<TopicMessage[]> {
         const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
             const [_, update] = entry
             return update !== null && update.needsWrite
         })
         if (pendingUpdates.length === 0) {
-            return
+            return []
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
@@ -156,6 +161,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             await Promise.all(
                 pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
             )
+            return []
         } catch (error) {
             logger.error('Failed to flush group updates', {
                 error,
@@ -550,6 +556,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
         if (error instanceof RaceConditionError) {
+            // Remove from cache to prevent retry, the group was already created by another thread
+            this.groupCache.delete(teamId, groupKey)
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error

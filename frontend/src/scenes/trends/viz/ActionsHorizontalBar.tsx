@@ -29,7 +29,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         trendsFilter,
         formula,
         showValuesOnSeries,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
@@ -53,7 +53,9 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                         item.breakdown_value,
                         breakdownFilter,
                         cohorts?.results,
-                        formatPropertyValueForDisplay
+                        formatPropertyValueForDisplay,
+                        undefined,
+                        item.label
                     )
                 }),
                 compareLabels: _data.map((item) => item.compare_label),
@@ -91,7 +93,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             onClick={
-                context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !isDataWarehouseSeries)
+                context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !hasDataWarehouseSeries)
                     ? (point) => {
                           const { index, points } = point
 

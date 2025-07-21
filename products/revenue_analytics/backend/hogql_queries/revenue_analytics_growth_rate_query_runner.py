@@ -7,6 +7,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsGrowthRateQueryResponse,
     RevenueAnalyticsGrowthRateQueryResponse,
     RevenueAnalyticsGrowthRateQuery,
+    ResolvedDateRangeResponse,
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
@@ -23,7 +24,16 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
     def to_query(self) -> ast.SelectQuery:
         # If there are no revenue views, we return a query that returns 0 for all values
         if self.revenue_subqueries.invoice_item is None:
-            return ast.SelectQuery.empty()
+            return ast.SelectQuery.empty(
+                columns=[
+                    "month",
+                    "revenue",
+                    "previous_month_revenue",
+                    "month_over_month_growth_rate",
+                    "three_month_growth_rate",
+                    "six_month_growth_rate",
+                ]
+            )
 
         monthly_revenue_cte = self.monthly_revenue_cte()
         revenue_with_growth_cte = self.revenue_with_growth_cte(monthly_revenue_cte)
@@ -52,21 +62,33 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                 select=[
                     ast.Alias(
                         alias="month",
-                        expr=ast.Call(name="toStartOfMonth", args=[ast.Field(chain=["timestamp"])]),
+                        expr=ast.Call(
+                            name="toStartOfMonth",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])
+                            ],
+                        ),
                     ),
                     ast.Alias(
                         alias="revenue",
                         expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
                     ),
                 ],
-                select_from=self.append_joins(
+                select_from=self._append_joins(
                     ast.JoinExpr(
                         alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
                         table=self.revenue_subqueries.invoice_item,  # Guaranteed to be not None because we check for that in `to_query`
                     ),
-                    self.joins_for_properties,
+                    self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
                 ),
-                where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
+                where=ast.And(
+                    exprs=[
+                        self.timestamp_where_clause(
+                            [RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
+                        ),
+                        *self.where_property_exprs,
+                    ]
+                ),
                 group_by=[ast.Field(chain=["month"])],
                 order_by=[ORDER_BY_MONTH_ASC],
             ),
@@ -156,4 +178,8 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                 "six_month_growth_rate",
             ],
             modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )

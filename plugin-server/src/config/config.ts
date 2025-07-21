@@ -2,12 +2,14 @@ import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
+    KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -45,6 +47,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_SECURE: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        KAFKA_BATCH_START_LOGGING_ENABLED: false,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
@@ -70,7 +73,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
         BASE_DIR: '..',
-        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
         INGESTION_CONCURRENCY: 10,
@@ -84,12 +86,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
-        DISABLE_MMDB: isTestEnv(),
         MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
-        SITE_URL: null,
+        SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -192,6 +193,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
+        CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+
+        HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

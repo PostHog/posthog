@@ -4,7 +4,7 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -102,32 +102,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     })),
     actions({
-        setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
         reportAIQueryPrompted: true,
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
         setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
-        setPreviousUrl: (previousUrl: string) => ({ previousUrl }),
     }),
     reducers({
-        sidebarOverlayOpen: [
-            false,
-            {
-                setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
-                selectSchema: (_, { schema }) => schema !== null,
-            },
-        ],
         wasPanelActive: [
             false,
             {
                 setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
-            },
-        ],
-        previousUrl: [
-            '',
-            {
-                setPreviousUrl: (_, { previousUrl }) => previousUrl,
             },
         ],
     }),
@@ -521,31 +506,18 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction(({ values, actions }) => ({
+    urlToAction(() => ({
         [urls.sqlEditor()]: () => {
-            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && values.previousUrl !== urls.sqlEditor()) {
-                if (panelLayoutLogic.values.activePanelIdentifier === 'Database') {
-                    actions.setWasPanelActive(true)
-                } else {
-                    actions.setWasPanelActive(false)
-                }
-                panelLayoutLogic.actions.showLayoutPanel(true)
-                panelLayoutLogic.actions.setActivePanelIdentifier('Database')
-                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
-            }
-            actions.setPreviousUrl(urls.sqlEditor())
+            panelLayoutLogic.actions.showLayoutPanel(true)
+            panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+            panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
         },
         '*': () => {
-            if (
-                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
-                router.values.location.pathname !== urls.sqlEditor()
-            ) {
-                if (!values.wasPanelActive) {
-                    panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
-                    panelLayoutLogic.actions.showLayoutPanel(false)
-                }
+            if (router.values.location.pathname !== urls.sqlEditor()) {
+                panelLayoutLogic.actions.clearActivePanelIdentifier()
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
+                panelLayoutLogic.actions.showLayoutPanel(false)
             }
-            actions.setPreviousUrl(router.values.location.pathname)
         },
     })),
     subscriptions({

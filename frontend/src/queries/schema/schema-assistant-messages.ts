@@ -1,4 +1,4 @@
-import type { MaxContextShape } from 'scenes/max/maxTypes'
+import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import {
     AssistantFunnelsQuery,
@@ -23,7 +23,7 @@ export interface BaseAssistantMessage {
 export interface HumanMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Human
     content: string
-    ui_context?: MaxContextShape
+    ui_context?: MaxUIContext
 }
 
 export interface AssistantFormOption {
@@ -120,7 +120,10 @@ export type AssistantContextualTool =
     | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
+    | 'create_hog_function_inputs'
     | 'navigate'
+    | 'search_error_tracking_issues'
+    | 'experiment_results_summary'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

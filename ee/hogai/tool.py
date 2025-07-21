@@ -1,15 +1,14 @@
-import json
-from abc import abstractmethod
 import importlib
+import json
 import pkgutil
-import products
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+import products
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
 
@@ -23,24 +22,48 @@ MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 # Lower casing matters here. Do not change it.
 class create_and_query_insight(BaseModel):
     """
-    Retrieve results for a specific data question by creating a query or iterate on a previous query.
-    This tool only retrieves data for a single insight at a time.
-    The `trends` insight type is the only insight that can display multiple trends insights in one request.
-    All other insight types strictly return data for a single insight.
-    This tool is also relevant if the user asks to write SQL.
+    Retrieve results for a specific data question by creating a query (aka insight), or iterate on a previous query.
+    This tool only retrieves data for a single query at a time.
     """
 
     query_description: str = Field(
-        description="The description of the query being asked. Include all relevant details from the current conversation in the query description, as the tool cannot access the conversation history."
+        description=(
+            "A description of the query to generate, encapsulating the details of the user's request. "
+            "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
+            "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
+        )
     )
-    query_kind: MaxSupportedQueryKind = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+
+
+class search_insights(BaseModel):
+    """
+    Search through existing insights to find matches based on the user's query.
+    Use this tool when users ask to find, search for, or look up existing insights.
+    """
+
+    search_query: str = Field(
+        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+    )
 
 
 class search_documentation(BaseModel):
     """
-    Search PostHog documentation to answer questions about features, concepts, and usage.
-    Use this tool when the user asks about how to use PostHog, its features, or needs help understanding concepts.
-    Don't use this tool if the necessary information is already in the conversation.
+    Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
+
+    Use the search tool when the user asks about:
+    - How to use PostHog
+    - How to use PostHog features
+    - How to contact support or other humans
+    - How to report bugs
+    - How to submit feature requests
+    and/or when the user:
+    - Needs help understanding PostHog concepts
+    - Wants to know more about PostHog the company
+    - Has questions about incidents or system status
+    - Has PostHog-related questions that don't match your other specialized tools
+
+    Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
     """
 
 
@@ -88,10 +111,14 @@ class MaxTool(BaseTool):
     _config: RunnableConfig
     _state: AssistantState
 
-    @abstractmethod
+    # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
+        """DEPRECATED. Use `_arun_impl` instead."""
+        raise NotImplementedError
+
+    async def _arun_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
-        pass
+        raise NotImplementedError
 
     def __init__(self, state: AssistantState | None = None):
         super().__init__()
@@ -112,6 +139,20 @@ class MaxTool(BaseTool):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
+        self._init_run(config)
+        try:
+            return self._run_impl(*args, **kwargs)
+        except NotImplementedError:
+            return async_to_sync(self._arun_impl)(*args, **kwargs)
+
+    async def _arun(self, *args, config: RunnableConfig, **kwargs):
+        self._init_run(config)
+        try:
+            return await self._arun_impl(*args, **kwargs)
+        except NotImplementedError:
+            return await super()._arun(*args, config=config, **kwargs)
+
+    def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
         self._team = config["configurable"]["team"]
         self._user = config["configurable"]["user"]
@@ -126,7 +167,6 @@ class MaxTool(BaseTool):
                 "user": self._user,
             },
         }
-        return self._run_impl(*args, **kwargs)
 
     @property
     def context(self) -> dict:

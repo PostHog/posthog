@@ -31,12 +31,17 @@ QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
 QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
+QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
+
+# Feature flags always get a 2-day grace period regardless of trust score
+FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
     3: 0,
     7: QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS,
     10: QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS,
+    15: QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS,
 }
 
 
@@ -173,7 +178,7 @@ def org_quota_limited_until(
     # Flow for checking quota limits:
     # 1. ignore the limits
     #       a. not over limit
-    #       b. 'never_drop_data' set or a high trust score (15)
+    #       b. 'never_drop_data' set
     #       c. feature flag to retain data past quota limit
     # 2. limit the org
     #       a. already being limited
@@ -201,8 +206,8 @@ def org_quota_limited_until(
             )
         return None
 
-    # 1b. never drop or high trust
-    if organization.never_drop_data or trust_score == 15:
+    # 1b. never drop
+    if organization.never_drop_data:
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -270,16 +275,22 @@ def org_quota_limited_until(
 
     _, today_end = get_current_day()
 
+    # Set minimum grace period for specific resources
+    minimum_grace_period = 0
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
+        minimum_grace_period = FEATURE_FLAGS_GRACE_PERIOD_DAYS
+
     # Now we check the trust score
     # These trust score levels are defined in billing::customer::TrustScores.
     # Please keep the logic and levels in sync with what is defined in billing.
 
     # 2b. no trust score
-    if not trust_score:
+    if not trust_score and minimum_grace_period == 0:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
             organization.save(update_fields=["customer_trust_scores"])
+
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -299,7 +310,7 @@ def org_quota_limited_until(
         }
 
     # 2c. low trust
-    elif trust_score == 3:
+    elif trust_score == 3 and minimum_grace_period == 0:
         # Low trust, immediately limit
         report_organization_action(
             organization,
@@ -319,9 +330,10 @@ def org_quota_limited_until(
             "quota_limiting_suspended_until": None,
         }
 
-    # 3. medium / medium high trust
-    elif trust_score in [7, 10]:
-        grace_period_days = GRACE_PERIOD_DAYS[trust_score]
+    # 3. medium / medium high / high trust
+    elif trust_score in [7, 10, 15] or minimum_grace_period > 0:
+        trust_score_grace_period = GRACE_PERIOD_DAYS.get(trust_score, 0)
+        grace_period_days = max(trust_score_grace_period, minimum_grace_period)
 
         # If the suspension is expired or never set, we want to suspend the limit for a grace period
         if not quota_limiting_suspended_until or (
@@ -336,6 +348,9 @@ def org_quota_limited_until(
                     "current_usage": usage + todays_usage,
                     "resource": resource.value,
                     "grace_period_days": grace_period_days,
+                    "trust_score": trust_score,
+                    "trust_score_grace_period": trust_score_grace_period,
+                    "minimum_grace_period": minimum_grace_period,
                     "usage": organization.usage,
                     "summary": summary,
                     "organization_id": organization.id,
@@ -679,7 +694,7 @@ def update_all_orgs_billing_quotas(
 
             report_index += 1
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"organization_id": org_id})
 
     # Now we have the teams that are currently under quota limits
     # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
@@ -750,7 +765,9 @@ def get_team_attribute_by_quota_resource(organization: Organization) -> list[str
     team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
     if not team_tokens:
-        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        capture_exception(
+            Exception(f"quota_limiting: No team tokens found for organization"), {"organization_id": organization.id}
+        )
 
     return team_tokens
 
@@ -776,13 +793,14 @@ def update_organization_usage_fields(
     as it only makes one database call.
     """
     if not organization.usage:
-        capture_exception(Exception(f"quota_limiting: No usage found for organization: {organization.id}"))
+        capture_exception(
+            Exception(f"quota_limiting: No usage found for organization"), {"organization_id": organization.id}
+        )
         return
     if resource.value not in organization.usage:
         capture_exception(
-            Exception(
-                f"quota_limiting: No usage found for resource: {resource.value} for organization: {organization.id}"
-            )
+            Exception(f"quota_limiting: No usage found for resource for organization"),
+            {"organization_id": organization.id, "resource": resource.value},
         )
         return
 

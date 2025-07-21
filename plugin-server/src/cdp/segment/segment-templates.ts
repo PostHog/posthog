@@ -1,9 +1,8 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
 import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
-import { HogFunctionTemplate } from '../templates/types'
 
 export type SegmentDestination = {
     template: HogFunctionTemplate
@@ -356,6 +355,10 @@ const getFieldType = (field: any) => {
     return field.type ?? 'string'
 }
 
+const getFieldDescription = (description: string) => {
+    return description.replaceAll(/\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g, '$1') // Remove segment.com links completely, keeping only the link text
+}
+
 const translateInputsSchema = (
     inputs_schema: Record<string, any> | undefined,
     mapping?: Record<string, any> | undefined
@@ -369,7 +372,7 @@ const translateInputsSchema = (
             key,
             label: field.label,
             type: getFieldType(field),
-            description: field.description,
+            description: getFieldDescription(field.description),
             default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
             secret: field.type === 'password' ? true : false,

@@ -1,15 +1,16 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import posthog from 'posthog-js'
-import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import { getErrorsForFields } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
 import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export interface DataWarehouseSourceSettingsLogicProps {
     id: string
@@ -21,6 +22,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     path(['scenes', 'data-warehouse', 'settings', 'source', 'dataWarehouseSourceSettingsLogic']),
     props({} as DataWarehouseSourceSettingsLogicProps),
     key(({ id }) => id),
+    connect({
+        values: [availableSourcesDataLogic, ['availableSources']],
+    }),
     actions({
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -115,13 +119,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     })),
     selectors({
         sourceFieldConfig: [
-            (s) => [s.source],
-            (source) => {
-                if (!source) {
+            (s) => [s.source, s.availableSources],
+            (source, availableSources) => {
+                if (!source || !availableSources) {
                     return null
                 }
 
-                return SOURCE_DETAILS[source.source_type]
+                return availableSources[source.source_type]
             },
         ],
     }),

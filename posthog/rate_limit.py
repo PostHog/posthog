@@ -381,6 +381,16 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_burst"
+    rate = "240/minute"
+
+
+class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_sustained"
+    rate = "2400/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
@@ -409,13 +419,13 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
 
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    # This is more aggressive than other throttles because the wizard makes LLM calls
     scope = "wizard_authentication"
     rate = "20/day"
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"
+    rate = "20/day"  # Since the authentication hash is valid for a short period, this is effectively per-user
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):
