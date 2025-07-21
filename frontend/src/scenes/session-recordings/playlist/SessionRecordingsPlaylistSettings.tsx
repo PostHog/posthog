@@ -197,14 +197,17 @@ export function SessionRecordingsPlaylistTopSettings({
 
         menuItems.push({
             label: 'Add to collection',
-            items: playlistsLoading ? (
-                <Spinner textColored={true} />
-            ) : (
-                collections.map((playlist) => ({
-                    label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                    onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                }))
-            ),
+            items: playlistsLoading
+                ? [
+                      {
+                          label: <Spinner textColored={true} />,
+                          onClick: () => {},
+                      },
+                  ]
+                : collections.map((playlist) => ({
+                      label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
+                      onClick: () => handleBulkAddToPlaylist(playlist.short_id),
+                  })),
             disabledReason:
                 collections.length === 0
                     ? 'There are no collections. You have to make a collection before you can bulk add recordings to it'
