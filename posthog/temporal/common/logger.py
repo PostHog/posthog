@@ -355,6 +355,7 @@ class PutInLogQueueProcessor:
 
     def __init__(self, queue: asyncio.Queue | sync_queue.Queue):
         self.queue = queue
+        self.put_tasks = []
 
     def __call__(
         self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
@@ -382,7 +383,7 @@ class PutInLogQueueProcessor:
             # This could be because we are running outside an Activity/Workflow context.
             return event_dict
 
-        self.queue.put_nowait(json.dumps(message_dict).encode("utf-8"))
+        self.put_tasks.append(asyncio.create_task(self.queue.put(json.dumps(message_dict).encode("utf-8"))))
 
         return event_dict
 
