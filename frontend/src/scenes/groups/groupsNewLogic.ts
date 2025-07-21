@@ -6,9 +6,11 @@ import api from 'lib/api'
 import type { groupsNewLogicType } from './groupsNewLogicType'
 import { forms } from 'kea-forms'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { CreateGroupParams, Group, GroupTypeIndex } from '~/types'
+import { CreateGroupParams, Group, GroupTypeIndex, Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
+import { Scene } from 'scenes/sceneTypes'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export type GroupsNewLogicProps = {
     groupTypeIndex: number
@@ -37,6 +39,33 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
 
     selectors({
         logicProps: [() => [(_, props) => props], (props): GroupsNewLogicProps => props],
+        groupTypeName: [
+            (s) => [s.aggregationLabel, s.logicProps],
+            (aggregationLabel, logicProps): string => {
+                return aggregationLabel(logicProps.groupTypeIndex).singular
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.logicProps, s.groupTypeName],
+            (logicProps, groupTypeName): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.PersonsManagement,
+                        name: 'People',
+                        path: urls.persons(),
+                    },
+                    {
+                        key: Scene.Groups,
+                        name: capitalizeFirstLetter(groupTypeName),
+                        path: urls.groups(logicProps.groupTypeIndex),
+                    },
+                    {
+                        key: Scene.GroupsNew,
+                        name: `Create ${groupTypeName}`,
+                    },
+                ]
+            },
+        ],
     }),
 
     actions({
