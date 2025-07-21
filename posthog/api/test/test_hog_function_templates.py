@@ -17,6 +17,7 @@ MOCK_NODE_TEMPLATES = json.loads(
 EXPECTED_FIRST_RESULT = {
     "free": template.free,
     "type": "destination",
+    "code_language": template.code_language,
     "status": template.status,
     "id": template.id,
     "name": template.name,
@@ -272,6 +273,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
             status="stable",
             free=True,
             category=["Customer Success"],
+            code_language="hog",
         )
 
         # Save the modified template - this should update the existing one

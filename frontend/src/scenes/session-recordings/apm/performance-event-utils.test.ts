@@ -120,7 +120,7 @@ const aSingleSnapshotWithNetworkPayloads = {
                 },
                 // fetch which matches server timings
                 {
-                    name: 'http://localhost:8000/api/projects/1/activity_log/important_changes?unread=true',
+                    name: 'http://localhost:8000/api/projects/1/important_changes?unread=true',
                     entryType: 'resource',
                     startTime: 10640,
                     duration: 2521.800000011921,

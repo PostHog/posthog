@@ -733,7 +733,7 @@ class Team(UUIDClassicModel):
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(
             team_id=self.id,
-            resource="team",
+            resource="project",
             resource_id=str(self.id),
             organization_member=None,
             role=None,
@@ -757,7 +757,7 @@ class Team(UUIDClassicModel):
             # First, get organization memberships with access to this team
             org_memberships_with_access = AccessControl.objects.filter(
                 team_id=self.id,
-                resource="team",
+                resource="project",
                 resource_id=str(self.id),
                 organization_member__isnull=False,
                 access_level__in=["member", "admin"],
@@ -771,7 +771,7 @@ class Team(UUIDClassicModel):
             # Get roles with access to this team
             roles_with_access = AccessControl.objects.filter(
                 team_id=self.id,
-                resource="team",
+                resource="project",
                 resource_id=str(self.id),
                 role__isnull=False,
                 access_level__in=["member", "admin"],

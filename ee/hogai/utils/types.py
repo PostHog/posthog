@@ -72,6 +72,9 @@ def add_and_merge_messages(
     return merged
 
 
+IntermediateStep = tuple[AgentAction, Optional[str]]
+
+
 def merge_retry_counts(left: int, right: int) -> int:
     """Merges two retry counts by taking the maximum value.
 
@@ -102,7 +105,7 @@ class _SharedAssistantState(BaseModel):
     """
     Actions taken by the ReAct agent.
     """
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     The insight generation plan.
     """
@@ -142,6 +145,10 @@ class _SharedAssistantState(BaseModel):
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
     root_tool_calls_count: Optional[int] = Field(default=None)
+    """
+    The ID of the previous OpenAI Responses API response made by the query planner.
+    """
+    query_planner_previous_response_id: Optional[str] = Field(default=None)
     """
     The context for taxonomy agent.
     """
@@ -185,6 +192,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_calls_count=0,
             root_conversation_start_id="",
             rag_context="",
+            query_planner_previous_response_id="",
             query_generation_retry_count=0,
         )
 
@@ -200,20 +208,14 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING_FINALIZE = "memory_onboarding_finalize"
     ROOT = "root"
     ROOT_TOOLS = "root_tools"
-    TRENDS_PLANNER = "trends_planner"
-    TRENDS_PLANNER_TOOLS = "trends_planner_tools"
     TRENDS_GENERATOR = "trends_generator"
     TRENDS_GENERATOR_TOOLS = "trends_generator_tools"
-    FUNNEL_PLANNER = "funnel_planner"
-    FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
     FUNNEL_GENERATOR = "funnel_generator"
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
-    RETENTION_PLANNER = "retention_planner"
-    RETENTION_PLANNER_TOOLS = "retention_planner_tools"
     RETENTION_GENERATOR = "retention_generator"
     RETENTION_GENERATOR_TOOLS = "retention_generator_tools"
-    SQL_PLANNER = "sql_planner"
-    SQL_PLANNER_TOOLS = "sql_planner_tools"
+    QUERY_PLANNER = "query_planner"
+    QUERY_PLANNER_TOOLS = "query_planner_tools"
     SQL_GENERATOR = "sql_generator"
     SQL_GENERATOR_TOOLS = "sql_generator_tools"
     QUERY_EXECUTOR = "query_executor"
