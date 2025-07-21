@@ -13,7 +13,7 @@ class TestAssistantGraph(BaseTest):
         async def runnable(state: AssistantState) -> PartialAssistantState:
             return PartialAssistantState(start_id=None)
 
-        graph = BaseAssistantGraph(self.team, self.user, AssistantState)
+        graph = BaseAssistantGraph(self.team, self.user, state_type=AssistantState)
         compiled_graph = (
             graph.add_node(AssistantNodeName.ROOT, RunnableLambda(runnable))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
