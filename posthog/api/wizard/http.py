@@ -6,6 +6,7 @@ from typing import Optional
 
 from django.utils.crypto import get_random_string
 import posthoganalytics
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -21,15 +22,13 @@ from posthoganalytics.ai.openai import OpenAI
 from posthoganalytics.ai.gemini import genai
 from google.genai.types import GenerateContentConfig, Schema
 
+from api.wizard.utils import json_schema_to_gemini_schema
+from cloud_utils import get_api_host
+from permissions import APIScopePermission
 from posthog.rate_limit import SetupWizardQueryRateThrottle, SetupWizardAuthenticationRateThrottle
 from rest_framework.exceptions import AuthenticationFailed
 from posthog.models.project import Project
-
-from ..utils import action
-from .utils import json_schema_to_gemini_schema
-from ...cloud_utils import get_api_host
-from ...permissions import APIScopePermission
-from ...user_permissions import UserPermissions
+from user_permissions import UserPermissions
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
