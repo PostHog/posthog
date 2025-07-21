@@ -24,7 +24,7 @@ import {
     MaxContextInput,
 } from './maxTypes'
 import { subscriptions } from 'kea-subscriptions'
-import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import {
     actionToMaxContextPayload,
     dashboardToMaxContext,
@@ -207,7 +207,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 dashboardLogicInstance.mount()
 
                 try {
-                    dashboardLogicInstance.actions.loadDashboard({ action: 'initial_load' })
+                    dashboardLogicInstance.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
 
                     await breakpoint(50)
                     while (!dashboardLogicInstance.values.dashboard) {

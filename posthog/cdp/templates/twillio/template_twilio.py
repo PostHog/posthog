@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send SMS via Twilio when an event occurs.",
     icon_url="/static/services/twilio.png",
     category=["Custom"],
+    code_language="hog",
     hog="""
 let encodedTo := encodeURLComponent(inputs.phoneNumber)
 let encodedFrom := encodeURLComponent(inputs.fromPhoneNumber)

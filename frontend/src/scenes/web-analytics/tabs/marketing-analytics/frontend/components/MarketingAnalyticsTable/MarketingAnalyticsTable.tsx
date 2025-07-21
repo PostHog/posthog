@@ -14,12 +14,12 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
+import { LemonMenu } from '@posthog/lemon-ui'
 
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode

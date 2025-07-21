@@ -10,6 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Put data to an AWS Kinesis stream",
     icon_url="/static/services/aws-kinesis.png",
     category=["Analytics"],
+    code_language="hog",
     hog="""
 fun getPayload() {
   let region := inputs.aws_region
