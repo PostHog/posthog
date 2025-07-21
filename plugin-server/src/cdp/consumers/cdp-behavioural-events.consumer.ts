@@ -13,6 +13,11 @@ import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
+export type BehavioralEvent = {
+    teamId: number
+    filterGlobals: HogFunctionFilterGlobals
+}
+
 export const counterParseError = new Counter({
     name: 'cdp_behavioural_function_parse_error',
     help: 'A behavioural function invocation was parsed with an error',
@@ -38,47 +43,41 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
-    public async processBatch(filterGlobals: HogFunctionFilterGlobals[]): Promise<void> {
+    public async processBatch(events: BehavioralEvent[]): Promise<void> {
         return await this.runInstrumented('processBatch', async () => {
-            if (!filterGlobals.length) {
+            if (!events.length) {
                 return
             }
 
             // Track events consumed and matched (absolute numbers)
             let eventsMatched = 0
 
-            const results = await Promise.all(filterGlobals.map((event) => this.processEvent(event)))
+            const results = await Promise.all(events.map((event) => this.processEvent(event)))
             eventsMatched = results.reduce((sum, count) => sum + count, 0)
 
             // Update metrics with absolute numbers
-            counterEventsConsumed.inc(filterGlobals.length)
+            counterEventsConsumed.inc(events.length)
             counterEventsMatchedTotal.inc(eventsMatched)
         })
     }
 
-    private async processEvent(filterGlobals: HogFunctionFilterGlobals): Promise<number> {
+    private async processEvent(event: BehavioralEvent): Promise<number> {
         try {
-            // Extract team ID from properties that we added during parsing
-            const teamId = filterGlobals.properties?.['team_id']
-
-            if (!teamId) {
-                logger.debug('No team ID found in filter globals')
-                return 0
-            }
-
-            const actions = await this.loadActionsForTeam(teamId)
+            const actions = await this.loadActionsForTeam(event.teamId)
 
             if (!actions.length) {
-                logger.debug('No actions found for team', { teamId })
+                logger.debug('No actions found for team', { teamId: event.teamId })
                 return 0
             }
 
-            const results = await Promise.all(actions.map((action) => this.doesEventMatchAction(filterGlobals, action)))
+            const results = await Promise.all(
+                actions.map((action) => this.doesEventMatchAction(event.filterGlobals, action))
+            )
 
             return results.filter(Boolean).length
         } catch (error) {
             logger.error('Error processing event', {
-                eventName: filterGlobals.event,
+                eventName: event.filterGlobals.event,
                 error,
             })
             return 0
@@ -125,12 +124,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     // This consumer always parses from kafka
-    public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionFilterGlobals[]> {
+    public async _parseKafkaBatch(messages: Message[]): Promise<BehavioralEvent[]> {
         return await this.runWithHeartbeat(() =>
             runInstrumentedFunction({
                 statsKey: `cdpBehaviouralEventsConsumer.handleEachBatch.parseKafkaMessages`,
                 func: () => {
-                    const events: HogFunctionFilterGlobals[] = []
+                    const events: BehavioralEvent[] = []
 
                     messages.forEach((message) => {
                         try {
@@ -139,13 +138,10 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             // Convert directly to filter globals
                             const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
 
-                            // Add team_id to properties so we can access it later
-                            filterGlobals.properties = {
-                                ...filterGlobals.properties,
-                                team_id: clickHouseEvent.team_id,
-                            }
-
-                            events.push(filterGlobals)
+                            events.push({
+                                teamId: clickHouseEvent.team_id,
+                                filterGlobals,
+                            })
                         } catch (e) {
                             logger.error('Error parsing message', e)
                             counterParseError.labels({ error: e.message }).inc()
@@ -168,8 +164,8 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             })
 
             return await this.runInstrumented('handleEachBatch', async () => {
-                const filterGlobals = await this._parseKafkaBatch(messages)
-                await this.processBatch(filterGlobals)
+                const events = await this._parseKafkaBatch(messages)
+                await this.processBatch(events)
 
                 return { backgroundTask: Promise.resolve() }
             })
