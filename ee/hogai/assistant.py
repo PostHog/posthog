@@ -271,18 +271,6 @@ class Assistant:
                     last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
                 )
 
-    @property
-    def _initial_state(self) -> AssistantState:
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(
-                messages=[self._latest_message],
-                start_id=self._latest_message.id,
-            )
-        else:
-            return AssistantState(
-                messages=[],
-            )
-
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
@@ -309,12 +297,26 @@ class Assistant:
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
                 await self._graph.aupdate_state(
-                    config, PartialAssistantState(messages=[self._latest_message], graph_status="resumed")
+                    config,
+                    PartialAssistantState(
+                        messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
+                    ),
                 )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
                 return None
 
-        initial_state = self._initial_state
+        # Append the new message and reset some fields to their default values.
+        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+            initial_state = AssistantState(
+                messages=[self._latest_message],
+                start_id=self._latest_message.id,
+                query_generation_retry_count=0,
+                graph_status=None,
+                rag_context=None,
+            )
+        else:
+            initial_state = AssistantState(messages=[])
+
         if self._tool_call_partial_state:
             for key, value in self._tool_call_partial_state.model_dump().items():
                 setattr(initial_state, key, value)
