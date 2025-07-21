@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
+    AssistantGenerationStatusEvent,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
@@ -23,10 +24,11 @@ AIMessageUnion = Union[
     AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
 
 
