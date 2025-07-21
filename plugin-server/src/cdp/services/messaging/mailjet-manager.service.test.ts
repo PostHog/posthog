@@ -1,13 +1,15 @@
 import crypto from 'crypto'
 import express from 'express'
 
+import { closeHub, createHub } from '~/utils/db/hub'
+
 import { Hub } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { MessagingMailjetManagerService } from './mailjet-manager.service'
 
 describe('MessagingMailjetManagerService', () => {
     let service: MessagingMailjetManagerService
-    let mockHub: Hub
+    let hub: Hub
     const secretKey = 'test-secret-key'
 
     const createMockRequest = (
@@ -52,11 +54,30 @@ describe('MessagingMailjetManagerService', () => {
         } as unknown as express.Request & { rawBody?: Buffer }
     }
 
-    beforeEach(() => {
-        mockHub = {
-            MAILJET_SECRET_KEY: secretKey,
-        } as Hub
-        service = new MessagingMailjetManagerService(mockHub)
+    beforeEach(async () => {
+        hub = await createHub({
+            MAILJET_SECRET_KEY: 'mailjet-secret-key',
+            MAILJET_PUBLIC_KEY: 'mailjet-public-key',
+        })
+        service = new MessagingMailjetManagerService(hub)
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    describe('executeSendEmail', () => {
+        describe('integration validation', () => {
+            it('should validate if the integration is not found', async () => {})
+
+            it('should validate if the integration is not an email integration', async () => {})
+
+            it('should validate if the integration is not the correct team', async () => {})
+
+            it('should validate if the email domain is not the same as the integration domain', async () => {})
+
+            it('should validate if the email domain is not verified', async () => {})
+        })
     })
 
     describe('handleWebhook', () => {

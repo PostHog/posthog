@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import express, { response } from 'express'
+import express from 'express'
 import { Counter } from 'prom-client'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
