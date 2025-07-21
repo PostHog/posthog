@@ -115,8 +115,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
-            trace_name=serializer.validated_data["trace_name"],
-            session_id=serializer.validated_data.get("session_id"),
+            session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             mode=AssistantMode.ASSISTANT,
         )
 

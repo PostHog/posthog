@@ -227,7 +227,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         ui_context: values.compiledContext || undefined,
                         conversation: values.conversation?.id,
                         trace_id: traceId,
-                        session_id: posthog.get_session_id(),
                     },
                     {
                         signal: cache.generationController.signal,

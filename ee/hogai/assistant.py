@@ -109,7 +109,7 @@ class Assistant:
     _user: User
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
-    _session_id: str
+    _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
@@ -128,7 +128,7 @@ class Assistant:
         new_message: Optional[HumanMessage] = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         user: User,
-        session_id: str,
+        session_id: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
