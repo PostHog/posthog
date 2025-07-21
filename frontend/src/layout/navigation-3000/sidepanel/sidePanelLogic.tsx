@@ -11,11 +11,11 @@ import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
 const ALWAYS_EXTRA_TABS = [SidePanelTab.Settings, SidePanelTab.Activity, SidePanelTab.Status, SidePanelTab.Exports]
 
@@ -32,7 +32,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
-            sidePanelActivityLogic,
+            sidePanelNotificationsLogic,
             ['unreadCount'],
             sidePanelStatusLogic,
             ['status'],

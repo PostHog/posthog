@@ -64,7 +64,7 @@ dependencies = [
     "langchain==0.3.26",
     "langchain-community==0.3.27",
     "langchain-openai==0.3.27",
-    "langgraph==0.4.1",
+    "langgraph==0.4.10",
     "lxml==5.2.1",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",

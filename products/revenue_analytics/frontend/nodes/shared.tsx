@@ -88,7 +88,7 @@ export const RevenueAnalyticsLineGraph = (
             type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
             isArea={insightsDisplayMode !== 'line'}
             isInProgress={!dateFilter.dateTo}
-            legend={{ display: true, position: 'right' }}
+            legend={{ display: props.datasets.length > 1, position: 'right' }}
             trendsFilter={{ aggregationAxisFormat: 'numeric' }}
             labelGroupType="none"
             {...props}
