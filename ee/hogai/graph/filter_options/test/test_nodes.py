@@ -61,7 +61,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             # Verify AgentAction creation
             action, output = result.intermediate_steps[0]
             self.assertEqual(action.tool, tool_calls[0]["name"])
-            self.assertEqual(action.tool_input, tool_calls[0]["args"]["arguments"])
+            self.assertEqual(action.tool_input, tool_calls[0]["args"])
             self.assertEqual(action.log, tool_calls[0]["id"])
             self.assertIsNone(output)
 
@@ -154,7 +154,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             # Check new step is added
             new_action, new_output = result.intermediate_steps[1]
             self.assertEqual(new_action.tool, "new_tool")
-            self.assertEqual(new_action.tool_input, {"param": "value"})
+            self.assertEqual(new_action.tool_input, {"arguments": {"param": "value"}})
             self.assertEqual(new_action.log, "new_id")
 
     def test_injected_prompts_through_public_run_interface(self):
