@@ -174,7 +174,7 @@ export class KafkaConsumer {
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
-            rebalance_cb: true,
+            rebalance_cb: this.rebalanceCallback.bind(this),
             offset_commit_cb: true,
         }
 
@@ -244,70 +244,86 @@ export class KafkaConsumer {
         return meta.topics.find((x) => x.name === topic)?.partitions ?? []
     }
 
+    public rebalanceCallback(err: LibrdKafkaError, assignments: Assignment[]): void {
+        logger.info('🔁', 'kafka_consumer_rebalancing', { err, assignments })
+
+        if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+            // Mark rebalancing as complete when partitions are assigned
+            this.isRebalancing = false
+            assignments.forEach((tp) => {
+                kafkaConsumerAssignment.set(
+                    {
+                        topic_name: tp.topic,
+                        partition_id: tp.partition.toString(),
+                        pod: this.podName,
+                        group_id: this.config.groupId,
+                    },
+                    1
+                )
+            })
+        } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+            // Mark rebalancing as starting when partitions are revoked
+            this.isRebalancing = true
+            // Store revoked partitions for offset committing
+            this.rebalanceCoordination.revokedPartitions = assignments.map((tp) => ({
+                topic: tp.topic,
+                partition: tp.partition,
+                offset: -1, // Will be set when committing
+            }))
+
+            logger.info('🔁', 'partition_revocation_starting', {
+                backgroundTaskCount: this.backgroundTask.length,
+                revokedPartitions: this.rebalanceCoordination.revokedPartitions.map((tp) => ({
+                    topic: tp.topic,
+                    partition: tp.partition,
+                })),
+            })
+
+            // Handle background task coordination asynchronously
+            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+                // Don't block the rebalance callback, but coordinate in the background
+                Promise.all(this.backgroundTask)
+                    .then(() => {
+                        logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
+                        this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        this.updateMetricsAfterRevocation(assignments)
+                    })
+                    .catch((error) => {
+                        logger.error('🔁', 'background_task_error_during_revocation', { error })
+                        // Still proceed with revocation even if background tasks fail
+                        this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        this.updateMetricsAfterRevocation(assignments)
+                    })
+            } else {
+                // No background tasks or feature disabled, proceed immediately
+                this.rdKafkaConsumer.incrementalUnassign(assignments)
+                this.updateMetricsAfterRevocation(assignments)
+            }
+        } else {
+            // We had a "real" error
+            logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
+            captureException(err)
+        }
+    }
+
+    private updateMetricsAfterRevocation(assignments: Assignment[]): void {
+        assignments.forEach((tp) => {
+            kafkaConsumerAssignment.set(
+                {
+                    topic_name: tp.topic,
+                    partition_id: tp.partition.toString(),
+                    pod: this.podName,
+                    group_id: this.config.groupId,
+                },
+                0
+            )
+        })
+    }
+
     private createConsumer(): RdKafkaConsumer {
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             // Default settings
             'auto.offset.reset': 'earliest',
-        })
-
-        // Set up rebalancing event handlers
-        consumer.on('rebalance', async (err, topicPartitions) => {
-            logger.info('🔁', 'kafka_consumer_rebalancing', { err, topicPartitions })
-
-            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                // Mark rebalancing as complete when partitions are assigned
-                this.isRebalancing = false
-                topicPartitions.forEach((tp) => {
-                    kafkaConsumerAssignment.set(
-                        {
-                            topic_name: tp.topic,
-                            partition_id: tp.partition.toString(),
-                            pod: this.podName,
-                            group_id: this.config.groupId,
-                        },
-                        1
-                    )
-                })
-            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                // Mark rebalancing as starting when partitions are revoked
-                this.isRebalancing = true
-                // Store revoked partitions for offset committing
-                this.rebalanceCoordination.revokedPartitions = topicPartitions.map((tp) => ({
-                    topic: tp.topic,
-                    partition: tp.partition,
-                    offset: -1, // Will be set when committing
-                }))
-
-                logger.info('🔁', 'partition_revocation_starting', {
-                    backgroundTaskCount: this.backgroundTask.length,
-                    revokedPartitions: this.rebalanceCoordination.revokedPartitions.map((tp) => ({
-                        topic: tp.topic,
-                        partition: tp.partition,
-                    })),
-                })
-
-                // Wait for all background tasks to complete only if the feature flag is enabled
-                if (this.config.waitForBackgroundTasksOnRebalance) {
-                    await Promise.all(this.backgroundTask)
-                }
-
-                // Update metrics after coordination is complete
-                topicPartitions.forEach((tp) => {
-                    kafkaConsumerAssignment.set(
-                        {
-                            topic_name: tp.topic,
-                            partition_id: tp.partition.toString(),
-                            pod: this.podName,
-                            group_id: this.config.groupId,
-                        },
-                        0
-                    )
-                })
-            } else {
-                // We had a "real" error
-                logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
-                captureException(err)
-            }
         })
 
         consumer.on('event.log', (log) => {
