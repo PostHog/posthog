@@ -24,6 +24,13 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
+export const execHogDurationHistogram = new Histogram({
+    name: 'cdp_behavioural_exec_hog_duration_seconds',
+    help: 'Duration of execHog calls in seconds',
+    labelNames: ['success'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
+})
+
 export const actionLoadDurationHistogram = new Histogram({
     name: 'cdp_behavioural_action_load_duration_seconds',
     help: 'Duration of loading actions for a team in seconds',
@@ -116,6 +123,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             return false
         }
 
+        const timer = performance.now()
         try {
             // Execute bytecode directly with the filter globals
             const execHogOutcome = await execHog(action.bytecode, {
@@ -130,8 +138,10 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             const matchedFilter =
                 typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
+            execHogDurationHistogram.observe({ success: 'true' }, (performance.now() - timer) / 1000)
             return matchedFilter
         } catch (error) {
+            execHogDurationHistogram.observe({ success: 'false' }, (performance.now() - timer) / 1000)
             logger.error('Error executing action bytecode', {
                 actionId: String(action.id),
                 error,
