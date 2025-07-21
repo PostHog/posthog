@@ -1641,7 +1641,10 @@ const api = {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
 
             // Opt into the new /activity_log API
-            if ([ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION].includes(scopes[0]) || scopes.length > 1) {
+            if (
+                [ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION, ActivityScope.EXPERIMENT].includes(scopes[0]) ||
+                scopes.length > 1
+            ) {
                 return api.activity
                     .listRequest({
                         scopes,
@@ -2761,6 +2764,17 @@ const api = {
             session_recording_id: SessionRecordingType['id']
         ): Promise<{ count: number; results: string[] }> {
             return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
+        },
+
+        async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            deleted_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_delete')
+                .create({ data: { session_recording_ids } })
         },
     },
 
