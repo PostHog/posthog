@@ -37,11 +37,7 @@ class SearchSessionRecordingsTool(MaxTool):
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
     def _run_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        model = (
-            ChatOpenAI(model="gpt-4.1", temperature=0.2)
-            # .with_structured_output(MaxRecordingUniversalFilters, include_raw=False)
-            .with_retry()
-        )
+        model = ChatOpenAI(model="gpt-4.1", temperature=0.2).with_retry()
 
         prompt = ChatPromptTemplate(
             [
@@ -57,10 +53,14 @@ class SearchSessionRecordingsTool(MaxTool):
         if "current_filters" not in self.context:
             raise ValueError("Context `current_filters` is required for the `search_session_recordings` tool")
 
+        current_filters = self.context["current_filters"]
+        if isinstance(current_filters, str):
+            current_filters = json.loads(current_filters)
+
         result = chain.invoke(
             {
                 "change": change,
-                **self.context,
+                "current_filters": json.dumps(current_filters, indent=2),
                 "recording_filter_schema": json.dumps(MaxRecordingUniversalFilters.model_json_schema(), indent=2),
             }
         )

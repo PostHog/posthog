@@ -159,7 +159,7 @@ DEFAULT_FILTER_EXAMPLE = MaxRecordingUniversalFilters(
             type="recording",
         )
     ],
-    date_from="-3d",
+    date_from="-5d",
     date_to=None,
     filter_group=MaxOuterUniversalFiltersGroup(
         type=FilterLogicalOperator.AND_,
@@ -229,7 +229,7 @@ When you need clarification or determines that additional information is require
 
 #### Clarification questions
 Here are some examples where you should ask clarification questions (return 'question' format):
-1.1.1 Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
+1.1.1. Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
 1.1.2. Ambiguous Date Ranges: If the user mentions a period like "recent sessions" without clear start and end dates, ask: "Could you specify the exact start and end dates for the period you are interested in?"
 1.1.3. Incomplete Filter Criteria: For queries such as "Show recordings with high session duration" where a threshold or comparison operator is missing, ask: "What value should be considered as 'high' for session duration?"
 
@@ -325,6 +325,7 @@ The <key> field represents the name of the property or event on which the filter
 {json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP, indent=2)}
 ```
 
+#### Full list of AVAILABLE CAMPAIGN PROPERTIES and their definitions:
 ```json
 {json.dumps(CAMPAIGN_PROPERTIES, indent=2)}
 ```
@@ -333,7 +334,9 @@ The <key> field represents the name of the property or event on which the filter
 
 AI_FILTER_REQUEST_PROMPT = """
 The current filters on this page are:
+```json
 {{{current_filters}}}
+```
 
 Put out an updated version based on the following ask:
 {{{change}}}
