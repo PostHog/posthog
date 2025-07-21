@@ -49,6 +49,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
 
 export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhook].map((plugin) => ({
     ...plugin,
+    code_language: 'javascript',
     hog: 'return event;',
     inputs_schema: [
         ...plugin.inputs_schema,
