@@ -1,9 +1,8 @@
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.graph.retention.nodes import RetentionGeneratorNode, RetentionPlannerNode, RetentionSchemaGeneratorOutput
+from ee.hogai.graph.retention.nodes import RetentionGeneratorNode, RetentionSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.models import Action
 from posthog.schema import (
@@ -15,19 +14,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.test.base import BaseTest
-
-
-class TestRetentionPlannerNode(BaseTest):
-    def test_retention_planner_prompt_has_tools(self):
-        node = RetentionPlannerNode(self.team, self.user)
-        with patch.object(RetentionPlannerNode, "_model") as model_mock:
-
-            def assert_prompt(prompt):
-                self.assertIn("retrieve_event_properties", str(prompt))
-                return AIMessage(content="Thought.\nAction: abc")
-
-            model_mock.return_value = RunnableLambda(assert_prompt)
-            node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
 
 
 class TestRetentionGeneratorNode(BaseTest):
