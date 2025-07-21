@@ -60,8 +60,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }: {
             source: string
             target: string
-            sourceHandle: string
-            targetHandle: string
+            sourceHandle: string | null
+            targetHandle: string | null
         }) => ({ source, target, sourceHandle, targetHandle }),
         setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
