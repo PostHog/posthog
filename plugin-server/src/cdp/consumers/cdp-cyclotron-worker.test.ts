@@ -44,6 +44,7 @@ describe('CdpCyclotronWorker', () => {
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                template_id: 'template-webhook',
             })
         )
 
@@ -149,6 +150,7 @@ describe('CdpCyclotronWorker', () => {
             expect(nativeExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'native-webhook' }),
+                    queue: 'native',
                 })
             )
 
@@ -156,6 +158,7 @@ describe('CdpCyclotronWorker', () => {
             expect(pluginExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'plugin-posthog-intercom-plugin' }),
+                    queue: 'plugin',
                 })
             )
 
@@ -163,12 +166,14 @@ describe('CdpCyclotronWorker', () => {
             expect(segmentExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
                     hogFunction: expect.objectContaining({ template_id: 'segment-actions-amplitude' }),
+                    queue: 'segment',
                 })
             )
 
             expect(hogExecutorSpy).toHaveBeenCalledTimes(1)
             expect(hogExecutorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
+                    hogFunction: expect.objectContaining({ template_id: 'template-webhook' }),
                     queue: 'hog',
                 })
             )
