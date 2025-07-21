@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import emoji
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from loginas.utils import is_impersonated_session
 from rest_framework import filters, serializers, viewsets, pagination
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -12,6 +13,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation
+from posthog.models.activity_logging.activity_log import Detail, Change, log_activity
+from posthog.models.utils import UUIDT
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -52,7 +55,21 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
-        return super().update(instance, validated_data)
+
+        # Store before state for activity logging
+        tagged_users_before = set(instance.tagged_users or [])
+
+        # Perform the update
+        instance = super().update(instance, validated_data)
+
+        # Check if tagged_users changed and log activity
+        tagged_users_after = set(instance.tagged_users or [])
+        newly_tagged_users = tagged_users_after - tagged_users_before
+
+        if newly_tagged_users:
+            self._log_user_tagging_activity(instance, list(newly_tagged_users))
+
+        return instance
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         is_emoji = attrs.get("is_emoji", False)
@@ -90,7 +107,44 @@ class AnnotationSerializer(serializers.ModelSerializer):
             dashboard_id=request.data.get("dashboard_id", None),
             **validated_data,
         )
+
+        # Log activity for newly tagged users
+        tagged_users = annotation.tagged_users or []
+        if tagged_users:
+            self._log_user_tagging_activity(annotation, tagged_users)
+
         return annotation
+
+    def _log_user_tagging_activity(self, annotation: Annotation, tagged_users: list[str]) -> None:
+        """Log activity when users are tagged in annotations."""
+        request = self.context["request"]
+
+        for tagged_user in tagged_users:
+            log_activity(
+                organization_id=cast(UUIDT, annotation.organization_id),
+                team_id=annotation.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                scope="Replay" if annotation.scope == Annotation.Scope.RECORDING else annotation.scope,
+                item_id=annotation.id,
+                activity="tagged_user",
+                detail=Detail(
+                    name=tagged_user,
+                    changes=[
+                        Change(
+                            type="Replay" if annotation.scope == Annotation.Scope.RECORDING else annotation.scope,
+                            action="tagged_user",
+                            after={
+                                "tagged_user": tagged_user,
+                                "annotation_scope": annotation.scope,
+                                "annotation_recording_id": annotation.recording_id,
+                                "annotation_insight_id": annotation.insight_short_id,
+                                "annotation_dashboard_id": annotation.dashboard_id,
+                            },
+                        )
+                    ],
+                ),
+            )
 
 
 class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
@@ -121,7 +175,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if scope:
             # let's allow the more recently used "insight" scope to be used as "dashboard_item"
             scope = "dashboard_item" if scope == "insight" else scope
-            if scope not in [scope.value for scope in Annotation.Scope]:
+            if scope not in [s.value for s in Annotation.Scope]:
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
             queryset = queryset.filter(scope=scope)

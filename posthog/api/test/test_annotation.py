@@ -747,3 +747,97 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         annotation.refresh_from_db()
         assert annotation.tagged_users == expected_tagged_users
         assert response.json()["tagged_users"] == expected_tagged_users
+
+    @patch("posthog.api.annotation.log_activity")
+    def test_activity_logging_when_users_tagged_in_annotation(self, mock_log_activity: MagicMock) -> None:
+        content = "Important annotation with @alice and @bob"
+        tagged_users = ["alice", "bob"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": content,
+                "tagged_users": tagged_users,
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Should log activity for each tagged user
+        assert mock_log_activity.call_count == 2
+
+        # Check the activity log calls
+        calls = mock_log_activity.call_args_list
+        assert any("@alice tagged in annotation" in str(call) for call in calls)
+        assert any("@bob tagged in annotation" in str(call) for call in calls)
+
+    @patch("posthog.api.annotation.log_activity")
+    def test_activity_logging_when_users_tagged_in_recording_comment(self, mock_log_activity: MagicMock) -> None:
+        content = "Recording comment with @alice"
+        tagged_users = ["alice"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": content,
+                "tagged_users": tagged_users,
+                "scope": "recording",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        annotations_response = self.client.get("/api/projects/{self.team.id}/activity_log/")
+        assert annotations_response.status_code == status.HTTP_200_OK
+        assert response.json() == ""
+
+    @patch("posthog.api.annotation.log_activity")
+    def test_activity_logging_when_updating_tagged_users(self, mock_log_activity: MagicMock) -> None:
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Original content with @old_user",
+            tagged_users=["old_user"],
+        )
+
+        # Update to add new tagged user
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.pk}/",
+            {
+                "content": "Updated content with @old_user and @new_user",
+                "tagged_users": ["old_user", "new_user"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        # Should log activity for newly tagged user only
+        assert mock_log_activity.call_count == 1
+
+        # Check that it logged the new user
+        call_args = mock_log_activity.call_args
+        assert "@new_user tagged in annotation" in str(call_args)
+
+    def test_each_tagged_user_gets_separate_activity_log_entry(self) -> None:
+        content = "Notification test with @alice, @bob, and @charlie"
+        tagged_users = ["alice", "bob", "charlie"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": content,
+                "tagged_users": tagged_users,
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        annotations_response = self.client.get("/api/projects/{self.team.id}/activity_log/")
+        assert annotations_response.status_code == status.HTTP_200_OK
+        assert response.json() == ""

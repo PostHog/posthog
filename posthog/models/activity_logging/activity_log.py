@@ -51,7 +51,7 @@ ActivityScope = Literal[
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "tagged_user"]
 
 
 @dataclasses.dataclass(frozen=True)
