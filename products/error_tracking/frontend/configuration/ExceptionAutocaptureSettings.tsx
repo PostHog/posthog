@@ -1,7 +1,6 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { BindLogic, useActions } from 'kea'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -11,10 +10,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'
 
-import ErrorTrackingRules, { AddRule } from './rules/ErrorTrackingRules'
+import ErrorTrackingRules from './rules/ErrorTrackingRules'
 import { ErrorTrackingRuleType } from './rules/types'
 import { ErrorTrackingSuppressionRule } from './rules/types'
-import { errorTrackingRulesLogic } from './rules/errorTrackingRulesLogic'
 
 export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -74,12 +72,12 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JSX.Element {
     return (
         <ErrorTrackingRules<ErrorTrackingSuppressionRule>
+            ruleType={ErrorTrackingRuleType.Suppression}
             disabledReason={
                 disabled
                     ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
                     : undefined
             }
-            ruleType={ErrorTrackingRuleType.Suppression}
         >
             {({ rule, editing }) => {
                 return (
@@ -90,7 +88,7 @@ function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JS
                                 <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                 <div>of the following filters:</div>
                             </div>
-                            <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                            {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
                         </div>
                         <LemonDivider className="my-0" />
                         <div className="p-2">

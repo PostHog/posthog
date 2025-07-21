@@ -10,7 +10,6 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
-import { PageHeader } from 'lib/components/PageHeader'
 
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { DndContext } from '@dnd-kit/core'
@@ -32,7 +31,7 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
 }: {
     ruleType: ErrorTrackingRuleType
     children: ({ rule, editing, disabled }: { rule: T; editing: boolean; disabled: boolean }) => JSX.Element
-    disabledReason: string | undefined
+    disabledReason?: string
 }): JSX.Element {
     const logicProps = { ruleType }
     const logic = errorTrackingRulesLogic(logicProps)
@@ -48,6 +47,11 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
         <Spinner />
     ) : (
         <BindLogic logic={errorTrackingRulesLogic} props={logicProps}>
+            <div className="flex gap-x-2">
+                <AddRule disabledReason={disabledReason} />
+                {allRules.length > 1 && <ReorderRules />}
+            </div>
+
             <DndContext
                 modifiers={[restrictToVerticalAxis, restrictToParentElement]}
                 onDragEnd={({ active, over }) => {
@@ -69,25 +73,14 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
 
                             return (
                                 <SortableRule key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
-                                    <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
-                                        {disabled && <DisabledBanner />}
-                                        {children({ rule, editing, disabled })}
-                                    </LemonCard>
+                                    {disabled && <DisabledBanner />}
+                                    {children({ rule, editing, disabled })}
                                 </SortableRule>
                             )
                         })}
                     </div>
                 </SortableContext>
             </DndContext>
-
-            <PageHeader
-                buttons={
-                    <>
-                        {allRules.length > 1 && <ReorderRules />}
-                        <AddRule disabledReason={disabledReason} />
-                    </>
-                }
-            />
         </BindLogic>
     )
 }
@@ -138,12 +131,12 @@ const ReorderRules = (): JSX.Element | null => {
     ) : (
         <div>
             <LemonButton
-                type="secondary"
                 size="small"
+                type="secondary"
                 onClick={startReorderingRules}
                 disabledReason={localRules.length > 0 ? 'Finish editing all rules before reordering' : undefined}
             >
-                Reorder rules
+                Reorder
             </LemonButton>
         </div>
     )
