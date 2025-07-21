@@ -171,93 +171,52 @@ class SourceConfigGenerator:
 
         nested_classes = []
 
-        # Select with sub-fields
-        if field.flattenComplexSelect:
-            # Legacy flattening behavior - flatten option fields to main config
-            # The select field itself becomes a simple literal
-            literal_type = self._get_select_literal_type(field)
+        # Nested behavior - create nested structure
+        nested_class_name = self._get_nested_class_name(field.name, parent_class)
 
-            python_field_name, should_alias = self._make_python_identifier(field.name)
+        nested_field_defs = []
 
-            if should_alias:
-                field_parts.append(f'alias="{field.name}"')
+        literal_type = self._get_select_literal_type(field)
 
-            if not field.required:
-                literal_type = f"{literal_type} | None"
-
-            if field_parts:
-                config_value = f"config.value({', '.join(field_parts)})"
-                select_field = f"    {python_field_name}: {literal_type} = {config_value}"
-            else:
-                select_field = f"    {python_field_name}: {literal_type}"
-
-            option_fields = []
-            seen_field_names = set()
-            for option in field.options:
-                if not option.fields:
-                    continue
-
-                for option_field in option.fields:
-                    field_defs, nested = self._process_field(option_field, parent_class, source_config)
-                    if field_defs:
-                        for field_def in field_defs:
-                            field_name = field_def.split(":")[0].strip()
-                            if field_name not in seen_field_names:
-                                option_fields.append(field_def)
-                                seen_field_names.add(field_name)
-                    if nested:
-                        nested_classes.extend(nested)
-
-            all_fields = [select_field, *option_fields]
-            return all_fields, nested_classes
-
+        if field.defaultValue:
+            nested_field_defs.append(f'    selection: {literal_type} = "{field.defaultValue}"')
         else:
-            # Nested behavior - create nested structure
-            nested_class_name = self._get_nested_class_name(field.name, parent_class)
+            nested_field_defs.append(f"    selection: {literal_type}")
 
-            nested_field_defs = []
+        seen_field_names = set()
 
-            literal_type = self._get_select_literal_type(field)
+        for option in field.options:
+            if not option.fields:
+                continue
 
-            if field.defaultValue:
-                nested_field_defs.append(f'    selection: {literal_type} = "{field.defaultValue}"')
+            for option_field in option.fields:
+                field_defs, nested = self._process_field(option_field, nested_class_name, source_config)
+                if field_defs:
+                    for field_def in field_defs:
+                        field_name = field_def.split(":")[0].strip()
+                        if field_name not in seen_field_names:
+                            nested_field_defs.extend(field_defs)
+                            seen_field_names.add(field_name)
+                if nested:
+                    nested_classes.extend(nested)
+
+        nested_config = self._generate_config_class(nested_class_name, nested_field_defs)
+        nested_classes.append(nested_config)
+
+        python_field_name, should_alias = self._make_python_identifier(field.name)
+
+        if should_alias:
+            if field.required:
+                parent_field = f'    {python_field_name}: {nested_class_name} = config.value(alias="{field.name}")'
             else:
-                nested_field_defs.append(f"    selection: {literal_type}")
-
-            seen_field_names = set()
-
-            for option in field.options:
-                if not option.fields:
-                    continue
-
-                for option_field in option.fields:
-                    field_defs, nested = self._process_field(option_field, nested_class_name, source_config)
-                    if field_defs:
-                        for field_def in field_defs:
-                            field_name = field_def.split(":")[0].strip()
-                            if field_name not in seen_field_names:
-                                nested_field_defs.extend(field_defs)
-                                seen_field_names.add(field_name)
-                    if nested:
-                        nested_classes.extend(nested)
-
-            nested_config = self._generate_config_class(nested_class_name, nested_field_defs)
-            nested_classes.append(nested_config)
-
-            python_field_name, should_alias = self._make_python_identifier(field.name)
-
-            if should_alias:
-                if field.required:
-                    parent_field = f'    {python_field_name}: {nested_class_name} = config.value(alias="{field.name}")'
-                else:
-                    parent_field = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default=None)'
+                parent_field = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default=None)'
+        else:
+            if field.required:
+                parent_field = f"    {python_field_name}: {nested_class_name}"
             else:
-                if field.required:
-                    parent_field = f"    {python_field_name}: {nested_class_name}"
-                else:
-                    parent_field = f"    {python_field_name}: {nested_class_name} | None = None"
+                parent_field = f"    {python_field_name}: {nested_class_name} | None = None"
 
-            return [parent_field], nested_classes
+        return [parent_field], nested_classes
 
     def _process_switch_group_field(
         self, field: SourceFieldSwitchGroupConfig, parent_class: str, source_config: SourceConfig

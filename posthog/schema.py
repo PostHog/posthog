@@ -13129,7 +13129,6 @@ class SourceFieldSelectConfig(BaseModel):
     )
     converter: Optional[Converter] = None
     defaultValue: str
-    flattenComplexSelect: Optional[str] = None
     label: str
     name: str
     options: list[Option]

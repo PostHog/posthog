@@ -11,6 +11,7 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     Type4,
     Option,
+    Converter,
 )
 
 FieldType = Union[
@@ -124,8 +125,9 @@ Currently, **read permissions are required** for the following resources:
                     name="using_ssl",
                     label="Use SSL?",
                     required=True,
-                    defaultValue="1",
-                    options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                    defaultValue="true",
+                    converter=Converter.STR_TO_BOOL,
+                    options=[Option(label="Yes", value="true"), Option(label="No", value="false")],
                 ),
                 SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
             ],
@@ -180,7 +182,6 @@ Currently, **read permissions are required** for the following resources:
                     label="Authentication type",
                     required=True,
                     defaultValue="password",
-                    flattenComplexSelect="selection",
                     options=[
                         Option(
                             label="Password",
@@ -288,7 +289,6 @@ Currently, **read permissions are required** for the following resources:
                     label="Vitally region",
                     required=True,
                     defaultValue="EU",
-                    flattenComplexSelect="selection",
                     options=[
                         Option(label="EU", value="EU"),
                         Option(

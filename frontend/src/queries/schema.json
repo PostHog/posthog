@@ -21605,9 +21605,6 @@
                 "defaultValue": {
                     "type": "string"
                 },
-                "flattenComplexSelect": {
-                    "type": "string"
-                },
                 "label": {
                     "type": "string"
                 },

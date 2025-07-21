@@ -55,7 +55,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
         },
         {
             type: 'select',
-            name: 'auth_type',
+            name: 'type',
             label: 'Authentication type',
             required: true,
             defaultValue: 'password',
@@ -129,17 +129,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
 
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
-            const shouldFlatten = field.flattenComplexSelect && hasOptionFields
 
             if (hasOptionFields) {
-                if (shouldFlatten) {
-                    obj[field.name] = field.defaultValue
-                    field.options.flatMap((n) => n.fields ?? []).forEach((f) => fieldDefaults(f, obj))
-                } else {
-                    obj[field.name] = {}
-                    obj[field.name]['selection'] = field.defaultValue
-                    field.options.flatMap((n) => n.fields ?? []).forEach((f) => fieldDefaults(f, obj[field.name]))
-                }
+                obj[field.name] = {}
+                obj[field.name]['selection'] = field.defaultValue
+                field.options.flatMap((n) => n.fields ?? []).forEach((f) => fieldDefaults(f, obj[field.name]))
             } else {
                 obj[field.name] = field.defaultValue
             }
@@ -780,28 +774,17 @@ export const getErrorsForFields = (
 
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
-            const shouldFlatten = field.flattenComplexSelect && hasOptionFields
 
             if (!hasOptionFields) {
                 if (field.required && !valueObj[field.name]) {
                     errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
                 }
             } else {
-                if (shouldFlatten) {
-                    if (field.required && !valueObj[field.name]) {
-                        errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
-                    }
-                    const selection = valueObj[field.name]
-                    field.options
-                        .find((n) => n.value === selection)
-                        ?.fields?.forEach((f) => validateField(f, valueObj, errorsObj))
-                } else {
-                    errorsObj[field.name] = {}
-                    const selection = valueObj[field.name]?.['selection']
-                    field.options
-                        .find((n) => n.value === selection)
-                        ?.fields?.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
-                }
+                errorsObj[field.name] = {}
+                const selection = valueObj[field.name]?.['selection']
+                field.options
+                    .find((n) => n.value === selection)
+                    ?.fields?.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
             }
             return
         }

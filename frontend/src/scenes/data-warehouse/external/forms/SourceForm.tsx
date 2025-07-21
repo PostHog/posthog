@@ -113,7 +113,6 @@ const sourceFieldToElement = (
 
     if (field.type === 'select') {
         const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
-        const shouldFlatten = field.flattenComplexSelect && hasOptionFields
 
         const getOptions = (value: any): JSX.Element[] | undefined =>
             field.options
@@ -121,10 +120,11 @@ const sourceFieldToElement = (
                 ?.fields?.map((optionField) =>
                     sourceFieldToElement(optionField, sourceConfig, lastValue?.[optionField.name])
                 )
+
         return (
             <LemonField
                 key={field.name}
-                name={shouldFlatten ? field.name : hasOptionFields ? [field.name, 'selection'] : field.name}
+                name={hasOptionFields ? [field.name, 'selection'] : field.name}
                 label={field.label}
             >
                 {({ value, onChange }) => (
@@ -138,11 +138,7 @@ const sourceFieldToElement = (
                             }
                             onChange={onChange}
                         />
-                        {shouldFlatten ? (
-                            <>{getOptions(value)}</>
-                        ) : (
-                            <Group name={field.name}>{getOptions(value)}</Group>
-                        )}
+                        <Group name={field.name}>{getOptions(value)}</Group>
                     </>
                 )}
             </LemonField>

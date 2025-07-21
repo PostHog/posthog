@@ -364,68 +364,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             'select_with_options: Literal["1", "0"] = config.value(alias="select-with-options", default="1")' in output
         )
 
-    def test_source_config_select_flatten_complex_structure(self):
-        config = SourceConfig(
-            name=ExternalDataSourceType.STRIPE,
-            caption="",
-            fields=cast(
-                list[FieldType],
-                [
-                    SourceFieldSelectConfig(
-                        name="select-with-fields",  # dashes are not allowed in python identifiers
-                        label="select label",
-                        required=True,
-                        defaultValue="option_1",
-                        flattenComplexSelect="selection",
-                        options=[
-                            Option(
-                                label="option 1",
-                                value="option_1",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldInputConfig(
-                                            name="option-1-input",  # dashes are not allowed in python identifiers
-                                            label="option_1 label",
-                                            type=Type4.TEXT,
-                                            required=True,
-                                            placeholder="option_1 placeholder",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                            Option(
-                                label="option 2",
-                                value="option_2",
-                                fields=cast(
-                                    list[FieldType],
-                                    [
-                                        SourceFieldInputConfig(
-                                            name="option-2-input",  # dashes are not allowed in python identifiers
-                                            label="option_2 label",
-                                            type=Type4.TEXT,
-                                            required=True,
-                                            placeholder="option_2 placeholder",
-                                        ),
-                                    ],
-                                ),
-                            ),
-                        ],
-                    )
-                ],
-            ),
-        )
-
-        output = self._run({ExternalDataSource.Type.STRIPE: config})
-        assert "class StripeSelectWithFieldsConfig(config.Config)" not in output
-
-        assert (
-            'select_with_fields: Literal["option_1", "option_2"] = config.value(alias="select-with-fields", default="option_1")'
-            in output
-        )
-        assert 'option_1_input: str = config.value(alias="option-1-input")' in output
-        assert 'option_2_input: str = config.value(alias="option-2-input")' in output
-
     def test_source_config_ssh_tunnel_reference(self):
         config = SourceConfig(
             name=ExternalDataSourceType.STRIPE,

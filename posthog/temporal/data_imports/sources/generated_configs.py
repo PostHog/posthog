@@ -20,6 +20,21 @@ class BigQueryTemporaryDatasetConfig(config.Config):
 
 
 @config.config
+class SnowflakeAuthTypeConfig(config.Config):
+    user: str
+    password: str
+    private_key: str
+    selection: Literal["password", "keypair"] = "password"
+    passphrase: str | None = None
+
+
+@config.config
+class VitallyRegionConfig(config.Config):
+    subdomain: str
+    selection: Literal["EU", "US"] = "EU"
+
+
+@config.config
 class BigQuerySourceConfig(config.Config):
     key_file: dict[str, Any]
     dataset_id: str
@@ -135,12 +150,8 @@ class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
     warehouse: str
-    user: str
-    password: str
-    private_key: str
+    auth_type: SnowflakeAuthTypeConfig
     schema: str
-    auth_type: Literal["password", "keypair"] = "password"
-    passphrase: str | None = None
     role: str | None = None
 
 
@@ -164,8 +175,7 @@ class TemporalIOSourceConfig(config.Config):
 @config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
-    subdomain: str
-    region: Literal["EU", "US"] = "EU"
+    region: VitallyRegionConfig
 
 
 @config.config
