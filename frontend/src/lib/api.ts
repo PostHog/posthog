@@ -3615,6 +3615,7 @@ const api = {
                 ui_context?: MaxUIContext
                 conversation?: string | null
                 trace_id: string
+                session_id?: string
             },
             options?: ApiMethodOptions
         ): Promise<Response> {
