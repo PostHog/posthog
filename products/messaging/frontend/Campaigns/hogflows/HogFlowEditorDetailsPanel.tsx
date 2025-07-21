@@ -7,6 +7,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { HogFlowFilters } from './filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
 export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const { selectedNode, nodes, edges } = useValues(hogFlowEditorLogic)
@@ -107,6 +108,24 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
                     )}
                 </div>
             )}
+            {/* Collapsible JSON section */}
+            <div className="p-2">
+                <LemonCollapse
+                    className="mt-2"
+                    panels={[
+                        {
+                            key: 'json',
+                            header: 'Debug',
+                            content: (
+                                <pre className="bg-bg-light border rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">
+                                    {JSON.stringify(action, null, 2)}
+                                </pre>
+                            ),
+                        },
+                    ]}
+                    defaultActiveKey={undefined}
+                />
+            </div>
         </div>
     )
 }

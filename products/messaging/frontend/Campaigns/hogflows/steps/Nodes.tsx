@@ -4,11 +4,17 @@ import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
 import type { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
-import { useValues } from 'kea'
-import { useEffect } from 'react'
-export type ReactFlowNodeType = HogFlowAction['type']
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+import clsx from 'clsx'
+import { IconPlus } from '@posthog/icons'
+import { NODE_WIDTH, NODE_HEIGHT } from '../constants'
+
+export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
+    dropzone: DropzoneNode,
+    // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
     function: HogFlowActionNode,
     function_email: HogFlowActionNode,
@@ -21,6 +27,35 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     exit: HogFlowActionNode,
     random_cohort_branch: HogFlowActionNode,
     wait_until_time_window: HogFlowActionNode,
+}
+
+function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
+    const [isHighlighted, setIsHighlighted] = useState(false)
+    const { setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
+
+    useEffect(() => {
+        setHighlightedDropzoneNodeId(isHighlighted ? id : null)
+    }, [id, isHighlighted, setHighlightedDropzoneNodeId])
+
+    return (
+        <div
+            onDragOver={() => setIsHighlighted(true)}
+            onDragLeave={() => setIsHighlighted(false)}
+            className={clsx(
+                'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer',
+                isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
+            }}
+        >
+            <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
+                <IconPlus className="text-sm text-primary" />
+            </div>
+        </div>
+    )
 }
 
 function HogFlowActionNodeHandle({
@@ -59,7 +94,7 @@ function HogFlowActionNodeHandle({
             isConnectableStart={handle.type === 'source'}
             isConnectableEnd={handle.type === 'target'}
             style={getHandlePosition(handle, node)}
-            className="flex justify-center items-center rounded border-secondary transition-all cursor-pointer bg-surface-primary hover:bg-surface-secondary"
+            className="w-[12px] h-[12px] flex justify-center items-center rounded border-secondary transition-all cursor-pointer bg-surface-primary hover:bg-surface-secondary"
         />
     )
 }

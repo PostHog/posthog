@@ -26,7 +26,7 @@ import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 function HogFlowEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges } = useValues(hogFlowEditorLogic)
+    const { nodes, edges, dropzoneNodes } = useValues(hogFlowEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -53,7 +53,7 @@ function HogFlowEditorContent(): JSX.Element {
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<HogFlowActionNode, Edge>
                 fitView
-                nodes={nodes}
+                nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -72,6 +72,7 @@ function HogFlowEditorContent(): JSX.Element {
                 connectionLineType={ConnectionLineType.SmoothStep}
                 elementsSelectable={true}
                 nodesConnectable={true}
+                autoPanOnConnect
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
 

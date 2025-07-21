@@ -61,7 +61,7 @@ function StepConditionalBranchConfiguration({
     const updateNodeInternals = useUpdateNodeInternals()
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
-    const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
+    const { setCampaignActionConfig, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
     const nodeEdges = edgesByActionId[action.id] || []
 
@@ -87,10 +87,16 @@ function StepConditionalBranchConfiguration({
         // All others should be disabled for deletion until the subbranch is removed
 
         // For condition modifiers we need to setup the branches as well
-        setCampaignAction(action.id, {
-            ...action,
-            config: { ...action.config, conditions },
+        setCampaignActionConfig(action.id, {
+            ...action.config,
+            conditions,
         })
+
+        // HACK: We need to update the node internals after state updates (after resetFlowFromHogFlow runs)
+        // TODO: Update state / node handles more directly to avoid setTimeout
+        setTimeout(() => {
+            updateNodeInternals(action.id)
+        }, 100)
     }
 
     const addCondition = (): void => {
@@ -98,8 +104,6 @@ function StepConditionalBranchConfiguration({
             ...conditions,
             { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
         ])
-        // Update handles for the node after adding a condition
-        updateNodeInternals(action.id)
     }
 
     const removeCondition = (index: number): void => {
@@ -111,8 +115,6 @@ function StepConditionalBranchConfiguration({
         setConditions(conditions.filter((_, i) => i !== index))
         // Branch edges come first as they are sorted to show on the left
         setCampaignActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
-        // Update handles for the node after removing a condition
-        updateNodeInternals(action.id)
     }
 
     return (

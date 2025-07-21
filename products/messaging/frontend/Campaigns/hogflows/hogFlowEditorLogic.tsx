@@ -2,23 +2,26 @@ import { lemonToast } from '@posthog/lemon-ui'
 import {
     applyEdgeChanges,
     applyNodeChanges,
+    Edge,
     EdgeChange,
+    getSmoothStepPath,
     MarkerType,
     NodeChange,
     Position,
     ReactFlowInstance,
 } from '@xyflow/react'
-import { Edge, Node } from '@xyflow/react'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { Node } from '@xyflow/react'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
-import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
+import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 import type { DragEvent } from 'react'
+import { subscriptions } from 'node_modules/kea-subscriptions/lib'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}_${edge.type}${edge.index === undefined ? '' : `_${edge.index}`}->${edge.to}`.trim()
@@ -42,6 +45,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
         onEdgesDelete: (deleted: Edge[]) => ({ deleted }),
         setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
+        setDropzoneNodes: (dropzoneNodes: Node<{ edge: Edge }>[]) => ({ dropzoneNodes }),
         setEdges: (edges: Edge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
@@ -64,6 +68,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             targetHandle: string | null
         }) => ({ source, target, sourceHandle, targetHandle }),
         setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
+        setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
     }),
     reducers(() => ({
@@ -77,6 +82,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             [] as HogFlowActionNode[],
             {
                 setNodes: (_, { nodes }) => nodes,
+            },
+        ],
+        dropzoneNodes: [
+            [] as Node<{ edge: Edge }>[],
+            {
+                setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
+            },
+        ],
+        highlightedDropzoneNodeId: [
+            null as string | null,
+            {
+                setHighlightedDropzoneNodeId: (_, { highlightedDropzoneNodeId }) => highlightedDropzoneNodeId,
             },
         ],
         edges: [
@@ -131,17 +148,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onNodesChange: ({ nodes }) => {
             actions.setNodes(applyNodeChanges(nodes, values.nodes))
         },
-
-        setCampaignActionEdges: () => {
-            actions.resetFlowFromHogFlow(values.campaign)
-        },
-        setCampaignAction: () => {
-            actions.resetFlowFromHogFlow(values.campaign)
-        },
-        setCampaignInfo: ({ campaign }) => {
-            actions.resetFlowFromHogFlow({ ...values.campaign, ...campaign })
-        },
-
         resetFlowFromHogFlow: ({ hogFlow }) => {
             try {
                 const edges: Edge[] = hogFlow.edges.map((edge) => ({
@@ -281,6 +287,44 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             })
         },
 
+        onDragStart: () => {
+            const { nodes, edges } = values
+
+            const dropzoneNodes: Node<{ edge: Edge }>[] = []
+
+            edges.forEach((edge) => {
+                const sourceNode = nodes.find((n) => n.id === edge.source)
+                const targetNode = nodes.find((n) => n.id === edge.target)
+
+                if (sourceNode && targetNode) {
+                    const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
+                    const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
+
+                    const [, labelX, labelY] = getSmoothStepPath({
+                        sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
+                        sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
+                        targetX: targetNode.position.x + (targetHandle?.x || 0),
+                        targetY: targetNode.position.y + (targetHandle?.y || 0),
+                        sourcePosition: sourceHandle?.position || Position.Bottom,
+                        targetPosition: targetHandle?.position || Position.Top,
+                    })
+
+                    dropzoneNodes.push({
+                        id: `dropzone_edge_${edge.id}`,
+                        type: 'dropzone',
+                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                        data: {
+                            edge,
+                        },
+                        draggable: false,
+                        selectable: false,
+                    })
+                }
+            })
+
+            actions.setDropzoneNodes(dropzoneNodes)
+        },
+
         onEdgesDelete: ({ deleted }) => {
             actions.setCampaignInfo({
                 edges: values.campaign.edges.filter((edge) => !deleted.some((e) => getEdgeId(edge) === e.id)),
@@ -294,6 +338,78 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         onDrop: ({ event }) => {
             event.preventDefault()
+
+            // Drop node into dropzone edge if possible, otherwise insert with no connections at drop position
+            const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+
+            if (values.newDraggingNode && dropzoneNode) {
+                const edgeToInsertNodeInto = dropzoneNode?.data.edge
+                const step = getHogFlowStep(values.newDraggingNode)
+
+                if (!step) {
+                    throw new Error(`Step not found for action type: ${values.newDraggingNode}`)
+                }
+
+                const { action: partialNewAction, branchEdges = 0 } = step.create()
+
+                const newAction = {
+                    id: `action_${step.type}_${uuid()}`,
+                    type: step.type,
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
+                    ...partialNewAction,
+                    position: dropzoneNode.position,
+                } as HogFlowAction
+
+                const edgeToBeReplacedIndex = values.campaign.edges.findIndex(
+                    (edge) => getEdgeId(edge) === edgeToInsertNodeInto.id
+                )
+
+                if (edgeToBeReplacedIndex === -1) {
+                    throw new Error('Edge to be replaced not found')
+                }
+
+                // We add the new action with two new edges - the continue edge and the target edge
+                // We also then check for any other missing edges based on the
+
+                const newEdges: HogFlow['edges'] = [...values.campaign.edges]
+
+                // First remove the edge to be replaced
+                const edgeToBeReplaced = values.campaign.edges[edgeToBeReplacedIndex]
+
+                newEdges.splice(edgeToBeReplacedIndex, 1)
+
+                // Push the source edge first
+                newEdges.push({
+                    ...edgeToBeReplaced,
+                    to: newAction.id,
+                })
+
+                // Then any branch edges
+                for (let i = 0; i < branchEdges; i++) {
+                    // Add in branching edges
+                    newEdges.push({
+                        ...edgeToBeReplaced,
+                        index: i,
+                        type: 'branch',
+                        from: newAction.id,
+                    })
+                }
+
+                // Finally the continue edge
+                newEdges.push({
+                    ...edgeToBeReplaced,
+                    from: newAction.id,
+                })
+
+                const oldActions = values.campaign.actions
+                const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
+
+                actions.setCampaignInfo({ actions: newActions, edges: newEdges })
+                actions.setNewDraggingNode(null)
+                actions.setSelectedNodeId(newAction.id)
+            }
+
             if (values.newDraggingNode) {
                 const step = getHogFlowStep(values.newDraggingNode)
                 if (!step) {
@@ -323,6 +439,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setNewDraggingNode(null)
                 actions.setSelectedNodeId(newAction.id)
             }
+
+            // We can clear the dropzones now
+            actions.setDropzoneNodes([])
         },
 
         onNodeDragStop: ({ node }) => {
@@ -333,8 +452,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             const newEdge: HogFlow['edges'][number] = {
                 from: source,
                 to: target,
-                index: sourceHandle.split('_')[1] === undefined ? undefined : Number(sourceHandle.split('_')[1]),
-                type: sourceHandle.split('_')[0] as HogFlow['edges'][number]['type'],
+                index: sourceHandle?.split('_')[1] === undefined ? undefined : Number(sourceHandle.split('_')[1]),
+                type: sourceHandle?.split('_')[0] as HogFlow['edges'][number]['type'],
             }
 
             // Add the new edge to the campaign's edges array, preserving all other edges
@@ -344,11 +463,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             })
         },
     })),
-
-    afterMount(({ actions, values }) => {
-        // Initialize the flow with the current campaign data
-        if (values.campaign) {
-            actions.resetFlowFromHogFlow(values.campaign)
-        }
-    }),
+    subscriptions(({ actions }) => ({
+        campaign: (hogFlow?: HogFlow) => {
+            if (hogFlow) {
+                actions.resetFlowFromHogFlow(hogFlow)
+            }
+        },
+    })),
 ])
