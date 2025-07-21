@@ -13,6 +13,8 @@ const config = {
     tsconfig: 'tsconfig.json',
     discriminatorType: 'open-api',
     skipTypeCheck: true,
+    jsDoc: 'extended', // Enable extended JSDoc processing
+    extraTags: ['@default'], // Include @default tags
 }
 
 const output_path = 'src/queries/schema.json'

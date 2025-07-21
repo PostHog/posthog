@@ -14865,9 +14865,11 @@
             "additionalProperties": false,
             "properties": {
                 "type": {
-                    "$ref": "#/definitions/FilterLogicalOperator"
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Defines how filters should be combined"
                 },
                 "values": {
+                    "description": "The filters and their values to be applied to the recordings",
                     "items": {
                         "$ref": "#/definitions/MaxUniversalFilterValue"
                     },
@@ -14904,9 +14906,11 @@
             "additionalProperties": false,
             "properties": {
                 "type": {
-                    "$ref": "#/definitions/FilterLogicalOperator"
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Defines how filters should be combined"
                 },
                 "values": {
+                    "description": "The filter groups and their values to be applied to the recordings",
                     "items": {
                         "$ref": "#/definitions/MaxInnerUniversalFiltersGroup"
                     },
@@ -14920,26 +14924,34 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "default": "-5d",
+                    "description": "The start date of the recording. If not provided, the default value is the last 5 days. Relative Date (Days): Use the format '-Nd' for the last N days (e.g., 'last 5 days' becomes '-5d') Relative Date (Hours): Use the format '-Nh' for the last N hours (e.g., 'last 5 hours' becomes '-5h') Custom Date: If a specific start date is provided, use the format ISO8601 date string",
                     "type": ["string", "null"]
                 },
                 "date_to": {
+                    "description": "ISO8601 date string. The end date of the recording. If not provided, the default value is today.",
                     "type": ["string", "null"]
                 },
                 "duration": {
+                    "default": [],
+                    "description": "The duration of the recording. If not provided, the default value is an empty list.",
                     "items": {
                         "$ref": "#/definitions/RecordingDurationFilter"
                     },
                     "type": "array"
                 },
                 "filter_group": {
-                    "$ref": "#/definitions/MaxOuterUniversalFiltersGroup"
+                    "$ref": "#/definitions/MaxOuterUniversalFiltersGroup",
+                    "description": "The filter group of the recording."
                 },
                 "filter_test_accounts": {
+                    "description": "Whether to filter test accounts.",
                     "type": "boolean"
                 },
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
-                    "default": "start_time"
+                    "default": "start_time",
+                    "description": "The order of the recordings"
                 }
             },
             "required": ["duration", "filter_group"],

@@ -1840,42 +1840,23 @@ class PersonType(BaseModel):
 
 
 class PropertyFilterType(StrEnum):
-    """The PropertyFilterType specifies the type of property to filter on."""
-
     META = "meta"
-    """Filter by meta properties"""
     EVENT = "event"
-    """Filter by event properties"""
     EVENT_METADATA = "event_metadata"
-    """Filter by event metadata properties"""
     PERSON = "person"
-    """Filter by person properties"""
     ELEMENT = "element"
-    """Filter by element properties"""
     FEATURE = "feature"
-    """Filter by feature properties"""
     SESSION = "session"
-    """Filter by session properties"""
     COHORT = "cohort"
-    """Filter by cohort properties"""
     RECORDING = "recording"
-    """Filter by recording properties"""
     LOG_ENTRY = "log_entry"
-    """Filter by log entry properties"""
     GROUP = "group"
-    """Filter by group properties"""
     HOGQL = "hogql"
-    """Filter by HogQL properties"""
     DATA_WAREHOUSE = "data_warehouse"
-    """Filter by data warehouse properties"""
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
-    """Filter by data warehouse person properties"""
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
-    """Filter by error tracking issue properties"""
     REVENUE_ANALYTICS = "revenue_analytics"
-    """Filter by revenue analytics properties"""
     LOG = "log"
-    """Filter by log properties"""
 
 
 class PropertyMathType(StrEnum):
@@ -1891,52 +1872,28 @@ class PropertyMathType(StrEnum):
 
 
 class PropertyOperator(StrEnum):
-    """The PropertyOperator specifies the operator to use for the comparison in a filter."""
-
     EXACT = "exact"
-    """Exact match"""
     IS_NOT = "is_not"
-    """Not equal to"""
     ICONTAINS = "icontains"
-    """Contains"""
     NOT_ICONTAINS = "not_icontains"
-    """Does not contain"""
     REGEX = "regex"
-    """Regex match"""
     NOT_REGEX = "not_regex"
-    """Not regex match"""
     GT = "gt"
-    """Greater than"""
     GTE = "gte"
-    """Greater than or equal to"""
     LT = "lt"
-    """Less than"""
     LTE = "lte"
-    """Less than or equal to"""
     IS_SET = "is_set"
-    """Is set"""
     IS_NOT_SET = "is_not_set"
-    """Is not set"""
     IS_DATE_EXACT = "is_date_exact"
-    """Is date exact"""
     IS_DATE_BEFORE = "is_date_before"
-    """Is date before"""
     IS_DATE_AFTER = "is_date_after"
-    """Is date after"""
     BETWEEN = "between"
-    """Between"""
     NOT_BETWEEN = "not_between"
-    """Not between"""
     MIN = "min"
-    """Minimum"""
     MAX = "max"
-    """Maximum"""
     IN_ = "in"
-    """In"""
     NOT_IN = "not_in"
-    """Not in"""
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
-    """Is cleaned path exact"""
 
 
 class QueryIndexUsage(StrEnum):
@@ -2236,7 +2193,7 @@ class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(description="The name of the session property, e.g. $start_timestamp, $entry_current_url")
+    key: str
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
@@ -3301,7 +3258,7 @@ class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(description="The name of the event property")
+    key: str
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
@@ -3706,7 +3663,7 @@ class PersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(description="The name of the person property, e.g. $browser, $device_type, email")
+    key: str
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
@@ -10634,9 +10591,9 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: FilterLogicalOperator = Field(description="Defines how filters should be combined")
+    type: FilterLogicalOperator = Field(..., description="Defines how filters should be combined")
     values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]] = (
-        Field(description="The filters and their values to be applied to the recordings")
+        Field(..., description="The filters and their values to be applied to the recordings")
     )
 
 
@@ -10644,29 +10601,33 @@ class MaxOuterUniversalFiltersGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: FilterLogicalOperator = Field(description="Defines how filters should be combined")
-    values: list[MaxInnerUniversalFiltersGroup]
+    type: FilterLogicalOperator = Field(..., description="Defines how filters should be combined")
+    values: list[MaxInnerUniversalFiltersGroup] = Field(
+        ..., description="The filter groups and their values to be applied to the recordings"
+    )
 
 
 class MaxRecordingUniversalFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: str = Field(
+    date_from: Optional[str] = Field(
         default="-5d",
-        description="The start date of the recording. If not provided, the default value is the last 5 days. "
-        + "\nRelative Date (Days): Use the format '-Nd' for the last N days (e.g., 'last 5 days' becomes '-5d')"
-        + "\nRelative Date (Hours): Use the format '-Nh' for the last N hours (e.g., 'last 5 hours' becomes '-5h')"
-        + "\nCustom Date: If a specific start date is provided, use the format ISO8601 date string",
+        description=(
+            "The start date of the recording. If not provided, the default value is the last 5 days. Relative Date"
+            " (Days): Use the format '-Nd' for the last N days (e.g., 'last 5 days' becomes '-5d') Relative Date"
+            " (Hours): Use the format '-Nh' for the last N hours (e.g., 'last 5 hours' becomes '-5h') Custom Date: If a"
+            " specific start date is provided, use the format ISO8601 date string"
+        ),
     )
     date_to: Optional[str] = Field(
         default=None,
         description="ISO8601 date string. The end date of the recording. If not provided, the default value is today.",
     )
-    duration: list[RecordingDurationFilter] = Field(
+    duration: Optional[list[RecordingDurationFilter]] = Field(
         default=[], description="The duration of the recording. If not provided, the default value is an empty list."
     )
-    filter_group: MaxOuterUniversalFiltersGroup = Field(description="The filter group of the recording.")
+    filter_group: MaxOuterUniversalFiltersGroup = Field(..., description="The filter group of the recording.")
     filter_test_accounts: Optional[bool] = Field(default=None, description="Whether to filter test accounts.")
     order: Optional[RecordingOrder] = Field(
         default=RecordingOrder.START_TIME, description="The order of the recordings"
