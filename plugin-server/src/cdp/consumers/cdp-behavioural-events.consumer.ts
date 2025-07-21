@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -22,6 +22,13 @@ export const counterParseError = new Counter({
     name: 'cdp_behavioural_function_parse_error',
     help: 'A behavioural function invocation was parsed with an error',
     labelNames: ['error'],
+})
+
+export const actionLoadDurationHistogram = new Histogram({
+    name: 'cdp_behavioural_action_load_duration_seconds',
+    help: 'Duration of loading actions for a team in seconds',
+    labelNames: ['result'], // 'success', 'error', 'empty'
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
 })
 
 export const counterEventsConsumed = new Counter({
@@ -85,10 +92,20 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     private async loadActionsForTeam(teamId: number): Promise<Action[]> {
+        const timer = performance.now()
         try {
             const actions = await this.hub.actionManagerCDP.getActionsForTeam(teamId)
+            const duration = (performance.now() - timer) / 1000
+
+            if (actions.length === 0) {
+                actionLoadDurationHistogram.observe({ result: 'empty' }, duration)
+            } else {
+                actionLoadDurationHistogram.observe({ result: 'success' }, duration)
+            }
             return actions
         } catch (error) {
+            const duration = (performance.now() - timer) / 1000
+            actionLoadDurationHistogram.observe({ result: 'error' }, duration)
             logger.error('Error loading actions for team', { teamId, error })
             return []
         }
