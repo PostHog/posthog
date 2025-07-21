@@ -4,8 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { MediaUploadResponse } from '~/types'
 
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
-    const blobReducer = (await import('image-blob-reduce')).default()
-    return blobReducer.toBlob(blob, { max: 2000 })
+    try {
+        const blobReducer = (await import('image-blob-reduce')).default()
+        return await blobReducer.toBlob(blob, { max: 2000 })
+    } catch {
+        // Fallback for privacy-focused browsers (e.g. Brave) that block Canvas fingerprinting
+        return blob
+    }
 }
 
 /**
