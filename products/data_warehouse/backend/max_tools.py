@@ -46,7 +46,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
         final_error: Optional[Exception] = None
         for _ in range(3):
             try:
-                chain = prompt | merge_message_runs | self._model_with_tools | self._parse_output
+                chain = prompt | merge_message_runs | self._model | self._parse_output
                 result: str = await chain.ainvoke(
                     {
                         **self.context,
@@ -64,16 +64,14 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
         return "```sql\n" + result + "\n```", result
 
     @property
-    def _model_with_tools(self):
-        return self._model.with_structured_output(SQL_SCHEMA, method="function_calling", include_raw=False)
-
-    @property
     def _model(self):
-        return MaxChatOpenAI(user=self._user, team=self._team, model="gpt-4.1", temperature=0.3, disable_streaming=True)
+        return MaxChatOpenAI(
+            user=self._user, team=self._team, model="gpt-4.1", temperature=0.3, disable_streaming=True
+        ).with_structured_output(SQL_SCHEMA, method="function_calling", include_raw=False)
 
     async def _parse_output(self, output: dict) -> str:
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        database = await self._get_database(self._team)
-        hogql_context = self._get_default_hogql_context(self._team, database)
+        database = await self._get_database()
+        hogql_context = self._get_default_hogql_context(database)
         query = await self._parse_generated_hogql(result.query, hogql_context)
         return query

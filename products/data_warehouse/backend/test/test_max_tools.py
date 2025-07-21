@@ -1,8 +1,5 @@
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage
-
-from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantToolCall
 from posthog.test.base import NonAtomicBaseTest
@@ -21,20 +18,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
         with patch(
             "products.data_warehouse.backend.max_tools.HogQLGeneratorTool._model",
-            return_value=FakeChatOpenAI(
-                responses=[
-                    AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "test",
-                                "name": "output_insight_schema",
-                                "args": {"query": "SELECT AVG(session_length) FROM events"},
-                            }
-                        ],
-                    )
-                ]
-            ),
+            return_value={"query": "SELECT AVG(properties.$session_length) FROM events"},
         ):
             tool = HogQLGeneratorTool(state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
@@ -44,4 +28,4 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 args={"instructions": "What is the average session length?"},
             )
             result = await tool.ainvoke(tool_call.model_dump(), config)
-            self.assertEqual(result, "```sql\nSELECT AVG(session_length) FROM events\n```")
+            self.assertEqual(result.content, "```sql\nSELECT AVG(properties.$session_length) FROM events\n```")
