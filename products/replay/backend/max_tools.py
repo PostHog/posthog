@@ -54,6 +54,7 @@ class SearchSessionRecordingsTool(MaxTool):
             raise ValueError("Context `current_filters` is required for the `search_session_recordings` tool")
 
         current_filters = self.context["current_filters"]
+
         if isinstance(current_filters, str):
             current_filters = json.loads(current_filters)
 
@@ -65,22 +66,19 @@ class SearchSessionRecordingsTool(MaxTool):
             }
         )
 
-        parser = JsonOutputParser()
-
         try:
+            parser = JsonOutputParser()
             parsed_data = parser.parse(str(result.content))
 
             if "question" in parsed_data:
                 question_response = QuestionResponse.model_validate(parsed_data)
-                return question_response.question, MaxRecordingUniversalFilters.model_validate_json(
-                    self.context["current_filters"]
-                )
+                return question_response.question, MaxRecordingUniversalFilters.model_validate_json(current_filters)
 
             validated_data = MaxRecordingUniversalFilters.model_validate(parsed_data)
         except (ValidationError, OutputParserException) as e:
             logger.exception("Error generating filters", error=e)
             return "Could not generate filters. Please try again.", MaxRecordingUniversalFilters.model_validate_json(
-                self.context["current_filters"]
+                current_filters
             )
 
         return "✅ Updated session recordings filters.", validated_data
