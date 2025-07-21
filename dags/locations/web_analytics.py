@@ -6,12 +6,15 @@ from dags import (
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
     web_preaggregated_hourly,
+    web_preaggregated_s3,
 )
 
 defs = dagster.Definitions(
     assets=[
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
+        web_preaggregated_s3.web_stats_daily_s3,
+        web_preaggregated_s3.web_bounces_daily_s3,
         web_preaggregated_daily.web_stats_daily_export,
         web_preaggregated_daily.web_bounces_daily_export,
         web_preaggregated_hourly.web_stats_hourly,
@@ -29,6 +32,7 @@ defs = dagster.Definitions(
     jobs=[
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
+        web_preaggregated_s3.web_analytics_s3_job,
         web_preaggregated_asset_checks.web_analytics_data_quality_job,
         web_preaggregated_asset_checks.simple_data_checks_job,
     ],

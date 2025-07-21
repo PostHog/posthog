@@ -97,10 +97,10 @@ class WebStatsDailyTable(Table):
 
 class WebStatsDailyS3Table(WebStatsDailyTable):
     def to_printed_clickhouse(self, context):
-        return "web_stats_daily_s3"
+        return "web_stats_daily_s3_backed"
 
     def to_printed_hogql(self):
-        return "web_stats_daily_s3"
+        return "web_stats_daily_s3_backed"
 
 
 class WebBouncesDailyTable(Table):
@@ -120,10 +120,10 @@ class WebBouncesDailyTable(Table):
 
 class WebBouncesDailyS3Table(WebBouncesDailyTable):
     def to_printed_clickhouse(self, context):
-        return "web_bounces_daily_s3"
+        return "web_bounces_daily_s3_backed"
 
     def to_printed_hogql(self):
-        return "web_bounces_daily_s3"
+        return "web_bounces_daily_s3_backed"
 
 
 class WebStatsHourlyTable(Table):

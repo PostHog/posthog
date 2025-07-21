@@ -13,7 +13,6 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     get_web_stats_insert_columns,
     get_web_bounces_insert_columns,
-    get_web_analytics_storage_policy,
 )
 from posthog.test.base import _create_event, _create_person
 
@@ -165,57 +164,6 @@ class TestHourlyPartitioningIntegration:
             assert f"'{expected_partition}'" in sql
             assert "ALTER TABLE web_stats_daily" in sql
             assert "DROP PARTITION" in sql
-
-
-class TestWebAnalyticsStoragePolicy:
-    def test_get_web_analytics_storage_policy_default(self):
-        """Test that default storage policy returns None"""
-        with pytest.MonkeyPatch().context() as m:
-            m.setenv("WEB_ANALYTICS_STORAGE_POLICY", "default")
-            result = get_web_analytics_storage_policy()
-            assert result is None
-
-    def test_get_web_analytics_storage_policy_s3(self):
-        """Test that s3 storage policy returns s3_policy"""
-        with pytest.MonkeyPatch().context() as m:
-            m.setenv("WEB_ANALYTICS_STORAGE_POLICY", "s3")
-            result = get_web_analytics_storage_policy()
-            assert result == "s3_policy"
-
-    def test_get_web_analytics_storage_policy_unset(self):
-        """Test that unset environment variable defaults to None"""
-        with pytest.MonkeyPatch().context() as m:
-            m.delenv("WEB_ANALYTICS_STORAGE_POLICY", raising=False)
-            result = get_web_analytics_storage_policy()
-            assert result is None
-
-    def test_table_template_with_s3_storage_policy(self):
-        """Test that TABLE_TEMPLATE includes storage policy when set"""
-        with pytest.MonkeyPatch().context() as m:
-            m.setenv("WEB_ANALYTICS_STORAGE_POLICY", "s3")
-            sql = TABLE_TEMPLATE("test_table", "test_columns", "test_order_by")
-            assert "SETTINGS storage_policy = 's3_policy'" in sql
-
-    def test_table_template_without_storage_policy(self):
-        """Test that TABLE_TEMPLATE doesn't include storage policy when not set"""
-        with pytest.MonkeyPatch().context() as m:
-            m.delenv("WEB_ANALYTICS_STORAGE_POLICY", raising=False)
-            sql = TABLE_TEMPLATE("test_table", "test_columns", "test_order_by")
-            assert "SETTINGS storage_policy" not in sql
-
-    def test_hourly_table_template_with_s3_storage_policy(self):
-        """Test that HOURLY_TABLE_TEMPLATE includes storage policy when set"""
-        with pytest.MonkeyPatch().context() as m:
-            m.setenv("WEB_ANALYTICS_STORAGE_POLICY", "s3")
-            sql = HOURLY_TABLE_TEMPLATE("test_table", "test_columns", "test_order_by")
-            assert "SETTINGS storage_policy = 's3_policy'" in sql
-
-    def test_hourly_table_template_without_storage_policy(self):
-        """Test that HOURLY_TABLE_TEMPLATE doesn't include storage policy when not set"""
-        with pytest.MonkeyPatch().context() as m:
-            m.delenv("WEB_ANALYTICS_STORAGE_POLICY", raising=False)
-            sql = HOURLY_TABLE_TEMPLATE("test_table", "test_columns", "test_order_by")
-            assert "SETTINGS storage_policy" not in sql
 
     def test_month_boundary_partitions(self):
         test_cases = [
