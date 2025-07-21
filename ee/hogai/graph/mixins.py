@@ -12,7 +12,7 @@ class AssistantNodeMixin:
             return None
 
     async def _aget_core_memory_text(self) -> str:
-        core_memory = await self._aget_core_memory(self._team)
+        core_memory = await self._aget_core_memory()
         if not core_memory:
             return ""
         return core_memory.formatted_text
