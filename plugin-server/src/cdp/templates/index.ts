@@ -2,6 +2,7 @@ import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as emailTemplate } from './_destinations/email/email.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as nativeWebhook } from './_destinations/native-webhook/webhook.template'
@@ -31,6 +32,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linearTemplate,
     googleAdsTemplate,
     redditAdsTemplate,
+    emailTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
