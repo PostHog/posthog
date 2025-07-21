@@ -22180,6 +22180,7 @@
                 "replay",
                 "revenue_analytics_properties",
                 "resources",
+                "error_tracking_properties",
                 "max_ai_context"
             ],
             "type": "string"
