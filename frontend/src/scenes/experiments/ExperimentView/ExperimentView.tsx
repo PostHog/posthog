@@ -1,9 +1,11 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-
+import { ActivityScope } from '~/types'
+import { AISummary } from '../components/AISummary'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -180,6 +182,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
+                        <AISummary experimentId={experimentId} />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
@@ -194,6 +197,11 @@ export function ExperimentView(): JSX.Element {
                                     key: 'variants',
                                     label: 'Variants',
                                     content: <VariantsTab />,
+                                },
+                                {
+                                    key: 'history',
+                                    label: 'History',
+                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                                 },
                             ]}
                         />

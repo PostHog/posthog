@@ -142,6 +142,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         this.databaseOperationCounts = new Map()
     }
 
+    getGroupCache(): GroupCache {
+        return this.groupCache
+    }
+
     async flush(): Promise<TopicMessage[]> {
         const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
             const [_, update] = entry
@@ -552,6 +556,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
         if (error instanceof RaceConditionError) {
+            // Remove from cache to prevent retry, the group was already created by another thread
+            this.groupCache.delete(teamId, groupKey)
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error
