@@ -697,7 +697,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert response.results[0][2] == "Organic Social"
 
-   def test_orderby_person_display_name_field(self):
+    def test_orderby_person_display_name_field(self):
         # Default: no custom display name properties
         _create_person(
             team_id=self.team.pk,
