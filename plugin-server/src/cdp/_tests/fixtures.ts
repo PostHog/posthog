@@ -9,6 +9,7 @@ import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
 import {
     CyclotronJobInvocationHogFunction,
+    CyclotronJobQueueKind,
     DBHogFunctionTemplate,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -239,7 +240,8 @@ export const createHogExecutionGlobals = (
 
 export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
-    _globals: Partial<HogFunctionInvocationGlobals> = {}
+    _globals: Partial<HogFunctionInvocationGlobals> = {},
+    queue: CyclotronJobQueueKind = 'hog'
 ): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)
     // Add the source of the trigger to the globals
@@ -260,7 +262,7 @@ export const createExampleInvocation = (
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: 'hog',
+        queue,
         queuePriority: 0,
     }
 }
