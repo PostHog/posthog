@@ -10,7 +10,7 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -197,12 +197,14 @@ export function SessionRecordingsPlaylistTopSettings({
 
         menuItems.push({
             label: 'Add to collection',
-            items: playlistsLoading
-                ? []
-                : collections.map((playlist) => ({
-                      label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                      onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                  })),
+            items: playlistsLoading ? (
+                <Spinner textColored={true} />
+            ) : (
+                collections.map((playlist) => ({
+                    label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
+                    onClick: () => handleBulkAddToPlaylist(playlist.short_id),
+                }))
+            ),
             disabledReason:
                 collections.length === 0
                     ? 'There are no collections. You have to make a collection before you can bulk add recordings to it'
