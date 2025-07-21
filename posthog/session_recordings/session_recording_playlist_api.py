@@ -300,7 +300,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             elif key == "type":
                 if request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
                     queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.COLLECTION)
-                else:
+                elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
                     queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)

@@ -835,6 +835,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         }
 
         # Test listing without type filter (should include all non-deleted)
+        # TODO should we allow interacting without specifying type?
         response_all = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response_all.status_code == status.HTTP_200_OK
         results_all = response_all.json()["results"]
