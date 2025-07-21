@@ -17,6 +17,7 @@ type ValueColumnTitleProps = {
     interval?: IntervalType | null
     resolvedDateRange?: ResolvedDateRangeResponse
     timezone?: string
+    weekStartDay?: number
 }
 
 export function ValueColumnTitle({
@@ -26,6 +27,7 @@ export function ValueColumnTitle({
     interval,
     resolvedDateRange,
     timezone,
+    weekStartDay,
 }: ValueColumnTitleProps): JSX.Element {
     const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
 
@@ -34,6 +36,7 @@ export function ValueColumnTitle({
             interval={interval || 'day'}
             resolvedDateRange={resolvedDateRange}
             timezone={timezone}
+            weekStartDay={weekStartDay}
             date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
             secondaryDate={previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
             hideWeekRange

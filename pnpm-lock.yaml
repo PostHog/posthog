@@ -4,15 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-catalogs:
-  default:
-    posthog-js:
-      specifier: ^1.255.1
-      version: 1.255.1
-    posthog-js-lite:
-      specifier: ^3.6.0
-      version: 3.6.0
-
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
@@ -39,6 +30,12 @@ importers:
       lint-staged:
         specifier: ~15.4.3
         version: 15.4.3
+      posthog-js:
+        specifier: ^1.257.0
+        version: 1.257.0(@rrweb/types@2.0.0-alpha.17)
+      posthog-js-lite:
+        specifier: ^4.1.0
+        version: 4.1.0
       turbo:
         specifier: ^2.4.2
         version: 2.4.2
@@ -887,11 +884,11 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: ^1.257.0
+        specifier: '*'
         version: 1.257.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
-        specifier: 'catalog:'
-        version: 3.6.0
+        specifier: '*'
+        version: 4.1.0
       prettier:
         specifier: ^2.8.8
         version: 2.8.8
@@ -1733,8 +1730,8 @@ importers:
         specifier: '*'
         version: 3.0.1(kea@3.1.5(react@18.2.0))
       posthog-js:
-        specifier: 'catalog:'
-        version: 1.255.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: '*'
+        version: 1.257.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2255,8 +2252,8 @@ importers:
         specifier: '*'
         version: 3.2.1(kea@3.1.5(react@18.2.0))
       posthog-js:
-        specifier: 'catalog:'
-        version: 1.255.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: '*'
+        version: 1.257.0(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -9237,6 +9234,9 @@ packages:
   core-js@3.40.0:
     resolution: {integrity: sha512-7vsMc/Lty6AGnn7uFpYT56QesI5D2Y/UkgKounk87OP9Z2H9Z8kj6jzcSGAxFmUtDOS0ntK6lbQz+Nsa0Jj6mQ==}
 
+  core-js@3.44.0:
+    resolution: {integrity: sha512-aFCtd4l6GvAXwVEh3XbbVqJGHDJt0OZRa+5ePGx3LLwi12WfexqQxcsohb2wgsa/92xtl19Hd66G/L+TaAxDMw==}
+
   core-util-is@1.0.2:
     resolution: {integrity: sha512-3lqz5YjWTYnW6dlDa5TLaTCcShfar1e40rmcJVwCBJC6mWlFuj0eCHIElmG1g5kyuJ/GD+8Wn4FFCcz4gJPfaQ==}
 
@@ -14135,8 +14135,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@3.6.0:
-    resolution: {integrity: sha512-4NrnGwBna7UZ0KARVdHE7Udm/os9HoYRJDHWC55xj1UebBkFRDM+fIxCRovVCmEtuF27oNoDH+pTc81iWAyK7g==}
+  posthog-js-lite@4.1.0:
+    resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
@@ -26533,6 +26533,8 @@ snapshots:
 
   core-js@3.40.0: {}
 
+  core-js@3.44.0: {}
+
   core-util-is@1.0.2: {}
 
   core-util-is@1.0.3: {}
@@ -32872,7 +32874,7 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@3.6.0: {}
+  posthog-js-lite@4.1.0: {}
 
   posthog-js@1.217.2:
     dependencies:
@@ -32901,7 +32903,7 @@ snapshots:
 
   posthog-js@1.257.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
-      core-js: 3.40.0
+      core-js: 3.44.0
       fflate: 0.4.8
       preact: 10.26.9
       web-vitals: 4.2.4

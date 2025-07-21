@@ -1,5 +1,5 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -73,7 +73,7 @@ function ErrorTrackingClientSuppression(): JSX.Element {
         <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
             {({ rule, editable }) => {
                 return (
-                    <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
+                    <>
                         <div className="flex gap-2 justify-between px-2 py-3">
                             <div className="flex gap-1 items-center">
                                 <div>Ignore exceptions that match </div>
@@ -96,7 +96,7 @@ function ErrorTrackingClientSuppression(): JSX.Element {
                                 }}
                             />
                         </div>
-                    </LemonCard>
+                    </>
                 )
             }}
         </ErrorTrackingRules>
