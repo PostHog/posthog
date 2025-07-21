@@ -849,18 +849,42 @@ class BytecodeCompiler(Visitor):
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         response = []
-        response.extend(self._visit_hogqlx_value("__hx_tag"))
-        response.extend(self._visit_hogqlx_value(node.kind))
-        for attribute in node.attributes:
-            response.extend(self._visit_hogqlx_value(attribute.name))
-            response.extend(self._visit_hogqlx_value(attribute.value))
-        response.append(Operation.DICT)
-        response.append(len(node.attributes) + 1)
+        tag_name = node.kind
+        tag_is_callable = (
+            any(local for local in self.locals if local.name == node.kind) or self._resolve_upvalue(tag_name) != -1
+        )
+        if tag_is_callable:
+            # first the dict as an attribute
+            for attribute in node.attributes:
+                response.extend(self._visit_hogqlx_value(attribute.name))
+                response.extend(self._visit_hogqlx_value(attribute.value))
+            response.append(Operation.DICT)
+            response.append(len(node.attributes))
+            # then the call itself
+            response.extend(self.visit_field(ast.Field(chain=[tag_name])))
+            response.extend([Operation.CALL_LOCAL, 1])
+        else:
+            # first the __hx_tag marker
+            response.extend(self._visit_hogqlx_value("__hx_tag"))
+            response.extend(self._visit_hogqlx_value(node.kind))
+            # then the rest of the attributes
+            for attribute in node.attributes:
+                response.extend(self._visit_hogqlx_value(attribute.name))
+                response.extend(self._visit_hogqlx_value(attribute.value))
+            response.append(Operation.DICT)
+            response.append(len(node.attributes) + 1)
         return response
 
     def _visit_hog_ast(self, node: ast.AST | None):
         if node is None:
             return [Operation.NULL]
+        if isinstance(node, ast.HogQLXTag):
+            tag_name = node.kind
+            tag_is_callable = (
+                any(local for local in self.locals if local.name == node.kind) or self._resolve_upvalue(tag_name) != -1
+            )
+            if tag_is_callable:
+                return self.visit_hogqlx_tag(node)
         response = []
         # We consider any object with the element "__hx_ast" to be a HogQLX AST node
         response.extend([Operation.STRING, "__hx_ast"])

@@ -1852,7 +1852,7 @@ export function isNumeric(x: any): boolean {
 }
 
 /**
- * Check if the argument is nullish (null or undefined).
+ * Check if the argument is not nullish (null or undefined).
  *
  * Useful as a typeguard, e.g. when passed to Array.filter()
  *
@@ -2156,11 +2156,4 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
     } catch {
         return null
     }
-}
-
-export function escapeHtml(raw: string): string {
-    // renders a string safe to use in dangerouslySetInnerHTML
-    const div = document.createElement('div')
-    div.textContent = raw
-    return div.innerHTML
 }
