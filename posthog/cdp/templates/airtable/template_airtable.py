@@ -10,6 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Creates Airtable records",
     icon_url="/static/services/airtable.png",
     category=["Custom"],
+    code_language="hog",
     hog="""
 let url := f'https://api.airtable.com/v0/{inputs.base_id}/{inputs.table_name}'
 

@@ -28,6 +28,7 @@ EXAMPLE_FULL = {
     "name": "HogHook",
     "hog": "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
     "type": "destination",
+    "code_language": "hog",
     "enabled": True,
     "inputs_schema": [
         {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
@@ -360,6 +361,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "status": "beta",
             "icon_url": webhook_template["icon_url"],
             "category": webhook_template["category"],
+            "code_language": "hog",
             "inputs_schema": webhook_template["inputs_schema"],
             "hog": webhook_template["hog"].strip(),
             "filters": None,
