@@ -763,7 +763,7 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee", "order_key"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -831,7 +831,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee", "order_key"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):

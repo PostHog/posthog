@@ -1,10 +1,10 @@
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropsWithChildren, useEffect } from 'react'
 
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
@@ -19,13 +19,18 @@ import { CSS } from '@dnd-kit/utilities'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+
+function isRuleDisabled(rule: ErrorTrackingRule): boolean {
+    return 'disabled_data' in rule && !!rule.disabled_data
+}
 
 function ErrorTrackingRules<T extends ErrorTrackingRule>({
     ruleType,
     children,
 }: {
     ruleType: ErrorTrackingRuleType
-    children: ({ rule, editing }: { rule: T; editing: boolean }) => JSX.Element
+    children: ({ rule, editing, disabled }: { rule: T; editing: boolean; disabled: boolean }) => JSX.Element
 }): JSX.Element {
     const logicProps = { ruleType }
     const logic = errorTrackingRulesLogic(logicProps)
@@ -58,10 +63,14 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
 
                             const editing = !isReorderingRules && !!editingRule
                             const rule = editingRule ?? persistedRule
+                            const disabled = isRuleDisabled(rule)
 
                             return (
                                 <SortableRule key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
-                                    {children({ rule, editing })}
+                                    <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
+                                        {disabled && <DisabledBanner />}
+                                        {children({ rule, editing, disabled })}
+                                    </LemonCard>
                                 </SortableRule>
                             )
                         })}
@@ -135,6 +144,23 @@ const ReorderRules = (): JSX.Element | null => {
                 Reorder rules
             </LemonButton>
         </div>
+    )
+}
+
+const DisabledBanner = (): JSX.Element => {
+    const { openSidePanel } = useActions(sidePanelLogic)
+
+    return (
+        <LemonBanner
+            className="mx-2 mt-2"
+            type="error"
+            action={{
+                onClick: () => openSidePanel(SidePanelTab.Support, 'bug:error_tracking'),
+                children: 'Contact support',
+            }}
+        >
+            This rule has been disabled due to an error and is being investigated by our team
+        </LemonBanner>
     )
 }
 

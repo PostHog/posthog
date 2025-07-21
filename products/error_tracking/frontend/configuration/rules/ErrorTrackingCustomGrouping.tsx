@@ -9,7 +9,7 @@ export function ErrorTrackingCustomGrouping(): JSX.Element {
         <>
             <p>Use the properties of an exception to decide how it should be grouped as an issue.</p>
             <ErrorTrackingRules<ErrorTrackingGroupingRule> ruleType={ErrorTrackingRuleType.Grouping}>
-                {({ rule, editing }) => {
+                {({ rule, editing, disabled }) => {
                     return (
                         <>
                             <div className="flex gap-2 justify-between px-2 py-3">
@@ -18,7 +18,7 @@ export function ErrorTrackingCustomGrouping(): JSX.Element {
                                     <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                     <div>filters match</div>
                                 </div>
-                                <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">

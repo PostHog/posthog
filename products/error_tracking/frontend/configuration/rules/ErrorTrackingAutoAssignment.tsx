@@ -12,7 +12,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 was seen.
             </p>
             <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
-                {({ rule, editing }) => {
+                {({ rule, editing, disabled }) => {
                     return (
                         <>
                             <div className="flex gap-2 justify-between px-2 py-3">
@@ -23,7 +23,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                                     <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                     <div>filters match</div>
                                 </div>
-                                <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">
