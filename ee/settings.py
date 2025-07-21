@@ -70,8 +70,6 @@ PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
     "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
 )
 
-HOOK_HOG_FUNCTION_TEAMS = get_from_env("HOOK_HOG_FUNCTION_TEAMS", "", type_cast=str)
-
 # Assistant
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
