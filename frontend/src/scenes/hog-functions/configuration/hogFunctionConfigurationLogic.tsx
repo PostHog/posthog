@@ -84,6 +84,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     name: '',
     description: '',
     inputs_schema: [],
+    code_language: 'hog',
     hog: "print('Hello, world!');",
     status: 'stable',
 }

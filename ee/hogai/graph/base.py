@@ -1,11 +1,12 @@
 import datetime
 from abc import ABC
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel
 
 from ee.hogai.graph.mixins import AssistantNodeMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -18,8 +19,11 @@ from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
+StateType = TypeVar("StateType", bound=BaseModel)
+PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
-class AssistantNode(AssistantNodeMixin, ABC):
+
+class BaseAssistantNode(AssistantNodeMixin, ABC, Generic[StateType, PartialStateType]):
     _team: Team
     _user: User
 
@@ -27,7 +31,7 @@ class AssistantNode(AssistantNodeMixin, ABC):
         self._team = team
         self._user = user
 
-    async def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
@@ -40,11 +44,11 @@ class AssistantNode(AssistantNodeMixin, ABC):
             return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     # DEPRECATED: Use `arun` instead
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""
         raise NotImplementedError
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
 
     async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
@@ -121,11 +125,13 @@ class AssistantNode(AssistantNodeMixin, ABC):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
 
-    def _get_ui_context(self, state: AssistantState) -> MaxUIContext | None:
+    def _get_ui_context(self, state: StateType) -> MaxUIContext | None:
         """
         Extracts the UI context from the latest human message.
         """
-        return find_last_ui_context(state.messages)
+        if hasattr(state, "messages"):
+            return find_last_ui_context(state.messages)
+        return None
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """
@@ -138,3 +144,6 @@ class AssistantNode(AssistantNodeMixin, ABC):
         Extracts the trace ID from the runnable config.
         """
         return (config.get("configurable") or {}).get("trace_id") or None
+
+
+AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
