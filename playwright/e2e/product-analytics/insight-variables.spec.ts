@@ -14,12 +14,11 @@ test.describe('insight variables', () => {
             .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
         await expect(cardForDefaultVariable.locator('.BoldNumber')).toHaveText('10')
 
-        // :FIXME: This override gets cancelled out when setting a temporary override.
-        // const cardForDashboardOverride = page
-        //     .getByText('Dashboard override')
-        //     .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
-        // await cardForDashboardOverride.highlight()
-        // await expect(cardForDashboardOverride.locator('.BoldNumber')).toHaveText('20')
+        const cardForDashboardOverride = page
+            .getByText('Dashboard override')
+            .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
+        await cardForDashboardOverride.highlight()
+        await expect(cardForDashboardOverride.locator('.BoldNumber')).toHaveText('20')
 
         const cardForInsightOverride = page
             .getByText('Insight override')
