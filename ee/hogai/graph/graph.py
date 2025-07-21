@@ -40,9 +40,6 @@ from .insights.nodes import InsightSearchNode
 
 global_checkpointer = DjangoCheckpointer()
 
-# Type variable for assistant state types
-# StateType = TypeVar("StateType", bound=BaseModel)
-
 
 class BaseAssistantGraph(Generic[StateType]):
     _team: Team
