@@ -57,8 +57,10 @@ WEB_ANALYTICS_DIMENSIONS = [
     "city_name",
     "region_code",
     "region_name",
+    "has_gclid",
+    "has_gad_source_paid_search",
+    "has_fbclid",
 ]
-
 
 WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
 WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
@@ -69,6 +71,8 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+            column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)
@@ -79,6 +83,29 @@ def get_order_by_clause(dimensions, bucket_column="period_bucket"):
     all_columns = base_columns + dimensions
     column_list = ",\n    ".join(all_columns)
     return f"(\n    {column_list}\n)"
+
+
+def get_insert_columns(dimensions, aggregate_columns):
+    shared_columns = ["period_bucket", "team_id", "host", "device_type"]
+    all_columns = shared_columns + dimensions + aggregate_columns
+    return all_columns
+
+
+def get_web_stats_insert_columns():
+    aggregate_columns = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
+    return get_insert_columns(WEB_STATS_DIMENSIONS, aggregate_columns)
+
+
+def get_web_bounces_insert_columns():
+    aggregate_columns = [
+        "persons_uniq_state",
+        "sessions_uniq_state",
+        "pageviews_count_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    ]
+    return get_insert_columns(WEB_BOUNCES_DIMENSIONS, aggregate_columns)
 
 
 WEB_STATS_COLUMNS = f"""
@@ -191,16 +218,23 @@ def get_insert_params(team_ids, granularity="daily"):
 
 
 def WEB_STATS_INSERT_SQL(
-    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", granularity="daily"
+    date_start,
+    date_end,
+    team_ids=None,
+    timezone="UTC",
+    settings="",
+    table_name="web_stats_daily",
+    granularity="daily",
+    select_only=False,
 ):
     params = get_insert_params(team_ids, granularity)
     team_filter = params["team_filter"]
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
-    return f"""
-    INSERT INTO {table_name}
+    query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -223,6 +257,9 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -250,6 +287,9 @@ def WEB_STATS_INSERT_SQL(
             events__session.end_pathname AS end_pathname,
             events__session.referring_domain AS referring_domain,
             events__session.region_name AS region_name,
+            events__session.has_gclid AS has_gclid,
+            events__session.has_gad_source_paid_search AS has_gad_source_paid_search,
+            events__session.has_fbclid AS has_fbclid,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -271,6 +311,9 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
@@ -278,7 +321,7 @@ def WEB_STATS_INSERT_SQL(
                 AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
@@ -289,7 +332,7 @@ def WEB_STATS_INSERT_SQL(
             WHERE {person_team_filter}
             GROUP BY person_distinct_id_overrides.distinct_id
             HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
@@ -317,8 +360,11 @@ def WEB_STATS_INSERT_SQL(
             country_code,
             city_name,
             region_code,
-            region_name
-        SETTINGS {settings}
+            region_name,
+            has_gclid,
+            has_gad_source_paid_search,
+            has_fbclid
+        {settings_clause}
     )
     GROUP BY
         period_bucket,
@@ -341,9 +387,20 @@ def WEB_STATS_INSERT_SQL(
         country_code,
         city_name,
         region_code,
-        region_name
-    SETTINGS {settings}
+        region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
+    {settings_clause}
     """
+
+    if select_only:
+        return query
+    else:
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_stats_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
@@ -361,6 +418,8 @@ def WEB_BOUNCES_INSERT_SQL(
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
+
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
     query = f"""
     SELECT
@@ -384,6 +443,9 @@ def WEB_BOUNCES_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -413,6 +475,9 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$os) AS os,
             accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
             accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
+            any(events__session.has_gclid) AS has_gclid,
+            any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
+            any(events__session.has_fbclid) AS has_fbclid,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -435,6 +500,9 @@ def WEB_BOUNCES_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
@@ -492,14 +560,20 @@ def WEB_BOUNCES_INSERT_SQL(
         browser,
         os,
         viewport_width,
-        viewport_height
-    {"SETTINGS " + settings if settings and not select_only else ""}
+        viewport_height,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
+    {settings_clause}
     """
 
     if select_only:
         return query
     else:
-        return f"INSERT INTO {table_name}\n{query}"
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_bounces_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
 
 
 def WEB_STATS_EXPORT_SQL(
@@ -568,7 +642,7 @@ def WEB_BOUNCES_EXPORT_SQL(
 
 def create_combined_view_sql(table_prefix):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_prefix}_combined AS
+    CREATE OR REPLACE VIEW {table_prefix}_combined AS
     SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
     SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')

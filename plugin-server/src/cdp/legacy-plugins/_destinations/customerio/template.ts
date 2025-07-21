@@ -15,6 +15,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
         description: 'This plugin will send events to Customer.io.',
         icon_url: 'https://raw.githubusercontent.com/posthog/customerio-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

@@ -13,7 +13,7 @@ from posthog.schema import QueryIndexUsage
 
 
 @dataclass
-class TestCaseData:
+class DataTestCase:
     query: str
     reads: int
     reads_use: list[ReadIndexUsage]
@@ -21,8 +21,8 @@ class TestCaseData:
     plan: str
 
 
-test_cases: list[TestCaseData] = [
-    TestCaseData(
+test_cases: list[DataTestCase] = [
+    DataTestCase(
         query="a proper query with all filters on events",
         reads=1,
         reads_use=[ReadIndexUsage(table="posthog.sharded_events", use=QueryIndexUsage.YES)],
@@ -94,7 +94,7 @@ test_cases: list[TestCaseData] = [
 ]
 """,
     ),
-    TestCaseData(
+    DataTestCase(
         query="missing timestamp condition",
         reads=1,
         reads_use=[ReadIndexUsage(table="posthog.sharded_events", use=QueryIndexUsage.NO)],
@@ -160,7 +160,7 @@ test_cases: list[TestCaseData] = [
 ]
 """,
     ),
-    TestCaseData(
+    DataTestCase(
         query="production query often failing cause ClickHouse not using index",
         reads=2,
         reads_use=[
@@ -324,7 +324,7 @@ test_cases: list[TestCaseData] = [
 ]
 """,
     ),
-    TestCaseData(
+    DataTestCase(
         query="local query little granules",
         reads=1,
         reads_use=[ReadIndexUsage(table="default.sharded_events", use=QueryIndexUsage.NO)],
@@ -384,7 +384,7 @@ test_cases: list[TestCaseData] = [
 ]
 """,
     ),
-    TestCaseData(
+    DataTestCase(
         query="local query little granules, using index",
         reads=1,
         reads_use=[ReadIndexUsage(table="default.sharded_events", use=QueryIndexUsage.YES)],
@@ -445,7 +445,7 @@ test_cases: list[TestCaseData] = [
 ]
 """,
     ),
-    TestCaseData(
+    DataTestCase(
         query="session query not using indices",
         reads=1,
         reads_use=[ReadIndexUsage(table="posthog.sharded_raw_sessions", use=QueryIndexUsage.PARTIAL)],

@@ -9,7 +9,7 @@ from posthog.schema import (
     RevenueAnalyticsCustomerCountQueryResponse,
     RevenueAnalyticsCustomerCountQuery,
 )
-from posthog.utils import format_label_date
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView, RevenueAnalyticsSubscriptionView
 
@@ -24,6 +24,8 @@ KINDS = [
     "Customer Count",
     "New Customer Count",
     "Churned Customer Count",
+    "ARPU",
+    "LTV",
 ]
 
 
@@ -44,6 +46,8 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                     "customer_count",
                     "new_customer_count",
                     "churned_customer_count",
+                    "arpu",
+                    "ltv",
                 ]
             )
 
@@ -102,6 +106,74 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         ],
                     ),
                 ),
+                # ARPU calculation (revenue / customer_count)
+                ast.Alias(
+                    alias="arpu",
+                    expr=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Or(
+                                        exprs=[
+                                            ast.Call(name="isNull", args=[ast.Field(chain=["customer_count"])]),
+                                            ast.CompareOperation(
+                                                op=ast.CompareOperationOp.Eq,
+                                                left=ast.Field(chain=["customer_count"]),
+                                                right=ast.Constant(value=0),
+                                            ),
+                                        ],
+                                    ),
+                                    ast.Constant(value=0),
+                                    ast.Call(
+                                        name="divide",
+                                        args=[
+                                            ast.Call(name="sum", args=[ast.Field(chain=["revenue"])]),
+                                            ast.Field(chain=["customer_count"]),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                # LTV calculation (ARPU / churn_rate)
+                # where churn_rate is the number of churned customers / number of customers
+                ast.Alias(
+                    alias="ltv",
+                    expr=ast.Call(
+                        name="multiIf",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["customer_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Constant(value=0),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["churned_customer_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Constant(value=float("nan")),
+                            ast.Call(
+                                name="divide",
+                                args=[
+                                    ast.Field(chain=["arpu"]),
+                                    ast.Call(
+                                        name="divide",
+                                        args=[
+                                            ast.Field(chain=["churned_customer_count"]),
+                                            ast.Field(chain=["customer_count"]),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
             ],
             select_from=ast.JoinExpr(alias="subquery", table=subquery),
             group_by=[
@@ -128,7 +200,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                     alias="breakdown_by",
                     expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "source_label"]),
                 ),
-                ast.Field(chain=["customer_id"]),
+                ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
                 ast.Alias(alias="period_start", expr=dates_expr),
                 ast.Alias(
                     alias="subscription_count",
@@ -231,22 +303,56 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         ]
                     ),
                 ),
+                # Revenue data for ARPU/LTV calculation
+                ast.Alias(
+                    alias="revenue",
+                    expr=ast.Call(
+                        name="sumIf",
+                        args=[
+                            ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"]),
+                            self._period_eq_expr(
+                                ast.Field(
+                                    chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
+                                ),
+                                ast.Field(chain=["period_start"]),
+                            ),
+                        ],
+                    ),
+                ),
             ],
             select_from=self._append_joins(
                 ast.JoinExpr(
                     alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
                     table=self.revenue_subqueries.subscription,
+                    next_join=ast.JoinExpr(
+                        alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                        table=self.revenue_subqueries.invoice_item,
+                        join_type="LEFT JOIN",
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                                right=ast.Field(
+                                    chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "subscription_id"]
+                                ),
+                            ),
+                        ),
+                    ),
                 ),
                 self.joins_for_properties(RevenueAnalyticsSubscriptionView),
             ),
             group_by=[
-                ast.Field(chain=["customer_id"]),
+                ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
                 ast.Field(chain=["breakdown_by"]),
                 ast.Field(chain=["period_start"]),
             ],
             where=ast.And(exprs=self._parsed_where_property_exprs) if self._parsed_where_property_exprs else None,
             order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["customer_id"]), order="ASC"),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
+                    order="ASC",
+                ),
                 ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
                 ast.OrderExpr(expr=ast.Field(chain=["period_start"]), order="ASC"),
             ],
@@ -307,7 +413,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         # First, let's generate all of the dates/labels because they'll be exactly the same for all of the results
         all_dates = self.query_date_range.all_values()
         days = [date.strftime("%Y-%m-%d") for date in all_dates]
-        labels = [format_label_date(item, self.query_date_range.interval_name) for item in all_dates]
+        labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in all_dates]
 
         # We can also group the results we have by a tuple of (breakdown_by, period_start)
         # This will allow us to easily query the results by breakdown_by and period_start
