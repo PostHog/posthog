@@ -21,7 +21,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:18.19.1-bookworm-slim AS frontend-build
+FROM node:23.10.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -48,7 +48,7 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_23.10.0 AS plugin-server-build
 
 # Compile and install system dependencies
 RUN apt-get update && \
