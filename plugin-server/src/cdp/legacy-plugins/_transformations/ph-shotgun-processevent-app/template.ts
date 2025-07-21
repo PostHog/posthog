@@ -12,6 +12,7 @@ export const phShotgunProcessEventApp: LegacyTransformationPlugin = {
         description: 'Process Shotgun events',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Transformation'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [],
     },
