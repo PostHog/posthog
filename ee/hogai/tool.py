@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
-
 
 # Lower casing matters here. Do not change it.
 class create_and_query_insight(BaseModel):
