@@ -54,8 +54,8 @@ function HogFlowActionNodeHandle({
         <Handle
             key={handle.id}
             {...handle}
-            // A single source handle can only connect to one edge at a time, but target handles can have multiple connections
-            isConnectable={handle.type === 'source' ? connections.length === 0 : true}
+            // A single source handle can only connect to one edge per handle at a time, but target handles can have multiple connections
+            isConnectable={handle.type === 'source' ? connections.length !== (node.handles?.length || 0) : true}
             isConnectableStart={handle.type === 'source'}
             isConnectableEnd={handle.type === 'target'}
             style={getHandlePosition(handle, node)}
