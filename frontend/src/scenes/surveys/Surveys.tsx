@@ -311,8 +311,7 @@ export function Surveys(): JSX.Element {
                                                                                             start_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
-                                                                                        intentContext: ProductIntentContext.SURVEY_LAUNCHED,
-                                                                                    })
+                                                                                    }, ProductIntentContext.SURVEY_LAUNCHED)
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -349,8 +348,7 @@ export function Surveys(): JSX.Element {
                                                                                             end_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
-                                                                                        intentContext: ProductIntentContext.SURVEY_COMPLETED,
-                                                                                    })
+                                                                                    }, ProductIntentContext.SURVEY_COMPLETED)
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -386,8 +384,7 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             end_date: null,
                                                                                         },
-                                                                                        intentContext: ProductIntentContext.SURVEY_RESUMED,
-                                                                                    })
+                                                                                    }, ProductIntentContext.SURVEY_RESUMED)
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -410,8 +407,7 @@ export function Surveys(): JSX.Element {
                                                                         updateSurvey({
                                                                             id: survey.id,
                                                                             updatePayload: { archived: false },
-                                                                            intentContext: ProductIntentContext.SURVEY_UNARCHIVED,
-                                                                        })
+                                                                        }, ProductIntentContext.SURVEY_UNARCHIVED)
                                                                     }
                                                                 >
                                                                     Unarchive
@@ -439,8 +435,7 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             archived: true,
                                                                                         },
-                                                                                        intentContext: ProductIntentContext.SURVEY_ARCHIVED,
-                                                                                    })
+                                                                                    }, ProductIntentContext.SURVEY_ARCHIVED)
                                                                                 },
                                                                                 size: 'small',
                                                                             },
