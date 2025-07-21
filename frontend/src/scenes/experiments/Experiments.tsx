@@ -27,7 +27,6 @@ import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
-import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
@@ -251,7 +250,11 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.All, label: 'All experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
-                    { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics', content: <SharedMetrics /> },
+                    {
+                        key: ExperimentsTabs.SharedMetrics,
+                        label: 'Shared metrics',
+                        link: urls.experimentsSharedMetrics(),
+                    },
                     {
                         key: ExperimentsTabs.History,
                         label: 'History',
