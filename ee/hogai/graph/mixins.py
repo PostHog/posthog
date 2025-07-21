@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 from ee.models import CoreMemory
-from posthog.models import Team
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class AssistantNodeMixin:
-    _team: Team
+    if TYPE_CHECKING:
+        _team: "Team"
 
     async def _aget_core_memory(self) -> CoreMemory | None:
         try:

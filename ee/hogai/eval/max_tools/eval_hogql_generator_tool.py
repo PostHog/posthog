@@ -11,10 +11,11 @@ from ee.hogai.eval.eval_sql import SQLSyntaxCorrectness
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.warehouse import serialize_database_schema
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.sync import database_sync_to_async
-from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool, serialize_database_schema
+from products.data_warehouse.backend.max_tools import HogQLGeneratorArgs, HogQLGeneratorTool
 
 
 class EvalInput(BaseModel):

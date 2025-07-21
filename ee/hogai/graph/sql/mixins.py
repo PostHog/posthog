@@ -9,7 +9,6 @@ from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQLNotImplementedError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ..schema_generator.parsers import PydanticOutputParserException
@@ -18,7 +17,6 @@ from .prompts import HOGQL_GENERATOR_SYSTEM_PROMPT
 
 class HogQLGeneratorMixin(AssistantNodeMixin):
     _database_instance: Database | None = None
-    _team: Team
 
     async def _get_database(self):
         if self._database_instance:
@@ -51,7 +49,7 @@ class HogQLGeneratorMixin(AssistantNodeMixin):
     @database_sync_to_async(thread_sensitive=False)
     def _parse_generated_hogql(self, query: str | None, hogql_context: HogQLContext):
         if query is None:
-            raise PydanticOutputParserException(llm_output=query, validation_message="Output is empty")
+            raise PydanticOutputParserException(llm_output="", validation_message="Output is empty")
         try:
             print_ast(parse_select(query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
