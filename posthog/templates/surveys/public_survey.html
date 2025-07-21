@@ -897,14 +897,10 @@
         const distinctId = new URLSearchParams(window.location.search).get('distinct_id');
 
         if (distinctId) {
-            config = {
-                ...config,
-                bootstrap: {
-                    distinctID: distinctId,
-                }
+            config.bootstrap = {
+                distinctID: distinctId,
             }
         }
-
 
         // Add ui_host if available (for reverse proxy setups)
         if (window.projectConfig.ui_host) {
