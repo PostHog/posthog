@@ -81,7 +81,7 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
             <PageHeader
                 buttons={
                     <>
-                        {allRules.length > 0 && <ReorderRules />}
+                        {allRules.length > 1 && <ReorderRules />}
                         <AddRule />
                     </>
                 }
