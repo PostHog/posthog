@@ -80,7 +80,16 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     #[cfg(test)]
     increment_fetch_calls_count();
 
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
+    let conn_timer = common_metrics::timing_guard(
+        FLAG_DB_CONNECTION_TIME,
+        &[
+            ("pool".to_string(), "reader".to_string()),
+            (
+                "operation".to_string(),
+                "fetch_and_locally_cache_all_relevant_properties".to_string(),
+            ),
+        ],
+    );
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
