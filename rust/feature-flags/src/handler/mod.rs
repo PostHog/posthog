@@ -42,6 +42,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let distinct_id_for_logging = original_distinct_id.clone();
 
         tracing::debug!(
+            request_id = %context.request_id,
             "Authentication completed for distinct_id: {}",
             original_distinct_id
         );
@@ -51,6 +52,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             .await?;
 
         tracing::debug!(
+            request_id = %context.request_id,
             "Team fetched: team_id={}, project_id={}",
             team.id,
             team.project_id
@@ -60,19 +62,28 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let flags_response = if let Some(quota_limited_response) =
             billing::check_limits(&context, &verified_token).await?
         {
-            warn!("Request quota limited");
+            warn!(
+                request_id = %context.request_id,
+                "Request quota limited"
+            );
             quota_limited_response
         } else {
             let distinct_id =
                 cookieless::handle_distinct_id(&context, &request, &team, original_distinct_id)
                     .await?;
 
-            tracing::debug!("Distinct ID resolved: {}", distinct_id);
+            tracing::debug!(
+                request_id = %context.request_id,
+                "Distinct ID resolved: {}", distinct_id
+            );
 
             let (filtered_flags, had_flag_errors) =
                 flags::fetch_and_filter(&flag_service, team.project_id, &context.meta).await?;
 
-            tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
+            tracing::debug!(
+                request_id = %context.request_id,
+                "Flags filtered: {} flags found", filtered_flags.flags.len()
+            );
 
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 

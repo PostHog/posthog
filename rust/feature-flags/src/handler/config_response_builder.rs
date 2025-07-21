@@ -14,6 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::billing_limiters::SessionReplayLimiter;
 
 use super::{error_tracking, session_recording, types::RequestContext};
+use uuid::Uuid;
 
 /// Isolates the specific fields needed to build config responses from a RequestContext.
 /// This allows us to extract only the relevant dependencies (config, database client,
@@ -24,6 +25,7 @@ pub struct ConfigContext {
     pub redis: Arc<dyn common_redis::Client + Send + Sync>,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub headers: HeaderMap,
+    pub request_id: Uuid,
 }
 
 impl ConfigContext {
@@ -34,6 +36,7 @@ impl ConfigContext {
             redis: context.state.redis_reader.clone(),
             session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
+            request_id: context.request_id,
         }
     }
 
@@ -127,6 +130,7 @@ async fn apply_config_fields(
                 Err(_) => {
                     // Log error but continue with empty rules, similar to Django behavior
                     tracing::warn!(
+                        request_id = %context.request_id,
                         "Failed to fetch suppression rules for team {}, using empty rules",
                         team.id
                     );

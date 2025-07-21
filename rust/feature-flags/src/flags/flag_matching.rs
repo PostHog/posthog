@@ -237,6 +237,7 @@ impl FeatureFlagMatcher {
             .process_hash_key_override_if_needed(
                 flags_have_experience_continuity_enabled,
                 hash_key_override,
+                request_id,
             )
             .await;
 
@@ -291,6 +292,7 @@ impl FeatureFlagMatcher {
         &self,
         hash_key: String,
         target_distinct_ids: Vec<String>,
+        request_id: Uuid,
     ) -> (Option<HashMap<String, String>>, bool) {
         let should_write = match should_write_hash_key_override(
             self.reader.clone(),
@@ -304,6 +306,7 @@ impl FeatureFlagMatcher {
             Ok(should_write) => should_write,
             Err(e) => {
                 error!(
+                    request_id = %request_id,
                     "Failed to check if hash key override should be written for team {} project {} distinct_id {}: {:?}",
                     self.team_id, self.project_id, self.distinct_id, e
                 );
@@ -330,7 +333,11 @@ impl FeatureFlagMatcher {
             )
             .await
             {
-                error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
+                error!(
+                    request_id = %request_id,
+                    "Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", 
+                    self.team_id, self.project_id, self.distinct_id, hash_key, e
+                );
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -369,7 +376,11 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides) => (Some(overrides), false),
             Err(e) => {
-                error!("Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
+                error!(
+                    request_id = %request_id,
+                    "Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}", 
+                    self.team_id, self.project_id, self.distinct_id, e
+                );
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -443,6 +454,7 @@ impl FeatureFlagMatcher {
                 &feature_flags,
                 &person_property_overrides,
                 &mut evaluated_flags_map,
+                request_id,
             )
             .await;
         errors_while_computing_flags |= db_prep_errors;
@@ -493,6 +505,7 @@ impl FeatureFlagMatcher {
                 &group_property_overrides,
                 &hash_key_overrides,
                 &mut evaluated_flags_map,
+                request_id,
             )
             .await;
         errors_while_computing_flags |= graph_evaluation_errors;
@@ -515,6 +528,7 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+        request_id: Uuid,
     ) -> bool {
         // Get evaluation stages for the dependency graph
         let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
@@ -535,6 +549,7 @@ impl FeatureFlagMatcher {
                     person_property_overrides,
                     group_property_overrides,
                     hash_key_overrides,
+                    request_id,
                 )
                 .await;
             errors_while_computing_flags |= level_errors;
@@ -551,6 +566,7 @@ impl FeatureFlagMatcher {
         feature_flags: &FeatureFlagList,
         person_property_overrides: &Option<HashMap<String, Value>>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+        request_id: Uuid,
     ) -> bool {
         let flags_requiring_db_preparation = flags_require_db_preparation(
             &feature_flags.flags,
@@ -564,7 +580,7 @@ impl FeatureFlagMatcher {
         }
 
         match self
-            .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice())
+            .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice(), request_id)
             .await
         {
             Ok(_) => false,
@@ -617,6 +633,7 @@ impl FeatureFlagMatcher {
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
+        request_id: Uuid,
     ) -> (HashMap<String, FlagDetails>, bool) {
         // initialize some state
         let mut errors_while_computing_flags = false;
@@ -645,6 +662,7 @@ impl FeatureFlagMatcher {
                         Ok(overrides) => overrides,
                         Err(e) => {
                             warn!(
+                                request_id = %request_id,
                                 "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
                                 flag.key, group_type_index, e
                             );
@@ -685,6 +703,7 @@ impl FeatureFlagMatcher {
             // If flag not found in map, skip it (this shouldn't happen but is safe)
             let Some(flag) = flags_map.get(&flag_key) else {
                 error!(
+                    request_id = %request_id,
                     "Flag '{}' not found in flags_map during evaluation - this shouldn't happen",
                     flag_key
                 );
@@ -705,11 +724,13 @@ impl FeatureFlagMatcher {
                     // Handle DependencyNotFound errors differently since they indicate a deleted dependency
                     if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
                         warn!(
+                            request_id = %request_id,
                             "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
                             flag.key, dependency_type, dependency_id, self.distinct_id, e
                         );
                     } else {
                         error!(
+                            request_id = %request_id,
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
                         );
@@ -1297,6 +1318,7 @@ impl FeatureFlagMatcher {
     pub async fn prepare_flag_evaluation_state(
         &mut self,
         flags: &[&FeatureFlag],
+        request_id: Uuid,
     ) -> Result<(), FlagError> {
         // Get cohorts first since we need the IDs
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
@@ -1335,6 +1357,7 @@ impl FeatureFlagMatcher {
             }
             Err(e) => {
                 error!(
+                    request_id = %request_id,
                     "Error fetching properties for team {} project {} distinct_id {}: {:?}",
                     self.team_id, self.project_id, self.distinct_id, e
                 );
@@ -1454,6 +1477,7 @@ impl FeatureFlagMatcher {
         &self,
         flags_have_experience_continuity_enabled: bool,
         hash_key_override: Option<String>,
+        request_id: Uuid,
     ) -> (Option<HashMap<String, String>>, bool) {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
         // If experience continuity is enabled, we need to process the hash key override if it's provided.
@@ -1462,7 +1486,7 @@ impl FeatureFlagMatcher {
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                        self.process_hash_key_override(hash_key, target_distinct_ids)
+                        self.process_hash_key_override(hash_key, target_distinct_ids, request_id)
                             .await
                     }
                     // if a flag has experience continuity enabled but no hash key override is provided,
