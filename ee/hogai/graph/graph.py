@@ -4,11 +4,12 @@ from typing import Literal, Optional, cast, TypeVar, Generic
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
+
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from .base import AssistantNode, BaseAssistantNode
+from .base import AssistantNode, BaseAssistantNode, StateType
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -50,10 +51,10 @@ class BaseAssistantGraph(Generic[NodeType]):
     _user: User
     _graph: StateGraph
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, state_type: type[StateType]):
         self._team = team
         self._user = user
-        self._graph = StateGraph(AssistantState)
+        self._graph = StateGraph(state_type)
         self._has_start_node = False
 
     def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
@@ -73,6 +74,9 @@ class BaseAssistantGraph(Generic[NodeType]):
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantNode]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
     def add_rag_context(self):
         builder = self._graph
         self._has_start_node = True
@@ -219,6 +223,9 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantNode]):
 
 
 class AssistantGraph(BaseAssistantGraph[AssistantNode]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
     def add_root(
         self,
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,

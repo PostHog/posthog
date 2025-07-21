@@ -26,7 +26,7 @@ from ee.hogai.graph import (
     SQLGeneratorNode,
     TrendsGeneratorNode,
 )
-from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
@@ -72,7 +72,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
-VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[BaseAssistantNode]] = {
+VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]] = {
     **VISUALIZATION_NODES,
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
@@ -417,7 +417,7 @@ class Assistant:
         state_update = validate_value_update(maybe_state_update)
         # this needs full type annotation otherwise mypy complains
         visualization_nodes: (
-            dict[AssistantNodeName, type[BaseAssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
+            dict[AssistantNodeName, type[AssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
         ) = VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
         if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
