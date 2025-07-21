@@ -105,8 +105,8 @@ class MaxTool(AssistantNodeMixin, BaseTool):
     """
 
     _context: dict[str, Any]
-    _team_instance: Optional["Team"]
-    _user_instance: Optional["User"]
+    _team: Optional["Team"]
+    _user: Optional["User"]
     _config: RunnableConfig
     _state: AssistantState
 
@@ -153,8 +153,8 @@ class MaxTool(AssistantNodeMixin, BaseTool):
 
     def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team_instance = config["configurable"]["team"]
-        self._user_instance = config["configurable"]["user"]
+        self._team = config["configurable"]["team"]
+        self._user = config["configurable"]["user"]
         self._config = {
             "recursion_limit": 48,
             "callbacks": config.get("callbacks", []),
@@ -162,22 +162,10 @@ class MaxTool(AssistantNodeMixin, BaseTool):
                 "thread_id": config["configurable"].get("thread_id"),
                 "trace_id": config["configurable"].get("trace_id"),
                 "distinct_id": config["configurable"].get("distinct_id"),
-                "team": self._team_instance,
-                "user": self._user_instance,
+                "team": self._team,
+                "user": self._user,
             },
         }
-
-    @property
-    def _team(self) -> "Team":
-        if not self._team_instance:
-            raise ValueError("Team not initialized")
-        return self._team_instance
-
-    @property
-    def _user(self) -> "User":
-        if not self._user_instance:
-            raise ValueError("User not initialized")
-        return self._user_instance
 
     @property
     def context(self) -> dict:
