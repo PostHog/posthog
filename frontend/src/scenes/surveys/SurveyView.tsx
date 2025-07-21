@@ -22,7 +22,6 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { Query } from '~/queries/Query/Query'
 import {
     ActivityScope,
-    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -85,9 +84,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     <LemonButton
                                                         data-attr="duplicate-survey"
                                                         fullWidth
-                                                        onClick={() => {
-                                                            duplicateSurvey()
-                                                        }}
+                                                        onClick={duplicateSurvey}
                                                     >
                                                         Duplicate
                                                     </LemonButton>

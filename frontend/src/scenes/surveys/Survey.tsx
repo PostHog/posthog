@@ -12,7 +12,7 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagFilters, ProductKey, Survey, SurveyMatchType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
