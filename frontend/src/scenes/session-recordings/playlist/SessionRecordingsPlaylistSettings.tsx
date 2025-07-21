@@ -236,7 +236,7 @@ export function SessionRecordingsPlaylistTopSettings({
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
-        const menuItems = [
+        const menuItems: LemonMenuItem[] = [
             {
                 label: 'Add to new collection...',
                 onClick: () => setIsNewCollectionDialogOpen(true),
