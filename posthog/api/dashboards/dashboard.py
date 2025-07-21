@@ -492,7 +492,7 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
         request = self.context.get("request")
 
         if request:
-            variables_override = variables_override_requested_by_client(request)
+            variables_override = variables_override_requested_by_client(request, dashboard)
 
             if variables_override is not None:
                 return self.map_stale_to_latest(variables_override, list(self.context["insight_variables"]))
