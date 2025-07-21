@@ -605,6 +605,7 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
         saved_query.sync_frequency_interval = None
         saved_query.status = None
         saved_query.last_run_at = None
+        saved_query.latest_error = None
 
         # Clear the table reference so consumers will use the on-demand view instead
         if saved_query.table is not None:
