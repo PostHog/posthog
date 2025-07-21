@@ -1,8 +1,6 @@
 from typing import Any
 
-from posthog.temporal.data_imports.sources.common.transformer import transform_payload
 from posthog.test.base import NonAtomicTestMigrations
-from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
 from posthog.warehouse.models import ExternalDataSource as ExternalDataSourceModel
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
@@ -163,29 +161,13 @@ class FixSubTemplateIdsToTemplateIdsMigrationTest(NonAtomicTestMigrations):
         assert self.vitally_source.job_inputs is not None
         assert self.zendesk_source.job_inputs is not None
 
-        bigquery_config = BigQuerySourceConfig.from_dict(
-            transform_payload(self.bigquery_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.BIGQUERY])
-        )
-        mssql_config = MSSQLSourceConfig.from_dict(
-            transform_payload(self.mssql_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.MSSQL])
-        )
-        mysql_config = MySQLSourceConfig.from_dict(
-            transform_payload(self.mysql_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.MYSQL])
-        )
-        postgres_config = PostgresSourceConfig.from_dict(
-            transform_payload(self.postgres_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.POSTGRES])
-        )
-        snowflake_config = SnowflakeSourceConfig.from_dict(
-            transform_payload(
-                self.snowflake_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.SNOWFLAKE]
-            )
-        )
-        vitally_config = VitallySourceConfig.from_dict(
-            transform_payload(self.vitally_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.VITALLY])
-        )
-        zendesk_config = ZendeskSourceConfig.from_dict(
-            transform_payload(self.zendesk_source.job_inputs, AVAILABLE_SOURCES[ExternalDataSourceModel.Type.ZENDESK])
-        )
+        bigquery_config = BigQuerySourceConfig.from_dict(self.bigquery_source.job_inputs)
+        mssql_config = MSSQLSourceConfig.from_dict(self.mssql_source.job_inputs)
+        mysql_config = MySQLSourceConfig.from_dict(self.mysql_source.job_inputs)
+        postgres_config = PostgresSourceConfig.from_dict(self.postgres_source.job_inputs)
+        snowflake_config = SnowflakeSourceConfig.from_dict(self.snowflake_source.job_inputs)
+        vitally_config = VitallySourceConfig.from_dict(self.vitally_source.job_inputs)
+        zendesk_config = ZendeskSourceConfig.from_dict(self.zendesk_source.job_inputs)
 
         # BigQuery
         assert bigquery_config.key_file["project_id"] == "project_id"

@@ -52,11 +52,11 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
     return private_key
 
 
-@config.config(prefix="auth_type")
+@config.config
 class SSHTunnelAuthConfig(config.Config):
     """Configuration for SSH tunnel authentication."""
 
-    type: Literal["password", "keypair"] | None = config.value(alias="ssh_tunnel_auth_type", prefix="")
+    type: Literal["password", "keypair"] | None = config.value(alias="selection")
     password: str | None = None
     passphrase: str | None = None
     private_key: str | None = None
@@ -66,7 +66,7 @@ class SSHTunnelAuthConfig(config.Config):
 @config.config
 class SSHTunnelConfig(config.Config):
     host: str | None
-    auth: SSHTunnelAuthConfig
+    auth: SSHTunnelAuthConfig = config.value(alias="auth_type")
     port: int | None = config.value(converter=config.str_to_optional_int)
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
 

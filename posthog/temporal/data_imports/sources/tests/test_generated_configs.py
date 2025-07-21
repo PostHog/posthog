@@ -1,4 +1,3 @@
-from posthog.temporal.data_imports.sources.common.transformer import transform_payload
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
     ChargebeeSourceConfig,
@@ -18,8 +17,6 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     VitallySourceConfig,
     ZendeskSourceConfig,
 )
-from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
-from posthog.warehouse.models import ExternalDataSource
 
 
 def test_bigquery_config():
@@ -81,29 +78,26 @@ def test_hubspot_config():
 
 def test_mssql_config():
     config = MSSQLSourceConfig.from_dict(
-        transform_payload(
-            {
+        {
+            "host": "host",
+            "port": 1433,
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "schema",
+            "ssh-tunnel": {
+                "enabled": True,
                 "host": "host",
-                "port": 1433,
-                "database": "database",
-                "user": "user",
-                "password": "password",
-                "schema": "schema",
-                "ssh-tunnel": {
-                    "enabled": True,
-                    "host": "host",
-                    "port": 22,
-                    "auth_type": {
-                        "selection": "password",
-                        "username": "username",
-                        "password": "password",
-                        "private_key": "",
-                        "passphrase": "",
-                    },
+                "port": 22,
+                "auth_type": {
+                    "selection": "password",
+                    "username": "username",
+                    "password": "password",
+                    "private_key": "",
+                    "passphrase": "",
                 },
             },
-            AVAILABLE_SOURCES[ExternalDataSource.Type.MSSQL],
-        )
+        }
     )
 
     assert config.host == "host"
@@ -137,30 +131,27 @@ def test_mongo_config():
 
 def test_mysql_config():
     config = MySQLSourceConfig.from_dict(
-        transform_payload(
-            {
+        {
+            "host": "host",
+            "port": 1433,
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "schema",
+            "using_ssl": "true",
+            "ssh-tunnel": {
+                "enabled": True,
                 "host": "host",
-                "port": 1433,
-                "database": "database",
-                "user": "user",
-                "password": "password",
-                "schema": "schema",
-                "using_ssl": "true",
-                "ssh-tunnel": {
-                    "enabled": True,
-                    "host": "host",
-                    "port": 22,
-                    "auth_type": {
-                        "selection": "password",
-                        "username": "username",
-                        "password": "password",
-                        "private_key": "",
-                        "passphrase": "",
-                    },
+                "port": 22,
+                "auth_type": {
+                    "selection": "password",
+                    "username": "username",
+                    "password": "password",
+                    "private_key": "",
+                    "passphrase": "",
                 },
             },
-            AVAILABLE_SOURCES[ExternalDataSource.Type.MYSQL],
-        )
+        }
     )
 
     assert config.host == "host"
@@ -184,29 +175,26 @@ def test_mysql_config():
 
 def test_postgres_config():
     config = PostgresSourceConfig.from_dict(
-        transform_payload(
-            {
+        {
+            "host": "host",
+            "port": 1433,
+            "database": "database",
+            "user": "user",
+            "password": "password",
+            "schema": "schema",
+            "ssh-tunnel": {
+                "enabled": True,
                 "host": "host",
-                "port": 1433,
-                "database": "database",
-                "user": "user",
-                "password": "password",
-                "schema": "schema",
-                "ssh-tunnel": {
-                    "enabled": True,
-                    "host": "host",
-                    "port": 22,
-                    "auth_type": {
-                        "selection": "password",
-                        "username": "username",
-                        "password": "password",
-                        "private_key": "",
-                        "passphrase": "",
-                    },
+                "port": 22,
+                "auth_type": {
+                    "selection": "password",
+                    "username": "username",
+                    "password": "password",
+                    "private_key": "",
+                    "passphrase": "",
                 },
             },
-            AVAILABLE_SOURCES[ExternalDataSource.Type.POSTGRES],
-        )
+        }
     )
 
     assert config.host == "host"
