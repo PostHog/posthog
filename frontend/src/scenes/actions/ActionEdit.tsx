@@ -217,7 +217,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     <ScenePanelMetaInfo>
                         <SceneName
                             defaultValue={action.name || ''}
-                            dataAttr={RESOURCE_TYPE}
+                            dataAttrKey={RESOURCE_TYPE}
                             onSave={(value) => {
                                 setActionValue('name', value)
                             }}
@@ -226,7 +226,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                         <SceneDescription
                             defaultValue={action.description || ''}
                             onSave={(value) => setActionValue('description', value)}
-                            dataAttr={RESOURCE_TYPE}
+                            dataAttrKey={RESOURCE_TYPE}
                             optional
                         />
 
@@ -236,10 +236,10 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             }}
                             tags={action.tags || []}
                             tagsAvailable={tags}
-                            dataAttr={RESOURCE_TYPE}
+                            dataAttrKey={RESOURCE_TYPE}
                         />
 
-                        <SceneFile />
+                        <SceneFile dataAttrKey={RESOURCE_TYPE} />
 
                         <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
                     </ScenePanelMetaInfo>

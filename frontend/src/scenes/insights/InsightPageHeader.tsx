@@ -652,6 +652,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     : undefined
                             }
                             shortId={insight.short_id}
+                            dataAttrKey={RESOURCE_TYPE}
                         />
 
                         {hasDashboardItemId && (
