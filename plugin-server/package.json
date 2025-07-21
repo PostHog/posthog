@@ -4,6 +4,9 @@
     "description": "PostHog Plugin Server",
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
+    "engines": {
+        "node": ">=23 <24"
+    },
     "scripts": {
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
         "start": "pnpm start:dev",
@@ -156,9 +159,6 @@
         "ts-node": "^10.9.1",
         "tsc-alias": "^1.8.16",
         "tsconfig-paths": "^4.2.0"
-    },
-    "engines": {
-        "node": "23.10.0"
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
