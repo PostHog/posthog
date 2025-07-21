@@ -3231,6 +3231,7 @@
       has_fbclid
   )
       
+      
   '''
 # ---
 # name: test_create_table_query[web_bounces_hourly]
@@ -3298,6 +3299,7 @@
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
       
+      
   '''
 # ---
 # name: test_create_table_query[web_stats_daily]
@@ -3362,6 +3364,7 @@
       has_gad_source_paid_search,
       has_fbclid
   )
+      
       
   '''
 # ---
@@ -3428,6 +3431,7 @@
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
+      
       
   '''
 # ---
@@ -4788,6 +4792,7 @@
       has_fbclid
   )
       
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[web_bounces_hourly]
@@ -4855,6 +4860,7 @@
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
       
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[web_stats_daily]
@@ -4919,6 +4925,7 @@
       has_gad_source_paid_search,
       has_fbclid
   )
+      
       
   '''
 # ---
@@ -4985,6 +4992,7 @@
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
+      
       
   '''
 # ---
