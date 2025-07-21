@@ -53,11 +53,11 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    TeamType,
 } from '~/types'
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
-import { exceptionEventProperties } from 'products/error_tracking/frontend/components/ErrorFilters/FilterGroup'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -105,7 +105,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -209,7 +209,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         taxonomicGroups: [
             (s) => [
-                s.currentTeamId,
+                s.currentTeam,
                 s.currentProjectId,
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
@@ -222,7 +222,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
             ],
             (
-                teamId: number | null,
+                currentTeam: TeamType,
                 projectId: number | null,
                 groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
                 groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
@@ -234,6 +234,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[]
             ): TaxonomicFilterGroup[] => {
+                const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -427,15 +428,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Exception properties',
                         searchPlaceholder: 'exceptions',
-                        type: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
-                        options: exceptionEventProperties
-                            .filter(
-                                (o) =>
-                                    !excludedProperties[
-                                        TaxonomicFilterGroupType.ErrorTrackingIssueProperties
-                                    ]?.includes(o.value)
-                            )
-                            .map(({ value, group }) => ({ name: value, value, group })),
+                        type: TaxonomicFilterGroupType.ErrorTrackingProperties,
+                        options: [
+                            ...[
+                                '$exception_types',
+                                '$exception_values',
+                                '$exception_sources',
+                                '$exception_functions',
+                            ].map((value) => ({ name: value, value, group: TaxonomicFilterGroupType.EventProperties })),
+                            ...(currentTeam?.person_display_name_properties
+                                ? currentTeam.person_display_name_properties.map((property) => ({
+                                      name: property,
+                                      value: property,
+                                      group: TaxonomicFilterGroupType.PersonProperties,
+                                  }))
+                                : []),
+                        ],
                         getIcon: getPropertyDefinitionIcon,
                         getPopoverHeader: () => 'Exception properties',
                     },

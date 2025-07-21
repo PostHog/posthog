@@ -16,20 +16,12 @@ import { errorFiltersLogic } from './errorFiltersLogic'
 
 export const taxonomicFilterLogicKey = 'error-tracking'
 export const taxonomicGroupTypes = [
-    TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
+    TaxonomicFilterGroupType.ErrorTrackingProperties,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.ErrorTrackingIssues,
     TaxonomicFilterGroupType.Cohorts,
     TaxonomicFilterGroupType.HogQLExpression,
-]
-
-export const exceptionEventProperties = [
-    { value: '$exception_types', group: TaxonomicFilterGroupType.EventProperties },
-    { value: '$exception_values', group: TaxonomicFilterGroupType.EventProperties },
-    { value: '$exception_sources', group: TaxonomicFilterGroupType.EventProperties },
-    { value: '$exception_functions', group: TaxonomicFilterGroupType.EventProperties },
-    { value: 'email', group: TaxonomicFilterGroupType.PersonProperties },
 ]
 
 export const FilterGroup = (): JSX.Element => {

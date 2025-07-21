@@ -149,7 +149,7 @@ export enum TaxonomicFilterGroupType {
     Replay = 'replay',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
-    ErrorTrackingIssueProperties = 'error_tracking_issue_properties',
+    ErrorTrackingProperties = 'error_tracking_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
 }

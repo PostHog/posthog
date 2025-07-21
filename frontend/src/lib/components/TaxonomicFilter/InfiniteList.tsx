@@ -112,7 +112,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
-        listGroupType === TaxonomicFilterGroupType.ErrorTrackingIssueProperties ||
+        listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -173,7 +173,7 @@ const selectedItemHasPopover = (
                 TaxonomicFilterGroupType.CohortsWithAllUsers,
                 TaxonomicFilterGroupType.Metadata,
                 TaxonomicFilterGroupType.SessionProperties,
-                TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
+                TaxonomicFilterGroupType.ErrorTrackingProperties,
             ].includes(listGroupType) ||
                 listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
@@ -239,7 +239,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
         const itemGroup = getItemGroup(item, taxonomicGroups, group)
-        const itemValue = item ? group?.getValue?.(item) : null
+        const itemValue = item ? itemGroup?.getValue?.(item) : null
         const isSelected = listGroupType === groupType && itemValue === value
         const isHighlighted = rowIndex === index && isActiveTab
 
