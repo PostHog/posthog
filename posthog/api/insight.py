@@ -104,6 +104,7 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
+from posthog.tasks.insight_query_metadata import extract_insight_query_metadata
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     refresh_requested_by_client,
@@ -427,6 +428,9 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             **validated_data,
         )
 
+        # schedule the insight query metadata extraction
+        extract_insight_query_metadata.delay(insight_id=insight.id)
+
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -477,6 +481,8 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         except Insight.DoesNotExist:
             before_update = None
 
+        schedule_metadata_update = False
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
@@ -489,6 +495,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
+            schedule_metadata_update = True
 
         updated_insight = super().update(instance, validated_data)
         if not are_alerts_supported_for_insight(updated_insight):
@@ -497,6 +504,9 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
 
         self.user_permissions.reset_insights_dashboard_cached_results()
+
+        if schedule_metadata_update:
+            extract_insight_query_metadata.delay(insight_id=updated_insight.id)
 
         return updated_insight
 
