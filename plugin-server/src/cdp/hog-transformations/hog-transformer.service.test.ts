@@ -560,6 +560,7 @@ describe('HogTransformer', () => {
                 name: 'Input Setter',
                 description: 'A template that sets the inputs',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.inputs := {
@@ -1669,6 +1670,7 @@ describe('HogTransformer', () => {
                 name: 'Capture Template',
                 description: 'A template that captures an event',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.captured := true
