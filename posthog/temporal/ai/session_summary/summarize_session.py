@@ -156,7 +156,6 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
             continue
         last_summary_state_str = current_summary_state_str
         # Store the last summary state in Redis
-        # The size of the output is limited to <20kb, so compressing is excessive
         await store_data_in_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
