@@ -85,7 +85,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
     lookup_url_kwarg = "hash"
 
     def dangerously_get_permissions(self):
-        # API Level permissions are only required during the authentication step,
+        # API Level permissions are only required during the authentication step.
         # For all other actions we use a cache key to authenticate.
         if self.action == "authenticate":
             return [IsAuthenticated(), APIScopePermission()]
@@ -93,8 +93,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
         raise NotImplementedError()
 
     def dangerously_get_required_scopes(self):
-        # API Level permissions are only required during the authentication step,
-        # For all other actions we use a cache key to authenticate.
         if self.action == "authenticate":
             return ["team:read"]
 
