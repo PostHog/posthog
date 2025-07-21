@@ -190,23 +190,25 @@ export function SessionRecordingsPlaylistTopSettings({
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems = []
 
-        if (!playlistsLoading) {
-            const collections =
-                type === 'collection' && shortId
-                    ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
-                    : playlists.results
+        const collections =
+            type === 'collection' && shortId
+                ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
+                : playlists.results
 
-            if (collections.length > 0) {
-                menuItems.push({
-                    label: 'Add to collection',
-                    items: collections.map((playlist) => ({
-                        label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                        onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                    })),
-                    'data-attr': 'add-to-collection',
-                })
-            }
-        }
+        menuItems.push({
+            label: 'Add to collection',
+            items: playlistsLoading
+                ? []
+                : collections.map((playlist) => ({
+                      label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
+                      onClick: () => handleBulkAddToPlaylist(playlist.short_id),
+                  })),
+            disabledReason:
+                collections.length === 0
+                    ? 'There are no collections. You have to make a collection before you can bulk add recordings to it'
+                    : undefined,
+            'data-attr': 'add-to-collection',
+        })
 
         if (type === 'collection' && shortId) {
             menuItems.push({
@@ -256,6 +258,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     <SettingsMenu
                         items={getActionsMenuItems()}
                         label={<LemonBadge content={selectedRecordingsIds.length.toString()} size="small" />}
+                        data-attr="bulk-action-menu"
                     />
                 )}
                 <SettingsMenu
