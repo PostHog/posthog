@@ -36,7 +36,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
-import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceIntervals'
+import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { isTrendsQuery } from '~/queries/utils'
 
@@ -134,14 +134,20 @@ export function InsightDisplayConfig(): JSX.Element {
                       items: [{ label: () => <ScalePicker /> }],
                   },
                   {
-                      title: 'Confidence intervals',
+                      title: 'Statistical analysis',
                       items: [
                           {
                               label: () => (
                                   <LemonSwitch
                                       label="Show confidence intervals"
+                                      className="pb-2"
                                       fullWidth
                                       checked={!!trendsFilter?.show_confidence_intervals}
+                                      disabledReason={
+                                          display !== ChartDisplayType.ActionsLineGraph
+                                              ? 'Confidence intervals are only available for line graphs'
+                                              : undefined
+                                      }
                                       onChange={(checked) => {
                                           if (isTrendsQuery(querySource)) {
                                               const newQuery = { ...querySource }
