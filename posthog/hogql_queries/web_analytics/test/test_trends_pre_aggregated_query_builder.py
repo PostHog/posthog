@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 from unittest.mock import MagicMock
 
 from posthog.hogql_queries.web_analytics.trends_pre_aggregated_query_builder import TrendsPreAggregatedQueryBuilder
@@ -15,12 +15,11 @@ from posthog.test.base import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from datetime import datetime, UTC
+from posthog.hogql import ast
 
 
 class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
     def _create_mock_runner(self, query: WebTrendsQuery, modifiers: Optional[HogQLQueryModifiers] = None):
-        """Helper to create a mock query runner with the specified query and modifiers"""
-
         runner = MagicMock()
         runner.query = query
         runner.team = self.team
@@ -38,7 +37,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         return runner
 
     def test_basic_query_structure_single_metric(self):
-        """Test basic AST structure for a single metric"""
         query = WebTrendsQuery(
             interval=IntervalType.DAY,
             metrics=[WebTrendsMetric.UNIQUE_USERS],
@@ -61,7 +59,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("ORDER BY bucket ASC", hogql_query)
 
     def test_multiple_metrics(self):
-        """Test query with multiple metrics"""
         query = WebTrendsQuery(
             interval=IntervalType.DAY,
             metrics=[
@@ -87,7 +84,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("sumMerge(bounces_count_state) AS bounces", hogql_query)
 
     def test_weekly_interval(self):
-        """Test query with weekly interval"""
         query = WebTrendsQuery(
             interval=IntervalType.WEEK,
             metrics=[WebTrendsMetric.UNIQUE_USERS],
@@ -105,7 +101,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("toStartOfWeek(period_bucket) AS bucket", hogql_query)
 
     def test_monthly_interval(self):
-        """Test query with monthly interval"""
         query = WebTrendsQuery(
             interval=IntervalType.MONTH,
             metrics=[WebTrendsMetric.UNIQUE_USERS],
@@ -123,7 +118,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("toStartOfMonth(period_bucket) AS bucket", hogql_query)
 
     def test_session_metrics(self):
-        """Test session duration and total session count metrics"""
         query = WebTrendsQuery(
             metrics=[
                 WebTrendsMetric.SESSION_DURATION,
@@ -145,7 +139,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("sumMerge(total_session_count_state) AS total_sessions", hogql_query)
 
     def test_can_use_preaggregated_tables_valid(self):
-        """Test validation allows supported configurations"""
         query = WebTrendsQuery(interval=IntervalType.DAY, metrics=[WebTrendsMetric.UNIQUE_USERS], properties=[])
 
         modifiers = HogQLQueryModifiers(
@@ -160,7 +153,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(builder.can_use_preaggregated_tables())
 
     def test_can_use_preaggregated_tables_rejects_timezone_conversion(self):
-        """Test validation rejects queries with timezone conversion"""
         query = WebTrendsQuery(
             interval=IntervalType.DAY,
             metrics=[WebTrendsMetric.UNIQUE_USERS],
@@ -179,7 +171,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(builder.can_use_preaggregated_tables())
 
     def test_can_use_preaggregated_tables_rejects_unsupported_interval(self):
-        """Test validation rejects unsupported intervals"""
         query = WebTrendsQuery(
             interval=IntervalType.HOUR,  # Unsupported
             metrics=[WebTrendsMetric.UNIQUE_USERS],
@@ -193,7 +184,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(builder.can_use_preaggregated_tables())
 
     def test_get_metric_expr_individual_metrics(self):
-        """Test individual metric AST expressions are correct"""
         query = WebTrendsQuery(metrics=[], interval=IntervalType.DAY, properties=[])
         runner = self._create_mock_runner(query)
         builder = TrendsPreAggregatedQueryBuilder(runner)
@@ -201,30 +191,43 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         # Test unique users metric
         unique_users_expr = builder._get_metric_expr(WebTrendsMetric.UNIQUE_USERS)
         self.assertEqual(unique_users_expr.alias, "unique_users")
-        self.assertEqual(unique_users_expr.expr.name, "uniqMerge")
-        self.assertEqual(len(unique_users_expr.expr.args), 1)
-        self.assertEqual(unique_users_expr.expr.args[0].chain, ["persons_uniq_state"])
+        self.assertIsInstance(unique_users_expr.expr, ast.Call)
+
+        unique_call = cast(ast.Call, unique_users_expr.expr)
+        self.assertEqual(unique_call.name, "uniqMerge")
+        self.assertEqual(len(unique_call.args), 1)
+        self.assertIsInstance(unique_call.args[0], ast.Field)
+        unique_field = cast(ast.Field, unique_call.args[0])
+        self.assertEqual(unique_field.chain, ["persons_uniq_state"])
 
         # Test page views metric
         page_views_expr = builder._get_metric_expr(WebTrendsMetric.PAGE_VIEWS)
         self.assertEqual(page_views_expr.alias, "page_views")
-        self.assertEqual(page_views_expr.expr.name, "sumMerge")
-        self.assertEqual(unique_users_expr.expr.args[0].chain, ["persons_uniq_state"])
+        self.assertIsInstance(page_views_expr.expr, ast.Call)
+        page_call = cast(ast.Call, page_views_expr.expr)
+        self.assertEqual(page_call.name, "sumMerge")
 
         # Test sessions metric
         sessions_expr = builder._get_metric_expr(WebTrendsMetric.SESSIONS)
         self.assertEqual(sessions_expr.alias, "sessions")
-        self.assertEqual(sessions_expr.expr.name, "uniqMerge")
-        self.assertEqual(sessions_expr.expr.args[0].chain, ["sessions_uniq_state"])
+        self.assertIsInstance(sessions_expr.expr, ast.Call)
+        sessions_call = cast(ast.Call, sessions_expr.expr)
+        self.assertEqual(sessions_call.name, "uniqMerge")
+        self.assertIsInstance(sessions_call.args[0], ast.Field)
+        sessions_field = cast(ast.Field, sessions_call.args[0])
+        self.assertEqual(sessions_field.chain, ["sessions_uniq_state"])
 
         # Test bounces metric
         bounces_expr = builder._get_metric_expr(WebTrendsMetric.BOUNCES)
         self.assertEqual(bounces_expr.alias, "bounces")
-        self.assertEqual(bounces_expr.expr.name, "sumMerge")
-        self.assertEqual(bounces_expr.expr.args[0].chain, ["bounces_count_state"])
+        self.assertIsInstance(bounces_expr.expr, ast.Call)
+        bounces_call = cast(ast.Call, bounces_expr.expr)
+        self.assertEqual(bounces_call.name, "sumMerge")
+        self.assertIsInstance(bounces_call.args[0], ast.Field)
+        bounces_field = cast(ast.Field, bounces_call.args[0])
+        self.assertEqual(bounces_field.chain, ["bounces_count_state"])
 
     def test_get_metric_expr_unknown_metric_raises_error(self):
-        """Test that unknown metric raises ValueError"""
         query = WebTrendsQuery(metrics=[], interval=IntervalType.DAY, properties=[])
         runner = self._create_mock_runner(query)
         builder = TrendsPreAggregatedQueryBuilder(runner)
@@ -236,7 +239,6 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Unknown metric", str(cm.exception))
 
     def test_get_metrics_exprs_defaults_to_unique_users(self):
-        """Test that _get_metrics_exprs defaults to unique users when no metrics specified"""
         query = WebTrendsQuery(metrics=[], interval=IntervalType.DAY, properties=[])
         runner = self._create_mock_runner(query)
         builder = TrendsPreAggregatedQueryBuilder(runner)
@@ -246,7 +248,9 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         # Should have one metric (default unique users)
         self.assertEqual(len(metric_exprs), 1)
         self.assertEqual(metric_exprs[0].alias, "unique_users")
-        self.assertEqual(metric_exprs[0].expr.name, "uniqMerge")
+        self.assertIsInstance(metric_exprs[0].expr, ast.Call)
+        call_expr = cast(ast.Call, metric_exprs[0].expr)
+        self.assertEqual(call_expr.name, "uniqMerge")
 
     def test_get_interval_function_mappings(self):
         query = WebTrendsQuery(metrics=[], interval=IntervalType.DAY, properties=[])
