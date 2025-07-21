@@ -1431,6 +1431,9 @@ const api = {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
         },
+        async bulkKeys(ids: FeatureFlagType['id'][]): Promise<{ keys: Record<string, string> }> {
+            return await new ApiRequest().featureFlags().withAction('bulk_keys').create({ data: { ids } })
+        },
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
