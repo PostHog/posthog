@@ -157,6 +157,9 @@
         "tsc-alias": "^1.8.16",
         "tsconfig-paths": "^4.2.0"
     },
+    "engines": {
+        "node": "23.10.0"
+    },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
         "version": "0.1.12"

@@ -1193,7 +1193,7 @@ exports[`segment templates template segment-actions-acoustic-campaign matches ex
       "type": "string",
     },
     {
-      "default": "Version 3.1   (nodeJS: v18.12.1)",
+      "default": "Version 3.1   (nodeJS: v23.10.0)",
       "description": "
 Last-Modified: 06.28.2023 16.15.37
 ",
