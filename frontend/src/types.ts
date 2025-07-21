@@ -4544,6 +4544,14 @@ export interface DataWarehouseSavedQuery {
     latest_history_id?: string
 }
 
+export interface DataWarehouseSavedQueryDraft {
+    id: string
+    query: HogQLQuery
+    saved_query_id?: string
+    created_at: string
+    updated_at: string
+}
+
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string

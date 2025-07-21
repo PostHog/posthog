@@ -149,6 +149,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                 <RunButton />
                 <LemonDivider vertical />
+                <LemonButton type="tertiary" size="xsmall" id="sql-editor-query-window-save-as-draft">
+                    Save as draft
+                </LemonButton>
                 {editingView && (
                     <>
                         <LemonButton
