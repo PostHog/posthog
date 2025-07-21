@@ -83,11 +83,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let conn_timer = common_metrics::timing_guard(
         FLAG_DB_CONNECTION_TIME,
         &[
-            ("pool".to_string(), "reader".to_string()),
-            (
-                "operation".to_string(),
-                "fetch_and_locally_cache_all_relevant_properties".to_string(),
-            ),
+            ("pool", "reader"),
+            ("operation", "fetch_and_locally_cache_all_relevant_properties"),
         ],
     );
     let mut conn = reader.as_ref().get_connection().await?;
@@ -405,11 +402,8 @@ pub async fn get_feature_flag_hash_key_overrides(
     let conn_timer = common_metrics::timing_guard(
         FLAG_DB_CONNECTION_TIME,
         &[
-            ("pool".to_string(), "reader".to_string()),
-            (
-                "operation".to_string(),
-                "get_feature_flag_hash_key_overrides".to_string(),
-            ),
+            ("pool", "reader"),
+            ("operation", "get_feature_flag_hash_key_overrides"),
         ],
     );
     let mut conn = reader.as_ref().get_connection().await?;
@@ -596,11 +590,8 @@ pub async fn should_write_hash_key_override(
             let conn_timer = common_metrics::timing_guard(
                 FLAG_DB_CONNECTION_TIME,
                 &[
-                    ("pool".to_string(), "reader".to_string()),
-                    (
-                        "operation".to_string(),
-                        "should_write_hash_key_override".to_string(),
-                    ),
+                    ("pool", "reader"),
+                    ("operation", "should_write_hash_key_override"),
                 ],
             );
             let mut conn = reader.get_connection().await.map_err(|e| {

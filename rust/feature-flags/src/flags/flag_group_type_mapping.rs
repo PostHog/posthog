@@ -100,11 +100,8 @@ impl GroupTypeMappingCache {
         let conn_timer = common_metrics::timing_guard(
             FLAG_DB_CONNECTION_TIME,
             &[
-                ("pool".to_string(), "reader".to_string()),
-                (
-                    "operation".to_string(),
-                    "fetch_group_type_mapping".to_string(),
-                ),
+                ("pool", "reader"),
+                ("operation", "fetch_group_type_mapping"),
             ],
         );
         let mut conn = reader.as_ref().get_connection().await?;
