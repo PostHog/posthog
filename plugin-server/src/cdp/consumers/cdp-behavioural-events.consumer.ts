@@ -163,7 +163,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 size: messages.length,
             })
 
-            return await this.runInstrumented('handleEachBatch', async () => {
+            return await this.runInstrumented('cdpBehaviouralEventsConsumer.handleEachBatch', async () => {
                 const events = await this._parseKafkaBatch(messages)
                 await this.processBatch(events)
 
