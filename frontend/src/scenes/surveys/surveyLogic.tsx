@@ -624,8 +624,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 return response
             },
-            updateSurvey: async (surveyPayload: Partial<Survey>) => {
+            updateSurvey: async (surveyPayload: Partial<Survey>, intentContext?: ProductIntentContext) => {
                 const response = await api.surveys.update(props.id, surveyPayload)
+                if (intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: intentContext,
+                        metadata: {
+                            survey_id: response.id,
+                        },
+                    })
+                }
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -909,7 +918,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
             },
             archiveSurvey: () => {
-                actions.updateSurvey({ archived: true })
+                actions.updateSurvey({ archived: true }, ProductIntentContext.SURVEY_ARCHIVED)
             },
             loadSurveySuccess: () => {
                 // Trigger stats loading after survey loads
@@ -1851,7 +1860,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
-                    actions.updateSurvey(payload)
+                    actions.updateSurvey(payload, ProductIntentContext.SURVEY_EDITED)
                 } else {
                     actions.createSurvey({ ...payload, _create_in_folder: 'Unfiled/Surveys' })
                 }

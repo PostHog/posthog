@@ -313,6 +313,7 @@ export function Surveys(): JSX.Element {
                                                                                             start_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
+                                                                                        intentContext: ProductIntentContext.SURVEY_LAUNCHED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -350,6 +351,7 @@ export function Surveys(): JSX.Element {
                                                                                             end_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
+                                                                                        intentContext: ProductIntentContext.SURVEY_COMPLETED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -386,6 +388,7 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             end_date: null,
                                                                                         },
+                                                                                        intentContext: ProductIntentContext.SURVEY_RESUMED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -410,13 +413,7 @@ export function Surveys(): JSX.Element {
                                                                         updateSurvey({
                                                                             id: survey.id,
                                                                             updatePayload: { archived: false },
-                                                                        })
-                                                                        addProductIntent({
-                                                                            product_type: ProductKey.SURVEYS,
-                                                                            intent_context: ProductIntentContext.SURVEY_UNARCHIVED,
-                                                                            metadata: {
-                                                                                survey_id: survey.id,
-                                                                            },
+                                                                            intentContext: ProductIntentContext.SURVEY_UNARCHIVED,
                                                                         })
                                                                     }
                                                                     }
@@ -446,13 +443,7 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             archived: true,
                                                                                         },
-                                                                                    })
-                                                                                    addProductIntent({
-                                                                                        product_type: ProductKey.SURVEYS,
-                                                                                        intent_context: ProductIntentContext.SURVEY_ARCHIVED,
-                                                                                        metadata: {
-                                                                                            survey_id: survey.id,
-                                                                                        },
+                                                                                        intentContext: ProductIntentContext.SURVEY_ARCHIVED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',

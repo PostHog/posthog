@@ -177,8 +177,15 @@ export const surveysLogic = kea<surveysLogicType>([
                     searchSurveys: deleteSurvey(values.data.searchSurveys, id),
                 }
             },
-            updateSurvey: async ({ id, updatePayload }) => {
+            updateSurvey: async ({ id, updatePayload, intentContext }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
+                if (intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: intentContext,
+                        metadata: { survey_id: id },
+                    })
+                }
                 return {
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),

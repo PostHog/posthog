@@ -64,7 +64,7 @@ export enum ProductIntentContext {
     SURVEY_UNARCHIVED = 'survey_unarchived',
     SURVEY_DELETED = 'survey_deleted',
     SURVEY_DUPLICATED = 'survey_duplicated',
-    SURVEY_EDITED = 'survey_edited', // TODO: missing intent
+    SURVEY_EDITED = 'survey_edited', // miss
 }
 
 export type ProductIntentMetadata = Record<string, unknown>

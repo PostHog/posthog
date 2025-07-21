@@ -264,7 +264,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         markdown
                                         value={survey.description || ''}
                                         placeholder="Description (optional)"
-                                        onSave={(value) => updateSurvey({ id: id, description: value })}
+                                        onSave={(value) => updateSurvey({ id: id, description: value }, ProductIntentContext.SURVEY_EDITED)}
                                         saveOnBlur={true}
                                         compactButtons
                                     />
