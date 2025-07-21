@@ -894,6 +894,8 @@
             capture_pageleave: false
         };
 
+        const distinctId = new URLSearchParams(window.location.search).get('distinct_id');
+
         if (distinctId) {
             config = {
                 ...config,
@@ -910,7 +912,6 @@
         }
 
         posthog.init(window.projectConfig.token, config);
-        const distinctId = new URLSearchParams(window.location.search).get('distinct_id');
 
         let surveyRendered = false;
         let retryCount = 0;
