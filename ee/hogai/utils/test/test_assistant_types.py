@@ -1,9 +1,11 @@
-from ee.hogai.utils.types import add_and_merge_messages
+from ee.hogai.utils.types import AssistantState, PartialAssistantState, add_and_merge_messages
 from posthog.schema import AssistantMessage
 from posthog.test.base import BaseTest
 
 
-class TestState(BaseTest):
+class TestAssistantTypes(BaseTest):
+    """Test the assistant types."""
+
     def test_merge_messages_with_same_id(self):
         """Test that when messages with the same ID are merged, the message from the right list replaces the one in the left list."""
         # Create two messages with the same ID
@@ -39,3 +41,16 @@ class TestState(BaseTest):
         self.assertIsNotNone(result[0].id)
         self.assertIsNotNone(result[1].id)
         self.assertNotEqual(result[0].id, result[1].id)
+
+    def test_all_fields_have_default_values(self):
+        """Test that all fields have default values"""
+        self.assertIsInstance(AssistantState(), AssistantState)
+        self.assertIsInstance(PartialAssistantState(), PartialAssistantState)
+
+    def test_get_reset_state_no_exceptions(self):
+        """Test that get_reset_state doesn't throw exceptions"""
+        # Should not raise any exceptions
+        reset_state = PartialAssistantState.get_reset_state()
+
+        # Should return a PartialAssistantState instance
+        self.assertIsInstance(reset_state, PartialAssistantState)
