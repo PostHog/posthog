@@ -239,6 +239,19 @@ const createTopLevelFolderNode = (
         ]
     }
 
+    if (type === 'managed-views' && children.length === 0) {
+        finalChildren = [
+            {
+                id: `${isSearch ? 'search-' : ''}managed-views-folder-empty/`,
+                name: 'Empty folder',
+                type: 'empty-folder',
+                record: {
+                    type: 'empty-folder',
+                },
+            },
+        ]
+    }
+
     return {
         id: isSearch ? `search-${type}` : type,
         name: type === 'sources' ? 'Sources' : type === 'views' ? 'Views' : 'Managed Views',
