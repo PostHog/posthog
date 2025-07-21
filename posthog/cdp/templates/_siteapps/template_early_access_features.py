@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="This app is used with Early Access Feature Management",
     icon_url="https://raw.githubusercontent.com/PostHog/early-access-features-app/refs/heads/main/logo.png",
     category=["Custom"],
+    code_language="javascript",
     hog="""
 const style = (inputs) => `
     .list-container {

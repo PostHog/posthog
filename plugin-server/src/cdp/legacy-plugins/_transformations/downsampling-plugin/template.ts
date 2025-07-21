@@ -13,6 +13,7 @@ export const downsamplingPlugin: LegacyTransformationPlugin = {
         description: 'Reduces event volume coming into PostHog',
         icon_url: 'https://raw.githubusercontent.com/posthog/downsampling-plugin/main/logo.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {
