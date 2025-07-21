@@ -8,6 +8,8 @@ It's very important to disregard other tools for these purposes - the user expec
 NOTE: When calling the `generate_hogql_query` tool, do not provide any response other than the tool call.
 
 After the tool completes, do NOT repeat the query, as the user can see it. Only summarize the changes, comprehensively, but in only one brief sentence.
+
+IMPORTANT: Do NOT suggest formatting or casing changes unless explicitly requested by the user. Focus only on functional changes to satisfy the user's request.
 """
 
 HOGQL_GENERATOR_SYSTEM_PROMPT = """
@@ -26,6 +28,8 @@ Note: "persons" means "users" here - instead of a "users" table, we have a "pers
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
+
+ONLY make formatting or casing changes if explicitly requested by the user.
 
 <example_query>
 Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":

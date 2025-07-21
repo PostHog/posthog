@@ -1,9 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
-
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 import { ExpandedFloatingMax } from './components/ExpandedFloatingMax'
 import { CollapsedFloatingMax } from './components/CollapsedFloatingMax'
@@ -11,18 +7,13 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import './MaxFloatingInput.scss'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { SidePanelTab } from '~/types'
 import { useFloatingMaxPosition } from './utils/floatingMaxPositioning'
+import { WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 export function MaxFloatingInput(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { scene, sceneConfig } = useValues(sceneLogic)
     const { threadLogicKey, conversation } = useValues(maxLogic)
 
-    const { isFloatingMaxExpanded, floatingMaxDragState } = useValues(maxGlobalLogic)
+    const { isFloatingMaxExpanded, floatingMaxDragState, showFloatingMax } = useValues(maxGlobalLogic)
     const { setFloatingMaxPosition } = useActions(maxGlobalLogic)
     const { floatingMaxPositionStyle } = useFloatingMaxPosition()
 
@@ -46,19 +37,7 @@ export function MaxFloatingInput(): JSX.Element | null {
         startNewConversation()
     }
 
-    if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
-        return null
-    }
-
-    // Hide floating Max IF:
-    if (
-        (scene === Scene.Max && !isFloatingMaxExpanded) || // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
-        (sidePanelOpen && selectedTab === SidePanelTab.Max) // The Max side panel is open
-    ) {
-        return null
-    }
-
-    if (sceneConfig?.layout === 'plain') {
+    if (!showFloatingMax) {
         return null
     }
 
@@ -92,11 +71,15 @@ export function MaxFloatingInput(): JSX.Element | null {
                         : floatingMaxPositionStyle
                 }
             >
-                {isFloatingMaxExpanded ? (
-                    <ExpandedFloatingMax onCollapse={handleCollapse} onDismiss={handleDismiss} />
-                ) : (
-                    <CollapsedFloatingMax onExpand={handleExpand} onPositionChange={setFloatingMaxPosition} />
-                )}
+                {/* To obtain the same `target="_blank"` Link behavior as in side panel form of Max
+                    (for "Open as new insight" button), let's wrap the content in WithinSidePanelContext */}
+                <WithinSidePanelContext.Provider value={true}>
+                    {isFloatingMaxExpanded ? (
+                        <ExpandedFloatingMax onCollapse={handleCollapse} onDismiss={handleDismiss} />
+                    ) : (
+                        <CollapsedFloatingMax onExpand={handleExpand} onPositionChange={setFloatingMaxPosition} />
+                    )}
+                </WithinSidePanelContext.Provider>
             </div>
         </BindLogic>
     )

@@ -68,53 +68,63 @@ export function HedgehogAvatar({
             style={containerStyle}
             id="floating-max"
         >
-            <Tooltip
-                title={
-                    <>
-                        <IconSparkles className="mr-1.5" />
-                        Max AI - Create insights, talk to your data, and more
-                    </>
-                }
-                placement="top-start"
-                delayMs={0}
+            <div
+                ref={dragElementRef}
+                // border color should be the same as textarea :focus border
+                className={`size-10 rounded-full overflow-hidden border border-[var(--border-bold)] transition-all duration-100 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 flex items-center justify-center bg-bg-light m-0.5 ${
+                    isDragging ? 'cursor-grabbing' : 'cursor-grab'
+                }`}
+                onClick={() => {
+                    if (!hasDragged && !isAnimating) {
+                        onExpand()
+                    }
+                }}
+                onMouseDown={handleMouseDown}
+                style={{ pointerEvents: 'auto' }}
             >
-                <div
-                    ref={dragElementRef}
-                    // border color should be the same as textarea :focus border
-                    className={`size-10 rounded-full overflow-hidden border border-[var(--border-bold)] transition-all duration-100 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 flex items-center justify-center bg-bg-light m-0.5 ${
-                        isDragging ? 'cursor-grabbing' : 'cursor-grab'
-                    }`}
-                    onClick={() => {
-                        if (!hasDragged && !isAnimating) {
-                            onExpand()
-                        }
-                    }}
-                    onMouseDown={handleMouseDown}
-                    style={{ pointerEvents: 'auto' }}
+                <Tooltip
+                    title={
+                        <>
+                            <IconSparkles className="mr-1.5" />
+                            Max AI - Create insights, talk to your data, and more
+                        </>
+                    }
+                    placement="top-start"
+                    delayMs={0}
                 >
-                    <HedgehogBuddy
-                        static
-                        hedgehogConfig={{
-                            controls_enabled: false,
-                            walking_enabled: false,
-                            color: null,
-                            enabled: true,
-                            accessories: [],
-                            interactions_enabled: false,
-                            party_mode_enabled: false,
-                            use_as_profile: true,
-                            skin: 'default',
-                            fixed_direction: fixedDirection,
-                            ...user?.hedgehog_config,
+                    <div
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                         }}
-                        onActorLoaded={(actor) => {
-                            hedgehogActorRef.current = actor
-                            // Start with a wave
-                            actor.setAnimation('wave')
-                        }}
-                    />
-                </div>
-            </Tooltip>
+                    >
+                        <HedgehogBuddy
+                            static
+                            hedgehogConfig={{
+                                controls_enabled: false,
+                                walking_enabled: false,
+                                color: null,
+                                enabled: true,
+                                accessories: [],
+                                interactions_enabled: false,
+                                party_mode_enabled: false,
+                                use_as_profile: true,
+                                skin: 'default',
+                                fixed_direction: fixedDirection,
+                                ...user?.hedgehog_config,
+                            }}
+                            onActorLoaded={(actor) => {
+                                hedgehogActorRef.current = actor
+                                // Start with a wave
+                                actor.setAnimation('wave')
+                            }}
+                        />
+                    </div>
+                </Tooltip>
+            </div>
         </div>
     )
 }

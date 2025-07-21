@@ -8,6 +8,7 @@ import structlog
 import chdb
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    HISTORICAL_DAILY_CRON_SCHEDULE,
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
@@ -22,8 +23,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
-)
-from posthog.hogql.database.schema.web_analytics_s3 import (
+    DROP_PARTITION_SQL,
     get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
@@ -71,6 +71,28 @@ def pre_aggregate_web_analytics_data(
     date_end = end_datetime.strftime("%Y-%m-%d")
 
     try:
+        # Drop all partitions in the time window, ensuring a clean state before insertion
+        # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
+        current_date = start_datetime.date()
+        end_date = end_datetime.date()
+
+        # For time windows: start is inclusive, end is exclusive (except for single-day partitions)
+        while current_date < end_date or (current_date == start_datetime.date() == end_date):
+            partition_date_str = current_date.strftime("%Y-%m-%d")
+            drop_partition_query = DROP_PARTITION_SQL(table_name, partition_date_str, granularity="daily")
+            context.log.info(f"Dropping partition for {partition_date_str}: {drop_partition_query}")
+
+            try:
+                sync_execute(drop_partition_query)
+                context.log.info(f"Successfully dropped partition for {partition_date_str}")
+            except Exception as drop_error:
+                # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
+                context.log.info(
+                    f"Partition for {partition_date_str} doesn't exist or couldn't be dropped: {drop_error}"
+                )
+
+            current_date += timedelta(days=1)
+
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
@@ -92,7 +114,6 @@ def pre_aggregate_web_analytics_data(
     name="web_analytics_bounces_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_bounces_daily"},
@@ -120,7 +141,6 @@ def web_bounces_daily(
     name="web_analytics_stats_table_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_stats_daily"},
@@ -314,7 +334,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
 
 
 @dagster.schedule(
-    cron_schedule="0 1 * * *",
+    cron_schedule=HISTORICAL_DAILY_CRON_SCHEDULE,
     job=web_pre_aggregate_daily_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

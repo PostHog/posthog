@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useValues } from 'kea'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { maxGlobalLogic } from '../maxGlobalLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 /**
  * Positioning utilities and drag behavior for Max AI floating components
@@ -176,12 +177,13 @@ export function useFloatingMaxPosition(): {
 } {
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const [shouldAnimate, setShouldAnimate] = useState(false)
     const prevExpandedRef = useRef(isFloatingMaxExpanded)
     const [floatingMaxPositionStyle, setFloatingMaxPositionStyle] = useState<React.CSSProperties>({})
 
     // Only animate when transitioning from collapsed to expanded
-    useEffect(() => {
+    useLayoutEffect(() => {
         const wasCollapsed = !prevExpandedRef.current
         const isNowExpanded = isFloatingMaxExpanded
 
@@ -196,7 +198,7 @@ export function useFloatingMaxPosition(): {
     }, [isFloatingMaxExpanded])
 
     // Update position style when layout changes
-    useEffect(() => {
+    useLayoutEffect(() => {
         const side = floatingMaxPosition?.side || 'right'
         const baseStyle = isFloatingMaxExpanded
             ? {
@@ -215,7 +217,14 @@ export function useFloatingMaxPosition(): {
             ...baseStyle,
         })
         // oxlint-disable-next-line exhaustive-deps
-    }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState, floatingMaxPosition, shouldAnimate])
+    }, [
+        isFloatingMaxExpanded,
+        isLayoutNavCollapsed,
+        floatingMaxDragState,
+        floatingMaxPosition,
+        shouldAnimate,
+        sidePanelOpen,
+    ])
 
     return {
         floatingMaxPositionStyle,
