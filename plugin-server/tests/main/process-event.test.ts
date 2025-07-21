@@ -7,7 +7,6 @@ unit tests to appropriate classes/functions.
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/utils/posthog'
@@ -96,7 +95,6 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
 
@@ -153,7 +151,11 @@ beforeEach(async () => {
     await resetTestDatabaseClickhouse(TEST_CONFIG)
 
     hub = await createHub({ ...TEST_CONFIG })
-    redis = await hub.redisPool.acquire()
+    const redis = await hub.redisPool.acquire()
+    // clear the webhook redis cache
+    const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+    await redis.del(hooksCacheKey)
+    await hub.redisPool.release(redis)
 
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
@@ -161,16 +163,11 @@ beforeEach(async () => {
     team = await getFirstTeam(hub)
     now = DateTime.utc()
 
-    // clear the webhook redis cache
-    const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-    await redis.del(hooksCacheKey)
-
     // Always start with an anonymous state
     state = { currentDistinctId: 'anonymous_id' }
 })
 
 afterEach(async () => {
-    await hub.redisPool.release(redis)
     await closeHub(hub)
 })
 

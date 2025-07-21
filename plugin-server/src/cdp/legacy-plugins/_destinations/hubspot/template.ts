@@ -15,6 +15,7 @@ export const hubspotPlugin: LegacyDestinationPlugin = {
         description: 'This plugin will send events to Hubspot.',
         icon_url: 'https://raw.githubusercontent.com/posthog/hubspot-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

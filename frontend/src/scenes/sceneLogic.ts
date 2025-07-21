@@ -198,6 +198,18 @@ export const sceneLogic = kea<sceneLogicType>([
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
+        productFromUrl: [
+            () => [router.selectors.location],
+            (location: Location): ProductKey | null => {
+                const pathname = location.pathname
+                for (const [productKey, urls] of Object.entries(productUrlMapping)) {
+                    if (urls.some((url) => pathname.includes(url))) {
+                        return productKey as ProductKey
+                    }
+                }
+                return null
+            },
+        ],
     }),
     listeners(({ values, actions, props, selectors }) => ({
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
