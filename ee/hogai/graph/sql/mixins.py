@@ -2,7 +2,7 @@ import asyncio
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from ee.hogai.graph.mixins import AssistantNodeMixin
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.warehouse import serialize_database_schema
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
@@ -15,7 +15,7 @@ from ..schema_generator.parsers import PydanticOutputParserException
 from .prompts import HOGQL_GENERATOR_SYSTEM_PROMPT
 
 
-class HogQLGeneratorMixin(AssistantNodeMixin):
+class HogQLGeneratorMixin(AssistantContextMixin):
     _database_instance: Database | None = None
 
     async def _get_database(self):

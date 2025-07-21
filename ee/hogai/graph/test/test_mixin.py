@@ -1,6 +1,5 @@
-from ee.hogai.graph.mixins import AssistantNodeMixin
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.models.assistant import CoreMemory
-from posthog.models import Team
 from posthog.test.base import BaseTest
 
 
@@ -8,11 +7,20 @@ class TestAssistantNodeMixin(BaseTest):
     def setUp(self):
         super().setUp()
 
-        class TestNode(AssistantNodeMixin):
-            def __init__(self, team: Team):
-                self._team = team
+        class TestNode(AssistantContextMixin):
+            def __init__(self, team, user):
+                self.__team = team
+                self.__user = user
 
-        self.node = TestNode(self.team)
+            @property
+            def _team(self):
+                return self.__team
+
+            @property
+            def _user(self):
+                return self.__user
+
+        self.node = TestNode(self.team, self.user)
 
     async def test_aget_core_memory_when_exists(self):
         core_memory = await CoreMemory.objects.acreate(team=self.team, text="Test memory")

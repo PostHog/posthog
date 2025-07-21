@@ -17,6 +17,7 @@ from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
@@ -60,9 +61,7 @@ from .prompts import (
 )
 
 
-class MemoryInitializerContextMixin:
-    _team: Team
-
+class MemoryInitializerContextMixin(AssistantContextMixin):
     def _retrieve_context(self):
         # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(

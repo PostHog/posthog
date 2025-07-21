@@ -1,5 +1,4 @@
 from ee.hogai.graph.sql.mixins import HogQLGeneratorMixin
-from posthog.models import Team
 from posthog.test.base import NonAtomicBaseTest
 
 
@@ -7,10 +6,19 @@ class TestSQLMixins(NonAtomicBaseTest):
     @property
     def _node(self):
         class DummyNode(HogQLGeneratorMixin):
-            def __init__(self, team: Team):
-                self._team = team
+            def __init__(self, team, user):
+                self.__team = team
+                self.__user = user
 
-        return DummyNode(self.team)
+            @property
+            def _team(self):
+                return self.__team
+
+            @property
+            def _user(self):
+                return self.__user
+
+        return DummyNode(self.team, self.user)
 
     async def test_construct_system_prompt(self):
         mixin = self._node

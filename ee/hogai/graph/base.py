@@ -1,17 +1,14 @@
-import datetime
-from abc import ABC
 from collections.abc import Sequence
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
-from ee.hogai.graph.mixins import AssistantNodeMixin
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
-from ee.models import Conversation, CoreMemory
+from ee.models import Conversation
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
@@ -23,13 +20,10 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
-class BaseAssistantNode(AssistantNodeMixin, ABC, Generic[StateType, PartialStateType]):
-    _team: Team
-    _user: User
-
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
     def __init__(self, team: Team, user: User):
-        self._team = team
-        self._user = user
+        self.__internal_team = team
+        self.__internal_user = user
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
@@ -51,55 +45,13 @@ class BaseAssistantNode(AssistantNodeMixin, ABC, Generic[StateType, PartialState
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
 
-    async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return await Conversation.objects.aget(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
-
-    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return Conversation.objects.get(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
+    @property
+    def _team(self) -> Team:
+        return self.__internal_team
 
     @property
-    def core_memory(self) -> CoreMemory | None:
-        try:
-            return CoreMemory.objects.get(team=self._team)
-        except CoreMemory.DoesNotExist:
-            return None
-
-    @property
-    def core_memory_text(self) -> str:
-        if not self.core_memory:
-            return ""
-        return self.core_memory.formatted_text
-
-    @property
-    def _utc_now_datetime(self) -> datetime.datetime:
-        return timezone.now().astimezone(datetime.UTC)
-
-    @property
-    def utc_now(self) -> str:
-        """
-        Returns the current time in UTC.
-        """
-        return self._utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
-    def project_now(self) -> str:
-        """
-        Returns the current time in the project's timezone.
-        """
-        return self._utc_now_datetime.astimezone(self._team.timezone_info).strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
-    def project_timezone(self) -> str | None:
-        """
-        Returns the timezone of the project, e.g. "PST" or "UTC".
-        """
-        return self._team.timezone_info.tzname(self._utc_now_datetime)
+    def _user(self) -> User:
+        return self.__internal_user
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
