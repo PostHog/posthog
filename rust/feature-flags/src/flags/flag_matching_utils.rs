@@ -393,10 +393,16 @@ pub async fn get_feature_flag_hash_key_overrides(
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[
-        ("pool".to_string(), "reader".to_string()),
-        ("operation".to_string(), "get_feature_flag_hash_key_overrides".to_string()),
-    ]);
+    let conn_timer = common_metrics::timing_guard(
+        FLAG_DB_CONNECTION_TIME,
+        &[
+            ("pool".to_string(), "reader".to_string()),
+            (
+                "operation".to_string(),
+                "get_feature_flag_hash_key_overrides".to_string(),
+            ),
+        ],
+    );
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
@@ -578,10 +584,16 @@ pub async fn should_write_hash_key_override(
 
     for retry in 0..MAX_RETRIES {
         let result = timeout(QUERY_TIMEOUT, async {
-            let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[
-                ("pool".to_string(), "reader".to_string()),
-                ("operation".to_string(), "should_write_hash_key_override".to_string()),
-            ]);
+            let conn_timer = common_metrics::timing_guard(
+                FLAG_DB_CONNECTION_TIME,
+                &[
+                    ("pool".to_string(), "reader".to_string()),
+                    (
+                        "operation".to_string(),
+                        "should_write_hash_key_override".to_string(),
+                    ),
+                ],
+            );
             let mut conn = reader.get_connection().await.map_err(|e| {
                 FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
             })?;

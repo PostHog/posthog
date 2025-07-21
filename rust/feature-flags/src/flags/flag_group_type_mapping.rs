@@ -97,10 +97,16 @@ impl GroupTypeMappingCache {
         reader: PostgresReader,
         project_id: ProjectId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[
-            ("pool".to_string(), "reader".to_string()),
-            ("operation".to_string(), "fetch_group_type_mapping".to_string()),
-        ]);
+        let conn_timer = common_metrics::timing_guard(
+            FLAG_DB_CONNECTION_TIME,
+            &[
+                ("pool".to_string(), "reader".to_string()),
+                (
+                    "operation".to_string(),
+                    "fetch_group_type_mapping".to_string(),
+                ),
+            ],
+        );
         let mut conn = reader.as_ref().get_connection().await?;
         conn_timer.fin();
 
