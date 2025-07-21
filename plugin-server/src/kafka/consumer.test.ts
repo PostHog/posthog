@@ -349,7 +349,7 @@ describe('consumer', () => {
 
             // Add background tasks
             // Explicitly assign promise array (handled in cleanup)
-            void (consumerDisabled['backgroundTask'] = [Promise.resolve('done')])
+            void (consumerDisabled['backgroundTask'] = [Promise.resolve()])
 
             consumerDisabled.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
