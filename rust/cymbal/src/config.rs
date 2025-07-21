@@ -75,6 +75,9 @@ pub struct Config {
     #[envconfig(default = "object_storage_root_password")]
     pub object_storage_secret_access_key: String,
 
+    #[envconfig(default = "false")] // Enable for MinIO compatibility
+    pub object_storage_force_path_style: bool,
+
     #[envconfig(default = "symbolsets")]
     pub ss_prefix: String,
 
