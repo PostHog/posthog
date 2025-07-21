@@ -6,4 +6,3 @@ echo "PATH in pre-commit: $PATH"
 echo "VIRTUAL_ENV in pre-commit: $VIRTUAL_ENV"
 echo "Node version: $(node --version)"
 which prettier || echo "prettier not found"
-

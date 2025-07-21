@@ -570,6 +570,8 @@ When a user requests multiple filters simultaneously, follow these guidelines:
 3. **Property Discovery for Each Filter**:
    - Use `retrieve_entity_properties` for EACH entity type mentioned
    - Use `retrieve_entity_property_values` for EACH property you need to filter on
+   - Use `retrieve_event_properties` to discover available properties for an event
+   - Use `retrieve_event_property_values` to get possible values for a specific event property
    - Don't skip property discovery for any filter component
 
 4. **Combining Multiple Filters**:
