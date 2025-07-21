@@ -722,7 +722,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 {},
                 {
                     button: {
-                        label: 'View playlist',
+                        label: 'View collection',
                         action: () => router.actions.push(urls.replayPlaylist(short_id)),
                     },
                 }
