@@ -263,10 +263,7 @@ export function SessionRecordingsPlaylistTopSettings({
                       label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
                       onClick: () => handleBulkAddToPlaylist(playlist.short_id),
                   })),
-            disabledReason:
-                collections.length === 0
-                    ? 'There are no collections. You have to make a collection before you can bulk add recordings to it'
-                    : undefined,
+            disabledReason: collections.length === 0 ? 'There are no collections' : undefined,
             'data-attr': 'add-to-collection',
         })
 
