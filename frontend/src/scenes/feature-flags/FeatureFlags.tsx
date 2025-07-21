@@ -369,7 +369,7 @@ export function OverViewTab({
                     dropdownMatchSelectWidth={false}
                     size="small"
                     onChange={(status) => {
-                        const { active, ...restFilters } = filters
+                        const { active, ...restFilters } = filters || {}
                         if (status === 'all') {
                             setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                         } else if (status === 'STALE') {
