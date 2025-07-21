@@ -358,3 +358,106 @@ class TestSharing(APIBaseTest):
         assert final_asset is not None
         assert original_asset is not None
         assert final_asset.id != original_asset.id
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_refresh_sharing_access_token_for_dashboard(self, patched_exporter_task: Mock):
+        # Enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        initial_data = response.json()
+        initial_token = initial_data["access_token"]
+        assert initial_token
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        refreshed_data = response.json()
+
+        # Token should be different
+        assert refreshed_data["access_token"] != initial_token
+        assert refreshed_data["enabled"] is True
+        assert refreshed_data["created_at"] == initial_data["created_at"]
+
+        # Verify the token persists
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        assert response.json()["access_token"] == refreshed_data["access_token"]
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_refresh_sharing_access_token_for_insight(self, patched_exporter_task: Mock):
+        # First enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            {"enabled": True},
+        )
+        initial_data = response.json()
+        initial_token = initial_data["access_token"]
+        assert initial_token
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        refreshed_data = response.json()
+
+        # Token should be different
+        assert refreshed_data["access_token"] != initial_token
+        assert refreshed_data["enabled"] is True
+        assert refreshed_data["created_at"] == initial_data["created_at"]
+
+        # Verify activity log was created
+        activity_logs = ActivityLog.objects.filter(activity="access token refreshed")
+        assert activity_logs.count() == 1
+        assert activity_logs.first().item_id == str(self.insight.id)
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_cannot_refresh_disabled_sharing_configuration(self, patched_exporter_task: Mock):
+        # Try to refresh without enabling sharing first
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot refresh access token for disabled sharing configuration" in response.json()["detail"]
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_refresh_requires_edit_permissions(self, patched_exporter_task: Mock):
+        other_user = User.objects.create_and_join(self.organization, "other@x.com", None)
+        restricted_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="restricted dashboard",
+            created_by=other_user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        # Enable sharing as the creator
+        self.client.force_login(other_user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{restricted_dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Try to refresh as a different user without edit permissions
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{restricted_dashboard.id}/sharing/refresh/"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_refresh_access_token_uniqueness(self, patched_exporter_task: Mock):
+        # Enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        initial_token = response.json()["access_token"]
+
+        # Collect multiple refreshed tokens
+        tokens = set()
+        for _ in range(5):
+            response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+            assert response.status_code == status.HTTP_200_OK
+            tokens.add(response.json()["access_token"])
+
+        # All tokens should be unique
+        assert len(tokens) == 5
+        assert initial_token not in tokens
