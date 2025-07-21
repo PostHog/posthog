@@ -10,6 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Triggers a webhook based scenario",
     icon_url="/static/services/make.png",
     category=["Custom"],
+    code_language="hog",
     hog="""
 if (not match(inputs.webhookUrl, '^https://hook.[^/]+.make.com/?.*')) {
     throw Error('Invalid URL. The URL should match the format: https://hook.<region>.make.com/<hookUrl>')

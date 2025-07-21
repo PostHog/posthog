@@ -173,7 +173,8 @@ export function MetricRowGroup({
                     <div className="text-sm">
                         <div className="text-text-primary">{formatData(baselineResult)}</div>
                         <div className="text-xs text-muted">
-                            {baselineResult.sum} / {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                            {humanFriendlyNumber(baselineResult.sum)} /{' '}
+                            {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
                         </div>
                     </div>
                 </td>
@@ -277,7 +278,8 @@ export function MetricRowGroup({
                             <div className="text-sm">
                                 <div className="text-text-primary">{formatData(variant)}</div>
                                 <div className="text-xs text-muted">
-                                    {variant.sum} / {humanFriendlyNumber(variant.number_of_samples || 0)}
+                                    {humanFriendlyNumber(variant.sum)} /{' '}
+                                    {humanFriendlyNumber(variant.number_of_samples || 0)}
                                 </div>
                             </div>
                         </td>

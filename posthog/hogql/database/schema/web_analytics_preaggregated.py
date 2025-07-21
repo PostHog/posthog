@@ -50,6 +50,7 @@ SHARED_SCHEMA_FIELDS = {
     **PATH_FIELDS,
 }
 
+
 # Web stats daily specific fields
 WEB_STATS_SPECIFIC_FIELDS = {
     "pathname": StringDatabaseField(name="pathname", nullable=True),
