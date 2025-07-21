@@ -432,12 +432,14 @@ class ExperimentQueryRunner(QueryRunner):
                         case ExperimentMetricMathType.AVG:
                             return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
                         case ExperimentMetricMathType.HOGQL:
-                        # For HogQL expressions, extract the aggregation function if present
-                        if metric.source.math_hogql is not None:
-                            aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
-                            if aggregation_function:
-                                # Use the extracted aggregation function
-                                return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+                            # For HogQL expressions, extract the aggregation function if present
+                            if metric.source.math_hogql is not None:
+                                aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
+                                if aggregation_function:
+                                    # Use the extracted aggregation function
+                                    return parse_expr(
+                                        f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))"
+                                    )
                             # Default to sum if no aggregation function is found
                             return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
                         case _:
