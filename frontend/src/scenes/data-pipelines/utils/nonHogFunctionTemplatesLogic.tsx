@@ -1,5 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
@@ -18,6 +18,7 @@ export interface NonHogFunctionTemplatesLogicProps {
 }
 
 export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType>([
+    props({} as NonHogFunctionTemplatesLogicProps),
     path((key) => ['scenes', 'data-pipelines', 'utils', 'nonHogFunctionTemplatesLogic', key]),
 
     connect(({ availableSources }: NonHogFunctionTemplatesLogicProps) => ({
