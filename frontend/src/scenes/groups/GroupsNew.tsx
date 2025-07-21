@@ -5,7 +5,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { groupsNewLogic } from 'scenes/groups/groupsNewLogic'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconPlus, IconTrash } from '@posthog/icons'
 
@@ -22,8 +22,8 @@ export const scene: SceneExport = {
 }
 
 export function GroupsNew(): JSX.Element {
-    const { logicProps, customProperties } = useValues(groupsNewLogic)
-    const { addProperty, removeProperty, updateProperty } = useActions(groupsNewLogic)
+    const { logicProps, group } = useValues(groupsNewLogic)
+    const { addFormProperty, removeFormProperty } = useActions(groupsNewLogic)
 
     return (
         <div className="groups-new">
@@ -65,7 +65,7 @@ export function GroupsNew(): JSX.Element {
                     <div className="mt-4">
                         <h3 className="text-md font-medium mb-2">Properties</h3>
 
-                        {customProperties && customProperties.length > 0 && (
+                        {group.customProperties && group.customProperties.length > 0 && (
                             <div className="flex gap-4 mb-2 text-s font-medium">
                                 <div className="flex-1">Name</div>
                                 <div className="flex-1">Value</div>
@@ -73,38 +73,36 @@ export function GroupsNew(): JSX.Element {
                             </div>
                         )}
 
-                        {customProperties &&
-                            customProperties.map((property, index) => (
-                                <div key={index} className="flex gap-4 mb-2 items-start">
-                                    <div className="flex-1">
-                                        <LemonInput
-                                            value={property.name}
-                                            onChange={(value) => updateProperty(index, 'name', value)}
-                                            placeholder="e.g., company"
+                        {group.customProperties &&
+                            group.customProperties.map((_, index: number) => (
+                                <Group key={index} name={['customProperties', index]}>
+                                    <div className="flex gap-4 mb-2 items-start">
+                                        <div className="flex-1">
+                                            <LemonField name="name">
+                                                <LemonInput placeholder="e.g. is_subscribed" />
+                                            </LemonField>
+                                        </div>
+                                        <div className="flex-1">
+                                            <LemonField name="value">
+                                                <LemonInput placeholder="e.g. true" />
+                                            </LemonField>
+                                        </div>
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="small"
+                                            type="secondary"
+                                            status="danger"
+                                            onClick={() => removeFormProperty(index)}
+                                            data-attr={`remove-property-${index}`}
                                         />
                                     </div>
-                                    <div className="flex-1">
-                                        <LemonInput
-                                            value={property.value}
-                                            onChange={(value) => updateProperty(index, 'value', value)}
-                                            placeholder="e.g., PostHog"
-                                        />
-                                    </div>
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        size="small"
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={() => removeProperty(index)}
-                                        data-attr={`remove-property-${index}`}
-                                    />
-                                </div>
+                                </Group>
                             ))}
 
                         <LemonButton
                             icon={<IconPlus />}
                             type="secondary"
-                            onClick={addProperty}
+                            onClick={addFormProperty}
                             data-attr="add-property"
                         >
                             Add property

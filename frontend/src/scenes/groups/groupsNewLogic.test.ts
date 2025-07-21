@@ -211,6 +211,60 @@ describe('groupsNewLogic', () => {
             expect(logic.values.group.name).toBe('Valid Group')
             expect(logic.values.group.group_key).toBe('valid-group')
         })
+
+        it('validates custom property names are not empty', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.addProperty()
+
+            logic.actions.submitGroup()
+
+            expect(logic.values.groupHasErrors).toBe(true)
+            expect(logic.values.groupErrors.customProperties[0].name).toBe('Property name cannot be empty')
+        })
+
+        it('validates custom property names are unique', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.addProperty()
+            logic.actions.addProperty()
+            logic.actions.updateProperty(0, 'name', 'duplicate')
+            logic.actions.updateProperty(1, 'name', 'duplicate')
+
+            logic.actions.submitGroup()
+
+            expect(logic.values.groupHasErrors).toBe(true)
+            expect(logic.values.groupErrors.customProperties[0].name).toBe('Property name must be unique')
+            expect(logic.values.groupErrors.customProperties[1].name).toBe('Property name must be unique')
+        })
+
+        it('validates custom property names are not reserved', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.addProperty()
+            logic.actions.updateProperty(0, 'name', 'name')
+
+            logic.actions.submitGroup()
+
+            expect(logic.values.groupHasErrors).toBe(true)
+            expect(logic.values.groupErrors.customProperties[0].name).toBe('Property name "name" is reserved')
+        })
+
+        it('accepts valid custom properties', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.addProperty()
+            logic.actions.addProperty()
+            logic.actions.updateProperty(0, 'name', 'company')
+            logic.actions.updateProperty(0, 'value', 'PostHog')
+            logic.actions.updateProperty(1, 'name', 'industry')
+            logic.actions.updateProperty(1, 'value', 'Analytics')
+
+            logic.actions.submitGroup()
+
+            expect(logic.values.groupHasErrors).toBe(false)
+            expect(logic.values.groupErrors).toEqual({})
+        })
     })
 
     describe('cleanup and lifecycle', () => {

@@ -24,6 +24,7 @@ export interface NewGroupFormData {
     group_key: string
     group_type_index: number
     properties: Record<string, any>
+    customProperties: GroupProperty[]
 }
 
 export interface GroupProperty {
@@ -75,9 +76,8 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
 
     actions({
         saveGroup: (groupParams: CreateGroupParams) => ({ groupParams }),
-        addProperty: () => ({}),
-        removeProperty: (index: number) => ({ index }),
-        updateProperty: (index: number, field: 'name' | 'value', value: string) => ({ index, field, value }),
+        addFormProperty: () => ({}),
+        removeFormProperty: (index: number) => ({ index }),
     }),
 
     reducers({
@@ -100,17 +100,53 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         ],
     }),
 
-    forms(({ actions, props, values }) => ({
+    forms(({ actions, props }) => ({
         group: {
             defaults: NEW_GROUP,
-            errors: ({ group_key, name }: NewGroupFormData) => {
-                return {
+            errors: ({ group_key, name, customProperties }: NewGroupFormData) => {
+                const errors: any = {
                     name: !name?.trim() ? 'Group name cannot be empty' : undefined,
                     group_key: !group_key?.trim() ? 'Group key cannot be empty' : undefined,
                 }
+
+                if (customProperties && customProperties.length > 0) {
+                    const customPropertyErrors: any[] = []
+                    let hasCustomPropertyErrors = false
+
+                    customProperties.forEach((prop, index) => {
+                        const propertyErrors: any = {}
+
+                        if (!prop?.name?.trim()) {
+                            propertyErrors.name = 'Property name cannot be empty'
+                            hasCustomPropertyErrors = true
+                        }
+
+                        const duplicateIndex = customProperties.findIndex(
+                            (p, i) => i !== index && p?.name?.trim() === prop?.name?.trim()
+                        )
+                        if (duplicateIndex !== -1 && prop?.name?.trim()) {
+                            propertyErrors.name = 'Property name must be unique'
+                            hasCustomPropertyErrors = true
+                        }
+
+                        // Check for reserved property name 'name'
+                        if (prop?.name?.trim().toLowerCase() === 'name') {
+                            propertyErrors.name = 'Property name "name" is reserved'
+                            hasCustomPropertyErrors = true
+                        }
+
+                        customPropertyErrors[index] = propertyErrors
+                    })
+
+                    if (hasCustomPropertyErrors) {
+                        errors.customProperties = customPropertyErrors
+                    }
+                }
+
+                return errors
             },
             submit: (formData: NewGroupFormData) => {
-                const flattenedCustomProperties = flattenProperties(values.customProperties)
+                const flattenedCustomProperties = flattenProperties(formData.customProperties || [])
                 const group_properties = {
                     name: formData.name,
                     ...flattenedCustomProperties,
@@ -151,6 +187,17 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
             }
         },
         saveGroupSuccess: () => actions.resetGroup(),
+        addFormProperty: () => {
+            const currentProperties = values.group.customProperties || []
+            actions.setGroupValue('customProperties', [...currentProperties, { name: '', value: '' }])
+        },
+        removeFormProperty: ({ index }) => {
+            const currentProperties = values.group.customProperties || []
+            actions.setGroupValue(
+                'customProperties',
+                currentProperties.filter((_, i) => i !== index)
+            )
+        },
     })),
 
     actionToUrl(({ values }) => ({
