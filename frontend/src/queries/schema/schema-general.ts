@@ -3490,6 +3490,7 @@ export interface SourceFieldSelectConfig {
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
     flattenComplexSelect?: string
+    converter?: 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 }
 
 export interface SourceFieldSwitchGroupConfig {

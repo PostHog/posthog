@@ -14,6 +14,7 @@ from posthog.schema import (
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
     Type4,
+    Converter,
 )
 
 if TYPE_CHECKING:
@@ -106,7 +107,7 @@ class SourceConfigGenerator:
 
         field_parts = []
 
-        converter = self._get_converter(field.type)
+        converter = self._get_input_converter(field.type)
         if converter:
             field_parts.append(f"converter={converter}")
 
@@ -135,26 +136,36 @@ class SourceConfigGenerator:
     ) -> tuple[list[str], list[str]]:
         has_option_fields = any(option.fields for option in field.options if option.fields)
 
+        field_parts = []
+
+        if not field.required and not field.defaultValue:
+            field_parts.append("default=None")
+
+        if field.defaultValue:
+            if field.converter:
+                field_parts.append(f'default=config.{field.converter.value}("{field.defaultValue}")')
+            else:
+                field_parts.append(f'default="{field.defaultValue}"')
+
+        if field.converter:
+            field_parts.append(f"converter=config.{field.converter.value}")
+
         if not has_option_fields:
-            option_values = [f'"{option.value}"' for option in field.options]
-            literal_type = f"Literal[{', '.join(option_values)}]"
+            literal_type = self._get_select_literal_type(field)
 
             python_field_name, should_alias = self._make_python_identifier(field.name)
 
             if should_alias:
-                if field.defaultValue:
-                    field_def = f'    {python_field_name}: {literal_type} = config.value(alias="{field.name}", default="{field.defaultValue}")'
-                elif not field.required:
-                    field_def = f'    {python_field_name}: {literal_type} | None = config.value(alias="{field.name}", default=None)'
-                else:
-                    field_def = f'    {python_field_name}: {literal_type} = config.value(alias="{field.name}")'
+                field_parts.append(f'alias="{field.name}"')
+
+            if not field.required:
+                literal_type = f"{literal_type} | None"
+
+            if field_parts:
+                config_value = f"config.value({', '.join(field_parts)})"
+                field_def = f"    {python_field_name}: {literal_type} = {config_value}"
             else:
-                if field.defaultValue:
-                    field_def = f'    {python_field_name}: {literal_type} = "{field.defaultValue}"'
-                elif not field.required:
-                    field_def = f"    {python_field_name}: {literal_type} | None = None"
-                else:
-                    field_def = f"    {python_field_name}: {literal_type}"
+                field_def = f"    {python_field_name}: {literal_type}"
 
             return [field_def], []
 
@@ -164,25 +175,21 @@ class SourceConfigGenerator:
         if field.flattenComplexSelect:
             # Legacy flattening behavior - flatten option fields to main config
             # The select field itself becomes a simple literal
-            option_values = [f'"{option.value}"' for option in field.options]
-            literal_type = f"Literal[{', '.join(option_values)}]"
+            literal_type = self._get_select_literal_type(field)
 
             python_field_name, should_alias = self._make_python_identifier(field.name)
 
             if should_alias:
-                if field.defaultValue:
-                    select_field = f'    {python_field_name}: {literal_type} = config.value(alias="{field.name}", default="{field.defaultValue}")'
-                elif not field.required:
-                    select_field = f'    {python_field_name}: {literal_type} | None = config.value(alias="{field.name}", default=None)'
-                else:
-                    select_field = f'    {python_field_name}: {literal_type} = config.value(alias="{field.name}")'
+                field_parts.append(f'alias="{field.name}"')
+
+            if not field.required:
+                literal_type = f"{literal_type} | None"
+
+            if field_parts:
+                config_value = f"config.value({', '.join(field_parts)})"
+                select_field = f"    {python_field_name}: {literal_type} = {config_value}"
             else:
-                if field.defaultValue:
-                    select_field = f'    {python_field_name}: {literal_type} = "{field.defaultValue}"'
-                elif not field.required:
-                    select_field = f"    {python_field_name}: {literal_type} | None = None"
-                else:
-                    select_field = f"    {python_field_name}: {literal_type}"
+                select_field = f"    {python_field_name}: {literal_type}"
 
             option_fields = []
             seen_field_names = set()
@@ -210,8 +217,8 @@ class SourceConfigGenerator:
 
             nested_field_defs = []
 
-            option_values = [f'"{option.value}"' for option in field.options]
-            literal_type = f"Literal[{', '.join(option_values)}]"
+            literal_type = self._get_select_literal_type(field)
+
             if field.defaultValue:
                 nested_field_defs.append(f'    selection: {literal_type} = "{field.defaultValue}"')
             else:
@@ -288,14 +295,14 @@ class SourceConfigGenerator:
 
         if field.required:
             if should_alias:
-                return f'    {python_field_name}: str = config.value(alias="{field.name}")'
+                return f'    {python_field_name}: int = config.value(alias="{field.name}", converter=config.str_to_int)'
             else:
-                return f"    {python_field_name}: str"
+                return f"    {python_field_name}: int = config.value(converter=config.str_to_int)"
         else:
             if should_alias:
-                return f'    {python_field_name}: str | None = config.value(alias="{field.name}", default=None)'
+                return f'    {python_field_name}: int | None = config.value(alias="{field.name}", converter=config.str_to_optional_int, default=None)'
             else:
-                return f"    {python_field_name}: str | None = None"
+                return f"    {python_field_name}: int | None = config.value(converter=config.str_to_optional_int, default=None)"
 
     def _process_file_upload_field(self, field: SourceFieldFileUploadConfig) -> str:
         python_field_name, should_alias = self._make_python_identifier(field.name)
@@ -337,12 +344,28 @@ class SourceConfigGenerator:
 
         return type_mapping.get(field_type, "str")
 
-    def _get_converter(self, field_type: Type4) -> Optional[str]:
+    def _get_input_converter(self, field_type: Type4) -> Optional[str]:
         converter_mapping = {
             Type4.NUMBER: "int",
         }
 
         return converter_mapping.get(field_type)
+
+    def _get_select_literal_type(self, field: SourceFieldSelectConfig) -> str:
+        if not field.converter:
+            option_values = [f'"{option.value}"' for option in field.options]
+            return f"Literal[{', '.join(option_values)}]"
+
+        if field.converter == Converter.STR_TO_BOOL:
+            return "bool"
+
+        if field.converter == Converter.STR_TO_INT:
+            return "int"
+
+        if field.converter == Converter.STR_TO_OPTIONAL_INT:
+            return "int | None"
+
+        raise ValueError(f"Converter value {field.converter} not recognized")
 
     def _get_config_class_name(self, source_type: "ExternalDataSource.Type") -> str:
         return f"{source_type.value}SourceConfig"
@@ -367,7 +390,7 @@ class SourceConfigGenerator:
                 continue
 
             # If the field contains " = " it has a default, otherwise it doesn't
-            if "config." in field_content:
+            if "config." in field_content and "default=" not in field_content:
                 fields_with_config_annotations.append(field)
             elif " = " in field_content:
                 fields_with_defaults.append(field)

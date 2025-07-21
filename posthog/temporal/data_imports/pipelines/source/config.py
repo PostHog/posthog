@@ -479,6 +479,15 @@ def str_to_bool(s: str | bool) -> bool:
     return s.lower() in {"true", "yes", "1"}
 
 
+def str_to_int(s: str | int) -> int:
+    """A converter to return a str to an int."""
+
+    if isinstance(s, int):
+        return s
+    else:
+        return int(s)
+
+
 def str_to_optional_int(s: str | int | None) -> int | None:
     """A converter to return a str to optional int."""
     if isinstance(s, int):

@@ -21598,6 +21598,10 @@
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "converter": {
+                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+                    "type": "string"
+                },
                 "defaultValue": {
                     "type": "string"
                 },

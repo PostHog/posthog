@@ -2240,6 +2240,12 @@ class SourceFieldSSHTunnelConfig(BaseModel):
     type: Literal["ssh-tunnel"] = "ssh-tunnel"
 
 
+class Converter(StrEnum):
+    STR_TO_INT = "str_to_int"
+    STR_TO_BOOL = "str_to_bool"
+    STR_TO_OPTIONAL_INT = "str_to_optional_int"
+
+
 class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13121,6 +13127,7 @@ class SourceFieldSelectConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    converter: Optional[Converter] = None
     defaultValue: str
     flattenComplexSelect: Optional[str] = None
     label: str

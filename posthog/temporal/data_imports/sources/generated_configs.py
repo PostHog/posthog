@@ -46,7 +46,7 @@ class DoItSourceConfig(config.Config):
 @config.config
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
-    google_ads_integration_id: str
+    google_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -56,7 +56,7 @@ class GoogleSheetsSourceConfig(config.Config):
 
 @config.config
 class HubspotSourceConfig(config.Config):
-    hubspot_integration_id: str
+    hubspot_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -88,7 +88,7 @@ class MailjetSourceConfig(config.Config):
 @config.config
 class MetaAdsSourceConfig(config.Config):
     account_id: str
-    meta_ads_integration_id: str
+    meta_ads_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -105,7 +105,7 @@ class MySQLSourceConfig(config.Config):
     schema: str
     port: int = config.value(converter=int)
     ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")
-    using_ssl: Literal["1", "0"] = "1"
+    using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
 
 
 @config.config
@@ -127,7 +127,7 @@ class RedshiftSourceConfig(config.Config):
 
 @config.config
 class SalesforceSourceConfig(config.Config):
-    salesforce_integration_id: str
+    salesforce_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
