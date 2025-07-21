@@ -27,7 +27,7 @@ describe('validateEventUuid', () => {
                 properties: { testProp: 'testValue' },
                 ip: '127.0.0.1',
                 site_url: 'https://example.com',
-                now: new Date().toISOString(),
+                now: '2020-02-23T02:15:00Z',
                 uuid: '123e4567-e89b-12d3-a456-426614174000',
             },
             team: {

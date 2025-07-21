@@ -3,7 +3,6 @@ import { TeamManager } from '~/utils/team-manager'
 
 import { resolveTeam } from '../../../src/ingestion/event-preprocessing/resolve-team'
 import { Hub, IncomingEvent, Team } from '../../../src/types'
-import { UUIDT } from '../../../src/utils/utils'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 
 const pipelineEvent = {
@@ -14,7 +13,7 @@ const pipelineEvent = {
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'https://example.com',
-    uuid: new UUIDT().toString(),
+    uuid: '123e4567-e89b-12d3-a456-426614174000',
 }
 
 // @ts-expect-error TODO: fix underlying type
