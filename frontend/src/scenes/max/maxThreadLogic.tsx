@@ -120,6 +120,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
+                trace_id?: string
             },
             generationAttempt: number
         ) => ({ streamData, generationAttempt }),
@@ -197,6 +198,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Clear the question
             actions.setQuestion('')
 
+            // Generate a new trace ID for this interaction
+            const traceId = uuid()
+            actions.setTraceId(traceId)
+
             // For a new conversations, set the frontend conversation ID
             if (!values.conversation) {
                 actions.setConversationId(values.conversationId)
@@ -218,6 +223,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
                     ui_context: values.compiledContext || undefined,
                     conversation: values.conversation?.id || values.conversationId,
+                    trace_id: traceId,
                 },
                 0
             )
@@ -351,6 +357,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     conversation: streamData.conversation,
                                     contextual_tools: streamData.contextual_tools,
                                     ui_context: streamData.ui_context,
+                                    trace_id: streamData.trace_id,
                                 },
                                 generationAttempt + 1
                             )
