@@ -63,8 +63,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         }
 
         const body: Record<string, any> = req.body
-        // TODO: Should this be filled via other headers?
-        const ip = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
+
+        const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
+        // IP could be comma delimited list of IPs
+        const ips = ipValue?.split(',').map((ip) => ip.trim()) || []
+        const ip = ips[0]
 
         const projectUrl = `${this.hub.SITE_URL}/project/${hogFunction.team_id}`
 
