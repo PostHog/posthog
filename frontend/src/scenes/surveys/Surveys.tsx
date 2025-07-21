@@ -305,13 +305,16 @@ export function Surveys(): JSX.Element {
                                                                                 children: 'Launch',
                                                                                 type: 'primary',
                                                                                 onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            start_date:
-                                                                                                dayjs().toISOString(),
+                                                                                    updateSurvey(
+                                                                                        {
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                start_date:
+                                                                                                    dayjs().toISOString(),
+                                                                                            },
                                                                                         },
-                                                                                    }, ProductIntentContext.SURVEY_LAUNCHED)
+                                                                                        ProductIntentContext.SURVEY_LAUNCHED
+                                                                                    )
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -342,13 +345,16 @@ export function Surveys(): JSX.Element {
                                                                                 children: 'Stop',
                                                                                 type: 'primary',
                                                                                 onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            end_date:
-                                                                                                dayjs().toISOString(),
+                                                                                    updateSurvey(
+                                                                                        {
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                end_date:
+                                                                                                    dayjs().toISOString(),
+                                                                                            },
                                                                                         },
-                                                                                    }, ProductIntentContext.SURVEY_COMPLETED)
+                                                                                        ProductIntentContext.SURVEY_COMPLETED
+                                                                                    )
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -379,12 +385,15 @@ export function Surveys(): JSX.Element {
                                                                                 children: 'Resume',
                                                                                 type: 'primary',
                                                                                 onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            end_date: null,
+                                                                                    updateSurvey(
+                                                                                        {
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                end_date: null,
+                                                                                            },
                                                                                         },
-                                                                                    }, ProductIntentContext.SURVEY_RESUMED)
+                                                                                        ProductIntentContext.SURVEY_RESUMED
+                                                                                    )
                                                                                 },
                                                                                 size: 'small',
                                                                             },
@@ -404,10 +413,13 @@ export function Surveys(): JSX.Element {
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() =>
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: { archived: false },
-                                                                        }, ProductIntentContext.SURVEY_UNARCHIVED)
+                                                                        updateSurvey(
+                                                                            {
+                                                                                id: survey.id,
+                                                                                updatePayload: { archived: false },
+                                                                            },
+                                                                            ProductIntentContext.SURVEY_UNARCHIVED
+                                                                        )
                                                                     }
                                                                 >
                                                                     Unarchive
@@ -430,12 +442,15 @@ export function Surveys(): JSX.Element {
                                                                                 children: 'Archive',
                                                                                 type: 'primary',
                                                                                 onClick: () => {
-                                                                                    updateSurvey({
-                                                                                        id: survey.id,
-                                                                                        updatePayload: {
-                                                                                            archived: true,
+                                                                                    updateSurvey(
+                                                                                        {
+                                                                                            id: survey.id,
+                                                                                            updatePayload: {
+                                                                                                archived: true,
+                                                                                            },
                                                                                         },
-                                                                                    }, ProductIntentContext.SURVEY_ARCHIVED)
+                                                                                        ProductIntentContext.SURVEY_ARCHIVED
+                                                                                    )
                                                                                 },
                                                                                 size: 'small',
                                                                             },

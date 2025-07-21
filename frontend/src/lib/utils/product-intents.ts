@@ -55,7 +55,7 @@ export enum ProductIntentContext {
     EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = 'early_access_feature_view_recordings',
 
     // Surveys
-    SURVEY_CREATED = 'survey_created', 
+    SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',
     SURVEY_COMPLETED = 'survey_completed', // stop survey
