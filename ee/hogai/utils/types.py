@@ -174,7 +174,7 @@ class AssistantState(_SharedAssistantState):
     Messages exposed to the user.
     """
 
-    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
 
 
 class PartialAssistantState(_SharedAssistantState):
