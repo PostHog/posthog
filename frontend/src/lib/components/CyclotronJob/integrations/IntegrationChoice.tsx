@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -41,18 +41,7 @@ export function IntegrationChoice({
         return <LemonSkeleton className="h-10" />
     }
 
-    const kindName =
-        kind == 'google-pubsub'
-            ? 'Google Cloud Pub/Sub'
-            : kind == 'google-cloud-storage'
-            ? 'Google Cloud Storage'
-            : kind == 'google-ads'
-            ? 'Google Ads'
-            : kind == 'linkedin-ads'
-            ? 'LinkedIn Ads'
-            : kind == 'email'
-            ? 'email'
-            : capitalizeFirstLetter(kind)
+    const kindName = getIntegrationNameFromKind(kind)
 
     function uploadKey(kind: string): void {
         const input = document.createElement('input')
@@ -96,7 +85,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  to: urls.messaging('senders'),
+                                  to: urls.messaging('channels'),
                                   label: 'Configure new email sender domain',
                               },
                           ],

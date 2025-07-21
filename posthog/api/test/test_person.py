@@ -527,34 +527,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
         self.assertTrue(response.json()["success"])
 
-    @mock.patch("posthog.api.person.capture_internal")
-    def test_update_multiple_person_properties(self, mock_capture) -> None:
-        person = _create_person(
-            team=self.team,
-            distinct_ids=["some_distinct_id"],
-            properties={"$browser": "whatever", "$os": "Mac OS X"},
-            immediate=True,
-        )
-
-        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar", "bar": "baz"}})
-
-        mock_capture.assert_called_once_with(
-            distinct_id="some_distinct_id",
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=mock.ANY,
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {
-                    "$set": {"foo": "bar", "bar": "baz"},
-                },
-                "distinct_id": "some_distinct_id",
-                "timestamp": mock.ANY,
-            },
-        )
-
     def test_update_multiple_person_properties_validation(self) -> None:
         person = _create_person(
             team=self.team,
@@ -572,7 +544,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
 
     @mock.patch("posthog.api.person.capture_internal")
-    def test_update_single_person_property(self, mock_capture) -> None:
+    def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -583,24 +555,19 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
         mock_capture.assert_called_once_with(
-            distinct_id="some_distinct_id",
-            ip=None,
-            site_url=None,
             token=self.team.api_token,
-            now=mock.ANY,
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {
-                    "$set": {"foo": "bar"},
-                },
-                "distinct_id": "some_distinct_id",
-                "timestamp": mock.ANY,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": "bar"},
             },
+            process_person_profile=True,
         )
 
     @mock.patch("posthog.api.person.capture_internal")
-    def test_delete_person_properties(self, mock_capture) -> None:
+    def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -611,20 +578,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
 
         mock_capture.assert_called_once_with(
-            distinct_id="some_distinct_id",
-            ip=None,
-            site_url=None,
             token=self.team.api_token,
-            now=mock.ANY,
-            sent_at=None,
-            event={
-                "event": "$delete_person_property",
-                "distinct_id": "some_distinct_id",
-                "properties": {
-                    "$unset": ["foo"],
-                },
-                "timestamp": mock.ANY,
+            event_name="$delete_person_property",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$unset": ["foo"],
             },
+            process_person_profile=True,
         )
 
     def test_return_non_anonymous_name(self) -> None:

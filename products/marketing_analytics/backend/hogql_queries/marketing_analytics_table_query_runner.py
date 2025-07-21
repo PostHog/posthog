@@ -290,9 +290,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Create conversion goal processors for reuse across different methods"""
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
-            processor = ConversionGoalProcessor(
-                goal=conversion_goal, index=index, team=self.team, query_date_range=self.query_date_range
-            )
+            processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
             processors.append(processor)
         return processors
 
@@ -331,10 +329,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         )
 
         if self.query.dynamicConversionGoal:
-            conversion_goals = (
-                convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk)
-                + conversion_goals
-            )
+            conversion_goals = [self.query.dynamicConversionGoal, *conversion_goals]
+
         return conversion_goals
 
     def _get_where_conditions(
@@ -348,10 +344,12 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         conditions = base_conditions or []
 
         if include_date_range:
+            # Handle date_field with table prefixes like "events.timestamp"
+            date_field_chain = date_field.split(".")
             if use_date_not_datetime:
                 # For conversion goals that use toDate instead of toDateTime
                 # Build: date_field >= toDate('date_from')
-                date_field_expr = ast.Field(chain=[date_field])
+                date_field_expr = ast.Field(chain=date_field_chain)
                 from_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_from_str)])
                 to_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_to_str)])
 
@@ -366,10 +364,10 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             else:
                 date_cast: ast.Expr
                 # Build for regular datetime conditions
-                if date_field != "timestamp":
-                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
+                if "." in date_field:
+                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
                 else:
-                    date_cast = ast.Field(chain=[date_field])
+                    date_cast = ast.Field(chain=date_field_chain)
 
                 from_datetime = ast.Call(
                     name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_from_str)]

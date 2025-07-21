@@ -130,3 +130,7 @@ export function getAdditionalProperties(
 export function getSessionId(properties: ErrorEventProperties): string | undefined {
     return properties['$session_id'] as string | undefined
 }
+
+export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
+    return properties['$recording_status'] as string | undefined
+}

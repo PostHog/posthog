@@ -38,6 +38,8 @@ import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-b
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { deduplicateEvents } from './deduplication/events'
+import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -48,6 +50,12 @@ const ingestionEventOverflowed = new Counter({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
+})
+
+const headerEventMismatchCounter = new Counter({
+    name: 'ingestion_header_event_mismatch_total',
+    help: 'Number of events where headers do not match the parsed event data',
+    labelNames: ['token', 'distinct_id'],
 })
 
 type EventsForDistinctId = {
@@ -98,6 +106,7 @@ export class IngestionConsumer {
     private personStoreManager: PersonStoreManager
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
     constructor(
@@ -159,6 +168,7 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
+        this.deduplicationRedis = createDeduplicationRedis(this.hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
@@ -204,6 +214,8 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        logger.info('🔁', `${this.name} - stopping deduplication redis`)
+        await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -263,8 +275,43 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
+    private logBatchStart(messages: Message[]): void {
+        // Log earliest message from each partition to detect duplicate processing across pods
+        const podName = process.env.HOSTNAME || 'unknown'
+        const partitionEarliestMessages = new Map<number, Message>()
+        const partitionBatchSizes = new Map<number, number>()
+
+        messages.forEach((message) => {
+            const existing = partitionEarliestMessages.get(message.partition)
+            if (!existing || message.offset < existing.offset) {
+                partitionEarliestMessages.set(message.partition, message)
+            }
+            partitionBatchSizes.set(message.partition, (partitionBatchSizes.get(message.partition) || 0) + 1)
+        })
+
+        // Create partition data array for single log entry
+        const partitionData = Array.from(partitionEarliestMessages.entries()).map(([partition, message]) => ({
+            partition,
+            offset: message.offset,
+            batchSize: partitionBatchSizes.get(partition) || 0,
+        }))
+
+        logger.info('📖', `KAFKA_BATCH_START: ${this.name}`, {
+            pod: podName,
+            totalMessages: messages.length,
+            partitions: partitionData,
+        })
+    }
+
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
+        if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
+            this.logBatchStart(messages)
+        }
+
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        // Fire-and-forget deduplication call
+        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, parsedMessages))
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(parsedMessages)
@@ -296,7 +343,13 @@ export class IngestionConsumer {
             )
         })
 
-        await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+
+        if (personsStoreMessages.length > 0 && this.kafkaProducer) {
+            await this.kafkaProducer.queueMessages(personsStoreMessages)
+            await this.kafkaProducer.flush()
+        }
+
         personsStoreForBatch.reportBatch()
         groupStoreForBatch.reportBatch()
 
@@ -541,11 +594,11 @@ export class IngestionConsumer {
 
             // Parse the headers so we can early exit if found and should be dropped
             message.headers?.forEach((header) => {
-                if (header.key === 'distinct_id') {
-                    distinctId = header.value.toString()
+                if ('distinct_id' in header) {
+                    distinctId = header['distinct_id'].toString()
                 }
-                if (header.key === 'token') {
-                    token = header.value.toString()
+                if ('token' in header) {
+                    token = header['token'].toString()
                 }
             })
 
@@ -560,6 +613,9 @@ export class IngestionConsumer {
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
+
+            // Validate that headers match the parsed event data
+            this.validateHeadersMatchEvent(event, token, distinctId)
 
             // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
@@ -650,6 +706,44 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    }
+
+    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
+        let tokenStatus = 'ok'
+        if (!headerToken && event.token) {
+            tokenStatus = 'missing_in_header'
+        } else if (headerToken && !event.token) {
+            tokenStatus = 'missing_in_event'
+        } else if (!headerToken && !event.token) {
+            tokenStatus = 'missing'
+        } else if (headerToken && event.token && headerToken !== event.token) {
+            tokenStatus = 'different'
+        }
+
+        let distinctIdStatus = 'ok'
+        if (!headerDistinctId && event.distinct_id) {
+            distinctIdStatus = 'missing_in_header'
+        } else if (headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing_in_event'
+        } else if (!headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing'
+        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
+            distinctIdStatus = 'different'
+        }
+
+        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
+            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
+
+            logger.warn('🔍', `Header/event validation issue detected`, {
+                eventUuid: event.uuid,
+                headerToken,
+                eventToken: event.token,
+                headerDistinctId,
+                eventDistinctId: event.distinct_id,
+                tokenStatus,
+                distinctIdStatus,
+            })
+        }
     }
 
     private overflowEnabled() {

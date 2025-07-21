@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     status: 'hidden',
@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Creates an issue for a Linear team',
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
+    code_language: 'hog',
     hog: `
 let description :=f'{event.properties.description}
 

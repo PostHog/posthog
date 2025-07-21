@@ -30,6 +30,7 @@ template_create: HogFunctionTemplate = HogFunctionTemplate(
     description="Create objects in Salesforce",
     icon_url="/static/services/salesforce.png",
     category=["CRM", "Customer Success"],
+    code_language="hog",
     hog="""
 let getPayload := () -> {
   let properties := {}
@@ -62,7 +63,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  print('Bad response:', res.status, res.body)
+  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
+} else {
+  print(res.status, res.body)
 }
 """.strip(),
     inputs_schema=[
@@ -118,6 +121,7 @@ template_update: HogFunctionTemplate = HogFunctionTemplate(
     description="Update objects in Salesforce",
     icon_url="/static/services/salesforce.png",
     category=["CRM", "Customer Success"],
+    code_language="hog",
     hog="""
 let getPayload := () -> {
   let properties := {}
@@ -147,7 +151,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  print('Bad response:', res.status, res.body)
+  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
+} else {
+  print(res.status, res.body)
 }
 """.strip(),
     inputs_schema=[

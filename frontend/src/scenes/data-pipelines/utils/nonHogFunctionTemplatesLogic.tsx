@@ -1,5 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, props, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
@@ -7,17 +7,23 @@ import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { userLogic } from 'scenes/userLogic'
 
-import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateType, SourceConfig } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateType } from '~/types'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionTemplatesLogicType } from './nonHogFunctionTemplatesLogicType'
+import { SourceConfig } from '~/queries/schema/schema-general'
+
+export interface NonHogFunctionTemplatesLogicProps {
+    availableSources: Record<string, SourceConfig>
+}
 
 export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType>([
+    props({} as NonHogFunctionTemplatesLogicProps),
     path((key) => ['scenes', 'data-pipelines', 'utils', 'nonHogFunctionTemplatesLogic', key]),
 
-    connect(() => ({
+    connect(({ availableSources }: NonHogFunctionTemplatesLogicProps) => ({
         values: [
-            sourceWizardLogic,
+            sourceWizardLogic({ availableSources }),
             ['connectors', 'manualConnectors'],
             featureFlagLogic,
             ['featureFlags'],
@@ -44,6 +50,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                             </>
                         ),
                         hog: '',
+                        code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,
@@ -65,6 +72,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                             </>
                         ),
                         hog: '',
+                        code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,
@@ -94,6 +102,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         icon_url: BATCH_EXPORT_ICON_MAP[service],
                         status: 'stable',
                         hog: '',
+                        code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,

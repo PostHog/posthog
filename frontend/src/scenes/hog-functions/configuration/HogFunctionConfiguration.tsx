@@ -129,7 +129,6 @@ export function HogFunctionConfiguration({
     }
 
     const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
-    const isSegmentPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('segment-')
 
     const headerButtons = (
         <>
@@ -211,11 +210,9 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        // Never allow editing for legacy plugins
-        (!isLegacyPlugin &&
-            !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
-                (type === 'transformation' && canEditTransformationHogCode)))
+        (['email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
+            (type === 'transformation' && canEditTransformationHogCode) ||
+            (type === 'destination' && (template?.code_language || hogFunction?.template?.code_language) === 'hog'))
     const showTesting =
         displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
@@ -328,8 +325,9 @@ export function HogFunctionConfiguration({
                                         <LemonTextArea disabled={loading} />
                                     </LemonField>
 
-                                    {isLegacyPlugin || isSegmentPlugin ? null : hogFunction?.template &&
-                                      !hogFunction.template.id.startsWith('template-blank-') ? (
+                                    {hogFunction?.template?.code_language === 'hog' &&
+                                    hogFunction?.template &&
+                                    !hogFunction.template.id.startsWith('template-blank-') ? (
                                         <LemonDropdown
                                             showArrow
                                             overlay={

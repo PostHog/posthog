@@ -9,6 +9,7 @@ blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     description="New destination with complex event mapping. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom", "Analytics"],
+    code_language="javascript",
     hog="""
 export async function onLoad({ inputs, posthog }) {
     console.log('🦔 Loading (takes 1 sec)', { inputs })
@@ -144,6 +145,7 @@ blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
     description="Run custom JavaScript on your website. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-03.png",
     category=["Custom", "Analytics"],
+    code_language="javascript",
     hog="""
 export function onLoad({ inputs, posthog }) {
     console.log(`Hello ${inputs.name} from your new Site App!`)

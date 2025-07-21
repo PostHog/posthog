@@ -189,5 +189,11 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
 
             await poll()
         },
+
+        hidePaymentEntryModal: () => {
+            // Clear client secret when modal is closed to ensure a fresh one is used next time
+            actions.setClientSecret(null)
+            actions.clearErrors()
+        },
     }),
 })

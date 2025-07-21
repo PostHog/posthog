@@ -1,13 +1,16 @@
 import dataclasses
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Literal, Optional, Union, cast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    RevenueAnalyticsArpuQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
@@ -65,6 +68,7 @@ class RevenueSubqueries:
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
+        RevenueAnalyticsArpuQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
@@ -287,11 +291,16 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     @cached_property
     def query_date_range(self):
+        # Respect the convertToProjectTimezone modifier for date range calculation
+        # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
+        timezone_info = self.team.timezone_info if self.modifiers.convertToProjectTimezone else ZoneInfo("UTC")
+
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
+            timezone_info=timezone_info,
             interval=self.query.interval if hasattr(self.query, "interval") else None,
-            now=datetime.now(),
+            now=datetime.now(timezone_info),
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
@@ -327,6 +336,57 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             ],
         )
 
+    def _dates_expr(self) -> ast.Expr:
+        return ast.Call(
+            name=f"toStartOf{self.query_date_range.interval_name.title()}",
+            args=[
+                ast.Call(
+                    name="toDateTime",
+                    args=[
+                        ast.Call(
+                            name="arrayJoin",
+                            args=[ast.Constant(value=self.query_date_range.all_values())],
+                        )
+                    ],
+                )
+            ],
+        )
+
+    def _period_lteq_expr(self, left: ast.Expr, right: ast.Expr) -> ast.Expr:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                args=[left],
+            ),
+            right=right,
+        )
+
+    def _period_eq_expr(self, left: ast.Expr, right: ast.Expr) -> ast.Expr:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                args=[left],
+            ),
+            right=right,
+        )
+
+    def _period_gteq_expr(self, left: ast.Expr, right: ast.Expr) -> ast.Expr:
+        return ast.Or(
+            exprs=[
+                ast.Call(name="isNull", args=[left]),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Call(
+                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                        args=[left],
+                    ),
+                    right=right,
+                ),
+            ],
+        )
+
     def _append_group_by(
         self,
         query: ast.SelectQuery,
@@ -358,6 +418,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ],
             )
+        else:
+            raise ValueError(f"Invalid query, expected breakdown_by to be the first select")
 
         # We wanna include a join with the subquery to get the coalesced field
         # and also change the `breakdown_by` to include that
@@ -414,3 +476,43 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             return self.revenue_subqueries.subscription
         else:
             raise ValueError(f"Invalid view: {view}")
+
+    SMALL_CACHE_TARGET_AGE = timedelta(minutes=1)
+    DEFAULT_CACHE_TARGET_AGE = timedelta(hours=6)
+
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        """
+        If we're syncing Revenue data for the first time, cache for `SMALL_CACHE_TARGET_AGE`
+        Otherwise, cache it for half the frequency we sync data from Stripe
+
+        If we can't figure out the interval, default to caching for `DEFAULT_CACHE_TARGET_AGE`.
+        """
+        if last_refresh is None:
+            return None
+
+        # All schemas syncing revenue data
+        schemas = ExternalDataSchema.objects.filter(
+            team=self.team,
+            should_sync=True,
+            source__revenue_analytics_enabled=True,
+            source__source_type=ExternalDataSource.Type.STRIPE,
+        )
+
+        # If we can detect we're syncing Revenue data for the first time, cache for just 1 minute
+        # this guarantees we'll "always" have fresh data for the first sync
+        if any(
+            schema.status == ExternalDataSchema.Status.RUNNING and schema.last_synced_at is None for schema in schemas
+        ):
+            return last_refresh + self.SMALL_CACHE_TARGET_AGE
+
+        # Otherwise, let's check the frequency of the schemas that are syncing revenue data
+        # In the rare case where we can't figure out the interval, default to caching for 6 hours
+        intervals = [schema.sync_frequency_interval for schema in schemas if schema.sync_frequency_interval is not None]
+        if not intervals:
+            return last_refresh + self.DEFAULT_CACHE_TARGET_AGE
+
+        # If we can figure out the interval, let's cache for half of that
+        # to guarantee that - on average - we'll have fresh data for the next sync
+        min_interval = min(intervals)
+        adjusted_interval = min_interval / 2
+        return last_refresh + adjusted_interval
