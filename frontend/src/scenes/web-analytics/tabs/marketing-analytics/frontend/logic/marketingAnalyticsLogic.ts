@@ -226,7 +226,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         uniqueConversionGoalName: [
             (s) => [s.localConversionGoal, s.conversion_goals],
-            (localConversionGoal: ConversionGoalFilter, conversion_goals: ConversionGoalFilter[]): string => {
+            (localConversionGoal: ConversionGoalFilter | null, conversion_goals: ConversionGoalFilter[]): string => {
                 const baseName = localConversionGoal?.conversion_goal_name || localConversionGoal?.name || 'No name'
                 const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
                 return generateUniqueName(baseName, existingNames)
