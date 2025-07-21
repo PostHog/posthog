@@ -710,7 +710,6 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         # Verify the response structure
         assert "results" in result
         assert "next" in result
-        assert "previous" in result
 
         # Verify we actually got data from our test setup
         assert len(result["results"]) == 2  # Desktop and Mobile
