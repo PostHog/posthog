@@ -191,7 +191,7 @@ class TestSessionSummariesAPI(APIBaseTest):
     def test_create_summaries_too_many_session_ids(self, mock_feature_enabled: Mock) -> None:
         """Test validation error when too many session_ids provided"""
         mock_feature_enabled.return_value = True
-        session_ids: list[str] = [f"session{i}" for i in range(55)]  # More than max of 50
+        session_ids: list[str] = [f"session{i}" for i in range(303)]  # More than max of 300
 
         response = self._make_api_request(session_ids=session_ids)
 
