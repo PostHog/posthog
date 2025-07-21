@@ -1,5 +1,5 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -71,22 +71,22 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 function ErrorTrackingClientSuppression(): JSX.Element {
     return (
         <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
-            {({ rule, editable }) => {
+            {({ rule, editing }) => {
                 return (
-                    <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
+                    <>
                         <div className="flex gap-2 justify-between px-2 py-3">
                             <div className="flex gap-1 items-center">
                                 <div>Ignore exceptions that match </div>
-                                <ErrorTrackingRules.Operator rule={rule} editable={editable} />
+                                <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                 <div>of the following filters:</div>
                             </div>
-                            <ErrorTrackingRules.Actions rule={rule} editable={editable} />
+                            <ErrorTrackingRules.Actions rule={rule} editing={editing} />
                         </div>
                         <LemonDivider className="my-0" />
                         <div className="p-2">
                             <ErrorTrackingRules.Filters
                                 rule={rule}
-                                editable={editable}
+                                editing={editing}
                                 taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                 propertyAllowList={{
                                     [TaxonomicFilterGroupType.EventProperties]: [
@@ -96,7 +96,7 @@ function ErrorTrackingClientSuppression(): JSX.Element {
                                 }}
                             />
                         </div>
-                    </LemonCard>
+                    </>
                 )
             }}
         </ErrorTrackingRules>
