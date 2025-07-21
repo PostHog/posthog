@@ -47,9 +47,9 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
-    ConcurrentS3Consumer,
     S3BatchExportWorkflow,
     S3InsertInputs,
+    S3UploadRetryConfiguration,
     get_s3_key,
     insert_into_s3_activity_from_stage,
     s3_default_fields,
@@ -1603,7 +1603,7 @@ class TestErrorHandling:
                     "products.batch_exports.backend.temporal.destinations.s3_batch_export.aioboto3.Session",
                     FakeSession,
                 ),
-                mock.patch.object(ConcurrentS3Consumer, "MAX_RETRY_DELAY", 0.01),
+                mock.patch.object(S3UploadRetryConfiguration, "max_delay", 0.01),
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
