@@ -14,11 +14,13 @@ import { createHogFunction, insertHogFunction as _insertHogFunction } from './_t
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { Server } from 'http'
 
 describe('CDP API', () => {
     let hub: Hub
     let team: Team
     let app: express.Express
+    let server: Server
     let api: CdpApi
     let hogFunction: HogFunctionType
 
@@ -52,8 +54,7 @@ describe('CDP API', () => {
         return item
     }
 
-    beforeEach(async () => {
-        await resetTestDatabase()
+    beforeAll(async () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
@@ -64,6 +65,11 @@ describe('CDP API', () => {
         app = express()
         app.use(express.json())
         app.use('/', api.router())
+        server = app.listen(0, () => {})
+    })
+
+    beforeEach(async () => {
+        await resetTestDatabase()
 
         mockFetch.mockClear()
 
@@ -74,13 +80,9 @@ describe('CDP API', () => {
         })
     })
 
-    afterEach(async () => {
-        jest.setTimeout(10000)
+    afterAll(async () => {
+        server.close()
         await closeHub(hub)
-    })
-
-    afterAll(() => {
-        jest.useRealTimers()
     })
 
     it('errors if missing hog function or team', async () => {
