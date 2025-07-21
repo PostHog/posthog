@@ -15,9 +15,8 @@ CHUNK_SIZE = 500
 def migrate_playlist_types(apps, schema_editor):
     SessionRecordingPlaylist = apps.get_model("posthog", "SessionRecordingPlaylist")
 
-    # 3. Update remaining playlists with null type to FILTERS type
     saved_filters_with_no_type = SessionRecordingPlaylist.objects.filter(
-        type__isnull=True, deleted=False, filters_isnull=False
+        type__isnull=True, deleted=False, filters__isnull=False
     )
 
     chunk = []
