@@ -1,4 +1,4 @@
-import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl } from 'kea-router'
 import api from 'lib/api'
@@ -11,6 +11,9 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Scene } from 'scenes/sceneTypes'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { router } from 'kea-router'
 
 export type GroupsNewLogicProps = {
     groupTypeIndex: number
@@ -35,7 +38,9 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
     key((props) => `${props.groupTypeIndex}-new`),
     path((key) => ['scenes', 'groupsNew', 'groupsNewLogic', key]),
 
-    connect(() => ({ values: [groupsModel, ['aggregationLabel']] })),
+    connect(() => ({
+        values: [groupsModel, ['aggregationLabel'], featureFlagLogic, ['featureFlags']],
+    })),
 
     selectors({
         logicProps: [() => [(_, props) => props], (props): GroupsNewLogicProps => props],
@@ -151,6 +156,13 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
     actionToUrl(({ values }) => ({
         saveGroupSuccess: () => urls.groups(values.logicProps.groupTypeIndex),
     })),
+
+    afterMount(({ props, values }) => {
+        // Redirect if the CRM feature flag is not enabled
+        if (!values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+            router.actions.push(urls.groups(props.groupTypeIndex))
+        }
+    }),
 
     beforeUnmount(({ actions }) => actions.resetGroup()),
 ])
