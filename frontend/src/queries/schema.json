@@ -23778,6 +23778,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
                 "orderBy": {
                     "$ref": "#/definitions/WebAnalyticsOrderBy"
                 },
