@@ -13,11 +13,11 @@ from langchain_core.messages import (
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -293,8 +293,13 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"], max_retries=3
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            stop_sequences=["[Done]"],
+            user=self._user,
+            team=self._team,
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
@@ -349,8 +354,13 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"], max_retries=3
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            stop_sequences=["[Done]"],
+            user=self._user,
+            team=self._team,
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
@@ -419,9 +429,9 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True, max_retries=3).bind_tools(
-            memory_collector_tools
-        )
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
+        ).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []

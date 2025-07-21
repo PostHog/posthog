@@ -237,14 +237,16 @@ class User(AbstractUser, UUIDClassicModel):
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
-            self.save()
+            if self.current_organization is not None:
+                self.save(update_fields=["current_organization"])
         return self.current_organization
 
     @cached_property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()
-            self.save()
+            if self.current_team:
+                self.save(update_fields=["current_team"])
         return self.current_team
 
     def join(

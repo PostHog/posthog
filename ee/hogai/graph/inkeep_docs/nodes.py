@@ -10,8 +10,8 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantMessage, AssistantToolCallMessage
@@ -54,13 +54,14 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         return messages
 
     def _get_model(self):  # type: ignore
-        return ChatOpenAI(
+        return MaxChatOpenAI(
             model="inkeep-qa-sonnet-4",
             base_url="https://api.inkeep.com/v1/",
             api_key=settings.INKEEP_API_KEY,
             streaming=True,
             stream_usage=True,
-            max_retries=3,
+            user=self._user,
+            team=self._team,
         )
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:

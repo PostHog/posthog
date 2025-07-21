@@ -14,10 +14,12 @@ import {
     HogFunctionType,
     LogEntry,
     LogEntrySerialized,
+    MinimalLogEntry,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
+export const MAX_LOG_LENGTH = 10000
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -29,7 +31,7 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
-const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
+export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     const customPropertyKey = personDisplayNameProperties.find((x) => properties?.[x])
     const propertyIdentifier = customPropertyKey ? properties[customPropertyKey] : undefined
@@ -206,6 +208,35 @@ export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolea
     return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
+export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('native-') ?? false
+}
+
 export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
+}
+
+export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
+    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
+
+    // Find and replace any sensitive values
+    sensitiveValues?.forEach((sensitiveValue) => {
+        message = message.replaceAll(sensitiveValue, '***REDACTED***')
+    })
+
+    if (message.length > MAX_LOG_LENGTH) {
+        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+    }
+
+    return message
+}
+
+export const createAddLogFunction = (logs: MinimalLogEntry[]) => {
+    return (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
+        logs.push({
+            level,
+            timestamp: DateTime.now(),
+            message: sanitizeLogMessage(args),
+        })
+    }
 }

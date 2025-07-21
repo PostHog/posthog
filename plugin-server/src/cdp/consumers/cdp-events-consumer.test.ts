@@ -566,8 +566,7 @@ describe('hog flow processing', () => {
                 queuePriority: 1,
                 state: {
                     event: globals.event,
-                    personId: 'uuid',
-                    variables: {},
+                    actionStepCount: 0,
                 },
                 teamId: 2,
             })
