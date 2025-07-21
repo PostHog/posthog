@@ -85,6 +85,29 @@ def get_order_by_clause(dimensions, bucket_column="period_bucket"):
     return f"(\n    {column_list}\n)"
 
 
+def get_insert_columns(dimensions, aggregate_columns):
+    shared_columns = ["period_bucket", "team_id", "host", "device_type"]
+    all_columns = shared_columns + dimensions + aggregate_columns
+    return all_columns
+
+
+def get_web_stats_insert_columns():
+    aggregate_columns = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
+    return get_insert_columns(WEB_STATS_DIMENSIONS, aggregate_columns)
+
+
+def get_web_bounces_insert_columns():
+    aggregate_columns = [
+        "persons_uniq_state",
+        "sessions_uniq_state",
+        "pageviews_count_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    ]
+    return get_insert_columns(WEB_BOUNCES_DIMENSIONS, aggregate_columns)
+
+
 WEB_STATS_COLUMNS = f"""
     {get_dimension_columns(WEB_STATS_DIMENSIONS)},
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -209,8 +232,6 @@ def WEB_STATS_INSERT_SQL(
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
-    settings_clause = f"SETTINGS {settings}" if settings else ""
-
     settings_clause = f"SETTINGS {settings}" if settings else ""
 
     query = f"""
@@ -376,7 +397,10 @@ def WEB_STATS_INSERT_SQL(
     if select_only:
         return query
     else:
-        return f"INSERT INTO {table_name}\n{query}"
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_stats_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
@@ -546,7 +570,10 @@ def WEB_BOUNCES_INSERT_SQL(
     if select_only:
         return query
     else:
-        return f"INSERT INTO {table_name}\n{query}"
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_bounces_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
 
 
 def WEB_STATS_EXPORT_SQL(
