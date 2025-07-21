@@ -156,39 +156,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
 
-                hogFlow.actions.forEach((action: HogFlowAction) => {
-                    if (!['trigger', 'exit'].includes(action.type)) {
-                        const hasIncomingConnections = hogFlow.edges.some((edge) => edge.to === action.id)
-                        const hasOutgoingConnections = hogFlow.edges.some((edge) => edge.from === action.id)
-
-                        if (!hasIncomingConnections) {
-                            if (!handlesByIdByNodeId[action.id]) {
-                                handlesByIdByNodeId[action.id] = {}
-                            }
-
-                            handlesByIdByNodeId[action.id]['top'] = {
-                                id: 'top',
-                                type: 'target',
-                                position: Position.Top,
-                                ...TOP_HANDLE_POSITION,
-                            }
-                        }
-
-                        if (!hasOutgoingConnections) {
-                            if (!handlesByIdByNodeId[action.id]) {
-                                handlesByIdByNodeId[action.id] = {}
-                            }
-
-                            handlesByIdByNodeId[action.id]['bottom'] = {
-                                id: 'bottom',
-                                type: 'source',
-                                position: Position.Bottom,
-                                ...BOTTOM_HANDLE_POSITION,
-                            }
-                        }
-                    }
-                })
-
                 edges.forEach((edge) => {
                     if (!handlesByIdByNodeId[edge.source]) {
                         handlesByIdByNodeId[edge.source] = {}
@@ -209,6 +176,63 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         type: 'target',
                         position: Position.Top,
                         ...TOP_HANDLE_POSITION,
+                    }
+                })
+
+                hogFlow.actions.forEach((action: HogFlowAction) => {
+                    const hasIncomingConnections = Object.values(handlesByIdByNodeId[action.id] ?? {}).some(
+                        (edge) => edge.type === 'target'
+                    )
+                    const hasOutgoingConnections = Object.values(handlesByIdByNodeId[action.id] ?? {}).some(
+                        (edge) => edge.type === 'source'
+                    )
+
+                    if (!hasIncomingConnections && action.type !== 'trigger') {
+                        if (!handlesByIdByNodeId[action.id]) {
+                            handlesByIdByNodeId[action.id] = {}
+                        }
+
+                        handlesByIdByNodeId[action.id]['top'] = {
+                            id: 'top',
+                            type: 'target',
+                            position: Position.Top,
+                            ...TOP_HANDLE_POSITION,
+                        }
+                    }
+
+                    if (!hasOutgoingConnections && action.type !== 'exit') {
+                        if (!handlesByIdByNodeId[action.id]) {
+                            handlesByIdByNodeId[action.id] = {}
+                        }
+
+                        handlesByIdByNodeId[action.id]['continue'] = {
+                            id: 'continue',
+                            type: 'source',
+                            position: Position.Bottom,
+                            ...BOTTOM_HANDLE_POSITION,
+                        }
+                    }
+                    // For conditional_branch, add a handle for each condition and a 'continue' handle
+                    if (action.type === 'conditional_branch' && Array.isArray(action.config?.conditions)) {
+                        action.config.conditions.forEach((_, idx) => {
+                            handlesByIdByNodeId[action.id][`branch_action_conditional_branch_${action.id}_${idx}`] = {
+                                id: `branch_action_conditional_branch_${action.id}_${idx}`,
+                                type: 'source',
+                                position: Position.Bottom,
+                                ...BOTTOM_HANDLE_POSITION,
+                            }
+                        })
+                    }
+                    // For random_cohort, add a handle for each branch and a 'continue' handle
+                    if (action.type === 'random_cohort_branch' && Array.isArray(action.config?.cohorts)) {
+                        action.config.cohorts.forEach((_, idx) => {
+                            handlesByIdByNodeId[action.id][`branch_action_random_cohort_${action.id}_${idx}`] = {
+                                id: `branch_action_random_cohort_${action.id}_${idx}`,
+                                type: 'source',
+                                position: Position.Bottom,
+                                ...BOTTOM_HANDLE_POSITION,
+                            }
+                        })
                     }
                 })
 
@@ -310,9 +334,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 type: 'branch',
             }
 
-            const nodeEdges = values.edgesByActionId[target] || []
-
-            actions.setCampaignActionEdges(target, [...nodeEdges, newEdge])
+            // Add the new edge to the campaign's edges array, preserving all other edges
+            actions.setCampaignInfo({
+                actions: values.campaign.actions,
+                edges: [...values.campaign.edges, newEdge],
+            })
         },
     })),
 

@@ -52,7 +52,7 @@ function StepRandomCohortBranchConfiguration({
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
-    const nodeEdges = edgesByActionId[action.id]
+    const nodeEdges = edgesByActionId[action.id] || []
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []

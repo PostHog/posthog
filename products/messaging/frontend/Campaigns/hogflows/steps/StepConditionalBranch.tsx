@@ -1,5 +1,5 @@
 import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
-import { Node } from '@xyflow/react'
+import { Node, useUpdateNodeInternals } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -58,10 +58,12 @@ function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
+    const updateNodeInternals = useUpdateNodeInternals()
+
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
-    const nodeEdges = edgesByActionId[action.id]
+    const nodeEdges = edgesByActionId[action.id] || []
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -92,34 +94,25 @@ function StepConditionalBranchConfiguration({
     }
 
     const addCondition = (): void => {
-        const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
-        if (!continueEdge) {
-            throw new Error('Continue edge not found')
-        }
-
         setConditions([
             ...conditions,
             { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
         ])
-        setCampaignActionEdges(action.id, [
-            ...branchEdges,
-            {
-                from: action.id,
-                to: continueEdge.to,
-                type: 'branch',
-                index: conditions.length,
-            },
-            ...nonBranchEdges,
-        ])
+        // Update handles for the node after adding a condition
+        updateNodeInternals(action.id)
     }
 
     const removeCondition = (index: number): void => {
         // Branch edges are pre-sorted
         // We just need to remove the edge and re-assign the indexes
-        const newBranchEdges = branchEdges.filter((_, i) => i !== index).map((edge, i) => ({ ...edge, index: i }))
+        const newBranchEdges = branchEdges
+            .filter((edge) => edge.index !== index)
+            .map((edge, i) => ({ ...edge, index: i }))
         setConditions(conditions.filter((_, i) => i !== index))
         // Branch edges come first as they are sorted to show on the left
         setCampaignActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
+        // Update handles for the node after removing a condition
+        updateNodeInternals(action.id)
     }
 
     return (
