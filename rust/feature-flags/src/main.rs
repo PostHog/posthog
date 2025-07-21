@@ -43,6 +43,7 @@ async fn main() {
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true)
+        .with_ansi(false)
         .with_filter(EnvFilter::from_default_env());
     tracing_subscriber::registry().with(fmt_layer).init();
 
