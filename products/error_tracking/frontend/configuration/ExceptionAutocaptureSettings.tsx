@@ -55,7 +55,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                         })
                         reportAutocaptureExceptionsToggled(checked)
                     }}
-                    checked={checked}
+                    checked={!!currentTeam?.autocapture_exceptions_opt_in}
                     disabled={userLoading}
                     label="Enable exception autocapture"
                     bordered
@@ -73,47 +73,42 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 
 function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JSX.Element {
     return (
-        <BindLogic logic={errorTrackingRulesLogic} props={{ ruleType: ErrorTrackingRuleType.Suppression }}>
-            {!disabled && (
-                <ErrorTrackingRules<ErrorTrackingSuppressionRule>>
-                    {({ rule, editing }) => {
-                        return (
-                            <>
-                                <div className="flex gap-2 justify-between px-2 py-3">
-                                    <div className="flex gap-1 items-center">
-                                        <div>Ignore exceptions that match </div>
-                                        <ErrorTrackingRules.Operator rule={rule} editing={editing} />
-                                        <div>of the following filters:</div>
-                                    </div>
-                                    <ErrorTrackingRules.Actions rule={rule} editing={editing} />
-                                </div>
-                                <LemonDivider className="my-0" />
-                                <div className="p-2">
-                                    <ErrorTrackingRules.Filters
-                                        rule={rule}
-                                        editing={editing}
-                                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                                        propertyAllowList={{
-                                            [TaxonomicFilterGroupType.EventProperties]: [
-                                                '$exception_types',
-                                                '$exception_values',
-                                            ],
-                                        }}
-                                    />
-                                </div>
-                            </>
-                        )
-                    }}
-                </ErrorTrackingRules>
-            )}
-
-            <AddRule
-                disabledReason={
-                    disabled
-                        ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
-                        : undefined
-                }
-            />
-        </BindLogic>
+        <ErrorTrackingRules<ErrorTrackingSuppressionRule>
+            disabledReason={
+                disabled
+                    ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
+                    : undefined
+            }
+            ruleType={ErrorTrackingRuleType.Suppression}
+        >
+            {({ rule, editing }) => {
+                return (
+                    <>
+                        <div className="flex gap-2 justify-between px-2 py-3">
+                            <div className="flex gap-1 items-center">
+                                <div>Ignore exceptions that match </div>
+                                <ErrorTrackingRules.Operator rule={rule} editing={editing} />
+                                <div>of the following filters:</div>
+                            </div>
+                            <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                        </div>
+                        <LemonDivider className="my-0" />
+                        <div className="p-2">
+                            <ErrorTrackingRules.Filters
+                                rule={rule}
+                                editing={editing}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                propertyAllowList={{
+                                    [TaxonomicFilterGroupType.EventProperties]: [
+                                        '$exception_types',
+                                        '$exception_values',
+                                    ],
+                                }}
+                            />
+                        </div>
+                    </>
+                )
+            }}
+        </ErrorTrackingRules>
     )
 }
