@@ -1,6 +1,15 @@
-import { IconCopy, IconExpand45, IconPin, IconPinFilled, IconRewindPlay, IconStar, IconStarFilled } from '@posthog/icons'
+import {
+    IconCopy,
+    IconExpand45,
+    IconPin,
+    IconPinFilled,
+    IconRewindPlay,
+    IconStar,
+    IconStarFilled,
+} from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SceneDataAttrKeyProps } from './utils'
 
 type SceneCommonButtonsButtonProps = {
     onClick?: () => void
@@ -8,7 +17,7 @@ type SceneCommonButtonsButtonProps = {
     to?: string
 }
 
-type SceneCommonButtonsProps = {
+type SceneCommonButtonsProps = SceneDataAttrKeyProps & {
     duplicate?: SceneCommonButtonsButtonProps
     favorite?: SceneCommonButtonsButtonProps
     pinned?: SceneCommonButtonsButtonProps
@@ -16,7 +25,14 @@ type SceneCommonButtonsProps = {
     recordings?: SceneCommonButtonsButtonProps
 }
 
-export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen, recordings }: SceneCommonButtonsProps): JSX.Element {
+export function SceneCommonButtons({
+    duplicate,
+    favorite,
+    pinned,
+    fullscreen,
+    recordings,
+    dataAttrKey,
+}: SceneCommonButtonsProps): JSX.Element {
     return (
         <div className="flex gap-1">
             {favorite && (
@@ -37,6 +53,7 @@ export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen, re
                     tooltip="Duplicate"
                     className="justify-center flex-1"
                     menuItem
+                    data-attr={`${dataAttrKey}-duplicate`}
                 >
                     <IconCopy />
                 </ButtonPrimitive>
@@ -49,6 +66,7 @@ export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen, re
                     active={pinned.active}
                     className="justify-center flex-1"
                     menuItem
+                    data-attr={`${dataAttrKey}-pin`}
                 >
                     {pinned.active ? <IconPinFilled className="text-warning" /> : <IconPin />}
                 </ButtonPrimitive>
@@ -61,6 +79,7 @@ export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen, re
                     active={fullscreen.active}
                     className="justify-center flex-1"
                     menuItem
+                    data-attr={`${dataAttrKey}-fullscreen`}
                 >
                     <IconExpand45 />
                 </ButtonPrimitive>
@@ -75,6 +94,7 @@ export function SceneCommonButtons({ duplicate, favorite, pinned, fullscreen, re
                     buttonProps={{
                         menuItem: true,
                     }}
+                    data-attr={`${dataAttrKey}-view-recordings`}
                 >
                     <IconRewindPlay />
                 </Link>

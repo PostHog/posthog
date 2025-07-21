@@ -67,6 +67,8 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+const RESOURCE_TYPE = 'dashboard'
+
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
@@ -448,54 +450,39 @@ export function DashboardHeader(): JSX.Element | null {
 
             <ScenePanel>
                 <ScenePanelMetaInfo>
-                    {dashboard && !!(canEditDashboard || dashboard.name) && (
-                        <>
-                            <SceneName
-                                defaultValue={dashboard.name || ''}
-                                onSave={(value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })}
-                                dataAttr="dashboard-name"
-                            />
-                        </>
-                    )}
-                    {dashboard && !!(canEditDashboard || dashboard.description) && (
-                        <>
-                            <SceneDescription
-                                defaultValue={dashboard.description || ''}
-                                onSave={(value) =>
-                                    updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
-                                }
-                                dataAttr="dashboard-description"
-                            />
-                        </>
-                    )}
+                    <SceneName
+                        defaultValue={dashboard?.name || ''}
+                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                        dataAttrKey={RESOURCE_TYPE}
+                        canEdit={canEditDashboard}
+                    />
 
-                    {dashboard?.tags && (
-                        <>
-                            {canEditDashboard ? (
-                                <SceneTags
-                                    onSave={(tags) => {
-                                        triggerDashboardUpdate({ tags })
-                                    }}
-                                    tags={dashboard.tags}
-                                    tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
-                                    dataAttr="dashboard-tags"
-                                />
-                            ) : dashboard.tags.length ? (
-                                <SceneTags
-                                    tags={dashboard.tags}
-                                    tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
-                                    dataAttr="dashboard-tags"
-                                />
-                            ) : null}
-                        </>
-                    )}
-                    <SceneFile />
+                    <SceneDescription
+                        defaultValue={dashboard?.description || ''}
+                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
+                        dataAttrKey={RESOURCE_TYPE}
+                        optional
+                        canEdit={canEditDashboard}
+                    />
+
+                    <SceneTags
+                        onSave={(tags) => {
+                            triggerDashboardUpdate({ tags })
+                        }}
+                        canEdit={canEditDashboard}
+                        tags={dashboard?.tags}
+                        tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+
+                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
 
                     <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
                 </ScenePanelMetaInfo>
                 <ScenePanelDivider />
                 <ScenePanelCommonActions>
                     <SceneCommonButtons
+                        dataAttrKey={RESOURCE_TYPE}
                         duplicate={
                             dashboard
                                 ? { onClick: () => showDuplicateDashboardModal(dashboard.id, dashboard.name) }
@@ -537,10 +524,14 @@ export function DashboardHeader(): JSX.Element | null {
                 </ScenePanelCommonActions>
 
                 <ScenePanelActions>
-                    {dashboard && <SceneMetalyticsSummaryButton />}
+                    {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
                     {dashboard && canEditDashboard && hasDashboardColors && (
-                        <ButtonPrimitive onClick={() => showInsightColorsModal(dashboard.id)} menuItem>
+                        <ButtonPrimitive
+                            onClick={() => showInsightColorsModal(dashboard.id)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-customize-colors`}
+                        >
                             <IconPalette />
                             Customize colors
                         </ButtonPrimitive>
@@ -552,6 +543,7 @@ export function DashboardHeader(): JSX.Element | null {
                             }
                             menuItem
                             active={dashboardMode === DashboardMode.Edit}
+                            data-attr={`${RESOURCE_TYPE}-edit-layout`}
                         >
                             <IconGridMasonry />
                             Edit layout <KeyboardShortcut e />
@@ -559,13 +551,19 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
 
                     {dashboard && canEditDashboard && (
-                        <ButtonPrimitive onClick={() => createNotebookFromDashboard(dashboard)} menuItem>
+                        <ButtonPrimitive
+                            onClick={() => createNotebookFromDashboard(dashboard)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-create-notebook-from-dashboard`}
+                        >
                             <IconNotebook />
                             Create notebook from dashboard
                         </ButtonPrimitive>
                     )}
 
-                    {dashboard && canEditDashboard && <SceneNotificationDropdownMenu dashboardId={dashboard.id} />}
+                    {dashboard && canEditDashboard && (
+                        <SceneNotificationDropdownMenu dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                    )}
 
                     {dashboard && canEditDashboard && (
                         <SceneExportDropdownMenu
@@ -576,6 +574,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     context: {
                                         path: apiUrl(),
                                     },
+                                    dataAttr: `${RESOURCE_TYPE}-export-png`,
                                 },
                                 ...(user?.is_staff
                                     ? [
@@ -588,6 +587,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                   )}.json`,
                                                   mediaType: ExporterFormat.JSON,
                                               },
+                                              dataAttr: `${RESOURCE_TYPE}-export-json`,
                                           },
                                       ]
                                     : []),

@@ -40,7 +40,7 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
-    // Like disabled but doesn't show the disabled state
+    // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
 } & VariantProps<typeof buttonPrimitiveVariants>
 

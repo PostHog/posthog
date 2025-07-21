@@ -18,12 +18,7 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import {
-    ScenePanel,
-    ScenePanelActions,
-    ScenePanelDivider,
-    ScenePanelMetaInfo
-} from '~/layout/scenes/SceneLayout'
+import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
@@ -33,10 +28,10 @@ import { ActionStep } from './ActionStep'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useRef, useState } from 'react'
+
+const RESOURCE_TYPE = 'action'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
-    const sceneNameRef = useRef<HTMLTextAreaElement>(null)
     const logicProps: ActionEditLogicProps = {
         id: id,
         action: loadedAction,
@@ -48,9 +43,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
-    // Used for saving a new action without a name, we focus the name input
-    const [forceNameEdit, setForceNameEdit] = useState(false)
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -78,8 +70,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
             Cancel
         </LemonButton>
     )
-
-    console.log(forceNameEdit)
 
     const actionEditJSX = (
         <div className="action-edit-container">
@@ -178,11 +168,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 </>
                             )}
                             {/* New action */}
-                            {newSceneLayout && (
-                                <>
-                                    {!id && cancelButton()}
-                                </>
-                            )}
+                            {newSceneLayout && <>{!id && cancelButton()}</>}
                             {/* Existing action */}
                             {!newSceneLayout && (actionChanged || !id) ? (
                                 <LemonButton
@@ -211,15 +197,11 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     htmlType="submit"
                                     loading={actionLoading}
                                     onClick={() => {
-                                        if (action.name === '') {
-                                            setForceNameEdit(true)
+                                        if (id) {
+                                            submitAction()
                                         } else {
-                                            if (id) {
-                                                submitAction()
-                                            } else {
-                                                setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                                submitAction()
-                                            }
+                                            setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                            submitAction()
                                         }
                                     }}
                                     disabledReason={!actionChanged ? 'No changes to save' : undefined}
@@ -231,24 +213,21 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     }
                 />
 
-
                 <ScenePanel>
                     <ScenePanelMetaInfo>
                         <SceneName
-                            defaultValue={action.name || 'Unnamed'}
-                            dataAttr="action-name"
+                            defaultValue={action.name || ''}
+                            dataAttr={RESOURCE_TYPE}
                             onSave={(value) => {
                                 setActionValue('name', value)
                             }}
-                            forceLocalEditing={forceNameEdit}
                         />
 
                         <SceneDescription
-                            defaultValue={action.description || 'No description'}
-                            onSave={(value) =>
-                                setActionValue('description', value)
-                            }
-                            dataAttr="action-description"
+                            defaultValue={action.description || ''}
+                            onSave={(value) => setActionValue('description', value)}
+                            dataAttr={RESOURCE_TYPE}
+                            optional
                         />
 
                         <SceneTags
@@ -257,7 +236,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             }}
                             tags={action.tags || []}
                             tagsAvailable={tags}
-                            dataAttr="action-tags"
+                            dataAttr={RESOURCE_TYPE}
                         />
 
                         <SceneFile />
@@ -268,42 +247,44 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
 
                     <ScenePanelActions>
                         {id && (
-                            <Link
-                                to={urls.replay(ReplayTabs.Home, {
-                                    filter_group: {
-                                        type: FilterLogicalOperator.And,
-                                        values: [
-                                            {
-                                                type: FilterLogicalOperator.And,
-                                                values: [
-                                                    {
-                                                        id: id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        ],
-                                    },
-                                })}
-                                onClick={() => {
-                                    addProductIntentForCrossSell({
-                                        from: ProductKey.ACTIONS,
-                                        to: ProductKey.SESSION_REPLAY,
-                                        intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
-                                    })
-                                }}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                            >
-                                <IconRewindPlay />
-                                View recordings
-                            </Link>
+                            <>
+                                <Link
+                                    to={urls.replay(ReplayTabs.Home, {
+                                        filter_group: {
+                                            type: FilterLogicalOperator.And,
+                                            values: [
+                                                {
+                                                    type: FilterLogicalOperator.And,
+                                                    values: [
+                                                        {
+                                                            id: id,
+                                                            type: 'actions',
+                                                            order: 0,
+                                                            name: action.name,
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    })}
+                                    onClick={() => {
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.ACTIONS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                        })
+                                    }}
+                                    data-attr={`${RESOURCE_TYPE}-view-recordings`}
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
+                                    <IconRewindPlay />
+                                    View recordings
+                                </Link>
+                                <ScenePanelDivider />
+                            </>
                         )}
-
-                        <ScenePanelDivider />
 
                         <ButtonPrimitive
                             onClick={() => {
@@ -311,6 +292,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             }}
                             variant="danger"
                             menuItem
+                            data-attr={`${RESOURCE_TYPE}-delete`}
                         >
                             <IconTrash />
                             Delete
