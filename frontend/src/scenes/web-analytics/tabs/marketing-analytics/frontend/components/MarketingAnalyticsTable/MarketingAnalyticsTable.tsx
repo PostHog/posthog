@@ -1,4 +1,4 @@
-import { IconEllipsis, IconSort, IconStarFilled } from '@posthog/icons'
+import { IconEllipsis, IconSort, IconPlus } from '@posthog/icons'
 import { IconArrowUp, IconArrowDown, IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
@@ -121,7 +121,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 ]
 
                 const icon = isConversionGoal ? (
-                    <IconStarFilled className="ml-1 group-hover:hidden" />
+                    <IconPlus className="ml-1 group-hover:hidden" />
                 ) : isSortedByMyField ? (
                     isAscending ? (
                         <IconArrowUp className="ml-1 group-hover:hidden" />
