@@ -1528,6 +1528,14 @@ class InsightNodeKind(StrEnum):
     CALENDAR_HEATMAP_QUERY = "CalendarHeatmapQuery"
 
 
+class InsightQueryMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[str]
+    updated_at: datetime
+
+
 class InsightThresholdType(StrEnum):
     ABSOLUTE = "absolute"
     PERCENTAGE = "percentage"
