@@ -22,10 +22,6 @@
         "react-transition-group": "*",
         "ts-pattern": "*",
         "use-resize-observer": "*",
-        "use-debounce": "*",
-        "@dnd-kit/core": "*",
-        "@dnd-kit/modifiers": "*",
-        "@dnd-kit/sortable": "*",
-        "@dnd-kit/utilities": "*"
+        "use-debounce": "*"
     }
 }

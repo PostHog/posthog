@@ -9,23 +9,23 @@ export function ErrorTrackingCustomGrouping(): JSX.Element {
         <>
             <p>Use the properties of an exception to decide how it should be grouped as an issue.</p>
             <ErrorTrackingRules<ErrorTrackingGroupingRule> ruleType={ErrorTrackingRuleType.Grouping}>
-                {({ rule, editing, disabled }) => {
+                {({ rule, editable, disabled }) => {
                     return (
                         <>
                             <div className="flex gap-2 justify-between px-2 py-3">
                                 <div className="flex gap-1 items-center">
                                     <div>Group exceptions as a single issue when</div>
-                                    <ErrorTrackingRules.Operator rule={rule} editing={editing} />
+                                    <ErrorTrackingRules.Operator rule={rule} editable={editable} />
                                     <div>filters match</div>
                                 </div>
-                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
+                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editable={editable} />}
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">
                                 <ErrorTrackingRules.Filters
                                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                     rule={rule}
-                                    editing={editing}
+                                    editable={editable}
                                 />
                             </div>
                         </>

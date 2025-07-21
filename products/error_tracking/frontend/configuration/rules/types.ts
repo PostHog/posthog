@@ -4,7 +4,6 @@ import { JsonType, UniversalFiltersGroup } from '~/types'
 type ErrorTrackingBaseRule = {
     id: string
     filters: UniversalFiltersGroup
-    order_key: number
 }
 
 export type ErrorTrackingSuppressionRule = ErrorTrackingBaseRule

@@ -943,16 +943,12 @@ export class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
-    public errorTrackingRules(ruleType: ErrorTrackingRuleType, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(ruleType)
+    public errorTrackingRules(rule: string, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(rule)
     }
 
-    public errorTrackingRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): ApiRequest {
-        return this.errorTrackingRules(ruleType).addPathComponent(id)
-    }
-
-    public errorTrackingReorderRules(rule: ErrorTrackingRuleType): ApiRequest {
-        return this.errorTrackingRules(rule).addPathComponent('reorder')
+    public errorTrackingRule(rule: string, id: ErrorTrackingRule['id']): ApiRequest {
+        return this.errorTrackingRules(rule).addPathComponent(id)
     }
 
     // # Warehouse
@@ -2588,10 +2584,6 @@ const api = {
 
         async deleteRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): Promise<void> {
             return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
-        },
-
-        async reorderRules(ruleType: ErrorTrackingRuleType, orders: Record<string, number>): Promise<void> {
-            return await new ApiRequest().errorTrackingReorderRules(ruleType).update({ data: { orders } })
         },
 
         async createExternalReference(

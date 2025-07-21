@@ -71,22 +71,22 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 function ErrorTrackingClientSuppression(): JSX.Element {
     return (
         <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
-            {({ rule, editing }) => {
+            {({ rule, editable }) => {
                 return (
                     <>
                         <div className="flex gap-2 justify-between px-2 py-3">
                             <div className="flex gap-1 items-center">
                                 <div>Ignore exceptions that match </div>
-                                <ErrorTrackingRules.Operator rule={rule} editing={editing} />
+                                <ErrorTrackingRules.Operator rule={rule} editable={editable} />
                                 <div>of the following filters:</div>
                             </div>
-                            <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                            <ErrorTrackingRules.Actions rule={rule} editable={editable} />
                         </div>
                         <LemonDivider className="my-0" />
                         <div className="p-2">
                             <ErrorTrackingRules.Filters
                                 rule={rule}
-                                editing={editing}
+                                editable={editable}
                                 taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                 propertyAllowList={{
                                     [TaxonomicFilterGroupType.EventProperties]: [
