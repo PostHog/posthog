@@ -684,18 +684,20 @@ describe('Hog Executor', () => {
         jest.setTimeout(10000)
         let server: any
         let baseUrl: string
-        let mockRequest = jest.fn()
+        const mockRequest = jest.fn()
         let timeoutHandle: NodeJS.Timeout | undefined
         let hogFunction: HogFunctionType
 
         beforeAll(async () => {
             server = createServer((req, res) => {
+                console.log('MOCK SERVER')
                 mockRequest(req, res)
             })
 
             await promisifyCallback<void>((cb) => {
                 server.listen(0, () => {
                     logger.info('Server listening')
+                    console.log('SERVER LISTENING', server.address())
                     cb(null, server)
                 })
             })
@@ -725,7 +727,8 @@ describe('Hog Executor', () => {
         beforeEach(() => {
             jest.spyOn(Math, 'random').mockReturnValue(0.5)
 
-            mockRequest = jest.fn((req, res) => {
+            mockRequest.mockImplementation((req, res) => {
+                console.log('MOCK DONE')
                 res.writeHead(200, { 'Content-Type': 'text/plain' })
                 res.end('Hello, world!')
             })

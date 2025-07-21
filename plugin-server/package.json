@@ -61,7 +61,7 @@
         "@posthog/siphash": "1.1.1",
         "@segment/action-destinations": "^3.383.0",
         "@types/lru-cache": "^5.1.0",
-        "@types/node": "^18.11.9",
+        "@types/node": "^24.0.15",
         "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
