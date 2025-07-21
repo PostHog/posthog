@@ -2470,13 +2470,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
                 s.dynamicConversionGoal,
+                s.conversion_goals,
             ],
             (
                 loading: boolean,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
-                dynamicConversionGoal: ConversionGoalFilter | null
+                dynamicConversionGoal: ConversionGoalFilter | null,
+                conversionGoals: ConversionGoalFilter[]
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -2495,6 +2497,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dynamicConversionGoal: dynamicConversionGoal,
                         limit: 200,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        select: [
+                            dynamicConversionGoal ? dynamicConversionGoal.conversion_goal_name : null,
+                            ...conversionGoals.map((goal) => goal.conversion_goal_name),
+                        ].filter(isNotNil),
                     } as MarketingAnalyticsTableQuery,
                     full: true,
                     embedded: false,

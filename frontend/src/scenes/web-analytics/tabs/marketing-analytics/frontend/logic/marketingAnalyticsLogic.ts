@@ -1,4 +1,5 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,13 +19,16 @@ import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, Pipeline
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NativeMarketingSource,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     VALID_NATIVE_MARKETING_SOURCES,
+    generateUniqueName,
 } from './utils'
+import { uuid } from 'lib/utils'
 
 export type ExternalTable = {
     name: string
@@ -48,10 +52,23 @@ export type NativeSource = {
 
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
+    connect(() => ({
+        values: [
+            teamLogic,
+            ['baseCurrency'],
+            marketingAnalyticsSettingsLogic,
+            ['sources_map', 'conversion_goals'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+        ],
+    })),
     actions({
         setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
         setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        setLocalConversionGoal: (goal: ConversionGoalFilter) => ({ goal }),
+        resetLocalConversionGoal: () => true,
+        saveDynamicConversionGoal: () => true,
     }),
     reducers({
         marketingAnalyticsOrderBy: [
@@ -67,17 +84,26 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 setDynamicConversionGoal: (_, { goal }) => goal,
             },
         ],
-    }),
-    connect(() => ({
-        values: [
-            teamLogic,
-            ['baseCurrency'],
-            marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+        localConversionGoal: [
+            (() => {
+                return {
+                    ...defaultConversionGoalFilter,
+                    conversion_goal_id: uuid(),
+                    conversion_goal_name: '',
+                }
+            })() as ConversionGoalFilter,
+            {
+                setLocalConversionGoal: (_, { goal }) => goal,
+                resetLocalConversionGoal: () => {
+                    return {
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    }
+                },
+            },
         ],
-    })),
+    }),
     selectors({
         validSourcesMap: [
             (s) => [s.sources_map],
@@ -198,6 +224,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }, [])
             },
         ],
+        uniqueConversionGoalName: [
+            (s) => [s.localConversionGoal, s.conversion_goals],
+            (localConversionGoal: ConversionGoalFilter, conversion_goals: ConversionGoalFilter[]): string => {
+                const baseName = localConversionGoal?.conversion_goal_name || localConversionGoal?.name || 'No name'
+                const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
+                return generateUniqueName(baseName, existingNames)
+            },
+        ],
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
@@ -221,4 +255,48 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
     }),
+    actionToUrl(() => ({
+        setMarketingAnalyticsOrderBy: ({ orderBy, direction }) => {
+            const searchParams = new URLSearchParams(window.location.search)
+            if (orderBy !== null && direction) {
+                searchParams.set('sort_field', orderBy.toString())
+                searchParams.set('sort_direction', direction)
+            } else {
+                searchParams.delete('sort_field')
+                searchParams.delete('sort_direction')
+            }
+            return [window.location.pathname, searchParams.toString()]
+        },
+        clearMarketingAnalyticsOrderBy: () => {
+            const searchParams = new URLSearchParams(window.location.search)
+            searchParams.delete('sort_field')
+            searchParams.delete('sort_direction')
+            return [window.location.pathname, searchParams.toString()]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            const sortField = searchParams.sort_field
+            const sortDirection = searchParams.sort_direction
+
+            if (sortField && sortDirection && (sortDirection === 'ASC' || sortDirection === 'DESC')) {
+                const orderBy = parseInt(sortField, 10)
+                if (!isNaN(orderBy) && values.marketingAnalyticsOrderBy?.[0] !== orderBy) {
+                    actions.setMarketingAnalyticsOrderBy(orderBy, sortDirection as 'ASC' | 'DESC')
+                }
+            } else if (!sortField && !sortDirection && values.marketingAnalyticsOrderBy) {
+                actions.clearMarketingAnalyticsOrderBy()
+            }
+        },
+    })),
+    listeners(({ actions }) => ({
+        saveDynamicConversionGoal: () => {
+            // Create a new local conversion goal with new id
+            actions.resetLocalConversionGoal()
+        },
+        resetLocalConversionGoal: () => {
+            // Clear the dynamic goal when resetting local goal
+            actions.setDynamicConversionGoal(null)
+        },
+    })),
 ])

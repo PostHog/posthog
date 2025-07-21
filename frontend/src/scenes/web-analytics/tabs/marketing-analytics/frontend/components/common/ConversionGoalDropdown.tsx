@@ -92,6 +92,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     schema_map: {
                         ...value.schema_map,
                     },
+                    properties: firstSerie?.properties || [], // if we clear the filter we need the properties to be set to an empty array
                 }
 
                 // Override the schema with the schema from the data warehouse
