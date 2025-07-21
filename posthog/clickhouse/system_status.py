@@ -7,7 +7,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from posthog.api.dead_letter_queue import (
-    get_dead_letter_queue_events_last_24h,
     get_dead_letter_queue_size,
 )
 from posthog.cache_utils import cache_for
@@ -180,7 +179,7 @@ def is_alive() -> bool:
 
 
 def dead_letter_queue_ratio() -> tuple[bool, int]:
-    dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
+    dead_letter_queue_events_last_day = get_dead_letter_queue_size(0, timezone.now() - timedelta(days=1))
 
     total_events_ingested_last_day = sync_execute(
         "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"

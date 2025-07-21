@@ -1,1 +1,1 @@
-0796_fix_revenue_analytics_modifiers_in_queries
+0798_alter_integration_kind
