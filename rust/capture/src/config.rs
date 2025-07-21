@@ -93,9 +93,9 @@ pub struct Config {
     #[envconfig(default = "info")]
     pub log_level: Level,
 
-    // temporary: gates some chatty debug logging
+    // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
-    pub base64_detect_percent: f32,
+    pub verbose_sample_percent: f32,
 }
 
 #[derive(Envconfig, Clone)]
@@ -129,12 +129,14 @@ pub struct KafkaConfig {
     pub kafka_tls: bool,
     #[envconfig(default = "")]
     pub kafka_client_id: String,
-    #[envconfig(default = "60000")]
-    pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "2")]
     pub kafka_producer_max_retries: u32,
     #[envconfig(default = "all")]
     pub kafka_producer_acks: String,
-    #[envconfig(default = "60000")]
+    // interval between metadata refreshes from the Kafka brokers
+    #[envconfig(default = "20000")]
     pub kafka_topic_metadata_refresh_interval_ms: u32,
+    // default is 3x metadata refresh interval so we maintain that here
+    #[envconfig(default = "60000")]
+    pub kafka_metadata_max_age_ms: u32,
 }
