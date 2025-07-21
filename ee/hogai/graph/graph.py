@@ -1,15 +1,13 @@
 from collections.abc import Hashable
-from typing import Literal, Optional, cast, TypeVar, Generic
+from typing import Literal, Optional, cast, Generic
 
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
-
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from .base import AssistantNode, BaseAssistantNode, StateType
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -37,16 +35,16 @@ from .retention.nodes import (
 from .root.nodes import RootNode, RootNodeTools
 from .sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
-
+from .base import StateType
 from .insights.nodes import InsightSearchNode
 
 global_checkpointer = DjangoCheckpointer()
 
-# Type variable for assistant node types
-NodeType = TypeVar("NodeType", bound="BaseAssistantNode")
+# Type variable for assistant state types
+# StateType = TypeVar("StateType", bound=BaseModel)
 
 
-class BaseAssistantGraph(Generic[NodeType]):
+class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
@@ -73,7 +71,7 @@ class BaseAssistantGraph(Generic[NodeType]):
         return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
 
 
-class InsightsAssistantGraph(BaseAssistantGraph[AssistantNode]):
+class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
     def __init__(self, team: Team, user: User):
         super().__init__(team, user, AssistantState)
 
@@ -222,7 +220,7 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantNode]):
         return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantNode]):
+class AssistantGraph(BaseAssistantGraph[AssistantState]):
     def __init__(self, team: Team, user: User):
         super().__init__(team, user, AssistantState)
 
