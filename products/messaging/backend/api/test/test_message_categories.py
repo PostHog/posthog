@@ -54,7 +54,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         # PUT
         put_response = self.client.put(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
-            {"name": "Put Name", "key": "put_key", "category_type": "notification"},
+            {"name": "Put Name", "key": "put_key", "category_type": "marketing"},
         )
         self.assertEqual(put_response.status_code, status.HTTP_200_OK)
         category.refresh_from_db()
@@ -67,7 +67,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         """
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_categories/",
-            {"name": "New Category", "key": "new_cat", "category_type": "notification"},
+            {"name": "New Category", "key": "new_cat", "category_type": "marketing"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
@@ -86,17 +86,17 @@ class TestMessageCategoryAPI(APIBaseTest):
         # Attempt to create with the same key for the same team
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_categories/",
-            {"name": "Category 2", "key": "duplicate-key", "category_type": "notification"},
+            {"name": "Category 2", "key": "duplicate-key", "category_type": "marketing"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("key", response.json())
-        self.assertIn("already exists", response.json()["key"][0])
+        self.assertEqual("key", response.json()["attr"])
+        self.assertIn("already exists", response.json()["detail"])
 
         # Verify it's possible to create with the same key for a different team
         other_team = Team.objects.create(organization=self.organization)
         response = self.client.post(
             f"/api/environments/{other_team.id}/messaging_categories/",
-            {"name": "Category 3", "key": "duplicate-key", "category_type": "notification"},
+            {"name": "Category 3", "key": "duplicate-key", "category_type": "marketing"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
