@@ -242,7 +242,7 @@
         "@types/lodash.sortby": "^4.7.9",
         "@types/lodash.uniqby": "^4.7.9",
         "@types/md5": "^2.3.0",
-        "@types/node": "^18.11.9",
+        "@types/node": "^22.13.14",
         "@types/papaparse": "^5.3.8",
         "@types/pixelmatch": "^5.2.4",
         "@types/pngjs": "^6.0.1",
