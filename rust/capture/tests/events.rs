@@ -1015,9 +1015,9 @@ async fn it_replaces_null_chars_in_distinct_id() -> Result<()> {
     // Test cases with null bytes in different positions
     let test_cases = [
         ("user123\0\0\0id", "user123\u{FFFD}\u{FFFD}\u{FFFD}id"), // nulls in middle
-        ("\0\0user123", "\u{FFFD}\u{FFFD}user123"), // nulls at beginning
-        ("user123\0\0", "user123\u{FFFD}\u{FFFD}"), // nulls at end
-        ("\0user\0id\0", "\u{FFFD}user\u{FFFD}id\u{FFFD}"), // nulls scattered
+        ("\0\0user123", "\u{FFFD}\u{FFFD}user123"),               // nulls at beginning
+        ("user123\0\0", "user123\u{FFFD}\u{FFFD}"),               // nulls at end
+        ("\0user\0id\0", "\u{FFFD}user\u{FFFD}id\u{FFFD}"),       // nulls scattered
     ];
 
     for (input_id, expected_id) in test_cases {
