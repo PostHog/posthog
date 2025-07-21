@@ -181,8 +181,6 @@ export type ListFuse = Fuse<{
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
-type ExceptionPropertyDefinition = { value: string; name: string; group: TaxonomicFilterGroupType }
-
 export type TaxonomicDefinitionTypes =
     | EventDefinition
     | PropertyDefinition
@@ -191,4 +189,3 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
-    | ExceptionPropertyDefinition
