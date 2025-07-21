@@ -238,7 +238,7 @@ export function InsightVizDisplay({
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
     if (!theme) {
-        return null
+        console.warn('Rendering InsightVizDisplay without a data color theme - this will be grayscale')
     }
 
     return (
