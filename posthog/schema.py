@@ -81,6 +81,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     NAVIGATE = "navigate"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
+    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
 
 
 class AssistantDateRange(BaseModel):
@@ -1551,6 +1552,7 @@ class IntegrationKind(StrEnum):
     SNAPCHAT = "snapchat"
     INTERCOM = "intercom"
     EMAIL = "email"
+    TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
     META_ADS = "meta-ads"
@@ -2339,6 +2341,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
+    ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     MAX_AI_CONTEXT = "max_ai_context"
 
 

@@ -25,7 +25,7 @@ import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getEventNamesForAction } from 'lib/utils'
+import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
@@ -42,7 +42,13 @@ import {
 
 import { actionsModel } from '~/models/actionsModel'
 import { MathType, NodeKind } from '~/queries/schema/schema-general'
-import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
+import {
+    getMathTypeWarning,
+    isCalendarHeatmapQuery,
+    isInsightVizNode,
+    isStickinessQuery,
+    TRAILING_MATH_TYPES,
+} from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -714,6 +720,7 @@ function useMathSelectorOptions({
     mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+    const isCalendarHeatmap = query && isInsightVizNode(query) && isCalendarHeatmapQuery(query.source)
 
     const {
         needsUpgradeForGroups,
@@ -734,14 +741,24 @@ function useMathSelectorOptions({
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
-    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(() => {
-        if (math === 'unique_group' && mathGroupTypeIndex !== undefined) {
-            const groupKey = `unique_group::${mathGroupTypeIndex}`
-            const groupDef = groupsMathDefinitions[groupKey]
-            return groupDef ? groupKey : 'users'
+    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(
+        getActiveActor('unique_group', mathGroupTypeIndex)
+    )
+    const [weeklyActiveActorsShown, setWeeklyActiveActorsShown] = useState<string>(
+        getActiveActor('weekly_active', mathGroupTypeIndex)
+    )
+    const [monthlyActiveActorsShown, setMonthlyActiveActorsShown] = useState<string>(
+        getActiveActor('monthly_active', mathGroupTypeIndex)
+    )
+
+    function getActiveActor(selectedMath: string, mathGroupTypeIndex: number | null | undefined): string {
+        if (mathGroupTypeIndex === undefined || mathGroupTypeIndex === null || selectedMath !== math) {
+            return 'users'
         }
-        return 'users'
-    })
+        const groupKey = `unique_group::${mathGroupTypeIndex}`
+        const groupDef = groupsMathDefinitions[groupKey]
+        return groupDef ? groupKey : 'users'
+    }
 
     let definitions = staticMathDefinitions
     if (mathAvailability === MathAvailability.FunnelsOnly) {
@@ -887,7 +904,7 @@ function useMathSelectorOptions({
         }
     }
 
-    if (isGroupsEnabled) {
+    if (isGroupsEnabled && !isCalendarHeatmap) {
         const uniqueActorsOptions = [
             {
                 value: 'users',
@@ -935,6 +952,97 @@ function useMathSelectorOptions({
                 ),
                 'data-attr': `math-node-unique-actors-${index}`,
             }
+        }
+
+        const getActiveActorOptionByPeriod = (
+            activeActorShown: string,
+            setActiveActorShown: (value: string) => void,
+            mathType: BaseMathType,
+            period: 'month' | 'week',
+            days: '30' | '7',
+            optionIndex: number
+        ): LemonSelectOption<string> => {
+            const actor = activeActorShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
+            const capitalizedActor = capitalizeFirstLetter(actor)
+            const label = `${capitalizeFirstLetter(period)}ly active ${actor}`
+            const tooltip =
+                actor === 'user' ? (
+                    options[optionIndex].tooltip
+                ) : (
+                    <>
+                        <b>
+                            {capitalizedActor} active in the past {period} ({days} days).
+                        </b>
+                        <br />
+                        <br />
+                        This is a trailing count that aggregates distinct {actor} in the past {days} days for each day
+                        in the time series.
+                        <br />
+                        <br />
+                        If the group by interval is a {period} or longer, this is the same as "Unique {capitalizedActor}
+                        " math.
+                    </>
+                )
+
+            return {
+                value: mathType,
+                label,
+                tooltip,
+                'data-attr': `math-node-${period}ly-active-actors-${index}`,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>{capitalizeFirstLetter(period)}ly active</span>
+                        <LemonSelect
+                            value={activeActorShown}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                            onSelect={(value) => {
+                                setActiveActorShown(value as string)
+                                const groupIndex =
+                                    value === 'users'
+                                        ? undefined
+                                        : mathTypeToApiValues(value as string).math_group_type_index
+                                const mathType =
+                                    groupIndex !== undefined
+                                        ? `${period}ly_active::${groupIndex}`
+                                        : BaseMathType.MonthlyActiveUsers
+                                onMathSelect(index, mathType)
+                            }}
+                            options={uniqueActorsOptions}
+                        />
+                    </div>
+                ),
+            }
+        }
+
+        const monthlyActiveUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.MonthlyActiveUsers
+        )
+        if (monthlyActiveUsersIndex !== -1) {
+            options[monthlyActiveUsersIndex] = getActiveActorOptionByPeriod(
+                monthlyActiveActorsShown,
+                setMonthlyActiveActorsShown,
+                BaseMathType.MonthlyActiveUsers,
+                'month',
+                '30',
+                monthlyActiveUsersIndex
+            )
+        }
+
+        const weeklyActiveUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.WeeklyActiveUsers
+        )
+        if (weeklyActiveUsersIndex !== -1) {
+            options[weeklyActiveUsersIndex] = getActiveActorOptionByPeriod(
+                weeklyActiveActorsShown,
+                setWeeklyActiveActorsShown,
+                BaseMathType.WeeklyActiveUsers,
+                'week',
+                '7',
+                weeklyActiveUsersIndex
+            )
         }
     }
 

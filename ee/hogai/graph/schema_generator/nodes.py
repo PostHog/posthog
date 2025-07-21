@@ -13,6 +13,16 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import find_start_message
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.schema import (
+    FailureMessage,
+    VisualizationMessage,
+)
+
+from ..base import AssistantNode
 from .parsers import (
     PydanticOutputParserException,
     parse_pydantic_structured_output,
@@ -26,15 +36,6 @@ from .prompts import (
     QUESTION_PROMPT,
 )
 from .utils import SchemaGeneratorOutput
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import find_start_message
-from ..base import AssistantNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    FailureMessage,
-    VisualizationMessage,
-)
 
 Q = TypeVar("Q", bound=BaseModel)
 
@@ -97,8 +98,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                             content=f"Oops! It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
-                    intermediate_steps=[],
-                    plan="",
+                    intermediate_steps=None,
+                    plan=None,
                     query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
@@ -120,8 +121,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         return PartialAssistantState(
             messages=[final_message],
-            intermediate_steps=[],
-            plan="",
+            intermediate_steps=None,
+            plan=None,
             query_generation_retry_count=len(intermediate_steps),
         )
 

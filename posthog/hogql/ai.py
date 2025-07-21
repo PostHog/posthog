@@ -178,7 +178,7 @@ def hit_openai(messages, user) -> tuple[str, int, int]:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
     result = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
