@@ -196,7 +196,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ...BOTTOM_HANDLE_POSITION,
                         }
                     }
-                    // For conditional_branch, add a handle for each condition and a 'continue' handle
+                    // For conditional_branch, add a handle for each condition
                     if (action.type === 'conditional_branch' && Array.isArray(action.config?.conditions)) {
                         action.config.conditions.forEach((_, idx) => {
                             handlesByIdByNodeId[action.id][`branch_${idx}`] = {
@@ -207,7 +207,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             }
                         })
                     }
-                    // For random_cohort, add a handle for each branch and a 'continue' handle
+                    // For random_cohort, add a handle for each branch
                     if (action.type === 'random_cohort_branch' && Array.isArray(action.config?.cohorts)) {
                         action.config.cohorts.forEach((_, idx) => {
                             handlesByIdByNodeId[action.id][`branch_${idx}`] = {
