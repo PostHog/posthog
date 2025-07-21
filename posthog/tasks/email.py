@@ -582,7 +582,7 @@ def send_hog_functions_daily_digest() -> None:
 
     # Filter teams based on the feature flag setting
     allowed_team_ids = settings.HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS
-    if allowed_team_ids:
+    if allowed_team_ids and "*" not in allowed_team_ids:
         # Convert string team IDs to integers for comparison
         allowed_team_ids_int = [int(team_id) for team_id in allowed_team_ids]
         team_ids = [team_id for team_id in team_ids if team_id in allowed_team_ids_int]

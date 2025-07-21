@@ -509,6 +509,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         default: false,
                     },
                 ],
+                code_language: 'javascript',
                 hog: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
