@@ -324,7 +324,7 @@ class ExternalWebAnalyticsQueryAdapter:
 
     def _build_pagination_url(self, limit: int, offset: int) -> Optional[str]:
         if not self.request:
-            return
+            return None
 
         url = self.request.build_absolute_uri()
 
