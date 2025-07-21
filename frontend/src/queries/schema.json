@@ -839,7 +839,8 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "navigate",
-                "search_error_tracking_issues"
+                "search_error_tracking_issues",
+                "experiment_results_summary"
             ],
             "type": "string"
         },
@@ -13966,6 +13967,7 @@
                 "snapchat",
                 "intercom",
                 "email",
+                "twilio",
                 "linear",
                 "github",
                 "meta-ads"

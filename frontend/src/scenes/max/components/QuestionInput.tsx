@@ -159,7 +159,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <div className="flex items-center w-full gap-1 justify-between">
+                <div className="flex items-center w-full gap-1 justify-center">
                     {tools.length > 0 && (
                         <div
                             className={clsx(
@@ -180,7 +180,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             ))}
                         </div>
                     )}
-                    <div className="ml-auto">{bottomActions}</div>
+                    {bottomActions && <div className="ml-auto">{bottomActions}</div>}
                 </div>
             </div>
         </div>
