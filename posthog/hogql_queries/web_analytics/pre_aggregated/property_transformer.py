@@ -20,6 +20,20 @@ class PreAggregatedPropertyTransformer(CloningVisitor):
             prop_key = chain[1]
 
         if prop_key and prop_key in self.supported_props_filters:
+            # If the mapping is None (virtual fields like $channel_type), don't transform
+            if self.supported_props_filters[prop_key] is None:
+                return super().visit_field(node)
             return ast.Field(chain=[self.table_name, self.supported_props_filters[prop_key]])
 
+        return super().visit_field(node)
+
+
+class ChannelTypeReplacer(CloningVisitor):
+    def __init__(self, channel_type_expr: ast.Expr):
+        super().__init__()
+        self.channel_type_expr = channel_type_expr
+
+    def visit_field(self, node: ast.Field) -> ast.Expr | ast.Field:
+        if node.chain == ["session", "$channel_type"] or node.chain == ["properties", "$channel_type"]:
+            return self.channel_type_expr
         return super().visit_field(node)
