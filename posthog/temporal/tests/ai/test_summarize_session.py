@@ -28,8 +28,8 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     SummarizeSingleSessionWorkflow,
     execute_summarize_session_stream,
     stream_llm_single_session_summary_activity,
+    fetch_session_data_activity,
 )
-from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import WorkflowEnvironment
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
