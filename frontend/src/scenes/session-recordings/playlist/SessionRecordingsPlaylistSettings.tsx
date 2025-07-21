@@ -164,6 +164,7 @@ function NewCollectionModal(): JSX.Element {
         useValues(sessionRecordingsPlaylistLogic)
     const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
         useActions(sessionRecordingsPlaylistLogic)
+    const { loadPlaylists } = useActions(savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }))
 
     const handleClose = (): void => {
         setIsNewCollectionDialogOpen(false)
@@ -197,7 +198,7 @@ function NewCollectionModal(): JSX.Element {
                 <LemonButton
                     type="primary"
                     disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
-                    onClick={() => handleCreateNewCollectionBulkAdd()}
+                    onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
                 >
                     Create collection
                 </LemonButton>

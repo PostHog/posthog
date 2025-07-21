@@ -395,7 +395,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
         setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
         setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
-        handleCreateNewCollectionBulkAdd: true,
+        handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -790,7 +790,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
             )
         },
-        handleCreateNewCollectionBulkAdd: async () => {
+        handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
             const newPlaylist = await createPlaylist({
                 name: values.newCollectionName,
                 type: 'collection',
@@ -800,6 +800,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.handleBulkAddToPlaylist(newPlaylist.short_id)
                 actions.setIsNewCollectionDialogOpen(false)
                 actions.setNewCollectionName('')
+                onSuccess()
             }
         },
     })),
