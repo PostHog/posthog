@@ -78,14 +78,16 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
                 </SortableContext>
             </DndContext>
 
-            <PageHeader
-                buttons={
-                    <>
-                        {allRules.length > 1 && <ReorderRules />}
-                        <AddRule />
-                    </>
-                }
-            />
+            {false ? (
+                <PageHeader
+                    buttons={
+                        <>
+                            {allRules.length > 1 && <ReorderRules />}
+                            <AddRule />
+                        </>
+                    }
+                />
+            ) : null}
         </BindLogic>
     )
 }
