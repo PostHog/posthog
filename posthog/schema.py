@@ -2785,6 +2785,15 @@ class WebStatsBreakdown(StrEnum):
     FRUSTRATION_METRICS = "FrustrationMetrics"
 
 
+class WebTrendsMetric(StrEnum):
+    UNIQUE_USERS = "unique_users"
+    PAGE_VIEWS = "page_views"
+    SESSIONS = "sessions"
+    BOUNCES = "bounces"
+    SESSION_DURATION = "session_duration"
+    TOTAL_SESSIONS = "total_sessions"
+
+
 class WebVitalsMetric(StrEnum):
     INP = "INP"
     LCP = "LCP"
@@ -10686,6 +10695,63 @@ class WebStatsTableQuery(BaseModel):
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebTrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    interval: IntervalType
+    metrics: list[WebTrendsMetric]
+    dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebTrendsQueryResponse] = None
+    sampling: Optional[Sampling] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebTrendsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket: str
+    metrics: dict[WebTrendsMetric, float | int]
+
+
+class WebTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[WebTrendsItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    samplingRate: Optional[SamplingRate] = None
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebVitalsItem(BaseModel):
