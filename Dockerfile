@@ -99,7 +99,9 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server prepare && \
+    # Remove source files and tests after building to reduce copy size
+    rm -rf plugin-server/src plugin-server/tests
 
 #
 # ---------------------------------------------------------
@@ -125,7 +127,11 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     pip install uv~=0.7.0 --no-cache-dir && \
-    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec && \
+    # Clean up Python cache and documentation to reduce size
+    find /python-runtime -name "*.pyc" -delete && \
+    find /python-runtime -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    rm -rf /python-runtime/share/doc /python-runtime/share/man
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -178,25 +184,24 @@ RUN apt-get update && \
     "chromium-driver" \
     "libpq-dev" \
     "libxmlsec1" \
-    "libxmlsec1-dev" \
     "libxml2" \
-    "gettext-base"
-
-# Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
-RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list
-RUN apt-get update
-RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
-
-# Install NodeJS 18.
-RUN apt-get install -y --no-install-recommends \
+    "gettext-base" \
     "curl" \
     && \
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y --no-install-recommends \
-    "nodejs" \
-    && \
     rm -rf /var/lib/apt/lists/*
+
+# Install MS SQL dependencies
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+
+# Install NodeJS 18.
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y --no-install-recommends "nodejs" && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* && \
+    npm cache clean --force 2>/dev/null || true
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
@@ -252,7 +257,8 @@ RUN cp ./bin/docker-server-unit ./bin/docker-server
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
+    PYTHONDONTWRITEBYTECODE=1
 
 # Expose container port and run entry point script.
 EXPOSE 8000
