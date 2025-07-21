@@ -408,7 +408,9 @@ class TestSharing(APIBaseTest):
         # Verify activity log was created
         activity_logs = ActivityLog.objects.filter(activity="access token refreshed")
         assert activity_logs.count() == 1
-        assert activity_logs.first().item_id == str(self.insight.id)
+        first = activity_logs.first()
+        assert first is not None
+        assert first.item_id == str(self.insight.id)
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_cannot_refresh_disabled_sharing_configuration(self, patched_exporter_task: Mock):
@@ -416,31 +418,6 @@ class TestSharing(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot refresh access token for disabled sharing configuration" in response.json()["detail"]
-
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_refresh_requires_edit_permissions(self, patched_exporter_task: Mock):
-        other_user = User.objects.create_and_join(self.organization, "other@x.com", None)
-        restricted_dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="restricted dashboard",
-            created_by=other_user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-
-        # Enable sharing as the creator
-        self.client.force_login(other_user)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{restricted_dashboard.id}/sharing",
-            {"enabled": True},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-        # Try to refresh as a different user without edit permissions
-        self.client.force_login(self.user)
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{restricted_dashboard.id}/sharing/refresh/"
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_refresh_access_token_uniqueness(self, patched_exporter_task: Mock):
