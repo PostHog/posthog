@@ -27,6 +27,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
+import { MessagingMailjetManagerService } from './messaging/mailjet-manager.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -90,9 +91,11 @@ export type HogExecutorExecuteOptions = {
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
+    private emailService: MessagingMailjetManagerService
 
     constructor(private hub: Hub) {
         this.hogInputsService = new HogInputsService(hub)
+        this.emailService = new MessagingMailjetManagerService(hub)
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
@@ -240,7 +243,8 @@ export class HogExecutorService {
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
-            if (nextInvocation.queueParameters?.type === 'fetch') {
+            const queueParamsType = nextInvocation.queueParameters?.type
+            if (['fetch', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -248,7 +252,14 @@ export class HogExecutorService {
                     logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
                     break
                 }
-                result = await this.executeFetch(nextInvocation)
+
+                if (queueParamsType === 'fetch') {
+                    result = await this.executeFetch(nextInvocation)
+                } else if (queueParamsType === 'email') {
+                    result = await this.emailService.executeSendEmail(nextInvocation)
+                } else {
+                    throw new Error(`Unknown queue type: ${queueParamsType}`)
+                }
             } else {
                 result = await this.execute(nextInvocation, options)
             }

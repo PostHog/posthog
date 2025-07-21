@@ -2,8 +2,13 @@ import crypto from 'crypto'
 import express from 'express'
 import { Counter } from 'prom-client'
 
+import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { createAddLogFunction } from '~/cdp/utils'
+import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
+import { IntegrationType } from '../managers/integration-manager.service'
 
 export type MailjetEventType = keyof typeof EVENT_TYPE_TO_CATEGORY
 
@@ -67,8 +72,118 @@ export const mailjetWebhookErrorsCounter = new Counter({
     labelNames: ['error_type'],
 })
 
+export type MailjetEmailRequest = {
+    from: {
+        email: string
+        name: string
+    }
+    to: {
+        email: string
+        name: string
+    }[]
+    subject: string
+    text: string
+    html: string
+}
+
 export class MessagingMailjetManagerService {
     constructor(private hub: Hub) {}
+
+    private isEmailDomainValid(integration: IntegrationType, email: string): boolean {
+        // First check its a valid domain in general
+        const domain = email.split('@')[1]
+        if (!domain) {
+            return false
+        }
+
+        // Then check its the same as the integration domain
+        return integration.config.domain && integration.config.domain === domain
+    }
+
+    // Send email
+    public async executeSendEmail(invocation: CyclotronJobInvocationHogFunction) {
+        if (invocation.queueParameters?.type !== 'email') {
+            throw new Error('Invocation passed to sendEmail is not an email function')
+        }
+
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {},
+            {
+                finished: true,
+            }
+        )
+        const addLog = createAddLogFunction(result.logs)
+
+        const { integrationId, ...params } = invocation.queueParameters
+        const integration = await this.hub.integrationManager.get(integrationId.toString())
+
+        if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
+            throw new Error('Email integration not found')
+        }
+
+        if (!this.isEmailDomainValid(integration, params.from.email)) {
+            const errorMessage = `The selected email integration domain does not match the email domain`
+            addLog('error', errorMessage)
+            result.error = errorMessage
+            return result
+        }
+
+        // First we need to lookup the email sending domain of the given team
+        const response = await fetch('https://api.mailjet.com/v3.1/send', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Basic ${this.hub.MAILJET_PUBLIC_KEY}:${this.hub.MAILJET_SECRET_KEY}`,
+            },
+            body: JSON.stringify({
+                Messages: [
+                    {
+                        From: {
+                            Email: params.from.email,
+                            Name: params.from.name,
+                        },
+                        To: [
+                            {
+                                Email: params.to.email,
+                                Name: params.to.name,
+                            },
+                        ],
+                        Subject: params.subject,
+                        TextPart: params.text,
+                        HTMLPart: params.html,
+                        URLTags: `ph_fn_id=${invocation.functionId}&ph_inv_id=${invocation.id}`,
+                    },
+                ],
+            }),
+        })
+
+        // TODO: Add support for retries - in fact if it fails should we actually crash out the service?
+
+        if (!response.ok) {
+            const errorMessage = `Failed to send email to ${params.to.email} with status ${response.status}`
+            addLog('error', errorMessage)
+            result.error = errorMessage
+        } else {
+            addLog('info', `Email sent to ${params.to.email}`)
+        }
+
+        // Finally we create the response object as the VM expects
+        result.invocation.state.vmState!.stack.push({
+            status: response.status,
+        })
+
+        result.metrics.push({
+            team_id: invocation.teamId,
+            app_source_id: invocation.functionId,
+            instance_id: invocation.id,
+            metric_kind: response.ok ? 'success' : 'failure',
+            metric_name: response.ok ? 'email_sent' : 'email_failed',
+            count: 1,
+        })
+
+        return result
+    }
 
     // eslint-disable-next-line @typescript-eslint/require-await
     public async handleWebhook(

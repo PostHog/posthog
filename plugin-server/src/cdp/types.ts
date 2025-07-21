@@ -192,6 +192,9 @@ export type MinimalAppMetric = {
         | 'event_triggered_destination'
         | 'destination_invoked'
         | 'dropped'
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_delivered'
     count: number
 }
 
@@ -214,7 +217,25 @@ export type HogFunctionQueueParametersFetchRequest = {
     headers?: Record<string, string>
 }
 
-export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
+export type HogFunctionQueueParametersEmailRequest = {
+    type: 'email'
+    integrationId: number
+    to: {
+        email: string
+        name: string
+    }
+    from: {
+        email: string
+        name: string
+    }
+    subject: string
+    text: string
+    html: string
+}
+
+export type CyclotronInvocationQueueParameters =
+    | HogFunctionQueueParametersFetchRequest
+    | HogFunctionQueueParametersEmailRequest
 
 export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'native', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
