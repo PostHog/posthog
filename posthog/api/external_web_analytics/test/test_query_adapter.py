@@ -347,7 +347,6 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 3
         assert len(result["results"]) == 3
 
         # Check first result
@@ -383,7 +382,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 2
+        assert len(result["results"]) == 2
         first_result = result["results"][0]
         assert first_result["breakdown_value"] == "/home"
         assert first_result["visitors"] == 200
@@ -406,7 +405,6 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 2
         assert result["results"][0]["breakdown_value"] == "Chrome"
         assert result["results"][1]["breakdown_value"] == EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE
 
@@ -422,10 +420,8 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 0
         assert result["results"] == []
         assert result["next"] is None
-        assert result["previous"] is None
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     def test_breakdown_missing_columns_raises_error(self, mock_runner_class):
@@ -712,13 +708,12 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
 
         # Verify the response structure
-        assert "count" in result
         assert "results" in result
         assert "next" in result
         assert "previous" in result
 
         # Verify we actually got data from our test setup
-        assert result["count"] == 2  # Desktop and Mobile
+        assert len(result["results"]) == 2  # Desktop and Mobile
 
         # Sort results for consistent testing
         results = sorted(result["results"], key=lambda x: x["breakdown_value"])
@@ -748,7 +743,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
 
         # Verify we got results
-        assert result["count"] == 3  # /landing, /pricing, /features
+        assert len(result["results"]) == 3  # /landing, /pricing, /features
 
         # Check that results have bounce_rate
         for row in result["results"]:
@@ -771,7 +766,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
 
         # Should still get results since all our test data is from example.com
-        assert result["count"] == 2
+        assert len(result["results"]) == 2
 
         # Test with different host - should get no results
         serializer = WebAnalyticsBreakdownRequestSerializer(
@@ -785,7 +780,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         serializer.is_valid(raise_exception=True)
 
         result = adapter.get_breakdown_data(serializer)
-        assert result["count"] == 0
+        assert len(result["results"]) == 0
 
     def test_overview_data_with_host_filter_integration(self):
         adapter = ExternalWebAnalyticsQueryAdapter(self.team)
