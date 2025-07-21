@@ -894,11 +894,11 @@
             capture_pageleave: false
         };
 
-        const distinctId = new URLSearchParams(window.location.search).get('distinct_id');
+        const distinctID = new URLSearchParams(window.location.search).get('distinct_id');
 
-        if (distinctId) {
+        if (distinctID) {
             config.bootstrap = {
-                distinctID: distinctId,
+                distinctID: distinctID,
             }
         }
 
