@@ -15,6 +15,7 @@ import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { ciRanges } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -90,10 +91,10 @@ export function ActionsLineGraph({
     if (showConfidenceIntervals) {
         indexedResults.forEach((originalDataset) => {
             const color = getTrendsColor(originalDataset)
-            const errorMargin = (v: number): number => (Math.abs(v) || 1) * (confidenceLevel / 100) * 0.2
+            const [lower, upper] = ciRanges(originalDataset.data, confidenceLevel / 100)
             finalDatasets.push({
                 ...originalDataset,
-                data: originalDataset.data.map((value) => value - errorMargin(value)),
+                data: lower,
                 borderColor: 'transparent',
                 backgroundColor: 'transparent',
                 pointRadius: 0,
@@ -103,7 +104,7 @@ export function ActionsLineGraph({
             })
             finalDatasets.push({
                 ...originalDataset,
-                data: originalDataset.data.map((value) => value + errorMargin(value)),
+                data: upper,
                 borderColor: 'transparent',
                 backgroundColor: hexToRGBA(color, 0.2),
                 pointRadius: 0,
