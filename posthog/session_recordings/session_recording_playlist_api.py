@@ -243,7 +243,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         if instance.type == "collection" and validated_data.get("filters", None) is not None:
             raise ValidationError("You cannot update a collection to add filters")
         if instance.type == "filters" and not validated_data.get("filters", None):
-            raise ValidationError("You cannot remove filters when updating a saved filter")
+            raise ValidationError("You cannot remove all filters when updating a saved filter")
 
         updated_playlist = super().update(instance, validated_data)
         changes = changes_between("SessionRecordingPlaylist", previous=before_update, current=updated_playlist)
