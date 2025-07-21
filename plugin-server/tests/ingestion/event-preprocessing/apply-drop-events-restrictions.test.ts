@@ -26,17 +26,6 @@ describe('applyDropEventsRestrictions', () => {
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith('valid-token-123', 'user-456')
     })
 
-    it('should return message when token is missing', () => {
-        const message = {
-            headers: [{ distinct_id: Buffer.from('anonymous-user-789') }],
-        } as unknown as Message
-
-        const result = applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
-
-        expect(result).toBe(message)
-        expect(eventIngestionRestrictionManager.shouldDropEvent).not.toHaveBeenCalled()
-    })
-
     it('should return null when token is present but should be dropped', () => {
         const message = {
             headers: [{ token: Buffer.from('blocked-token-abc') }, { distinct_id: Buffer.from('blocked-user-def') }],
@@ -54,20 +43,22 @@ describe('applyDropEventsRestrictions', () => {
 
     it('should handle message without headers', () => {
         const message = {} as unknown as Message
+        jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
         const result = applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
 
         expect(result).toBe(message)
-        expect(eventIngestionRestrictionManager.shouldDropEvent).not.toHaveBeenCalled()
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
     })
 
     it('should handle message with empty headers', () => {
         const message = { headers: [] } as unknown as Message
+        jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
         const result = applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
 
         expect(result).toBe(message)
-        expect(eventIngestionRestrictionManager.shouldDropEvent).not.toHaveBeenCalled()
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
     })
 
     it('should increment metrics when dropping events', async () => {
@@ -88,16 +79,5 @@ describe('applyDropEventsRestrictions', () => {
                 value: 1,
             },
         ])
-    })
-
-    it('should not increment metrics when token is missing', async () => {
-        const message = {
-            headers: [{ distinct_id: Buffer.from('no-token-user-999') }],
-        } as unknown as Message
-
-        applyDropEventsRestrictions(message, eventIngestionRestrictionManager)
-
-        const metrics = await getMetricValues('ingestion_event_dropped_total')
-        expect(metrics).toEqual([])
     })
 })

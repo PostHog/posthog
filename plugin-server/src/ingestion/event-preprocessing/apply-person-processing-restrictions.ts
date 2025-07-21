@@ -7,8 +7,10 @@ export function applyPersonProcessingRestrictions(
 ): void {
     const { event, team } = eventWithTeam
 
-    const shouldSkipPersonRestriction =
-        event.token && eventIngestionRestrictionManager.shouldSkipPerson(event.token, event.distinct_id)
+    const shouldSkipPersonRestriction = eventIngestionRestrictionManager.shouldSkipPerson(
+        event.token,
+        event.distinct_id
+    )
     const shouldSkipPersonOptOut = team.person_processing_opt_out
     const shouldSkipPerson = shouldSkipPersonRestriction || shouldSkipPersonOptOut
 

@@ -19,7 +19,7 @@ export function applyDropEventsRestrictions(
         }
     })
 
-    if (token && eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {
+    if (eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',

@@ -107,4 +107,45 @@ describe('applyPersonProcessingRestrictions', () => {
             'preserve-user-012'
         )
     })
+
+    it('should call shouldSkipPerson when token is undefined', () => {
+        const eventWithTeam = createEventWithTeam({
+            event: {
+                token: undefined,
+                distinct_id: 'undefined-token-user-999',
+                properties: { customProp: 'customValue' },
+            },
+        })
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+
+        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+
+        expect(eventWithTeam.event.properties).toEqual({ customProp: 'customValue' })
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            undefined,
+            'undefined-token-user-999'
+        )
+    })
+
+    it('should set $process_person_profile to false when token is undefined and shouldSkipPerson returns true', () => {
+        const eventWithTeam = createEventWithTeam({
+            event: {
+                token: undefined,
+                distinct_id: 'undefined-token-user-888',
+                properties: { customProp: 'customValue' },
+            },
+        })
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+
+        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+
+        expect(eventWithTeam.event.properties).toMatchObject({
+            customProp: 'customValue',
+            $process_person_profile: false,
+        })
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            undefined,
+            'undefined-token-user-888'
+        )
+    })
 })
