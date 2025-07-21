@@ -1,6 +1,6 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { BindLogic, useActions } from 'kea'
 import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -11,15 +11,18 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'
 
-import ErrorTrackingRules from './rules/ErrorTrackingRules'
+import ErrorTrackingRules, { AddRule } from './rules/ErrorTrackingRules'
 import { ErrorTrackingRuleType } from './rules/types'
 import { ErrorTrackingSuppressionRule } from './rules/types'
+import { errorTrackingRulesLogic } from './rules/errorTrackingRulesLogic'
 
 export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
+
+    const checked = !!currentTeam?.autocapture_exceptions_opt_in
 
     return (
         <div className="flex flex-col gap-y-4">
@@ -52,7 +55,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                         })
                         reportAutocaptureExceptionsToggled(checked)
                     }}
-                    checked={!!currentTeam?.autocapture_exceptions_opt_in}
+                    checked={checked}
                     disabled={userLoading}
                     label="Enable exception autocapture"
                     bordered
@@ -62,43 +65,55 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <div>
                 <h3>Suppression rules</h3>
                 <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
-                <ErrorTrackingClientSuppression />
+                <ErrorTrackingClientSuppression disabled={!checked} />
             </div>
         </div>
     )
 }
 
-function ErrorTrackingClientSuppression(): JSX.Element {
+function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JSX.Element {
     return (
-        <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
-            {({ rule, editing }) => {
-                return (
-                    <>
-                        <div className="flex gap-2 justify-between px-2 py-3">
-                            <div className="flex gap-1 items-center">
-                                <div>Ignore exceptions that match </div>
-                                <ErrorTrackingRules.Operator rule={rule} editing={editing} />
-                                <div>of the following filters:</div>
-                            </div>
-                            <ErrorTrackingRules.Actions rule={rule} editing={editing} />
-                        </div>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2">
-                            <ErrorTrackingRules.Filters
-                                rule={rule}
-                                editing={editing}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                                propertyAllowList={{
-                                    [TaxonomicFilterGroupType.EventProperties]: [
-                                        '$exception_types',
-                                        '$exception_values',
-                                    ],
-                                }}
-                            />
-                        </div>
-                    </>
-                )
-            }}
-        </ErrorTrackingRules>
+        <BindLogic logic={errorTrackingRulesLogic} props={{ ruleType: ErrorTrackingRuleType.Suppression }}>
+            {!disabled && (
+                <ErrorTrackingRules<ErrorTrackingSuppressionRule>>
+                    {({ rule, editing }) => {
+                        return (
+                            <>
+                                <div className="flex gap-2 justify-between px-2 py-3">
+                                    <div className="flex gap-1 items-center">
+                                        <div>Ignore exceptions that match </div>
+                                        <ErrorTrackingRules.Operator rule={rule} editing={editing} />
+                                        <div>of the following filters:</div>
+                                    </div>
+                                    <ErrorTrackingRules.Actions rule={rule} editing={editing} />
+                                </div>
+                                <LemonDivider className="my-0" />
+                                <div className="p-2">
+                                    <ErrorTrackingRules.Filters
+                                        rule={rule}
+                                        editing={editing}
+                                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                        propertyAllowList={{
+                                            [TaxonomicFilterGroupType.EventProperties]: [
+                                                '$exception_types',
+                                                '$exception_values',
+                                            ],
+                                        }}
+                                    />
+                                </div>
+                            </>
+                        )
+                    }}
+                </ErrorTrackingRules>
+            )}
+
+            <AddRule
+                disabledReason={
+                    disabled
+                        ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
+                        : undefined
+                }
+            />
+        </BindLogic>
     )
 }

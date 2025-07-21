@@ -1,8 +1,11 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import ErrorTrackingRules from './ErrorTrackingRules'
+import ErrorTrackingRules, { AddRule, ReorderRules } from './ErrorTrackingRules'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from './types'
+import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
+import { BindLogic } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
     return (
@@ -11,32 +14,43 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 Automatically assign newly created issues based on properties of the exception event the first time it
                 was seen.
             </p>
-            <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
-                {({ rule, editing, disabled }) => {
-                    return (
+            <BindLogic logic={errorTrackingRulesLogic} props={{ ruleType: ErrorTrackingRuleType.Assignment }}>
+                <PageHeader
+                    buttons={
                         <>
-                            <div className="flex gap-2 justify-between px-2 py-3">
-                                <div className="flex gap-1 items-center">
-                                    <div>Assign to</div>
-                                    <ErrorTrackingRules.Assignee rule={rule} editing={editing} />
-                                    <div>when</div>
-                                    <ErrorTrackingRules.Operator rule={rule} editing={editing} />
-                                    <div>filters match</div>
-                                </div>
-                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
-                            </div>
-                            <LemonDivider className="my-0" />
-                            <div className="p-2">
-                                <ErrorTrackingRules.Filters
-                                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                                    rule={rule}
-                                    editing={editing}
-                                />
-                            </div>
+                            <ReorderRules />
+                            <AddRule />
                         </>
-                    )
-                }}
-            </ErrorTrackingRules>
+                    }
+                />
+
+                <ErrorTrackingRules<ErrorTrackingAssignmentRule>>
+                    {({ rule, editing, disabled }) => {
+                        return (
+                            <>
+                                <div className="flex gap-2 justify-between px-2 py-3">
+                                    <div className="flex gap-1 items-center">
+                                        <div>Assign to</div>
+                                        <ErrorTrackingRules.Assignee rule={rule} editing={editing} />
+                                        <div>when</div>
+                                        <ErrorTrackingRules.Operator rule={rule} editing={editing} />
+                                        <div>filters match</div>
+                                    </div>
+                                    {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
+                                </div>
+                                <LemonDivider className="my-0" />
+                                <div className="p-2">
+                                    <ErrorTrackingRules.Filters
+                                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                        rule={rule}
+                                        editing={editing}
+                                    />
+                                </div>
+                            </>
+                        )
+                    }}
+                </ErrorTrackingRules>
+            </BindLogic>
         </>
     )
 }
