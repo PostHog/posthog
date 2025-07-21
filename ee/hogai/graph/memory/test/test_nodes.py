@@ -15,9 +15,9 @@ from ee.hogai.graph.memory.nodes import (
     MemoryInitializerInterruptNode,
     MemoryInitializerNode,
     MemoryOnboardingEnquiryInterruptNode,
+    MemoryOnboardingEnquiryNode,
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
-    MemoryOnboardingEnquiryNode,
 )
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models import CoreMemory
@@ -346,7 +346,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "no data available.")
             context_mock.return_value = []
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
-            self.assertEqual(new_state, PartialAssistantState(messages=[]))
+            self.assertEqual(new_state, None)
 
             context_mock.return_value = [
                 EventTaxonomyItem(property="$host", sample_values=["us.posthog.com"], sample_count=1)
@@ -482,7 +482,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
                 messages=[HumanMessage(content="We target enterprise customers")],
             )
             new_state = self.node.run(state, {})
-            self.assertEqual(new_state, PartialAssistantState(onboarding_question=""))
+            self.assertEqual(new_state, PartialAssistantState(onboarding_question=None))
 
     def test_memory_accepted(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
@@ -570,7 +570,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
             ),
             {},
         )
-        self.assertEqual(new_state, PartialAssistantState(messages=[], onboarding_question=""))
+        self.assertEqual(new_state, PartialAssistantState(onboarding_question=None))
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -608,7 +608,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
 
     def test_router(self):
         # Test with no memory collection messages
-        state = AssistantState(messages=[HumanMessage(content="Text")], memory_collection_messages=[])
+        state = AssistantState(messages=[HumanMessage(content="Text")], memory_collection_messages=None)
         self.assertEqual(self.node.router(state), "next")
 
         # Test with memory collection messages
@@ -699,7 +699,7 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
 
             new_state = self.node.run(state, {})
             self.assertEqual(new_state.memory_updated, True)
-            self.assertEqual(new_state.memory_collection_messages, [])
+            self.assertEqual(new_state.memory_collection_messages, None)
 
     def test_appends_new_message(self):
         with patch.object(MemoryCollectorNode, "_model") as model_mock:

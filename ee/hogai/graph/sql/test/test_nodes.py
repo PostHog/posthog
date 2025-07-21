@@ -38,6 +38,7 @@ class TestSQLGeneratorNode(BaseTest):
                         id=new_state.messages[0].id if new_state.messages else None,
                     )
                 ],
-                intermediate_steps=[],
-                plan="",
+                intermediate_steps=None,
+                plan=None,
+                rag_context=None,
             )

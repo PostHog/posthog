@@ -77,7 +77,7 @@ export function AdvertiseMobileReplay({
                     Session Replay for {platform} <LemonTag type="highlight">NEW</LemonTag>
                 </h3>
                 <div>
-                    Session replay is now in beta for {platform}.{' '}
+                    Session replay is now in general availability for {platform}.{' '}
                     <Link
                         to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, sdkKey)}
                         data-attr={`${context}-${platform.toLowerCase()}-replay-cta`}
