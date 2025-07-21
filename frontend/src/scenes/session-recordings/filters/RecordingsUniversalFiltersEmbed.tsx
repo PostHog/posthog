@@ -557,24 +557,21 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
 
-                        {/* Only show "Add filter" button if group has multiple filters */}
-                        {filterOrGroup.values.length > 1 && (
-                            <Popover
-                                overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}
-                                placement="bottom"
-                                visible={isPopoverVisible}
-                                onClickOutside={() => setIsPopoverVisible(false)}
+                        <Popover
+                            overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}
+                            placement="bottom"
+                            visible={isPopoverVisible}
+                            onClickOutside={() => setIsPopoverVisible(false)}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlus />}
+                                onClick={() => setIsPopoverVisible(!isPopoverVisible)}
                             >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconPlus />}
-                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
-                                >
-                                    Add filter
-                                </LemonButton>
-                            </Popover>
-                        )}
+                                Add filter
+                            </LemonButton>
+                        </Popover>
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
