@@ -180,6 +180,15 @@ describe('Hogflow Executor', () => {
                     id: expect.any(String),
                     teamId: 1,
                     hogFlow: invocation.hogFlow,
+                    person: {
+                        id: 'person_id',
+                        name: '',
+                        properties: {
+                            name: 'John Doe',
+                        },
+                        url: '',
+                    },
+                    filterGlobals: expect.any(Object),
                     functionId: invocation.hogFlow.id,
                     queue: 'hogflow',
                     queueMetadata: undefined,
@@ -294,11 +303,11 @@ describe('Hogflow Executor', () => {
                 action.filters = HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters
             })
 
-            it("should not skip the action if the filters don't match", async () => {
+            it('should only run the action if the provided filters match', async () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
                     event: {
                         ...createHogExecutionGlobals().event,
-                        event: 'not-a-pageview',
+                        event: '$pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                         },
@@ -317,11 +326,11 @@ describe('Hogflow Executor', () => {
                 })
             })
 
-            it('should skip the action if the filters do match', async () => {
+            it('should skip the action if the filters do not match', async () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
                     event: {
                         ...createHogExecutionGlobals().event,
-                        event: '$pageview',
+                        event: 'not-a-pageview',
                         properties: {
                             $current_url: 'https://posthog.com',
                         },

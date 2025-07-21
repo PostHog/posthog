@@ -1,6 +1,13 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    CyclotronPerson,
+} from '../types'
+import { getPersonDisplayName } from '../utils'
+import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
@@ -11,6 +18,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
+        this.personsManager.clear() // We want to load persons fresh each time
         const loadedInvocations = await this.loadHogFlows(invocations)
         return await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
     }
@@ -21,8 +29,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         await Promise.all(
             invocations.map(async (item) => {
+                const team = await this.hub.teamManager.getTeam(item.teamId)
                 const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
-                if (!hogFlow) {
+                if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
@@ -32,10 +41,43 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     return null
                 }
 
+                const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
+
+                const dbPerson = await this.personsManager.get({
+                    teamId: hogFlow.team_id,
+                    distinctId: hogFlowInvocationState.event.distinct_id,
+                })
+
+                const personDisplayName = getPersonDisplayName(
+                    team,
+                    hogFlowInvocationState.event.distinct_id,
+                    dbPerson?.properties ?? {}
+                )
+
+                const person: CyclotronPerson | undefined = dbPerson
+                    ? {
+                          id: dbPerson.id,
+                          properties: dbPerson.properties,
+                          name: personDisplayName,
+                          url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/persons/${encodeURIComponent(
+                              hogFlowInvocationState.event.distinct_id
+                          )}`,
+                      }
+                    : undefined
+
+                const filterGlobals = convertToHogFunctionFilterGlobal({
+                    event: hogFlowInvocationState.event,
+                    person,
+                    // TODO: Load groups as well
+                    groups: {},
+                })
+
                 loadedInvocations.push({
                     ...item,
-                    state: item.state as CyclotronJobInvocationHogFlow['state'],
+                    state: hogFlowInvocationState,
                     hogFlow,
+                    person,
+                    filterGlobals,
                 })
             })
         )

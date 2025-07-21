@@ -58,6 +58,13 @@ export type GroupType = {
     properties: Record<string, any>
 }
 
+export type CyclotronPerson = {
+    id: string
+    properties: Record<string, any>
+    name: string
+    url: string
+}
+
 export type HogFunctionInvocationGlobals = {
     project: {
         id: number
@@ -80,15 +87,7 @@ export type HogFunctionInvocationGlobals = {
         /* Special fields in Hog */
         url: string
     }
-    person?: {
-        /** Database fields */
-        id: string
-        properties: Record<string, any>
-
-        /** Special fields in Hog */
-        name: string
-        url: string
-    }
+    person?: CyclotronPerson
     groups?: Record<string, GroupType>
 
     // Unique to sources - will be modified later
@@ -192,7 +191,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'event_triggered_destination'
         | 'destination_invoked'
-
+        | 'dropped'
     count: number
 }
 
@@ -269,17 +268,14 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
-
-    // Add lazy getters for person and filter globals
-    // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
-    // getPerson: () => Promise<Person>
+    person?: CyclotronPerson
+    filterGlobals: HogFunctionFilterGlobals
 }
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
     // variables: Record<string, any> // NOTE: not used yet but
-    personId?: string
     currentAction?: {
         id: string
         startedAtTimestamp: number
@@ -338,7 +334,6 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
-    depends_on_integration_ids?: Set<IntegrationType['id']>
     is_addon_required: boolean
     template_id?: string
     execution_order?: number
@@ -366,6 +361,7 @@ export type HogFunctionTemplate = {
     mapping_templates?: HogFunctionMappingTemplate[]
     masking?: HogFunctionMasking
     icon_url?: string
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
@@ -411,7 +407,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
     perform: (
         request: (
             url: string,
