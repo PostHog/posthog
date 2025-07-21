@@ -8,6 +8,7 @@ import json
 
 from posthog.cloud_utils import get_api_host
 from posthog.test.base import APIBaseTest
+from posthog.models import User, Organization
 
 
 class SetupWizardTests(APIBaseTest):
@@ -297,6 +298,31 @@ class SetupWizardTests(APIBaseTest):
 
         response_3 = self.client.post(url, data=data, format="json")
         self.assertEqual(response_3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            },
+        }
+    )
+    def test_authenticate_user_without_project_access(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_and_join(other_org, "other@example.com", None)
+
+        self.client.force_login(other_user)
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
+        cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        url = f"/api/wizard/authenticate"
+        data = {"hash": "valid_hash", "projectId": self.team.id}
+
+        response = self.client.post(url, data=data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["code"], "permission_denied")
+        self.assertEqual(response_data["detail"], "You don't have access to this project.")
+        self.assertEqual(response_data["attr"], "projectId")
 
     def tearDown(self):
         super().tearDown()

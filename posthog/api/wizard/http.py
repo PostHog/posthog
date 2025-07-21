@@ -22,13 +22,13 @@ from posthoganalytics.ai.openai import OpenAI
 from posthoganalytics.ai.gemini import genai
 from google.genai.types import GenerateContentConfig, Schema
 
-from api.wizard.utils import json_schema_to_gemini_schema
-from cloud_utils import get_api_host
-from permissions import APIScopePermission
+from posthog.api.wizard.utils import json_schema_to_gemini_schema
+from posthog.cloud_utils import get_api_host
+from posthog.permissions import APIScopePermission
 from posthog.rate_limit import SetupWizardQueryRateThrottle, SetupWizardAuthenticationRateThrottle
 from rest_framework.exceptions import AuthenticationFailed
 from posthog.models.project import Project
-from user_permissions import UserPermissions
+from posthog.user_permissions import UserPermissions
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
