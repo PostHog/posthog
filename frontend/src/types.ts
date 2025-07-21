@@ -1357,6 +1357,12 @@ export type SearchResponse = {
 
 export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
 
+export type CreateGroupParams = {
+    group_type_index: GroupTypeIndex
+    group_key: string
+    group_properties?: Record<string, any>
+}
+
 export interface MatchedRecordingEvent {
     uuid: string
 }
