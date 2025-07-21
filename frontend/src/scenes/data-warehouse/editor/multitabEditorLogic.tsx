@@ -88,6 +88,12 @@ const getNextUntitledNumber = (tabs: QueryTab[]): number => {
 }
 
 const getStorageItem = async (key: string): Promise<string | null> => {
+    const dbValue = await get(key)
+
+    if (dbValue) {
+        return dbValue
+    }
+
     const lsValue = localStorage.getItem(key)
     if (lsValue) {
         try {
@@ -98,15 +104,6 @@ const getStorageItem = async (key: string): Promise<string | null> => {
             posthog.captureException(new Error('sql-editor-local-storage-migration-failure'), { error })
         }
         return lsValue
-    }
-    try {
-        const dbValue = await get(key)
-        if (dbValue) {
-            return dbValue
-        }
-    } catch (error) {
-        // this can happen if the storage quota is exceeded, or if the user is in private mode when trying to read from IndexedDB
-        posthog.captureException(new Error('sql-editor-indexeddb-read-failure'), { error })
     }
     return null
 }
