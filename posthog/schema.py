@@ -2342,6 +2342,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
+    ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     MAX_AI_CONTEXT = "max_ai_context"
 
 
