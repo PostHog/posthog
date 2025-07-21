@@ -52,6 +52,7 @@ class EventBuilder {
         }
         this.event.distinct_id = distinctId
         this.event.team_id = team.id
+        this.event.token = team.api_token
     }
 
     withEvent(event: string) {
@@ -292,8 +293,7 @@ describe('Event Pipeline E2E tests', () => {
     })
 
     testWithTeamIngester('should process events without a team_id', {}, async (ingester, hub, team) => {
-        const token = team.api_token
-        const events = [new EventBuilder(team).withEvent('test event').withToken(token).build()]
+        const events = [new EventBuilder(team).withEvent('test event').build()]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 

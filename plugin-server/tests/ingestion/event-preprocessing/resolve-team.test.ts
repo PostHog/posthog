@@ -64,7 +64,7 @@ beforeEach(() => {
 })
 
 describe('resolveTeam()', () => {
-    it('event with no token and no team_id is not processed and the step returns null', async () => {
+    it('event with no token is not processed and the step returns null', async () => {
         const incomingEvent: IncomingEvent = {
             event: { ...pipelineEvent },
             message: {} as any,
@@ -100,37 +100,48 @@ describe('resolveTeam()', () => {
         ])
     })
 
-    it('event with a team_id value is returned unchanged', async () => {
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent, team_id: 3 },
-            message: {} as any,
-        }
-        const response = await resolveTeam(hub, incomingEvent)
-        expect(response?.event).toEqual({ ...pipelineEvent, team_id: 3 })
-        expect(hub.teamManager.getTeam).toHaveBeenCalledWith(3)
-        expect(hub.teamManager.getTeamByToken).not.toHaveBeenCalled()
-    })
-
-    it('event with a token calls getTeamByToken with correct token', async () => {
+    it('event with a valid token calls getTeamByToken with correct token', async () => {
         const incomingEvent: IncomingEvent = {
             event: { ...pipelineEvent, token: teamTwoToken },
             message: {} as any,
         }
         const response = await resolveTeam(hub, incomingEvent)
         expect(response?.event).toEqual({ ...pipelineEvent, token: teamTwoToken })
+        expect(response?.team).toEqual(teamTwo)
         expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
         expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
     })
 
-    it('event with both team_id and token prioritizes team_id and calls getTeam', async () => {
+    it('event with team_id but no token is dropped', async () => {
+        const incomingEvent: IncomingEvent = {
+            event: { ...pipelineEvent, team_id: 3 },
+            message: {} as any,
+        }
+        const response = await resolveTeam(hub, incomingEvent)
+        expect(response).toEqual(null)
+        expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
+            {
+                labels: {
+                    drop_cause: 'no_token',
+                    event_type: 'analytics',
+                },
+                value: 1,
+            },
+        ])
+        expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
+        expect(hub.teamManager.getTeamByToken).not.toHaveBeenCalled()
+    })
+
+    it('event with both team_id and token uses token for team resolution', async () => {
         const incomingEvent: IncomingEvent = {
             event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
             message: {} as any,
         }
         const response = await resolveTeam(hub, incomingEvent)
         expect(response?.event).toEqual({ ...pipelineEvent, team_id: 3, token: teamTwoToken })
-        expect(hub.teamManager.getTeam).toHaveBeenCalledWith(3)
-        expect(hub.teamManager.getTeamByToken).not.toHaveBeenCalled()
+        expect(response?.team).toEqual(teamTwo)
+        expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
+        expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
     })
 
     it('PG errors are propagated up to trigger retries', async () => {

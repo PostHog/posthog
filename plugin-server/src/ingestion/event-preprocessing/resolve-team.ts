@@ -15,9 +15,8 @@ export async function resolveTeam(
         })
         .inc()
 
-    let team = null
-    // Events with no token or team_id are dropped, they should be blocked by capture
-    if (!event.token && !event.team_id) {
+    // Events with no token are dropped, they should be blocked by capture
+    if (!event.token) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -25,12 +24,9 @@ export async function resolveTeam(
             })
             .inc()
         return null
-    } else if (event.team_id) {
-        team = await hub.teamManager.getTeam(event.team_id)
-    } else if (event.token) {
-        team = await hub.teamManager.getTeamByToken(event.token)
     }
 
+    const team = await hub.teamManager.getTeamByToken(event.token)
     if (!team) {
         eventDroppedCounter
             .labels({
