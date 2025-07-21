@@ -205,7 +205,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: {
         projectBased: true,
-        name: 'GroupsNew',
+        name: 'Create Group',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
     [Scene.Group]: {
