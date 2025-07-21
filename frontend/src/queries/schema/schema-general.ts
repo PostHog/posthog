@@ -119,6 +119,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
@@ -179,6 +180,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
@@ -3536,7 +3538,40 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
+export enum WebTrendsMetric {
+    UNIQUE_USERS = 'UniqueUsers',
+    PAGE_VIEWS = 'PageViews',
+    SESSIONS = 'Sessions',
+    BOUNCES = 'Bounces',
+    SESSION_DURATION = 'SessionDuration',
+    TOTAL_SESSIONS = 'TotalSessions',
+}
+
+export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
+    kind: NodeKind.WebTrendsQuery
+    interval: IntervalType
+    metrics: WebTrendsMetric[]
+    limit?: integer
+    offset?: integer
+}
+
+export interface WebTrendsItem {
+    bucket: string
+    metrics: Partial<Record<WebTrendsMetric, number>>
+}
+
+export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase<WebTrendsItem[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    samplingRate?: SamplingRate
+    types?: unknown[]
+    usedPreAggregatedTables?: boolean
+}
+
+export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
+
+export type MarketingAnalyticsOrderBy = [number, 'ASC' | 'DESC']
 
 export interface MarketingAnalyticsTableQuery
     extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {

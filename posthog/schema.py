@@ -1899,6 +1899,7 @@ class NodeKind(StrEnum):
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
+    WEB_TRENDS_QUERY = "WebTrendsQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
     REVENUE_ANALYTICS_METRICS_QUERY = "RevenueAnalyticsMetricsQuery"
@@ -2785,13 +2786,33 @@ class WebStatsBreakdown(StrEnum):
     FRUSTRATION_METRICS = "FrustrationMetrics"
 
 
+class Metrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    Bounces: Optional[float] = None
+    PageViews: Optional[float] = None
+    SessionDuration: Optional[float] = None
+    Sessions: Optional[float] = None
+    TotalSessions: Optional[float] = None
+    UniqueUsers: Optional[float] = None
+
+
+class WebTrendsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket: str
+    metrics: Metrics
+
+
 class WebTrendsMetric(StrEnum):
-    UNIQUE_USERS = "unique_users"
-    PAGE_VIEWS = "page_views"
-    SESSIONS = "sessions"
-    BOUNCES = "bounces"
-    SESSION_DURATION = "session_duration"
-    TOTAL_SESSIONS = "total_sessions"
+    UNIQUE_USERS = "UniqueUsers"
+    PAGE_VIEWS = "PageViews"
+    SESSIONS = "Sessions"
+    BOUNCES = "Bounces"
+    SESSION_DURATION = "SessionDuration"
+    TOTAL_SESSIONS = "TotalSessions"
 
 
 class WebVitalsMetric(StrEnum):
@@ -5072,6 +5093,33 @@ class WebStatsTableQueryResponse(BaseModel):
     usedPreAggregatedTables: Optional[bool] = None
 
 
+class WebTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[WebTrendsItem]
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
 class WebVitalsItemAction(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6899,6 +6947,42 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list
+    samplingRate: Optional[SamplingRate] = None
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class CachedWebTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[WebTrendsItem]
     samplingRate: Optional[SamplingRate] = None
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
@@ -10701,57 +10785,27 @@ class WebTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
+    compareFilter: Optional[CompareFilter] = None
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
-    interval: IntervalType
-    metrics: list[WebTrendsMetric]
     dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    interval: IntervalType
+    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
     limit: Optional[int] = None
-    offset: Optional[int] = None
+    metrics: list[WebTrendsMetric]
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebTrendsQueryResponse] = None
     sampling: Optional[Sampling] = None
     tags: Optional[QueryLogTags] = None
+    useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebTrendsItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket: str
-    metrics: dict[WebTrendsMetric, float | int]
-
-
-class WebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: list[WebTrendsItem]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    samplingRate: Optional[SamplingRate] = None
-    types: Optional[list] = None
-    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebVitalsItem(BaseModel):
@@ -13802,6 +13856,7 @@ class HogQLAutocomplete(BaseModel):
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
+            WebTrendsQuery,
             WebAnalyticsExternalSummaryQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
@@ -13866,6 +13921,7 @@ class HogQLMetadata(BaseModel):
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
+            WebTrendsQuery,
             WebAnalyticsExternalSummaryQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
