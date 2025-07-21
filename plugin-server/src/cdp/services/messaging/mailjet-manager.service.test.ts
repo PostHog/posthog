@@ -1,3 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import crypto from 'crypto'
 import express from 'express'
 
@@ -60,6 +63,8 @@ describe('MessagingMailjetManagerService', () => {
             MAILJET_PUBLIC_KEY: 'mailjet-public-key',
         })
         service = new MessagingMailjetManagerService(hub)
+
+        mockFetch.mockClear()
     })
 
     afterEach(async () => {
@@ -77,6 +82,10 @@ describe('MessagingMailjetManagerService', () => {
             it('should validate if the email domain is not the same as the integration domain', async () => {})
 
             it('should validate if the email domain is not verified', async () => {})
+        })
+
+        describe('email sending', () => {
+            it('should send an email', async () => {})
         })
     })
 
