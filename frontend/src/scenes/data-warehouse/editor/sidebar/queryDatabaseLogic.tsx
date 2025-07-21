@@ -232,6 +232,19 @@ const createTopLevelFolderNode = (
         ]
     }
 
+    if (type === 'drafts' && children.length === 0) {
+        finalChildren = [
+            {
+                id: `${isSearch ? 'search-' : ''}drafts-folder-empty/`,
+                name: 'Empty folder',
+                type: 'empty-folder',
+                record: {
+                    type: 'empty-folder',
+                },
+            },
+        ]
+    }
+
     return {
         id: isSearch ? `search-${type}` : type,
         name: type === 'sources' ? 'Sources' : type === 'views' ? 'Views' : 'Drafts',
