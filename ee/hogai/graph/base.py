@@ -22,6 +22,8 @@ from ..utils.types import (
     AssistantMessageUnion,
     AssistantState,
     PartialAssistantState,
+    FilterOptionsState,
+    PartialFilterOptionsState,
 )
 
 StateType = TypeVar("StateType", bound=BaseModel)
@@ -158,3 +160,4 @@ class BaseAssistantNode(ABC, Generic[StateType, PartialStateType]):
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
+FilterOptionsBaseNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

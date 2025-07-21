@@ -10,7 +10,7 @@ from langchain_core.messages import (
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.base import FilterOptionsBaseNode
 from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
 from ee.hogai.graph.query_planner.toolkit import (
     retrieve_entity_properties,
@@ -48,7 +48,7 @@ from posthog.schema import AssistantToolCallMessage
 from ee.hogai.llm import MaxChatOpenAI
 
 
-class FilterOptionsNode(AssistantNode):
+class FilterOptionsNode(FilterOptionsBaseNode):
     """Node for generating filtering options based on user queries."""
 
     def __init__(self, team, user, injected_prompts: Optional[dict] = None):
@@ -186,7 +186,7 @@ class FilterOptionsNode(AssistantNode):
         )
 
 
-class FilterOptionsToolsNode(AssistantNode, ABC):
+class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
     MAX_ITERATIONS = 10  # Maximum number of iterations for the ReAct agent
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
@@ -243,7 +243,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
             elif input.name == "retrieve_event_property_values":
                 output = toolkit.retrieve_event_or_action_property_values(
-                    input.arguments.event_name,
+                    input.arguments.event_name,  # type: ignore
                     input.arguments.property_name,  # type: ignore
                 )
             elif input.name == "retrieve_event_properties":
