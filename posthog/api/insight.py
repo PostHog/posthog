@@ -934,6 +934,11 @@ class InsightViewSet(
                     Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
                     | Q(filters__properties__icontains=feature_flag)
                 )
+            elif key == "events":
+                events_filter = request.GET["events"]
+                events = json.loads(events_filter) if events_filter else []
+                for event in events:
+                    queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
