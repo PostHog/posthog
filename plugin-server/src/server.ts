@@ -1,10 +1,10 @@
-import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import express from 'ultimate-express'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'

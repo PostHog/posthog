@@ -1,10 +1,10 @@
-import express from 'express'
 import { DateTime } from 'luxon'
+import express from 'ultimate-express'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { UUIDT } from '../../utils/utils'
+import { UUID, UUIDT } from '../../utils/utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocationHogFunction,
@@ -31,6 +31,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
+        if (!UUID.validateString(webhookId, false)) {
+            return null
+        }
+
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
         if (hogFunction?.type !== 'source_webhook') {

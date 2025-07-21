@@ -2,7 +2,7 @@
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import express from 'express'
+import express from 'ultimate-express'
 import supertest from 'supertest'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'

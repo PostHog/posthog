@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import express from 'express'
 import { DateTime } from 'luxon'
+import express from 'ultimate-express'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'

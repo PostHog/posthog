@@ -1,7 +1,7 @@
 import '../../tests/helpers/mocks/producer.mock'
 
-import express from 'express'
 import supertest from 'supertest'
+import express from 'ultimate-express'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 

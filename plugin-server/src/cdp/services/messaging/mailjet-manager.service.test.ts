@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import express from 'express'
+import express from 'ultimate-express'
 
 import { Hub } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'

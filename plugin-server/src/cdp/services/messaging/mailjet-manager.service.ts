@@ -1,6 +1,6 @@
 import crypto from 'crypto'
-import express from 'express'
 import { Counter } from 'prom-client'
+import express from 'ultimate-express'
 
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'

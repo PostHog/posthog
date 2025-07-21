@@ -1,6 +1,6 @@
-import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
 import * as prometheus from 'prom-client'
+import express, { Request, Response } from 'ultimate-express'
 
 import { PluginServerService } from '~/types'
 
