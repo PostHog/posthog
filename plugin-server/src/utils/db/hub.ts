@@ -21,6 +21,7 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { RustyHook } from '../../worker/rusty-hook'
+import { ActionManagerCDP } from '../action-manager-cdp'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
@@ -134,6 +135,7 @@ export async function createHub(
     await pubSub.start()
     const rustyHook = new RustyHook(serverConfig)
     const actionManager = new ActionManager(postgres, pubSub)
+    const actionManagerCDP = new ActionManagerCDP(postgres)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
@@ -168,6 +170,7 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
+        actionManagerCDP,
         geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
