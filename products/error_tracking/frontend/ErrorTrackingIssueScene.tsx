@@ -53,39 +53,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-x-2">
                         {hasIntegrations ? <ConnectIssueButton /> : null}
-                        {!issueLoading && issue?.status === 'active' && (
-                            <AssigneeSelect
-                                assignee={issue?.assignee}
-                                onChange={(assignee) => updateAssignee(assignee)}
-                            >
-                                {(displayAssignee) => (
-                                    <LemonButton
-                                        type="secondary"
-                                        icon={<AssigneeIconDisplay assignee={displayAssignee} />}
-                                    >
-                                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
-                                    </LemonButton>
-                                )}
-                            </AssigneeSelect>
-                        )}
-                        {!issueLoading && (
-                            <GenericSelect
-                                size="small"
-                                current={issue?.status}
-                                values={ISSUE_STATUS_OPTIONS}
-                                placeholder="Mark as"
-                                renderValue={(value) => (
-                                    <StatusIndicator status={value as IssueStatus} size="small" withTooltip={true} />
-                                )}
-                                onChange={(status) => updateStatus(status)}
-                            />
-                        )}
                     </div>
                 }
             /> */}
 
-            <div className="ErrorTrackingIssue gap-x-8 flex">
-                <div className="space-y-2">
+            <div className="ErrorTrackingIssue gap-x-4 flex">
+                <div className="flex-1 space-y-2">
                     <ExceptionCard
                         issue={issue ?? undefined}
                         issueLoading={issueLoading}
