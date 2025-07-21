@@ -204,7 +204,7 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
 - Add appropriate error handling and logging
 - Do not use any external libraries, only use the ones that are already installed in the codebase
 - Do not run lint or build commands to test the implementation, just use the codebase as is
-- Limit the number of tool calls
+- Use Posthog MCP to add new feature flags, to put features behind
 
 Please implement this feature step by step, explaining what you're doing as you go."""
 
@@ -273,11 +273,29 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                     progress.append_output("🚀 Starting Claude Code SDK execution...")
                 await database_sync_to_async(update_step)()
 
+            logger.info(f"POSTHOG_PERSONAL_API_KEY: {os.environ.get('POSTHOG_PERSONAL_API_KEY', '')}")
+
             options = ClaudeCodeOptions(
-                max_turns=20,  # Increased from 5 to allow more complex implementations
+                max_turns=30,
                 cwd=Path(repo_path),
                 permission_mode="acceptEdits",  # Auto-accept file edits
-                allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep"]  # Allow all necessary tools
+                allowed_tools=["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebFetch", "WebSearch", "mcp__posthog"],  # Allow all necessary tools
+                mcp_tools=["mcp__posthog"],
+                mcp_servers={
+                    "posthog": {
+                    "command": "npx",
+                    "args": [
+                        "-y",
+                        "mcp-remote@latest",
+                        "https://mcp.posthog.com/sse",
+                        "--header",
+                        "Authorization:${POSTHOG_AUTH_HEADER}"
+                    ],
+                    "env": {
+                        "POSTHOG_AUTH_HEADER": f"Bearer {os.environ.get('POSTHOG_PERSONAL_API_KEY', '')}"
+                    }
+                    }
+                }
             )
 
             result_text = ""
@@ -293,7 +311,7 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                 # Stream all message content to progress for visibility
                 if progress:
                     def append_message():
-                        progress.append_output(f"📩 Message {message_count}: {str(message)[:200]}...")
+                        progress.append_output(f"📩 Message {message_count}: {str(message)[:1000]}...")
                         progress.update_progress(f"Processing message {message_count}", 0)
                     await database_sync_to_async(append_message)()
 
@@ -335,10 +353,10 @@ async def _execute_claude_code_sdk(prompt: str, repo_path: str, progress=None) -
                 # Also try to extract content from unknown message types
                 else:
                     # Log the raw message for debugging
-                    logger.info(f"Unknown message type, raw message: {str(message)[:200]}")
+                    logger.info(f"Unknown message type, raw message: {str(message)[:500]}")
                     if progress:
                         def append_raw():
-                            progress.append_output(f"🔍 Raw message: {str(message)[:150]}...")
+                            progress.append_output(f"🔍 Raw message: {str(message)[:500]}...")
                         await database_sync_to_async(append_raw)()
 
             logger.info(f"Claude Code Python SDK execution completed, result length: {len(result_text)}, messages: {message_count}")

@@ -205,7 +205,11 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
         hasActiveIssues: [
             (s) => [s.issues],
             (issues): boolean =>
-                issues.some((issue) => issue.status === IssueStatus.IN_PROGRESS || issue.status === IssueStatus.TODO),
+                issues.some((issue) => 
+                    issue.status === IssueStatus.IN_PROGRESS || 
+                    issue.status === IssueStatus.TODO || 
+                    issue.status === IssueStatus.TESTING
+                ),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -235,8 +239,16 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
                 actions.stopPolling()
             }
         },
+        moveIssueSuccess: () => {
+            // Check if polling should start/stop after moving an issue
+            if (values.hasActiveIssues && !cache.pollingInterval) {
+                actions.startPolling()
+            } else if (!values.hasActiveIssues && cache.pollingInterval) {
+                actions.stopPolling()
+            }
+        },
         pollForUpdatesSuccess: () => {
-            // Continue polling if there are still active issues
+            // Stop polling if there are no active issues
             if (!values.hasActiveIssues) {
                 actions.stopPolling()
             }

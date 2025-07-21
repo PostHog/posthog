@@ -129,7 +129,7 @@ class GitHubIntegration(models.Model):
 
         # Truncate if too long
         if len(sanitized_title) > 50:
-            sanitized_title = sanitized_title[:47] + "..."
+            sanitized_title = sanitized_title[:20] + ""
 
         return f"{self.branch_prefix}/{sanitized_title}-{issue_id[:8]}"
 
