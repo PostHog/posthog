@@ -31,22 +31,9 @@ use crate::{
     v0_request::{EventFormData, EventQuery},
 };
 
-<<<<<<< HEAD
 // EXAMPLE: use verbose_sample_percent env var to capture extra logging/metric details of interest
 // let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
 // if roll < verbose_sample_percent { ... }
-=======
-// Create a thread-local RNG that we can use with sample_verbose_percent
-// env var to cheaply decide if we want to log behavior of interest. example:
-// ```
-//  let roll = RNG.with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
-//  if roll < verbose_sample_percent { ... }
-// ```
-//
-// thread_local! {
-//    static RNG: RefCell<rand::rngs::ThreadRng> = std::cell::RefCell::new(rand::thread_rng());
-// }
->>>>>>> a7e70d3a1b (remove temporarily verbose log sampling but leave the stub for later)
 
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(

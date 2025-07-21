@@ -93,10 +93,7 @@ pub struct Config {
     #[envconfig(default = "info")]
     pub log_level: Level,
 
-<<<<<<< HEAD
-=======
-    // generic env injection to sample behavior of interest for verbose logging
->>>>>>> a7e70d3a1b (remove temporarily verbose log sampling but leave the stub for later)
+    // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
     pub verbose_sample_percent: f32,
 }
