@@ -52,6 +52,7 @@ class SetupWizardTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.http.OpenAI")
+    @patch("django.conf.settings.DEBUG", False)
     def test_query_endpoint_rate_limit(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
         # Simulate an OpenAI response with JSON {"foo": "bar"}
