@@ -42,7 +42,6 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["count"] == 2
         assert len(data["results"]) == 2
         assert data["results"][0]["breakdown_value"] == "Chrome"
         assert data["results"][0]["visitors"] == 150
@@ -283,5 +282,93 @@ class TestExternalWebAnalyticsBreakdownEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["count"] == 0
         assert data["results"] == []
+        assert data["next"] is None
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_pagination_with_has_more(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
+        """Test pagination when there are more results available"""
+        mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
+        mock_runner = MagicMock()
+        mock_response = MagicMock()
+        mock_response.columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+        mock_response.results = [["Chrome", (150, 120)], ["Firefox", (100, 90)]]
+        mock_response.hasMore = True
+        mock_runner.calculate.return_value = mock_response
+        mock_runner_class.return_value = mock_runner
+
+        response = self.client.get(
+            self.breakdown_url,
+            {
+                "date_from": "2025-01-01",
+                "date_to": "2025-01-31",
+                "breakdown_by": "Browser",
+                "limit": "2",
+                "offset": "0",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Verify response structure
+        assert "results" in data
+        assert "next" in data
+        assert "count" not in data  # Should not include count
+
+        # Verify results
+        assert len(data["results"]) == 2
+        assert data["results"][0]["breakdown_value"] == "Chrome"
+        assert data["results"][1]["breakdown_value"] == "Firefox"
+
+        # Verify next URL is generated
+        assert data["next"] is not None
+        assert "offset=2" in data["next"]
+        assert "limit=2" in data["next"]
+
+        # Verify query parameters were passed correctly
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+        assert query.limit == 2
+        assert query.offset == 0
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    @patch("posthog.api.external_web_analytics.http.TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS")
+    @patch("posthog.api.external_web_analytics.http.posthoganalytics.feature_enabled")
+    def test_breakdown_pagination_no_more_results(self, mock_feature_enabled, mock_team_ids, mock_runner_class):
+        """Test pagination when there are no more results"""
+        mock_team_ids.__contains__.return_value = True
+        mock_feature_enabled.return_value = True
+        mock_runner = MagicMock()
+        mock_response = MagicMock()
+        mock_response.columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+        mock_response.results = [["Chrome", (150, 120)]]
+        mock_response.hasMore = False
+        mock_runner.calculate.return_value = mock_response
+        mock_runner_class.return_value = mock_runner
+
+        response = self.client.get(
+            self.breakdown_url,
+            {
+                "date_from": "2025-01-01",
+                "date_to": "2025-01-31",
+                "breakdown_by": "Browser",
+                "limit": "2",
+                "offset": "5",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Verify next URL is None when hasMore is False
+        assert data["next"] is None
+
+        # Verify query parameters were passed correctly
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+        assert query.limit == 2
+        assert query.offset == 5

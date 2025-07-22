@@ -56,7 +56,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
@@ -2832,7 +2832,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
-            if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
+            if (
+                compare_filter &&
+                isCompareFilter(compare_filter) &&
+                !objectsEqual(compare_filter, values.compareFilter)
+            ) {
                 actions.setCompareFilter(compare_filter)
             }
             if (productTab && productTab !== values.productTab) {

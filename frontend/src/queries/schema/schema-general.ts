@@ -1786,6 +1786,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     limit?: integer
+    offset?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
     types?: unknown[]
@@ -2054,6 +2055,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     volumeResolution: integer
     withAggregations?: boolean
     withFirstEvent?: boolean
+    withLastEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -2101,6 +2103,11 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
     first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    last_event?: {
         uuid: string
         timestamp: string
         properties: string
