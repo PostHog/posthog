@@ -155,7 +155,13 @@ const RetryButton = ({
     }
 
     return (
-        <LemonButton size="small" type="primary" onClick={() => onRetry()} sideAction={sideAction}>
+        <LemonButton
+            data-attr="insight-retry-button"
+            size="small"
+            type="primary"
+            onClick={() => onRetry()}
+            sideAction={sideAction}
+        >
             Try again
         </LemonButton>
     )

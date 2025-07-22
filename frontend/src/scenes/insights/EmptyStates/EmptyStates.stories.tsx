@@ -61,6 +61,38 @@ export const ServerError: StoryFn = () => {
     return <App />
 }
 
+export const QueryServerError: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/insights/': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(200),
+                ctx.json({
+                    count: 1,
+                    results: [insight],
+                }),
+            ],
+        },
+        post: {
+            '/api/environments/:team_id/query/': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(500),
+                ctx.json({
+                    type: 'server_error',
+                    detail: 'There is nothing you can do to stop the impending catastrophe.',
+                }),
+            ],
+        },
+    })
+
+    return <App />
+}
+QueryServerError.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr="insight-retry-button"]',
+    },
+}
+
 export const ValidationError: StoryFn = () => {
     useStorybookMocks({
         get: {
