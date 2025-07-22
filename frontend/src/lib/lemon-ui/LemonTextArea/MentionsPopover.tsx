@@ -29,25 +29,27 @@ export function MentionsPopover({
             }}
         >
             {members.length > 0 ? (
-                members.map((member, index) => (
-                    <div
-                        key={member.user.uuid}
-                        className={cn(
-                            'flex items-center gap-2 px-3 py-2 cursor-pointer',
-                            index === selectedIndex ? 'bg-blue-50' : 'hover:bg-gray-50'
-                        )}
-                        onClick={() => onSelect(member)}
-                    >
-                        <ProfilePicture user={member.user} size="sm" />
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-3000 truncate">
-                                {member.user.first_name} &lt;{member.user.email}&gt;
+                members.map((member, index) => {
+                    return (
+                        <div
+                            key={member.user.uuid}
+                            className={cn(
+                                'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-highlight-100',
+                                index === selectedIndex && 'bg-fill-highlight-100'
+                            )}
+                            onClick={() => onSelect(member)}
+                        >
+                            <ProfilePicture user={member.user} size="sm" />
+                            <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-3000 truncate">
+                                    {member.user.first_name} &lt;{member.user.email}&gt;
+                                </div>
                             </div>
                         </div>
-                    </div>
-                ))
+                    )
+                })
             ) : (
-                <div className="px-3 py-2 text-sm text-gray-500">No members found</div>
+                <div className="px-3 py-2 text-sm text-3000">No members found</div>
             )}
         </div>
     )

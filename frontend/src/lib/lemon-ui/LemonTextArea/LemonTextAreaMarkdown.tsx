@@ -17,12 +17,13 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useMentions } from './useMentions'
 import { MentionsPopover } from './MentionsPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
     function LemonTextAreaMarkdown({ value, onChange, className, ...editAreaProps }, ref): JSX.Element {
         const { objectStorageAvailable } = useValues(preflightLogic)
         const { emojiUsed } = useActions(emojiUsageLogic)
-
+        const canUseMentions = useFeatureFlag('TEXT_AREA_MENTIONS')
         const [isPreviewShown, setIsPreviewShown] = useState(false)
         const dropRef = useRef<HTMLDivElement>(null)
 
@@ -72,17 +73,17 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     autoFocus
                                     value={value}
                                     onKeyDown={(e) => {
-                                        // Handle mentions keyboard navigation
-                                        const handled = mentions.handleKeyDown(e)
-
-                                        // If mentions didn't handle it, call the original handler
+                                        const handled = canUseMentions ? mentions.handleKeyDown(e) : false
                                         if (!handled) {
                                             editAreaProps.onKeyDown?.(e)
                                         }
                                     }}
                                     onChange={(newValue) => {
-                                        // Handle mentions detection
-                                        mentions.handleTextChange(newValue)
+                                        if (canUseMentions) {
+                                            mentions.handleTextChange(newValue)
+                                        } else {
+                                            onChange?.(newValue)
+                                        }
                                     }}
                                     rightFooter={
                                         <>

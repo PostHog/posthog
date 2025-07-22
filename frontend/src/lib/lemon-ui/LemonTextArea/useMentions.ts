@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from 'react'
+import { useCallback, useState, useMemo, KeyboardEvent, RefObject } from 'react'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import Fuse from 'fuse.js'
@@ -12,7 +12,7 @@ export interface MentionsState {
 }
 
 export interface UseMentionsProps {
-    textAreaRef: React.RefObject<HTMLTextAreaElement>
+    textAreaRef: RefObject<HTMLTextAreaElement>
     value?: string
     onChange?: (value: string) => void
 }
@@ -27,18 +27,17 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
     selectMention: (member: any) => void
     setMentionsOpen: (open: boolean) => void
     handleTextChange: (newValue: string) => void
-    handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean
+    handleKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean
 } {
     const { meFirstMembers } = useValues(membersLogic)
 
-    // Mentions state
     const [mentionsOpen, setMentionsOpen] = useState(false)
+    // the mention we're checking for validation. e.g. if you type @foobar then query is foobar
     const [mentionsQuery, setMentionsQuery] = useState('')
     const [mentionsPosition, setMentionsPosition] = useState({ top: 0, left: 0 })
     const [mentionsStartIndex, setMentionsStartIndex] = useState(0)
     const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
 
-    // Helper function to detect @ mentions
     const detectMentions = useCallback((text: string, cursorPosition: number) => {
         const beforeCursor = text.slice(0, cursorPosition)
         const lastAtIndex = beforeCursor.lastIndexOf('@')
@@ -67,7 +66,7 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
         }
     }, [])
 
-    // Helper function to get cursor position in pixels
+    // totally AI generated to position dropdown next to the `@` in the text area
     const getCursorPosition = useCallback((textarea: HTMLTextAreaElement, cursorIndex: number) => {
         const div = document.createElement('div')
         const style = getComputedStyle(textarea)
@@ -128,12 +127,11 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
         return position
     }, [])
 
-    // Filter members for mentions
     const filteredMembers = useMemo(() => {
         const members = !mentionsQuery
             ? meFirstMembers.slice(0, 10) // Show first 10 members by default
             : new Fuse(meFirstMembers, {
-                  keys: ['user.first_name', 'user.last_name', 'user.email'],
+                  keys: ['user.first_name'],
                   threshold: 0.3,
               })
                   .search(mentionsQuery)
@@ -170,12 +168,10 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
         [value, onChange, mentionsStartIndex, textAreaRef]
     )
 
-    // Handle text change for mentions detection
     const handleTextChange = useCallback(
         (newValue: string) => {
             onChange?.(newValue)
 
-            // Check for mentions after state update
             const textarea = textAreaRef.current
             if (textarea) {
                 const cursorPosition = textarea.selectionStart
@@ -199,7 +195,7 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
 
     // Handle keyboard events for mentions
     const handleKeyDown = useCallback(
-        (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        (e: KeyboardEvent<HTMLTextAreaElement>) => {
             if (mentionsOpen && filteredMembers.length > 0) {
                 if (e.key === 'ArrowDown') {
                     e.preventDefault()
