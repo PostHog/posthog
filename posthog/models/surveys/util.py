@@ -18,8 +18,6 @@ class SurveyEventProperties(StrEnum):
     SURVEY_COMPLETED = "$survey_completed"
 
 
-
-
 def get_survey_response_clickhouse_query(
     question_index: int, question_id: str | None = None, is_multiple_choice: bool = False
 ) -> str:
