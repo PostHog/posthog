@@ -49,6 +49,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Action, Team, User
@@ -77,25 +78,28 @@ VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]]
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName] = {
+STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+    FilterOptionsNodeName.FILTER_OPTIONS,
 }
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES = STREAMING_NODES | {
+VERBOSE_NODES: set[AssistantNodeName | FilterOptionsNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
+    FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can send messages to the client."""
 
-THINKING_NODES = {
+THINKING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
+    FilterOptionsNodeName.FILTER_OPTIONS,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -328,10 +332,10 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: AssistantNodeName, input: AssistantState
+        self, node_name: AssistantNodeName | FilterOptionsNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER:
+            case AssistantNodeName.QUERY_PLANNER | FilterOptionsNodeName.FILTER_OPTIONS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
@@ -429,7 +433,7 @@ class Assistant:
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
-            node_name = intersected_nodes.pop()
+            node_name: AssistantNodeName | FilterOptionsNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
@@ -458,7 +462,7 @@ class Assistant:
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
-            node_name = langgraph_state["langgraph_node"]
+            node_name: AssistantNodeName | FilterOptionsNodeName = langgraph_state["langgraph_node"]
             if node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
                 if node_name == AssistantNodeName.MEMORY_INITIALIZER:
