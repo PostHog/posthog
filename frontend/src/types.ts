@@ -4464,6 +4464,8 @@ export type CommentType = {
     scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
+    // convenience flag indicating the UUID of members that are tagged in the comment
+    tagged_users?: string[]
 }
 
 export type NotebookListItemType = {

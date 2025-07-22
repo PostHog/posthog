@@ -46,6 +46,7 @@ export function replayActivityDescriber(logItem: ActivityLogItem, asNotification
                         timestamp={commentTime as string | Dayjs | undefined}
                         type="secondary"
                         fullWidth={false}
+                        inModal={true}
                     />
                 </>
             ),

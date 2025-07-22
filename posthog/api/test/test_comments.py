@@ -3,6 +3,7 @@ from unittest import mock
 
 from rest_framework import status
 
+from posthog.models.utils import uuid7
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
@@ -57,6 +58,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_id": None,
             "item_context": None,
             "scope": "Notebook",
+            "tagged_users": None,
             "source_comment": None,
         }
 
@@ -87,6 +89,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_id": None,
             "item_context": None,
             "scope": "Notebook",
+            "tagged_users": None,
             "source_comment": None,
         }
 
@@ -136,3 +139,248 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             assert len(response.json()["results"]) == 2
             assert response.json()["results"][0]["content"] == "comment other reply"
             assert response.json()["results"][1]["content"] == "comment reply"
+
+    def test_create_comment_with_tagged_users(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Original content with @a_user",
+                "tagged_users": [str(self.user.uuid)],
+                "scope": "Notebook",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tagged_users"] == [str(self.user.uuid)]
+
+    def test_create_comment_tagged_users_filters_invalid_uuids(self) -> None:
+        unknown_user = str(uuid7())
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Original content with @a_user",
+                "tagged_users": [str(self.user.uuid), unknown_user],
+                "scope": "Notebook",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        # Should only include the valid user UUID
+        assert response.json()["tagged_users"] == [str(self.user.uuid)]
+
+    def test_update_comment_with_tagged_users(self) -> None:
+        # Create comment initially without tagged users
+        existing = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Original content",
+                "scope": "Notebook",
+            },
+        )
+
+        # Update to add tagged users
+        unknown_user = str(uuid7())
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing.json()['id']}",
+            {
+                "content": "Updated content with @user",
+                "tagged_users": [str(self.user.uuid), unknown_user],
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Should only include the valid user UUID
+        assert response.json()["tagged_users"] == [str(self.user.uuid)]
+
+    def test_update_comment_tagged_users_change_detection(self) -> None:
+        # Create comment with initial tagged users
+        unknown_user_1 = str(uuid7())
+        existing = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Original content",
+                "scope": "Notebook",
+                "tagged_users": [unknown_user_1],
+            },
+        )
+
+        # Update to add new tagged user (should log activity for new user only)
+        unknown_user_2 = str(uuid7())
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing.json()['id']}",
+            {
+                "content": "Updated content with more users",
+                "tagged_users": [unknown_user_1, str(self.user.uuid), unknown_user_2],
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Should only include the valid user UUID (unknown users filtered out)
+        assert response.json()["tagged_users"] == [str(self.user.uuid)]
+
+    def test_activity_logging_when_users_tagged_in_comment(self) -> None:
+        content = "Important comment with @alice"
+        tagged_users = [str(self.user.uuid)]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": content,
+                "tagged_users": tagged_users,
+                "scope": "Notebook",
+                "item_id": "test-item-id",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        self._assert_single_entry_activity_log(
+            {
+                "scope": "Notebook",
+                "item_id": "test-item-id",
+            },
+            detail_override={
+                "name": str(self.user.uuid),
+            },
+            changes_after_override={
+                "comment_scope": "Notebook",
+                "comment_item_id": "test-item-id",
+                "comment_content": content,
+                "comment_source_comment_id": None,
+                "tagged_user": str(self.user.uuid),
+            },
+        )
+
+    def test_activity_logging_when_updating_tagged_users(self) -> None:
+        unknown_user = str(uuid7())
+        existing = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Original content with @old_user",
+                "tagged_users": [unknown_user],
+                "scope": "Dashboard",
+                "item_id": "dashboard-123",
+            },
+        )
+
+        # Update to add new tagged user
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing.json()['id']}",
+            {
+                "content": "Updated content with @old_user and @new_user",
+                "tagged_users": [unknown_user, str(self.user.uuid)],
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        self._assert_single_entry_activity_log(
+            {
+                "scope": "Dashboard",
+                "item_id": "dashboard-123",
+            },
+            detail_override={
+                "name": str(self.user.uuid),
+            },
+            changes_after_override={
+                "comment_scope": "Dashboard",
+                "comment_item_id": "dashboard-123",
+                "comment_content": "Updated content with @old_user and @new_user",
+                "comment_source_comment_id": None,
+                "tagged_user": str(self.user.uuid),
+            },
+        )
+
+    def test_activity_logging_for_comment_replies_with_tagged_users(self) -> None:
+        # Create a parent comment
+        parent_comment = self._create_comment(
+            {
+                "content": "Parent comment",
+                "scope": "Notebook",
+                "item_id": "notebook-123",
+            }
+        )
+
+        # Create a reply with tagged users
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Reply with @user",
+                "tagged_users": [str(self.user.uuid)],
+                "source_comment": parent_comment["id"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # For replies, the scope should be "Comment" and item_id should be the parent comment ID
+        self._assert_single_entry_activity_log(
+            {
+                "scope": "Comment",
+                "item_id": str(parent_comment["id"]),
+            },
+            detail_override={
+                "name": str(self.user.uuid),
+            },
+            changes_after_override={
+                "comment_scope": None,  # replies don't have their own scope
+                "comment_item_id": None,  # replies don't have their own item_id
+                "comment_content": "Reply with @user",
+                "comment_source_comment_id": str(parent_comment["id"]),
+                "tagged_user": str(self.user.uuid),
+            },
+        )
+
+    def _assert_activity_log(self, expected: list[dict]) -> None:
+        activity_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
+        assert activity_response.status_code == status.HTTP_200_OK
+        assert activity_response.json()["results"] == expected
+
+    def _assert_single_entry_activity_log(
+        self, log_override: dict, detail_override: dict, changes_after_override: dict
+    ):
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "tagged_user",
+                    "created_at": mock.ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "tagged_user",
+                                "after": {
+                                    "comment_scope": None,
+                                    "comment_item_id": None,
+                                    "comment_content": None,
+                                    "comment_source_comment_id": None,
+                                    "tagged_user": None,
+                                    **changes_after_override,
+                                },
+                                "before": None,
+                                "field": None,
+                                "type": "Comment",
+                            }
+                        ],
+                        "name": None,
+                        "short_id": None,
+                        **detail_override,
+                    },
+                    "item_id": None,
+                    "scope": None,
+                    "team_id": self.team.pk,
+                    "user": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": str(self.user.uuid),
+                    },
+                    "was_impersonated": False,
+                    **log_override,
+                }
+            ]
+        )

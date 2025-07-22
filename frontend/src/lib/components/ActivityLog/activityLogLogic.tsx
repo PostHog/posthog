@@ -23,7 +23,7 @@ import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookAct
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
-import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
+import { replayActivityDescriber } from 'scenes/session-recordings/replayActivityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'

@@ -1,1 +1,1 @@
-0800_add_tagged_users_field_to_annotation
+0800_add_tagged_users_field_to_annotation_and_comment

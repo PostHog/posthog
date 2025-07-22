@@ -1,4 +1,6 @@
 from typing import cast
+
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.signals import mutable_receiver
@@ -20,6 +22,19 @@ class Comment(UUIDModel, RootTeamMixin):
     item_id = models.CharField(max_length=72, null=True)
     item_context = models.JSONField(null=True)
     scope = models.CharField(max_length=79, null=False)
+    # convenience field provided by API callers to indicate users are tagged in the content
+    tagged_users = ArrayField(
+        # text field because names don't have a size limit in reality
+        # https://www.kalzumeus.com/2010/06/17/falsehoods-programmers-believe-about-names/
+        models.TextField(),
+        default=None,
+        blank=True,
+        null=True,
+        # has a size limit because why not...
+        # if you really want to tag more than 10 users
+        # we should be providing a way to tag groups of users
+        size=10,
+    )
 
     # Threads/replies are simply comments with a source_comment_id
     source_comment = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)

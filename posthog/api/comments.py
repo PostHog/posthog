@@ -6,6 +6,7 @@ from rest_framework import exceptions, serializers, viewsets, pagination
 from posthog.api.utils import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from loginas.utils import is_impersonated_session
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
@@ -13,6 +14,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.models.comment import Comment
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, Change, log_activity
+from posthog.models.utils import UUIDT
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -31,16 +35,79 @@ class CommentSerializer(serializers.ModelSerializer):
         if instance:
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
-        # TODO: Ensure created_by is set
-        # And only allow updates to own comment
 
         data["created_by"] = request.user
 
+        if data.get("tagged_users", []):
+            data["tagged_users"] = self._check_tagged_users_exist(data)
+
         return data
+
+    @staticmethod
+    def _check_tagged_users_exist(attrs: dict[str, Any]) -> list[str]:
+        """
+        Each tagged user is the UUID of a user tagged in the content
+        we don't validate they're really in the content,
+        but they should be a valid user
+        """
+        # TODO: and visible to the user creating the content
+        validated_tagged_users = []
+        for tagged_user in attrs.get("tagged_users", []):
+            if User.objects.filter(uuid=tagged_user).exists():
+                validated_tagged_users.append(tagged_user)
+
+        return validated_tagged_users
+
+    def _log_user_tagging_activity(self, comment: Comment, tagged_users: list[str]) -> None:
+        """Log activity when users are tagged in comments."""
+        request = self.context["request"]
+
+        for tagged_user in tagged_users:
+            # Comments can be on various things, but the activity scope is always "Comment"
+            # unless it's a reply, then the scope is the original comment
+            scope = "Comment" if comment.source_comment_id else comment.scope
+            item_id = cast(str, comment.source_comment_id) or comment.item_id
+
+            log_activity(
+                organization_id=cast(UUIDT, comment.team.organization_id),
+                team_id=comment.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                scope=scope,
+                item_id=item_id,
+                activity="tagged_user",
+                detail=Detail(
+                    name=tagged_user,
+                    changes=[
+                        Change(
+                            type="Comment",
+                            action="tagged_user",
+                            after={
+                                "tagged_user": tagged_user,
+                                "comment_scope": comment.scope,
+                                "comment_item_id": comment.item_id,
+                                "comment_content": comment.content,
+                                "comment_source_comment_id": str(comment.source_comment_id)
+                                if comment.source_comment_id
+                                else None,
+                            },
+                        )
+                    ],
+                ),
+            )
 
     def create(self, validated_data: Any) -> Any:
         validated_data["team_id"] = self.context["team_id"]
-        return super().create(validated_data)
+        validated_data["tagged_users"] = self._check_tagged_users_exist(validated_data)
+
+        comment = super().create(validated_data)
+
+        # Log activity for newly tagged users
+        tagged_users = comment.tagged_users or []
+        if tagged_users:
+            self._log_user_tagging_activity(comment, tagged_users)
+
+        return comment
 
     def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
         request = self.context["request"]
@@ -50,13 +117,23 @@ class CommentSerializer(serializers.ModelSerializer):
             locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)
 
             if locked_instance.created_by != request.user:
-                raise
+                raise exceptions.PermissionDenied("You can only modify your own comments")
+
+            # Store before state for activity logging
+            tagged_users_before = set(locked_instance.tagged_users or [])
 
             if validated_data.keys():
                 if validated_data.get("content"):
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_instance = super().update(locked_instance, validated_data)
+
+                # Check if tagged_users changed and log activity
+                tagged_users_after = set(updated_instance.tagged_users or [])
+                newly_tagged_users = tagged_users_after - tagged_users_before
+
+                if newly_tagged_users:
+                    self._log_user_tagging_activity(updated_instance, list(newly_tagged_users))
 
         return updated_instance
 
@@ -70,7 +147,6 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     pagination_class = CommentPagination
-    # TODO: Update when fully released
     scope_object = "INTERNAL"
 
     def safely_get_queryset(self, queryset) -> QuerySet:

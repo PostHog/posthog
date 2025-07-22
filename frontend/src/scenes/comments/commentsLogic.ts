@@ -8,6 +8,8 @@ import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
+import { extractMentionedUsers } from 'scenes/annotations/annotationMentionUtils'
+import { teamMembersLogic } from 'scenes/settings/environment/teamMembersLogic'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
@@ -33,6 +35,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
     connect(() => ({
         actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
+        values: [teamMembersLogic, ['meFirstMembers']],
     })),
 
     actions({
@@ -103,13 +106,16 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
-
+                    const taggedUsers = values.composedComment
+                        ? extractMentionedUsers(values.composedComment, values.meFirstMembers)
+                        : []
                     const newComment = await api.comments.create({
                         content: values.composedComment,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: values.itemContext?.context,
                         source_comment: values.replyingCommentId ?? undefined,
+                        tagged_users: taggedUsers,
                     })
 
                     values.itemContext?.callback?.({ sent: true })
