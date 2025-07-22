@@ -797,7 +797,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="m-0 cursor-pointer HedgehogBuddy"
+                    className="HedgehogBuddy"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -809,6 +809,7 @@ export class HedgehogActor {
                         position: this.static ? 'relative' : 'fixed',
                         left: this.static ? undefined : this.x,
                         bottom: this.static ? undefined : this.y - SHADOW_HEIGHT * 0.5,
+                        zIndex: !this.static ? 'var(--z-hedgehog-buddy)' : undefined,
                         transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                     }}
                 >
