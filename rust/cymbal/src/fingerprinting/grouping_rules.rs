@@ -222,6 +222,8 @@ mod test {
         RawErrProps {
             exception_list: vec![],
             fingerprint: None,
+            issue_name: None,
+            issue_description: None,
             other: HashMap::new(),
         }
     }
