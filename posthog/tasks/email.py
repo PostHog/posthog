@@ -33,10 +33,13 @@ logger = structlog.get_logger(__name__)
 class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
+    PROJECT_PIPELINE_ERRORS = "project_pipeline_errors"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
 
 
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned"]
+NotificationSettingType = Literal[
+    "weekly_project_digest", "plugin_disabled", "project_pipeline_errors", "error_tracking_issue_assigned"
+]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
