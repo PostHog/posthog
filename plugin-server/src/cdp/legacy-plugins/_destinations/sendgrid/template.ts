@@ -15,6 +15,7 @@ export const sendgridPlugin: LegacyDestinationPlugin = {
         description: 'Send emails and user data to Sendgrid when you identify users using PostHog.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/sendgrid-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: 'return event',
         inputs_schema: [
             {
