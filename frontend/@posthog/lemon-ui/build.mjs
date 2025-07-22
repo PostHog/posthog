@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import * as path from 'path'
 import * as fs from 'fs'
-import { startDevServer, buildInParallel, printResponse } from '../../utils.mjs'
+import { startDevServer, buildInParallel, printResponse, isVite } from '../../utils.mjs'
 import url from 'url'
 
 export const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const { name, peerDependencies } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json')))
+
+if (isVite) {
+    process.exit(0)
+}
 
 startDevServer(__dirname)
 

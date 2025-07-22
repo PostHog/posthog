@@ -1,6 +1,24 @@
 import type { Plugin } from 'vite'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs'
 import { resolve, dirname } from 'path'
+
+const distHtmlFiles = ['dist/index.html', 'dist/layout.html']
+
+const srcHtmlFiles = ['src/index.html', 'src/layout.html']
+
+function deleteHtmlFiles(): void {
+    distHtmlFiles.forEach((file) => {
+        try {
+            const filePath = resolve('.', file)
+            if (existsSync(filePath)) {
+                unlinkSync(filePath)
+            } else {
+            }
+        } catch (error) {
+            console.warn(`⚠️ Could not delete ${file}:`, error)
+        }
+    })
+}
 
 function copyHtmlFile(from: string, to: string): void {
     try {
@@ -29,16 +47,16 @@ function generateHtmlFiles(): void {
     }
 
     // Copy HTML files
-    copyHtmlFile('src/index.html', 'dist/index.html')
-    copyHtmlFile('src/layout.html', 'dist/layout.html')
-    copyHtmlFile('src/exporter/index.html', 'dist/exporter.html')
+    srcHtmlFiles.forEach((file) => {
+        copyHtmlFile(file, `dist/${file.replace('src/', '')}`)
+    })
 }
 
 export function htmlGenerationPlugin(): Plugin {
     return {
         name: 'html-generation',
-        generateBundle() {
-            // Also copy during bundle generation to ensure they're in dist for production
+        buildStart() {
+            deleteHtmlFiles()
             generateHtmlFiles()
         },
     }

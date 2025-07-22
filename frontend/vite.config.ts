@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
                 name: 'startup-message',
                 configureServer(server) {
                     server.httpServer?.once('listening', () => {
-                        setTimeout(() => {}, 100)
+                        setTimeout(() => {}, 1000)
                     })
                 },
             },
