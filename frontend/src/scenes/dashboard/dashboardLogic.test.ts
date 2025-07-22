@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -526,8 +526,72 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('reload items', () => {
-            it('reloads stale insights (but not fresh ones)', async () => {
+        describe('insight refresh', () => {
+            it('manual refresh reloads all insights', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                })
+                    .toDispatchActions([
+                        // starts loading
+                        'triggerDashboardRefresh',
+                        'loadDashboard',
+                        'updateDashboardItems',
+                        // sets the "reloading" status
+                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [insight1.short_id]: {
+                                loading: false,
+                                queued: true,
+                                timer: null,
+                            },
+                            [insight2.short_id]: {
+                                loading: false,
+                                queued: true,
+                                timer: null,
+                            },
+                        },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 2,
+                        },
+                    })
+                    .toDispatchActionsInAnyOrder([
+                        // and updates the action in the model
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.insight.short_id === insight1.short_id,
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.insight.short_id === insight2.short_id,
+                        // no longer reloading
+                        logic.actionCreators.setRefreshStatus(insight1.short_id, false),
+                        logic.actionCreators.setRefreshStatus(insight2.short_id, false),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [insight1.short_id]: {
+                                refreshed: true,
+                                timer: expect.any(Date),
+                            },
+                            [insight2.short_id]: {
+                                refreshed: true,
+                                timer: expect.any(Date),
+                            },
+                        },
+                        refreshMetrics: {
+                            completed: 2,
+                            total: 2,
+                        },
+                    })
+            })
+
+            it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
                 const dashboard = dashboards[5]
                 const staleInsight = {
                     ...dashboard.tiles[0].insight!,
@@ -543,11 +607,12 @@ describe('dashboardLogic', () => {
                 dashboard.tiles[1].insight = freshInsight
 
                 await expectLogic(logic, () => {
-                    logic.actions.triggerDashboardRefresh()
+                    logic.actions.loadDashboard({
+                        action: DashboardLoadAction.InitialLoad,
+                    })
                 })
                     .toDispatchActions([
                         // starts loading
-                        'triggerDashboardRefresh',
                         'loadDashboard',
                         'updateDashboardItems',
                         // sets the "reloading" status for the stale insight
