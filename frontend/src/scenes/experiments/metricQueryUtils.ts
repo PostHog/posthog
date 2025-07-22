@@ -428,7 +428,10 @@ export const addExposureToQuery =
                       ...query,
                       series: [exposureEvent, ...query.series],
                   }
-                : query // Don't add exposure to TrendsQuery
+                : {
+                      ...query,
+                      series: [exposureEvent, ...query.series],
+                  }
             : undefined
 
 type InsightVizNodeOptions = {

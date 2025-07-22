@@ -88,6 +88,10 @@ ACTIVITIES_DICT = {
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
 
+TASK_QUEUE_METRIC_PREFIXES = {
+    BATCH_EXPORTS_TASK_QUEUE: "batch_exports_",
+}
+
 LOGGER = get_logger(__name__)
 
 
@@ -231,6 +235,7 @@ class Command(BaseCommand):
                     else None,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
+                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                 )
             )
 
