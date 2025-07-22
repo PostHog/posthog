@@ -3,6 +3,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
+    CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -22,6 +23,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     constructor(hub: Hub) {
         super(hub)
         this.queue = hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+
+        if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
+            throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
+        }
+
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
