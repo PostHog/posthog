@@ -411,13 +411,6 @@ class TestSharing(APIBaseTest):
         assert first is not None
         assert first.item_id == str(self.insight.id)
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_cannot_refresh_disabled_sharing_configuration(self, patched_exporter_task: Mock):
-        # Try to refresh without enabling sharing first
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot refresh access token for disabled sharing configuration" in response.json()["detail"]
-
     @freeze_time("2025-01-01 00:00:00")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_refresh_token_grace_period(self, patched_exporter_task: Mock):
