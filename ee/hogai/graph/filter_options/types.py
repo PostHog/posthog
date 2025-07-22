@@ -8,9 +8,9 @@ from pydantic import Field
 from ee.hogai.utils.types import BaseState
 
 
-class FilterOptionsState(BaseState):
+class PartialFilterOptionsState(BaseState):
     """
-    State class specifically for filter options functionality.
+    Partial state class for filter options functionality.
     Only includes fields relevant to filter options generation.
     """
 
@@ -40,9 +40,9 @@ class FilterOptionsState(BaseState):
     """
 
 
-class PartialFilterOptionsState(BaseState):
+class FilterOptionsState(PartialFilterOptionsState):
     """
-    Partial state class for filter options functionality.
+    State class specifically for filter options functionality.
     Only includes fields relevant to filter options generation.
     """
 
