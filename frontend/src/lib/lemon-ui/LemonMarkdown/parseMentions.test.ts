@@ -178,7 +178,7 @@ describe('parseMentions', () => {
             // not found in members, so no match
             ['David'],
             [''],
-            // neither Al not Alice, so no match
+            // neither Al nor Alice, so no match
             ['Alic'],
         ])('returns null for "%s"', (input) => {
             expect(findMentionMatch(input, mockMembers)).toBeNull()
