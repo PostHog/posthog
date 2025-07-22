@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0799_migrate_playlist_types_take_2"),
+        ("posthog", "0800_add_sharing_token_rotation_fields"),
     ]
 
     operations = [
