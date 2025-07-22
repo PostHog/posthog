@@ -35,11 +35,11 @@ def test_bigquery_config():
         }
     )
 
-    assert config.key_file["project_id"] == "project_id"
-    assert config.key_file["private_key_id"] == "private_key_id"
-    assert config.key_file["private_key"] == "private_key"
-    assert config.key_file["client_email"] == "client_email"
-    assert config.key_file["token_uri"] == "token_uri"
+    assert config.key_file.project_id == "project_id"
+    assert config.key_file.private_key_id == "private_key_id"
+    assert config.key_file.private_key == "private_key"
+    assert config.key_file.client_email == "client_email"
+    assert config.key_file.token_uri == "token_uri"
     assert config.dataset_id == "dataset_id"
     assert config.temporary_dataset is not None
     assert config.temporary_dataset.enabled is False

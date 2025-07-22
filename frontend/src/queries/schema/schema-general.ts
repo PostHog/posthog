@@ -3501,11 +3501,16 @@ export interface SourceFieldSwitchGroupConfig {
     caption?: string
 }
 
+export interface SourceFieldFileUploadJsonFormatConfig {
+    format: '.json'
+    keys: '*' | string[]
+}
+
 export interface SourceFieldFileUploadConfig {
     type: 'file-upload'
     name: string
     label: string
-    fileFormat: string
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
     required: boolean
 }
 

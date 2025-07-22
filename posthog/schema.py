@@ -2187,15 +2187,12 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
-class SourceFieldFileUploadConfig(BaseModel):
+class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fileFormat: str
-    label: str
-    name: str
-    required: bool
-    type: Literal["file-upload"] = "file-upload"
+    format: Literal[".json"] = ".json"
+    keys: Union[str, list[str]]
 
 
 class Type4(StrEnum):
@@ -4158,6 +4155,17 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class SourceFieldFileUploadConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
+    label: str
+    name: str
+    required: bool
+    type: Literal["file-upload"] = "file-upload"
 
 
 class StickinessCriteria(BaseModel):

@@ -28,6 +28,7 @@ class SourceConfigGenerator:
     def __init__(self):
         self.generated_classes: dict[str, str] = {}
         self.imports: set[str] = set()
+        self.typing_import: set[str] = set()
         self.nested_configs: dict[str, str] = {}
 
     def generate_all_configs(self) -> str:
@@ -35,16 +36,15 @@ class SourceConfigGenerator:
             [
                 "from posthog.temporal.data_imports.pipelines.source import config",
                 "from posthog.warehouse.models import ExternalDataSource",
-                "from typing import Any, Literal",
             ]
         )
 
-        for source_type, source_config in AVAILABLE_SOURCES.items():
-            try:
+        try:
+            for source_type, source_config in AVAILABLE_SOURCES.items():
                 self.generate_source_config(source_type, source_config)
-            except Exception as e:
-                logger.info(f"Error generating config for {source_type}: {e}")
-                continue
+        except Exception as e:
+            logger.info(f"Error generating config for {source_type}: {e}")
+            raise
 
         return self._build_output()
 
@@ -87,8 +87,8 @@ class SourceConfigGenerator:
             return [field_def] if field_def else [], []
 
         elif isinstance(field, SourceFieldFileUploadConfig):
-            field_def = self._process_file_upload_field(field)
-            return [field_def] if field_def else [], []
+            field_def, nested_class = self._process_file_upload_field(field, parent_class)
+            return [field_def] if field_def else [], [nested_class]
 
         elif isinstance(field, SourceFieldSSHTunnelConfig):
             field_def = self._process_ssh_tunnel_field(field)
@@ -263,21 +263,35 @@ class SourceConfigGenerator:
             else:
                 return f"    {python_field_name}: int | None = config.value(converter=config.str_to_optional_int, default=None)"
 
-    def _process_file_upload_field(self, field: SourceFieldFileUploadConfig) -> str:
+    def _process_file_upload_field(self, field: SourceFieldFileUploadConfig, parent_class: str) -> tuple[str, str]:
         python_field_name, should_alias = self._make_python_identifier(field.name)
+
+        nested_config: str = ""
+        literal_type = "dict[str, Any]"
+
+        if isinstance(field.fileFormat.keys, list):
+            nested_class_name = self._get_nested_class_name(field.name, parent_class)
+            nested_field_defs = []
+            for key in field.fileFormat.keys:
+                nested_field_defs.append(f"    {key}: str")
+            nested_config = self._generate_config_class(nested_class_name, nested_field_defs)
+            literal_type = nested_class_name
+        else:
+            self.typing_import.add("Any")
 
         if field.required:
             if should_alias:
-                return f'    {python_field_name}: dict[str, Any] = config.value(alias="{field.name}")'
+                return f'    {python_field_name}: {literal_type} = config.value(alias="{field.name}")', nested_config
             else:
-                return f"    {python_field_name}: dict[str, Any]"
+                return f"    {python_field_name}: {literal_type}", nested_config
         else:
             if should_alias:
                 return (
-                    f'    {python_field_name}: dict[str, Any] | None = config.value(alias="{field.name}", default=None)'
+                    f'    {python_field_name}: {literal_type} | None = config.value(alias="{field.name}", default=None)',
+                    nested_config,
                 )
             else:
-                return f"    {python_field_name}: dict[str, Any] | None = None"
+                return f"    {python_field_name}: {literal_type} | None = None", nested_config
 
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
         """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
@@ -313,6 +327,7 @@ class SourceConfigGenerator:
     def _get_select_literal_type(self, field: SourceFieldSelectConfig) -> str:
         if not field.converter:
             option_values = [f'"{option.value}"' for option in field.options]
+            self.typing_import.add("Literal")
             return f"Literal[{', '.join(option_values)}]"
 
         if field.converter == Converter.STR_TO_BOOL:
@@ -391,6 +406,8 @@ class {class_name}(config.Config):
 
         for import_line in sorted(self.imports):
             parts.append(import_line)
+        if self.typing_import:
+            parts.append(f"from typing import {', '.join(self.typing_import)}")
         parts.append("")
         parts.append("")
 
