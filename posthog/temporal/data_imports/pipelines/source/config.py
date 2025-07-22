@@ -30,6 +30,8 @@ class ConfigProtocol(_Dataclass, typing.Protocol):
     @classmethod
     def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
 
+    def to_dict(self) -> dict[str, typing.Any]: ...
+
 
 @dataclasses.dataclass
 class Config(ConfigProtocol):
@@ -58,6 +60,9 @@ class Config(ConfigProtocol):
     @classmethod
     def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
         raise NotImplementedError
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        return dataclasses.asdict(self)
 
 
 def _noop_convert(x: typing.Any) -> typing.Any:
@@ -105,7 +110,7 @@ def to_config(
 
     for field in fields:
         field_type = _resolve_field_type(field, module_path=module_path)
-        field_meta = field.metadata.get(META_KEY, None)
+        field_meta: MetaConfig | None = field.metadata.get(META_KEY, None)
 
         field_flat_key = _get_flat_key(field, prefixes or ())
         field_nested_key = _get_nested_key(field)
@@ -117,7 +122,7 @@ def to_config(
         else:
             field_key = field.name
 
-        if field_meta and field_meta.converter:
+        if field_meta and field_meta.converter != _noop_convert:
             convert = field_meta.converter
         else:
             convert = _noop_convert
@@ -168,7 +173,6 @@ def to_config(
                     else:
                         inputs[field.name] = convert(value)
                         break
-
         else:
             try:
                 value = d[field_key]
