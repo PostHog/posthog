@@ -24,7 +24,7 @@ import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
-import { loaders } from 'kea-loaders'
+import { draftsLogic } from '../draftsLogic'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -288,6 +288,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
+            draftsLogic,
+            ['drafts', 'draftsLoading'],
         ],
         actions: [
             viewLinkLogic,
@@ -296,19 +298,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['loadDatabase'],
             dataWarehouseJoinsLogic,
             ['loadJoins'],
+            draftsLogic,
+            ['loadDrafts'],
         ],
     })),
-    loaders({
-        savedQueryDrafts: [
-            [] as DataWarehouseSavedQueryDraft[],
-            {
-                loadSavedQueryDrafts: async () => {
-                    const drafts = await api.dataWarehouseSavedQueryDrafts.list()
-                    return drafts.results
-                },
-            },
-        ],
-    }),
     reducers({
         selectedSchema: [
             null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
@@ -505,8 +498,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTreeData,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
-                s.savedQueryDrafts,
-                s.savedQueryDraftsLoading,
+                s.drafts,
+                s.draftsLoading,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -517,8 +510,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 searchTreeData: TreeDataItem[],
                 databaseLoading: boolean,
                 dataWarehouseSavedQueriesLoading: boolean,
-                savedQueryDrafts: DataWarehouseSavedQueryDraft[],
-                savedQueryDraftsLoading: boolean
+                drafts: DataWarehouseSavedQueryDraft[],
+                draftsLoading: boolean
             ): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchTreeData
@@ -592,7 +585,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const draftsChildren: TreeDataItem[] = []
 
-                if (savedQueryDraftsLoading && savedQueryDrafts.length === 0) {
+                if (draftsLoading && drafts.length === 0) {
                     draftsChildren.push({
                         id: 'drafts-loading/',
                         name: 'Loading...',
@@ -602,7 +595,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         type: 'loading-indicator',
                     })
                 } else {
-                    savedQueryDrafts.forEach((draft) => {
+                    drafts.forEach((draft) => {
                         draftsChildren.push(createDraftNode(draft))
                     })
                 }
@@ -746,7 +739,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     }),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadSavedQueryDrafts()
+            actions.loadDrafts()
         },
     })),
 ])

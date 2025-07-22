@@ -39,6 +39,7 @@ import {
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
 import { get, set } from './db'
+import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
@@ -166,6 +167,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
+            draftsLogic,
+            ['saveAsDraft'],
         ],
     })),
     actions(({ values }) => ({
@@ -232,6 +235,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ) => ({ view }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
+        setTabDraftId: (tabUri: string, draftId: string) => ({ tabUri, draftId }),
+        updateDrafts: (activeTabUri: string, viewId: string, queryInput: string) => ({
+            activeTabUri,
+            viewId,
+            queryInput,
+        }),
+        deleteTabDraft: (tabUri: string) => ({ tabUri }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -419,6 +429,22 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setHoveredNode: (_, { nodeId }) => nodeId,
+            },
+        ],
+        // Track which tabs have drafts created (mapped by tab URI)
+        viewDrafts: [
+            {} as Record<string, string>, // Map tab URI to draft ID
+            { persist: true },
+            {
+                setTabDraftId: (state, { tabUri, draftId }) => ({
+                    ...state,
+                    [tabUri]: draftId,
+                }),
+                deleteTabDraft: (state, { tabUri }) => {
+                    const newViewDrafts = { ...state }
+                    delete newViewDrafts[tabUri]
+                    return newViewDrafts
+                },
             },
         ],
     })),
@@ -846,9 +872,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         values.activeModelUri.view.id,
                         values.activeModelUri.view.latest_history_id
                     )
+                    actions.updateDrafts(
+                        values.activeModelUri.uri.toString(),
+                        values.activeModelUri.view.id,
+                        queryInput
+                    )
                 }
             }
             actions.updateState()
+        },
+        updateDrafts: async ({ activeTabUri, viewId, queryInput }) => {
+            if (values.activeModelUri?.view) {
+                // Create draft if this is the first edit for this tab
+                if (!values.viewDrafts[activeTabUri]) {
+                    actions.saveAsDraft(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: queryInput,
+                        },
+                        viewId,
+                        (draftId: string) => {
+                            actions.setTabDraftId(activeTabUri, draftId)
+                        }
+                    )
+                }
+            }
         },
         updateState: async ({ skipBreakpoint }, breakpoint) => {
             if (skipBreakpoint !== true) {
@@ -1328,6 +1376,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (s) => [s.activeModelUri],
             (activeModelUri) => {
                 return activeModelUri?.response
+            },
+        ],
+        isDraft: [
+            (s) => [s.activeModelUri, s.viewDrafts],
+            (activeModelUri, viewDrafts) => {
+                return activeModelUri ? !!viewDrafts[activeModelUri.uri.toString()] : false
+            },
+        ],
+        currentDraftId: [
+            (s) => [s.activeModelUri, s.viewDrafts],
+            (activeModelUri, viewDrafts) => {
+                return activeModelUri ? viewDrafts[activeModelUri.uri.toString()] : null
             },
         ],
     }),
