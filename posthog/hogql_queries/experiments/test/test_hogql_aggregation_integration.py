@@ -22,7 +22,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should return the inner expression (ArithmeticOperation), not the full sum() call
         self.assertIsInstance(result, ast.ArithmeticOperation)
-        self.assertEqual(result.op, ast.ArithmeticOperationOp.Sub)
+        self.assertEqual(result.op, ast.ArithmeticOperationOp.Sub)  # type: ignore[attr-defined]
 
         # Test without aggregation function
         metric_without_agg = ExperimentMeanMetric(
@@ -35,7 +35,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should return the field expression directly
         self.assertIsInstance(result_no_agg, ast.Field)
-        self.assertEqual(result_no_agg.chain, ["properties", "revenue"])
+        self.assertEqual(result_no_agg.chain, ["properties", "revenue"])  # type: ignore[attr-defined]
 
     def test_experiment_query_runner_aggregation_expr_with_hogql(self):
         """Test that the experiment query runner creates the right aggregation expression for HogQL."""
@@ -74,7 +74,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should be a sum() call
         self.assertIsInstance(agg_expr_sum, ast.Call)
-        self.assertEqual(agg_expr_sum.name, "sum")
+        self.assertEqual(agg_expr_sum.name, "sum")  # type: ignore[attr-defined]
 
         # Test with avg aggregation
         metric_avg = ExperimentMeanMetric(
@@ -90,7 +90,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should be an avg() call
         self.assertIsInstance(agg_expr_avg, ast.Call)
-        self.assertEqual(agg_expr_avg.name, "avg")
+        self.assertEqual(agg_expr_avg.name, "avg")  # type: ignore[attr-defined]
 
         # Test without aggregation (should default to sum)
         metric_no_agg = ExperimentMeanMetric(
@@ -106,7 +106,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should default to sum()
         self.assertIsInstance(agg_expr_no_agg, ast.Call)
-        self.assertEqual(agg_expr_no_agg.name, "sum")
+        self.assertEqual(agg_expr_no_agg.name, "sum")  # type: ignore[attr-defined]
 
     def test_hogql_aggregation_examples(self):
         """Test various HogQL aggregation examples that users might input."""

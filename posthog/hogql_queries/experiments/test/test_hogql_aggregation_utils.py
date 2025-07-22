@@ -48,7 +48,7 @@ class TestHogQLAggregationUtils(BaseTest):
         aggregation, inner_expr = extract_aggregation_and_inner_expr("count()")
         self.assertEqual(aggregation, "count")
         self.assertIsInstance(inner_expr, ast.Constant)
-        self.assertEqual(inner_expr.value, 1)
+        self.assertEqual(inner_expr.value, 1)  # type: ignore[attr-defined]
 
         # Test min with field
         aggregation, inner_expr = extract_aggregation_and_inner_expr("min(properties.score)")
