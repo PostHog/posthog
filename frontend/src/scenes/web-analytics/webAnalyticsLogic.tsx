@@ -85,7 +85,7 @@ import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/log
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import posthog from 'posthog-js'
 import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
-import { getOrderBy, inyectDynamicConversionGoal } from './tabs/marketing-analytics/frontend/logic/utils'
+import { getOrderBy, injectDynamicConversionGoal } from './tabs/marketing-analytics/frontend/logic/utils'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -2485,7 +2485,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const typedQuery = query?.source as MarketingAnalyticsTableQuery | undefined
-                const select = inyectDynamicConversionGoal(typedQuery?.select || defaultColumns, dynamicConversionGoal)
+                const select = injectDynamicConversionGoal(typedQuery?.select || defaultColumns, dynamicConversionGoal)
                 const orderBy = getOrderBy(typedQuery, select)
                 return {
                     kind: NodeKind.DataTableNode,

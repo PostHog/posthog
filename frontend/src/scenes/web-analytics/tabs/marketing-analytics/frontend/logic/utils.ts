@@ -72,13 +72,13 @@ export function generateUniqueName(baseName: string, existingNames: string[]): s
 }
 
 /**
- * Inyect the dynamic conversion goal into the select list after the base columns
+ * Inject the dynamic conversion goal into the select list after the base columns
  * and before the conversion goal columns.
- * @param selectList - The select list to inyect the dynamic conversion goal into
- * @param dynamicConversionGoal - The dynamic conversion goal to inyect
- * @returns The select list with the dynamic conversion goal inyected
+ * @param selectList - The select list to inject the dynamic conversion goal into
+ * @param dynamicConversionGoal - The dynamic conversion goal to inject
+ * @returns The select list with the dynamic conversion goal injected
  */
-export const inyectDynamicConversionGoal = (
+export const injectDynamicConversionGoal = (
     selectList: string[],
     dynamicConversionGoal: ConversionGoalFilter | null
 ): string[] => {
