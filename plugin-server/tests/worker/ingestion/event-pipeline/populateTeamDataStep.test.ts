@@ -112,21 +112,38 @@ describe('populateTeamDataStep()', () => {
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 
-    it('event with a team_id value is returned unchanged', async () => {
+    it('event with team_id but no token is dropped', async () => {
         const input = { ...pipelineEvent, team_id: 2 }
         const response = await populateTeamDataStep(hub, input)
-        expect(response?.event).toEqual(input)
+        expect(response).toEqual(null)
+        expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
+            {
+                labels: {
+                    drop_cause: 'no_token',
+                    event_type: 'analytics',
+                },
+                value: 1,
+            },
+        ])
     })
 
-    it('event with a team_id whose team is opted-out from person processing', async () => {
-        const input = { ...pipelineEvent, team_id: 3 }
+    it('event with team_id and valid token works normally', async () => {
+        const input = { ...pipelineEvent, team_id: 2, token: teamTwoToken }
+        const response = await populateTeamDataStep(hub, input)
+        expect(response?.event).toEqual(input)
+        expect(response?.team).toEqual(teamTwo)
+    })
+
+    it('event with team_id and valid token for team opted-out from person processing', async () => {
+        jest.mocked(hub.teamManager.getTeamByToken).mockResolvedValue({ ...teamTwo, person_processing_opt_out: true })
+        const input = { ...pipelineEvent, team_id: 2, token: teamTwoToken }
         const response = await populateTeamDataStep(hub, input)
         expect(response?.team.person_processing_opt_out).toBe(true)
         expect(response?.event.properties?.$process_person_profile).toBe(false)
     })
 
     it('event that is in the skip list', async () => {
-        const input = { ...pipelineEvent, team_id: 2, distinct_id: 'distinct_id_to_drop' }
+        const input = { ...pipelineEvent, team_id: 2, token: teamTwoToken, distinct_id: 'distinct_id_to_drop' }
         const response = await populateTeamDataStep(hub, input)
         expect(response?.event.properties?.$process_person_profile).toBe(false)
     })
@@ -143,6 +160,7 @@ describe('populateTeamDataStep()', () => {
             const event: PipelineEvent = {
                 ...pipelineEvent,
                 team_id: 2,
+                token: teamTwoToken,
                 uuid: 'i_am_not_a_uuid',
             }
 
@@ -152,6 +170,7 @@ describe('populateTeamDataStep()', () => {
             const event = {
                 ...pipelineEvent,
                 team_id: 2,
+                token: teamTwoToken,
                 uuid: null as any,
             }
 
