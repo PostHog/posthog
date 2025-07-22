@@ -1,11 +1,13 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBook, IconDownload, IconPalette, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
@@ -43,6 +45,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     } = useValues(multitabEditorLogic)
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         renameTab,
@@ -56,6 +59,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
         updateView,
+        formatQuery,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
@@ -195,6 +199,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
+                        {featureFlags[FEATURE_FLAGS.SQL_EDITOR_FORMAT_SQL] && (
+                            <LemonButton
+                                onClick={() => formatQuery()}
+                                icon={<IconPalette />}
+                                type="tertiary"
+                                size="xsmall"
+                                data-attr="sql-editor-format-button"
+                                id="sql-editor-query-window-format-sql"
+                                tooltip="⇧⌥F"
+                            >
+                                Format SQL
+                            </LemonButton>
+                        )}
                     </>
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
@@ -212,6 +229,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     },
                     onMount: (editor, monaco) => {
                         onSetMonacoAndEditor(monaco, editor)
+
+                        if (featureFlags[FEATURE_FLAGS.SQL_EDITOR_FORMAT_SQL]) {
+                            editor.addAction({
+                                id: 'format-sql',
+                                label: 'Format SQL',
+                                contextMenuGroupId: '1_modification',
+                                contextMenuOrder: 2,
+                                keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+                                run: () => {
+                                    formatQuery()
+                                },
+                            })
+                        }
                     },
                     onPressCmdEnter: (value, selectionType) => {
                         if (value && selectionType === 'selection') {

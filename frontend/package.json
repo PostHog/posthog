@@ -205,6 +205,7 @@
         "react-virtualized": "^9.22.5",
         "resize-observer-polyfill": "^1.5.1",
         "sass": "^1.26.2",
+        "sql-formatter": "^15.6.6",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",

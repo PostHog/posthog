@@ -16,7 +16,7 @@ import posthog from 'posthog-js'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-
+import { format as formatSQL } from 'sql-formatter'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
@@ -232,6 +232,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ) => ({ view }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
+        formatQuery: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -1132,6 +1133,34 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 lemonToast.error('View has been edited by another user. Review changes to update.')
             } else {
                 actions.updateDataWarehouseSavedQuery(view)
+            }
+        },
+        formatQuery: () => {
+            if (!props.editor || !props.monaco) {
+                return
+            }
+
+            try {
+                const model = props.editor.getModel()
+                if (!model) {
+                    return
+                }
+
+                const currentValue = model.getValue()
+
+                const formattedSQL = formatSQL(currentValue, {
+                    language: 'sql',
+                    tabWidth: 4,
+                    useTabs: false,
+                    keywordCase: 'upper',
+                })
+
+                if (formattedSQL !== currentValue) {
+                    model.setValue(formattedSQL)
+                }
+            } catch (error) {
+                posthog.captureException(error)
+                lemonToast.error('Failed to format SQL query')
             }
         },
     })),
