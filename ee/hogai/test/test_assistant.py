@@ -1760,3 +1760,123 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result, "")  # Should return empty headline
         self.assertIsNone(assistant._reasoning_headline_chunk)
         self.assertEqual(assistant._last_reasoning_headline, "")
+
+    def test_json_content_handling_in_prompts(self):
+        """Test that JSON content with curly braces doesn't break mustache templates."""
+        from langchain_core.prompts import ChatPromptTemplate
+        from ee.hogai.graph.title_generator.prompts import TITLE_GENERATION_PROMPT
+        from ee.hogai.graph.trends.prompts import TRENDS_SYSTEM_PROMPT
+        from ee.hogai.graph.funnels.prompts import FUNNEL_SYSTEM_PROMPT
+        from ee.hogai.graph.retention.prompts import RETENTION_SYSTEM_PROMPT
+
+        # Test user input with JSON content that previously caused KeyError
+        user_input_with_json = """Hi Max,
+
+The query below is currently set up as an SQL insight:
+
+```sql
+{
+  "kind": "DataVisualizationNode",
+  "source": {
+    "kind": "HogQLQuery",
+    "query": "SELECT event, count(*) FROM events GROUP BY event"
+  },
+  "tableSettings": {
+    "conditionalFormatting": []
+  },
+  "chartSettings": {}
+}
+```"""
+
+        # Test 1: Title generator with JSON content (this was the main issue)
+        title_template = ChatPromptTemplate.from_messages(
+            [("system", TITLE_GENERATION_PROMPT), ("user", "{user_input}")]
+        )
+
+        result = title_template.format(user_input=user_input_with_json)
+        self.assertIn('"kind": "DataVisualizationNode"', result)
+        self.assertIn('"kind": "HogQLQuery"', result)
+        self.assertIn(user_input_with_json, result)
+
+        # Test 2: Trends prompt template with mustache formatting
+        trends_template = ChatPromptTemplate.from_messages(
+            [("system", TRENDS_SYSTEM_PROMPT)], template_format="mustache"
+        )
+
+        trends_result = trends_template.format(
+            project_name="Test Project", project_datetime="2025-07-22 12:00:00", project_timezone="UTC"
+        )
+        self.assertIn('"kind":"TrendsQuery"', trends_result)
+        self.assertIn('"kind":"EventsNode"', trends_result)
+        self.assertIn("Test Project", trends_result)
+
+        # Test 3: Funnel prompt template with mustache formatting
+        funnel_template = ChatPromptTemplate.from_messages(
+            [("system", FUNNEL_SYSTEM_PROMPT)], template_format="mustache"
+        )
+
+        funnel_result = funnel_template.format(
+            project_name="Test Project", project_datetime="2025-07-22 12:00:00", project_timezone="UTC"
+        )
+        self.assertIn('"kind":"FunnelsQuery"', funnel_result)
+        self.assertIn('"kind":"EventsNode"', funnel_result)
+
+        # Test 4: Retention prompt template with mustache formatting
+        retention_template = ChatPromptTemplate.from_messages(
+            [("system", RETENTION_SYSTEM_PROMPT)], template_format="mustache"
+        )
+
+        retention_result = retention_template.format(
+            project_name="Test Project", project_datetime="2025-07-22 12:00:00", project_timezone="UTC"
+        )
+        self.assertIn('"kind":"RetentionQuery"', retention_result)
+
+        # Test 5: Complex nested JSON structures
+        complex_json = """{
+  "level1": {
+    "level2": {
+      "array": [
+        {"item": "value1", "nested": {"deep": "value"}},
+        {"item": "value2", "config": {"setting": true}}
+      ]
+    }
+  },
+  "variables": {
+    "template_var": "should not be interpreted",
+    "curly_braces": "everywhere {here} and {there}"
+  }
+}"""
+
+        complex_template = ChatPromptTemplate.from_messages([("system", "Process this data"), ("user", "{user_data}")])
+
+        complex_result = complex_template.format(user_data=complex_json)
+        self.assertIn('"level1":', complex_result)
+        self.assertIn('"template_var": "should not be interpreted"', complex_result)
+        self.assertIn('"curly_braces": "everywhere {here} and {there}"', complex_result)
+
+        # Test 6: Edge cases with escaped quotes and multiline JSON
+        edge_cases = [
+            '{"message": "He said \\"Hello\\" to me"}',
+            '{\n  "multiline": "value",\n  "kind": "test"\n}',
+            'Here is some text and then JSON: {"kind": "DataVisualizationNode"} and more text.',
+            '{"first": "object"} and {"second": "object", "kind": "test"}',
+        ]
+
+        edge_template = ChatPromptTemplate.from_messages([("system", "Process this"), ("user", "{content}")])
+
+        for test_content in edge_cases:
+            edge_result = edge_template.format(content=test_content)
+            self.assertIn(test_content, edge_result)
+
+        # Test 7: Verify that direct embedding would fail (demonstrating the problem we fixed)
+        with self.assertRaises(KeyError) as context:
+            broken_template = ChatPromptTemplate.from_messages(
+                [
+                    ("system", "Process this"),
+                    ("user", user_input_with_json),  # Direct embedding - should cause KeyError
+                ]
+            )
+            broken_template.format()
+
+        # Should fail with KeyError mentioning 'kind'
+        self.assertIn("kind", str(context.exception))
