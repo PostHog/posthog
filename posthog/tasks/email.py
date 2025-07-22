@@ -525,7 +525,9 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
     campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
 
     # Sort functions by failure rate descending (highest first)
-    sorted_functions = sorted(digest_data["functions"], key=lambda x: x.get("failure_rate", 0), reverse=True)
+    sorted_functions = sorted(
+        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
+    )
 
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -708,7 +710,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         return
 
     # Sort by failure rate descending (highest failure rate first)
-    function_metrics.sort(key=lambda x: x["failure_rate"], reverse=True)
+    function_metrics.sort(key=lambda x: x["failure_rate"] or 0, reverse=True)
 
     # Prepare data for email
     digest_data = {
