@@ -106,7 +106,6 @@ function SurveyIterationOptions(): JSX.Element {
                             value: SurveySchedule.Recurring,
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
-                            disabledReason: surveysRecurringScheduleDisabledReason,
                             description: showSurveyRepeatSchedule ? (
                                 <div className="flex flex-row gap-2 items-center text-secondary">
                                     Repeat this survey{' '}

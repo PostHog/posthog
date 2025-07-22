@@ -85,7 +85,6 @@ function SurveyCompletionConditions(): JSX.Element {
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
             'data-attr': 'survey-collection-until-adaptive-limit',
-            disabledReason: undefined,
         } as unknown as LemonRadioOption<DataCollectionType>)
     }
 
