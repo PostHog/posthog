@@ -1,6 +1,6 @@
 import dataclasses
 
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

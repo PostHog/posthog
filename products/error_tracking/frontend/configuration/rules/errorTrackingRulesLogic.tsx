@@ -111,7 +111,7 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
 
     listeners(({ props, values, actions }) => ({
         addRule: () => {
-            actions._setLocalRules([...values.localRules, createNewRule(props.ruleType, values.localRules.length)])
+            actions._setLocalRules([...values.localRules, createNewRule(props.ruleType, values.rules.length)])
         },
         saveRuleSuccess: ({ payload: id }) => {
             const localRules = [...values.localRules]

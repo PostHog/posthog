@@ -636,6 +636,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
+                ExperimentMetricMathType.HogQL,
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
