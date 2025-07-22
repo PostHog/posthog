@@ -23,7 +23,7 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperimentQuery } from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -80,7 +80,7 @@ const ResultsTab = (): JSX.Element => {
             {/**
              *  check if we should render the legacy metrics view or the new one
              */}
-            {legacyPrimaryMetricsResults.length > 0 ? (
+            {isLegacyExperiment(experiment) ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
