@@ -14,6 +14,7 @@ from .sync_vectors import (
 from .session_summary.summarize_session import (
     SummarizeSingleSessionWorkflow,
     stream_llm_single_session_summary_activity,
+    fetch_session_data_activity,
 )
 
 from .session_summary.summarize_session_group import (
@@ -23,8 +24,6 @@ from .session_summary.summarize_session_group import (
     get_llm_single_session_summary_activity,
     fetch_session_batch_events_activity,
 )
-
-from .session_summary.shared import fetch_session_data_activity
 
 WORKFLOWS = [SyncVectorsWorkflow, SummarizeSingleSessionWorkflow, SummarizeSessionGroupWorkflow]
 

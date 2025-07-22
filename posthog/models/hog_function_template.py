@@ -13,7 +13,6 @@ from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
 )
-from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE
 
 logger = structlog.get_logger(__name__)
 
@@ -168,14 +167,11 @@ class HogFunctionTemplate(UUIDModel):
             for mapping_template_dict in self.mapping_templates:
                 mapping_templates_list.append(HogFunctionMappingTemplate(**mapping_template_dict))
 
-        # hog is only set if language is hog or javascript, otherwise None
-        hog_value = self.code if self.code_language in ("hog", "javascript") else ""
-
         # Create the dataclass
         return HogFunctionTemplateDTO(
             id=self.template_id,
             name=self.name,
-            hog=hog_value,
+            hog=self.code,
             inputs_schema=self.inputs_schema,
             free=self.free,
             type=cast(HogFunctionTemplateType, self.type),
@@ -187,6 +183,7 @@ class HogFunctionTemplate(UUIDModel):
             icon_url=self.icon_url,
             mappings=mappings_list if mappings_list else None,
             mapping_templates=mapping_templates_list if mapping_templates_list else None,
+            code_language=cast(Literal["hog", "javascript"], self.code_language),
         )
 
     def compile_bytecode(self):
@@ -230,14 +227,11 @@ class HogFunctionTemplate(UUIDModel):
         if not isinstance(dataclass_template, DataclassTemplate):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
 
-        # Determine code_language type (default to hog if not present)
-        code_language = "javascript" if dataclass_template.type in TYPES_WITH_JAVASCRIPT_SOURCE else "hog"
-
         # Calculate sha based on content hash
         template_dict = {
             "id": dataclass_template.id,
             "code": dataclass_template.hog,
-            "code_language": code_language,
+            "code_language": dataclass_template.code_language,
             "inputs_schema": dataclass_template.inputs_schema,
             "status": dataclass_template.status,
             "mappings": [dataclasses.asdict(m) for m in dataclass_template.mappings]
@@ -262,7 +256,7 @@ class HogFunctionTemplate(UUIDModel):
             mapping_templates = [dataclasses.asdict(template) for template in dataclass_template.mapping_templates]
 
         # Compile bytecode only for hog
-        if code_language == "hog":
+        if dataclass_template.code_language == "hog":
             try:
                 bytecode = compile_hog(dataclass_template.hog, dataclass_template.type)
             except Exception as e:
@@ -291,7 +285,7 @@ class HogFunctionTemplate(UUIDModel):
                 "name": dataclass_template.name,
                 "description": dataclass_template.description,
                 "code": dataclass_template.hog,  # still using hog for now
-                "code_language": code_language,
+                "code_language": dataclass_template.code_language,
                 "inputs_schema": dataclass_template.inputs_schema,
                 "bytecode": bytecode,
                 "type": dataclass_template.type,
