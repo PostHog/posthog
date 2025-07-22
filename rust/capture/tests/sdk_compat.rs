@@ -1,4 +1,5 @@
 use std::fs::read;
+use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -18,6 +19,8 @@ use axum::Router;
 use axum_test_helper::TestClient;
 //use chrono::{Utc, Offset};
 use common_redis::MockRedisClient;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -135,6 +138,16 @@ fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, MemoryS
     )
 }
 
+// utility to compress capture payloads for testing
+fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
+    let err_msg = format!("failed to GZIP payload in case: {}", title);
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+
+    encoder.write_all(&data).expect(&err_msg);
+    encoder.finish().expect(&err_msg)
+}
+
+// format the sent_at value when included in GET URL query params
 fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
     let err_msg = format!("failed to parse ISO8601 time into UNIX millis in case: {}", title);
     OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
@@ -142,6 +155,7 @@ fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
         .unix_timestamp() * 1000_i64
 }
 
+// utility to validate tests/fixtures/single_event_payload.json
 fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
@@ -303,6 +317,93 @@ async fn simple_single_event_payload() {
     let req = client
         .post(&req_path)
         .body(raw_payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "test {}: non-2xx response: {}",
+        title,
+        res.text().await
+    );
+
+    let cap_resp_details = res.json().await;
+    assert_eq!(
+        Some(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        }),
+        cap_resp_details,
+        "test {}: non-OK CaptureResponse: {:?}",
+        title,
+        cap_resp_details,
+    );
+
+    // extract the processed events from the in-mem sink and validate contents
+    let got = sink.events();
+    validate_single_event_payload(title, got);
+}
+
+#[tokio::test]
+async fn gzipped_single_event_payload() {
+    let title = "gzipped-single-event-payload";
+    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
+    let gzipped_payload = gzip_compress(title, raw_payload);
+
+    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/e/?_={}&compression=gzip", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(gzipped_payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "test {}: non-2xx response: {}",
+        title,
+        res.text().await
+    );
+
+    let cap_resp_details = res.json().await;
+    assert_eq!(
+        Some(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        }),
+        cap_resp_details,
+        "test {}: non-OK CaptureResponse: {:?}",
+        title,
+        cap_resp_details,
+    );
+
+    // extract the processed events from the in-mem sink and validate contents
+    let got = sink.events();
+    validate_single_event_payload(title, got);
+}
+
+#[tokio::test]
+async fn gzipped_no_hint_single_event_payload() {
+    let title = "gzipped-no-hint-single-event-payload";
+    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
+    let gzipped_payload = gzip_compress(title, raw_payload);
+
+    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    // note: without a "compression" GET query param or POST form, we must auto-detect GZIP compression
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/e/?_={}", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(gzipped_payload)
         .header("Content-Type", "application/json")
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
