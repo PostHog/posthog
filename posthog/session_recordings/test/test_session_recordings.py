@@ -1305,7 +1305,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
 
         personal_api_key = generate_random_token_personal()
-        personal_api_key_object: PersonalAPIKey = PersonalAPIKey.objects.create(
+        PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
@@ -1322,7 +1322,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert mock_capture.call_args_list[0] == call(
             event="snapshots_api_called_with_personal_api_key",
-            distinct_id=personal_api_key_object.secure_value,
+            distinct_id=self.user.distinct_id,
             properties={
                 "key_label": "X",
                 "key_scopes": ["session_recording:read"],

@@ -5672,6 +5672,154 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         assert response.json()["experiment_set"] == []
 
+    def test_bulk_keys_valid_ids(self):
+        """Test that valid IDs return correct key mapping"""
+        # Create test flags
+        flag1 = FeatureFlag.objects.create(key="test-flag-1", name="Test Flag 1", team=self.team, created_by=self.user)
+        flag2 = FeatureFlag.objects.create(key="test-flag-2", name="Test Flag 2", team=self.team, created_by=self.user)
+        flag3 = FeatureFlag.objects.create(key="test-flag-3", name="Test Flag 3", team=self.team, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": [flag1.id, flag2.id, flag3.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "keys" in data
+        assert data["keys"] == {
+            str(flag1.id): "test-flag-1",
+            str(flag2.id): "test-flag-2",
+            str(flag3.id): "test-flag-3",
+        }
+
+    def test_bulk_keys_empty_list(self):
+        """Test that empty ID list returns empty keys object"""
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data == {"keys": {}}
+
+    def test_bulk_keys_invalid_ids(self):
+        """Test that invalid IDs (non-integers) return error"""
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": ["invalid", "not-a-number"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        data = response.json()
+        assert "error" in data
+        assert "Invalid flag IDs provided" in data["error"]
+
+    def test_bulk_keys_mixed_valid_invalid_ids(self):
+        """Test that mixed valid/invalid IDs filter out invalid ones"""
+        flag1 = FeatureFlag.objects.create(key="test-flag-1", name="Test Flag 1", team=self.team, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": [flag1.id, "invalid", 99999]},  # valid ID, invalid string, non-existent ID
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "keys" in data
+        assert data["keys"] == {str(flag1.id): "test-flag-1"}
+        assert "warning" in data
+        assert "Invalid flag IDs ignored: ['invalid']" in data["warning"]
+
+    def test_bulk_keys_nonexistent_ids(self):
+        """Test that non-existent flag IDs are filtered out"""
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": [99999, 88888]},  # Non-existent IDs
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data == {"keys": {}}
+
+    def test_bulk_keys_team_isolation(self):
+        """Test that flags from other teams are not returned"""
+        # Create flag in current team
+        flag1 = FeatureFlag.objects.create(
+            key="current-team-flag", name="Current Team Flag", team=self.team, created_by=self.user
+        )
+
+        # Create another team and flag
+        other_user = User.objects.create_user(email="other@test.com", password="password", first_name="Other")
+        other_organization, _, other_team = Organization.objects.bootstrap(other_user)
+        flag2 = FeatureFlag.objects.create(
+            key="other-team-flag", name="Other Team Flag", team=other_team, created_by=other_user
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": [flag1.id, flag2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "keys" in data
+        # Should only return flag from current team
+        assert data["keys"] == {str(flag1.id): "current-team-flag"}
+
+    def test_bulk_keys_deleted_flags(self):
+        """Test that deleted flags are not returned"""
+        flag1 = FeatureFlag.objects.create(key="active-flag", name="Active Flag", team=self.team, created_by=self.user)
+        flag2 = FeatureFlag.objects.create(
+            key="deleted-flag", name="Deleted Flag", team=self.team, created_by=self.user, deleted=True
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": [flag1.id, flag2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "keys" in data
+        # Should only return non-deleted flag
+        assert data["keys"] == {str(flag1.id): "active-flag"}
+
+    def test_bulk_keys_no_ids_param(self):
+        """Test that missing 'ids' parameter returns empty keys object"""
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {},  # No 'ids' parameter
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data == {"keys": {}}
+
+    def test_bulk_keys_string_ids(self):
+        """Test that string representations of valid IDs work"""
+        flag1 = FeatureFlag.objects.create(key="test-flag-1", name="Test Flag 1", team=self.team, created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/bulk_keys/",
+            {"ids": [str(flag1.id)]},  # String ID instead of integer
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "keys" in data
+        assert data["keys"] == {str(flag1.id): "test-flag-1"}
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
