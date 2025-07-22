@@ -1,7 +1,6 @@
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
-import { MaxBillingContext } from './maxBillingContextLogic'
 
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
@@ -51,7 +50,6 @@ export interface MaxUIContext {
     actions?: MaxActionContext[]
     filters_override?: DashboardFilter
     variables_override?: Record<string, HogQLVariable>
-    billing?: MaxBillingContext
 }
 
 // Taxonomic filter options

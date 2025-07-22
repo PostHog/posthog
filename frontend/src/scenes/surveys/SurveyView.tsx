@@ -30,6 +30,7 @@ import {
     SurveyType,
 } from '~/types'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveysDisabledBanner } from './SurveySettings'
@@ -258,7 +259,13 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         markdown
                                         value={survey.description || ''}
                                         placeholder="Description (optional)"
-                                        onSave={(value) => updateSurvey({ id: id, description: value })}
+                                        onSave={(value) =>
+                                            updateSurvey({
+                                                id: id,
+                                                description: value,
+                                                intentContext: ProductIntentContext.SURVEY_EDITED,
+                                            })
+                                        }
                                         saveOnBlur={true}
                                         compactButtons
                                     />

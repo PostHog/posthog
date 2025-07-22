@@ -31,7 +31,6 @@ import {
     eventToMaxContextPayload,
     insightToMaxContext,
 } from './utils'
-import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 
 // Type definitions for better reusability
 export type TaxonomicItem =
@@ -68,8 +67,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ['filtersOverride', 'variablesOverride'],
             sceneLogic,
             ['activeScene', 'activeSceneLogic', 'activeLoadedScene'],
-            maxBillingContextLogic,
-            ['billingContext'],
         ],
         actions: [router, ['locationChanged']],
     })),
@@ -466,7 +463,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextActions,
                 s.filtersOverride,
                 s.variablesOverride,
-                s.billingContext,
             ],
             (
                 hasData: boolean,
@@ -475,8 +471,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextEvents: MaxEventContext[],
                 contextActions: MaxActionContext[],
                 filtersOverride: DashboardFilter,
-                variablesOverride: Record<string, HogQLVariable> | null,
-                billingContext: MaxBillingContext | null
+                variablesOverride: Record<string, HogQLVariable> | null
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
@@ -511,10 +506,6 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                 if (variablesOverride) {
                     context.variables_override = variablesOverride
-                }
-
-                if (billingContext) {
-                    context.billing = billingContext
                 }
 
                 // Deduplicate dashboards by ID
