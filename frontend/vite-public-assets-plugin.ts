@@ -99,6 +99,7 @@ function copyPublicAssets(): void {
     // Copy all files and directories from public to assets
     if (existsSync(publicDir)) {
         copyDirectory(publicDir, assetsDir)
+        console.info('✅ Copied public assets to src/assets')
     } else {
         console.warn('⚠️ Public directory does not exist')
     }

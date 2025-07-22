@@ -12,7 +12,9 @@ function deleteHtmlFiles(): void {
             const filePath = resolve('.', file)
             if (existsSync(filePath)) {
                 unlinkSync(filePath)
+                console.info(`🗑️  Deleted ${file}`)
             } else {
+                console.info(`ℹ️  File doesn't exist: ${file}`)
             }
         } catch (error) {
             console.warn(`⚠️ Could not delete ${file}:`, error)
@@ -34,6 +36,7 @@ function copyHtmlFile(from: string, to: string): void {
         // Copy the HTML file without modification (preserve Django template syntax)
         const htmlContent = readFileSync(fromPath, 'utf-8')
         writeFileSync(toPath, htmlContent)
+        console.info(`✨ Copied ${from} to ${to}`)
     } catch (error) {
         console.warn(`❌ Could not copy ${from} to ${to}:`, error)
     }
