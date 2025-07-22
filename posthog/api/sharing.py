@@ -282,7 +282,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 .first()
             )
 
-            if sharing_configuration and sharing_configuration.enabled:
+            if sharing_configuration:
                 return sharing_configuration
 
         return None

@@ -30,7 +30,9 @@ class SharingConfiguration(models.Model):
     )
 
     enabled = models.BooleanField(default=False)
-    access_token = models.CharField(max_length=400, null=True, blank=True, unique=True)
+    access_token = models.CharField(
+        max_length=400, null=True, blank=True, unique=True, default=get_default_access_token
+    )
 
     # Expiry for token rotation - null means active/current token
     expires_at = models.DateTimeField(
@@ -46,47 +48,19 @@ class SharingConfiguration(models.Model):
             models.Index(fields=["access_token", "expires_at"], name="sharing_token_expiry_idx"),
         ]
 
-    def save(self, *args, **kwargs):
-        # Generate initial token if this is a new object and no token is set
-        if not self.pk and not self.access_token:
-            self.access_token = self.generate_unique_token()
-        super().save(*args, **kwargs)
-
-    def generate_unique_token(self) -> str:
-        """Generate a unique token with retry logic"""
-        max_retries = 10
-
-        for attempt in range(max_retries):
-            new_token = get_default_access_token()
-
-            # Check if token already exists (including expired ones)
-            if not SharingConfiguration.objects.filter(access_token=new_token).exists():
-                return new_token
-
-            # Log collision only after first attempt
-            if attempt > 0:
-                logger.warn(
-                    "sharing_token_collision_retry",
-                    attempt=attempt,
-                    team_id=self.team_id if hasattr(self, "team_id") else None,
-                )
-
-        raise Exception(f"Could not generate unique token after {max_retries} attempts")
-
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
         if not self.enabled:
             raise ValueError("Cannot rotate token for disabled sharing configuration")
 
         with transaction.atomic():
-            # Create new sharing configuration
+            # Create new sharing configuration (token auto-generated via default=)
             new_config = SharingConfiguration.objects.create(
                 team=self.team,
                 dashboard=self.dashboard,
                 insight=self.insight,
                 recording=self.recording,
                 enabled=True,
-                # access_token will be auto-generated in save()
             )
 
             # Expire current configuration
