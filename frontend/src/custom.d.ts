@@ -28,7 +28,7 @@ declare module '*.lottie?url' {
     export default content
 }
 
-// This fixes TS errors when importing an .lottie file
+// This fixes TS errors when importing an .json file
 declare module '*.json' {
     const content: any
     export default content
