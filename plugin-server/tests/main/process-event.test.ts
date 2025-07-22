@@ -7,6 +7,7 @@ unit tests to appropriate classes/functions.
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/utils/posthog'
@@ -95,6 +96,7 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
+let redis: Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
 
@@ -156,12 +158,12 @@ describe('process-event', () => {
         // const redis = await hub.redisPool.acquire()
         // // clear the webhook redis cache
     
-        // const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-        // console.log("deleting redis")
-        // await redis.del(hooksCacheKey)
-        // console.log("releasing redis")
-        // await hub.redisPool.release(redis)
-        // console.log("redis released")
+        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+        console.log("deleting redis")
+        await redis.del(hooksCacheKey)
+        console.log("releasing redis")
+        await hub.redisPool.release(redis)
+        console.log("redis released")
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
