@@ -21,6 +21,7 @@ from posthog.models.utils import UUIDT
 
 class CommentSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    scope = serializers.CharField(required=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
 
     class Meta:

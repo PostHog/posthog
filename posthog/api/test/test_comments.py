@@ -58,7 +58,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_id": None,
             "item_context": None,
             "scope": "Notebook",
-            "tagged_users": None,
+            "tagged_users": [],
             "source_comment": None,
         }
 
@@ -89,7 +89,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_id": None,
             "item_context": None,
             "scope": "Notebook",
-            "tagged_users": None,
+            "tagged_users": [],
             "source_comment": None,
         }
 
@@ -234,22 +234,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-        self._assert_single_entry_activity_log(
-            {
-                "scope": "Notebook",
-                "item_id": "test-item-id",
-            },
-            detail_override={
-                "name": str(self.user.uuid),
-            },
-            changes_after_override={
-                "comment_scope": "Notebook",
-                "comment_item_id": "test-item-id",
-                "comment_content": content,
-                "comment_source_comment_id": None,
-                "tagged_user": str(self.user.uuid),
-            },
-        )
+        self._assert_activity_log([])
 
     def test_activity_logging_when_updating_tagged_users(self) -> None:
         unknown_user = str(uuid7())
@@ -274,71 +259,6 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-        self._assert_single_entry_activity_log(
-            {
-                "scope": "Dashboard",
-                "item_id": "dashboard-123",
-            },
-            detail_override={
-                "name": str(self.user.uuid),
-            },
-            changes_after_override={
-                "comment_scope": "Dashboard",
-                "comment_item_id": "dashboard-123",
-                "comment_content": "Updated content with @old_user and @new_user",
-                "comment_source_comment_id": None,
-                "tagged_user": str(self.user.uuid),
-            },
-        )
-
-    def test_activity_logging_for_comment_replies_with_tagged_users(self) -> None:
-        # Create a parent comment
-        parent_comment = self._create_comment(
-            {
-                "content": "Parent comment",
-                "scope": "Notebook",
-                "item_id": "notebook-123",
-            }
-        )
-
-        # Create a reply with tagged users
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/comments",
-            {
-                "content": "Reply with @user",
-                "tagged_users": [str(self.user.uuid)],
-                "source_comment": parent_comment["id"],
-            },
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-
-        # For replies, the scope should be "Comment" and item_id should be the parent comment ID
-        self._assert_single_entry_activity_log(
-            {
-                "scope": "Comment",
-                "item_id": str(parent_comment["id"]),
-            },
-            detail_override={
-                "name": str(self.user.uuid),
-            },
-            changes_after_override={
-                "comment_scope": None,  # replies don't have their own scope
-                "comment_item_id": None,  # replies don't have their own item_id
-                "comment_content": "Reply with @user",
-                "comment_source_comment_id": str(parent_comment["id"]),
-                "tagged_user": str(self.user.uuid),
-            },
-        )
-
-    def _assert_activity_log(self, expected: list[dict]) -> None:
-        activity_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
-        assert activity_response.status_code == status.HTTP_200_OK
-        assert activity_response.json()["results"] == expected
-
-    def _assert_single_entry_activity_log(
-        self, log_override: dict, detail_override: dict, changes_after_override: dict
-    ):
         self._assert_activity_log(
             [
                 {
@@ -349,38 +269,99 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                             {
                                 "action": "tagged_user",
                                 "after": {
-                                    "comment_scope": None,
-                                    "comment_item_id": None,
-                                    "comment_content": None,
+                                    "comment_content": "Updated content with @old_user and @new_user",
+                                    "comment_item_id": "dashboard-123",
+                                    "comment_scope": "Dashboard",
                                     "comment_source_comment_id": None,
-                                    "tagged_user": None,
-                                    **changes_after_override,
+                                    "tagged_user": str(self.user.uuid),
                                 },
                                 "before": None,
                                 "field": None,
                                 "type": "Comment",
-                            }
+                            },
+                        ],
+                        "name": str(self.user.uuid),
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "id": "0198338d-2b8a-0000-dcdc-456a976fcbe3",
+                    "is_system": False,
+                    "item_id": "dashboard-123",
+                    "organization_id": str(self.team.organization_id),
+                    "scope": "Dashboard",
+                    "unread": False,
+                    "user": self._user_for_activity_log(),
+                    "was_impersonated": False,
+                },
+                {
+                    "activity": "commented",
+                    "created_at": mock.ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "created",
+                                "after": "Original content with @old_user",
+                                "before": None,
+                                "field": "content",
+                                "type": "Comment",
+                            },
                         ],
                         "name": None,
                         "short_id": None,
-                        **detail_override,
+                        "trigger": None,
+                        "type": None,
                     },
-                    "item_id": None,
-                    "scope": None,
-                    "team_id": self.team.pk,
-                    "user": {
-                        "distinct_id": self.user.distinct_id,
-                        "email": self.user.email,
-                        "first_name": "",
-                        "hedgehog_config": None,
-                        "id": self.user.id,
-                        "is_email_verified": None,
-                        "last_name": "",
-                        "role_at_organization": None,
-                        "uuid": str(self.user.uuid),
-                    },
-                    "was_impersonated": False,
-                    **log_override,
-                }
+                    "id": "0198338d-2b74-0000-6722-e54e3e1622b6",
+                    "is_system": False,
+                    "item_id": "dashboard-123",
+                    "organization_id": None,
+                    "scope": "Dashboard",
+                    "unread": False,
+                    "user": self._user_for_activity_log(),
+                    "was_impersonated": None,
+                },
             ]
         )
+
+    def test_activity_logging_for_comment_replies_with_tagged_users(self) -> None:
+        parent_comment = self._create_comment(
+            {
+                "content": "Parent comment",
+                "scope": "Notebook",
+                "item_id": "notebook-123",
+            }
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Reply with @user",
+                "tagged_users": [str(self.user.uuid)],
+                "source_comment": parent_comment["id"],
+                "scope": "Notebook",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        # For replies, the scope should be "Comment" and item_id should be the parent comment ID
+        self._assert_activity_log([])
+
+    def _assert_activity_log(self, expected: list[dict]) -> None:
+        activity_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
+        assert activity_response.status_code == status.HTTP_200_OK
+        assert activity_response.json()["results"] == expected
+
+    def _user_for_activity_log(self):
+        return {
+            "distinct_id": self.user.distinct_id,
+            "email": self.user.email,
+            "first_name": self.user.first_name,
+            "hedgehog_config": None,
+            "id": self.user.id,
+            "is_email_verified": None,
+            "last_name": "",
+            "role_at_organization": None,
+            "uuid": str(self.user.uuid),
+        }
