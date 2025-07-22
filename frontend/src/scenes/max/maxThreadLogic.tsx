@@ -355,7 +355,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     conversation: streamData.conversation,
                                     contextual_tools: streamData.contextual_tools,
                                     ui_context: streamData.ui_context,
-                                    trace_id: streamData.trace_id,
                                 },
                                 generationAttempt + 1
                             )
