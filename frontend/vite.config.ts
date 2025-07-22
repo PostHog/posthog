@@ -4,6 +4,7 @@ import { resolve } from 'path'
 import { fileURLToPath, URL } from 'node:url'
 // import { toolbarDenylistPlugin } from './vite-toolbar-plugin'
 import { htmlGenerationPlugin } from './vite-html-plugin'
+import { publicAssetsPlugin } from './vite-public-assets-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -12,9 +13,10 @@ export default defineConfig(({ mode }) => {
     return {
         plugins: [
             react(),
-            // toolbarDenylistPlugin(),
-            // Only use HTML generation plugin for production builds
+            // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
+            // Copy public assets to src/assets for development
+            publicAssetsPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -46,7 +48,8 @@ export default defineConfig(({ mode }) => {
                 // Other aliases from tsconfig.json
                 storybook: resolve(__dirname, '../.storybook'),
                 '@posthog/ee/exports': resolve(__dirname, '../ee/frontend/exports.ts'),
-                public: resolve(__dirname, 'public'),
+                // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
+                public: resolve(__dirname, 'src/assets'),
                 products: resolve(__dirname, '../products'),
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
