@@ -481,8 +481,6 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         except Insight.DoesNotExist:
             before_update = None
 
-        schedule_metadata_update = False
-
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
@@ -495,7 +493,6 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
-            schedule_metadata_update = True
 
         updated_insight = super().update(instance, validated_data)
         if not are_alerts_supported_for_insight(updated_insight):
@@ -505,7 +502,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         self.user_permissions.reset_insights_dashboard_cached_results()
 
-        if schedule_metadata_update:
+        if not before_update or before_update.query != updated_insight.query:
             extract_insight_query_metadata.delay(insight_id=updated_insight.id)
 
         return updated_insight
