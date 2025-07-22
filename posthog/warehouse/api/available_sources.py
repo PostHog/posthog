@@ -12,6 +12,7 @@ from posthog.schema import (
     Type4,
     Option,
     Converter,
+    SourceFieldFileUploadJsonFormatConfig,
 )
 
 FieldType = Union[
@@ -319,7 +320,13 @@ Currently, **read permissions are required** for the following resources:
             list[FieldType],
             [
                 SourceFieldFileUploadConfig(
-                    name="key_file", label="Google Cloud JSON key file", fileFormat=".json", required=True
+                    name="key_file",
+                    label="Google Cloud JSON key file",
+                    fileFormat=SourceFieldFileUploadJsonFormatConfig(
+                        format=".json",
+                        keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
+                    ),
+                    required=True,
                 ),
                 SourceFieldInputConfig(
                     name="dataset_id", label="Dataset ID", type=Type4.TEXT, required=True, placeholder=""
