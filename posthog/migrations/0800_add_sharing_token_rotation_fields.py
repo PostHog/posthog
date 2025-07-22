@@ -19,20 +19,4 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        # Update access_token field to have unique=True
-        migrations.AlterField(
-            model_name="sharingconfiguration",
-            name="access_token",
-            field=models.CharField(
-                blank=True,
-                max_length=400,
-                null=True,
-                unique=True,
-            ),
-        ),
-        # Add index for fast token+expiry lookups
-        migrations.AddIndex(
-            model_name="sharingconfiguration",
-            index=models.Index(fields=["access_token", "expires_at"], name="sharing_token_expiry_idx"),
-        ),
     ]
