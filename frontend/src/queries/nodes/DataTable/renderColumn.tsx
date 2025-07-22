@@ -48,6 +48,10 @@ export function renderColumn(
 ): JSX.Element | string {
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+    const keySplit = key.split('--')
+    if (keySplit.length > 1 && isGroupsQuery(query.source)) {
+        key = keySplit[1].trim()
+    }
     key = key.split('--')[0].trim()
 
     if (value === loadingColumn) {
@@ -288,6 +292,24 @@ export function renderColumn(
             <Component
                 record={record}
                 columnName={columnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
+        ) : (
+            String(value)
+        )
+    } else if (
+        isGroupsQuery(query.source) &&
+        key.startsWith('properties.') &&
+        context?.columns?.[key.split('.')[1].trim()]?.render
+    ) {
+        const Component = context?.columns?.[key.split('.')[1].trim()].render
+        return Component ? (
+            <Component
+                record={record}
+                columnName={key.split('.')[1].trim()}
                 value={value}
                 query={query}
                 recordIndex={recordIndex}

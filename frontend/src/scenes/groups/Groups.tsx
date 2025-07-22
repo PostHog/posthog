@@ -9,11 +9,17 @@ import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { QueryContext } from '~/queries/types'
+import { getCRMColumns } from './crm/utils'
+
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
     const { query, queryWasModified } = useValues(groupsListLogic({ groupTypeIndex }))
     const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -29,6 +35,15 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 <GroupsIntroduction />
             </>
         )
+    }
+
+    let columns = {
+        group_name: {
+            title: groupTypeName,
+        },
+    } as QueryContext['columns']
+    if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+        columns = getCRMColumns(groupTypeName, groupTypeIndex)
     }
 
     return (
@@ -51,11 +66,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                         to learn what needs to be done
                     </>
                 ),
-                columns: {
-                    group_name: {
-                        title: groupTypeName,
-                    },
-                },
+                columns,
                 groupTypeLabel: groupTypeNamePlural,
             }}
             dataAttr="groups-table"
