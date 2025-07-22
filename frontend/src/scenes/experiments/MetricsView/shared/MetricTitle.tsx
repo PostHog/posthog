@@ -24,14 +24,9 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
         return element
     }
 
-    if (metric.name) {
-        const element = <span className={getTextClassName(metric.name)}>{metric.name}</span>
-        return wrapWithTooltip(metric.name, element)
-    }
-
     if (metric.kind === NodeKind.ExperimentMetric) {
-        const title = getDefaultMetricTitle(metric)
-        const element = <span className={getTextClassName(title)}>{title}</span>
+        const title = metric.name || getDefaultMetricTitle(metric)
+        const element = <span className={`max-h-[34px] overflow-hidden ${getTextClassName(title)}`}>{title}</span>
         return wrapWithTooltip(title, element)
     }
 

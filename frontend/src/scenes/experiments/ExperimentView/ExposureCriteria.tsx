@@ -132,50 +132,52 @@ export function ExposureCriteriaModal(): JSX.Element {
                     />
                 </div>
             )}
-            <div className="mb-4">
-                <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
-                <LemonSelect
-                    value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
-                    onChange={(value) => {
+            <div className="w-[405px]">
+                <div className="mb-4">
+                    <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
+                    <LemonSelect
+                        value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
+                        onChange={(value) => {
+                            setExposureCriteria({
+                                multiple_variant_handling: value as 'exclude' | 'first_seen',
+                            })
+                        }}
+                        options={[
+                            {
+                                value: 'exclude',
+                                label: 'Exclude from analysis',
+                                'data-attr': 'multiple-handling-exclude',
+                            },
+                            {
+                                value: 'first_seen',
+                                label: 'Use first seen variant',
+                                'data-attr': 'multiple-handling-first-seen',
+                            },
+                        ]}
+                        placeholder="Select handling method"
+                        fullWidth
+                    />
+                    <div className="text-xs text-muted mt-1">
+                        {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
+                            'Users exposed to multiple variants will be analyzed using their first seen variant.'}
+                        {(!experiment.exposure_criteria?.multiple_variant_handling ||
+                            experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
+                            'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
+                    </div>
+                </div>
+                <TestAccountFilterSwitch
+                    checked={(() => {
+                        const val = experiment.exposure_criteria?.filterTestAccounts
+                        return hasFilters ? !!val : false
+                    })()}
+                    onChange={(checked: boolean) => {
                         setExposureCriteria({
-                            multiple_variant_handling: value as 'exclude' | 'first_seen',
+                            filterTestAccounts: checked,
                         })
                     }}
-                    options={[
-                        {
-                            value: 'exclude',
-                            label: 'Exclude from analysis',
-                            'data-attr': 'multiple-handling-exclude',
-                        },
-                        {
-                            value: 'first_seen',
-                            label: 'Use first seen variant',
-                            'data-attr': 'multiple-handling-first-seen',
-                        },
-                    ]}
-                    placeholder="Select handling method"
                     fullWidth
                 />
-                <div className="text-xs text-muted mt-1">
-                    {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
-                        'Users exposed to multiple variants will be analyzed using their first seen variant.'}
-                    {(!experiment.exposure_criteria?.multiple_variant_handling ||
-                        experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
-                        'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
-                </div>
             </div>
-            <TestAccountFilterSwitch
-                checked={(() => {
-                    const val = experiment.exposure_criteria?.filterTestAccounts
-                    return hasFilters ? !!val : false
-                })()}
-                onChange={(checked: boolean) => {
-                    setExposureCriteria({
-                        filterTestAccounts: checked,
-                    })
-                }}
-                fullWidth
-            />
         </LemonModal>
     )
 }
