@@ -261,7 +261,7 @@ export function EnvironmentSwitcherOverlay({
                     <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
-            <PopoverPrimitiveContent align="start" className="w-full max-w-[500px]">
+            <PopoverPrimitiveContent align="start" className="w-[300px] sm:w-[500px] max-w-[300px] sm:max-w-[500px]">
                 <Combobox>
                     <Combobox.Search placeholder="Filter projects & environments..." />
                     <Combobox.Content>
