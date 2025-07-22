@@ -6,7 +6,7 @@ import openai
 import structlog
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
-from ee.hogai.session_summaries.output_data import (
+from ee.hogai.session_summaries.summarize_session.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
@@ -16,13 +16,13 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
-from ee.hogai.session_summaries.patterns import (
+from ee.hogai.session_summaries.summarize_session_group.patterns import (
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
-from ee.hogai.session_summaries.summarize_session import PatternsPrompt
+from ee.hogai.session_summaries.summarize_session.summarize_session import PatternsPrompt
 
 logger = structlog.get_logger(__name__)
 

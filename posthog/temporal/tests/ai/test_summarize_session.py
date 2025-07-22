@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 from pytest_mock import MockerFixture
 
 from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.prompt_data import SessionSummaryPromptData
-from ee.hogai.session_summaries.summarize_session import (
+from ee.hogai.session_summaries.summarize_session.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.summarize_session.summarize_session import (
     SingleSessionSummaryData,
     SingleSessionSummaryLlmInputs,
 )
@@ -104,7 +104,7 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.hogai.session_summaries.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.hogai.session_summaries.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -144,7 +144,7 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(mock_session_id, "test-no-events-key-base")
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.hogai.session_summaries.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
             patch(
                 "ee.hogai.session_summaries.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
@@ -243,7 +243,7 @@ class TestSummarizeSingleSessionWorkflow:
                     # Mock LLM call
                     patch("ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm()),
                     # Mock DB calls
-                    patch("ee.hogai.session_summaries.input_data.get_team", return_value=mock_team),
+                    patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
                     patch(
                         "ee.hogai.session_summaries.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,

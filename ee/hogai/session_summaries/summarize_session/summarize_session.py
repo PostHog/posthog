@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 
 import structlog
-from ee.hogai.session_summaries.input_data import (
+from ee.hogai.session_summaries.summarize_session.input_data import (
     add_context_and_filter_events,
     get_session_events,
     get_session_metadata,
 )
-from ee.hogai.session_summaries.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.summarize_session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.utils import load_custom_template, shorten_url
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.sync import database_sync_to_async

@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
-from ee.hogai.session_summaries.output_data import IntermediateSessionSummarySerializer
-from ee.hogai.session_summaries.patterns import RawSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.summarize_session import (
+from ee.hogai.session_summaries.summarize_session.output_data import IntermediateSessionSummarySerializer
+from ee.hogai.session_summaries.summarize_session_group.patterns import RawSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.summarize_session.summarize_session import (
     ExtraSummaryContext,
     PatternsPrompt,
     SessionSummaryPrompt,

@@ -3,13 +3,13 @@ from typing import Any
 import pytest
 
 from ee.hogai.session_summaries import SummaryValidationError
-from ee.hogai.session_summaries.output_data import (
+from ee.hogai.session_summaries.summarize_session.output_data import (
     RawSessionSummarySerializer,
     calculate_time_since_start,
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.hogai.session_summaries.prompt_data import SessionSummaryMetadata
+from ee.hogai.session_summaries.summarize_session.prompt_data import SessionSummaryMetadata
 from ee.hogai.session_summaries.utils import get_column_index
 
 
