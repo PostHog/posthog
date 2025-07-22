@@ -277,6 +277,7 @@ Query:
 SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
 FROM events
 WHERE event = '$pageview'
+  AND timestamp >= now() - INTERVAL 14 DAY
 GROUP BY day
 ORDER BY day
 """
@@ -289,18 +290,11 @@ ORDER BY day
                 plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
                 query=AssistantHogQLQuery(
                     query="""
-SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
-"""
-                ),
-            ),
-        ),
-        EvalCase(
-            input="Calculate the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
-            expected=PlanAndQueryOutput(
-                plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
-                query=AssistantHogQLQuery(
-                    query="""
-SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid
+FROM events
+WHERE event = 'paid_bill'
+  AND timestamp >= now() - INTERVAL 30 DAY
+  AND organization.properties.name = 'Hedgebox Inc.'
 """
                 ),
             ),
@@ -326,7 +320,7 @@ SELECT
     count(*) as usage_count,
     max(timestamp) as last_used
 FROM events
-WHERE event = 'file_download'
+WHERE event = 'downloaded_file'
 GROUP BY person_id, person.properties.email, person.properties.name
 ORDER BY usage_count DESC, last_used DESC
 LIMIT 5
@@ -340,7 +334,7 @@ LIMIT 5
                 plan="""
 Query to find the 5 users who downloaded the most files in the past few weeks:
 - FROM: events table
-- WHERE: event = 'file_download' or similar download event, timestamp in past few weeks
+- WHERE: event = 'downloaded_file', timestamp in past few weeks
 - GROUP BY: person_id
 - SELECT: person details and count of downloads
 - ORDER BY: download count DESC
@@ -355,7 +349,7 @@ SELECT
     count(*) as file_download_count,
     max(timestamp) as last_download
 FROM events
-WHERE event = 'file_download'
+WHERE event = 'downloaded_file'
     AND timestamp >= now() - INTERVAL 14 DAY
 GROUP BY person_id, person.properties.email, person.properties.name
 ORDER BY file_download_count DESC
@@ -386,10 +380,211 @@ SELECT DISTINCT
     person.properties.created_at as user_created_at,
     count(*) as file_download_event_count
 FROM events
-WHERE event = 'file_download'
+WHERE event = 'downloaded_file'
 GROUP BY person_id, person.properties.email, person.properties.name,
          person.properties.company, person.properties.role, person.properties.created_at
 LIMIT 10
+"""
+                ),
+            ),
+        ),
+        # Cases that should be solved after this PR (with improved documentation)
+        EvalCase(
+            input="What's the conversion rate from trial signup to paid subscription by cohort month?",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to calculate conversion rate from trial signup to paid subscription by cohort month:
+- Define cohort month as the month when users first signed up for trial
+- For each cohort month, count trial signups and paid conversions
+- Calculate conversion rate as (paid conversions / trial signups) * 100
+- Use window functions and conditional aggregation
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH trial_signups AS (
+    SELECT
+        person_id,
+        date_trunc('month', min(timestamp)) as cohort_month
+    FROM events
+    WHERE event = 'trial_signup'
+    GROUP BY person_id
+),
+conversions AS (
+    SELECT DISTINCT person_id
+    FROM events
+    WHERE event = 'subscription_started'
+)
+SELECT
+    cohort_month,
+    count(DISTINCT t.person_id) as trial_signups,
+    count(DISTINCT c.person_id) as paid_conversions,
+    (count(DISTINCT c.person_id) * 100.0 / count(DISTINCT t.person_id)) as conversion_rate
+FROM trial_signups t
+LEFT JOIN conversions c ON t.person_id = c.person_id
+GROUP BY cohort_month
+ORDER BY cohort_month
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Show me the median time between page views for each browser type, excluding users with only 1 page view",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to calculate median time between page views by browser type:
+- Filter to pageview events only
+- Use window functions to calculate time differences between consecutive pageviews per user
+- Group by browser type (from event properties)
+- Calculate median using quantile functions
+- Exclude users with only 1 pageview
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH pageview_times AS (
+    SELECT
+        person_id,
+        properties.$browser as browser_type,
+        timestamp,
+        LAG(timestamp) OVER (PARTITION BY person_id ORDER BY timestamp) as prev_timestamp
+    FROM events
+    WHERE event = '$pageview'
+),
+time_diffs AS (
+    SELECT
+        person_id,
+        browser_type,
+        dateDiff('second', prev_timestamp, timestamp) as seconds_between_views
+    FROM pageview_times
+    WHERE prev_timestamp IS NOT NULL
+),
+user_pageview_counts AS (
+    SELECT person_id, count(*) as pageview_count
+    FROM events
+    WHERE event = '$pageview'
+    GROUP BY person_id
+    HAVING pageview_count > 1
+)
+SELECT
+    td.browser_type,
+    quantile(0.5)(td.seconds_between_views) as median_seconds_between_views
+FROM time_diffs td
+INNER JOIN user_pageview_counts upc ON td.person_id = upc.person_id
+WHERE td.browser_type IS NOT NULL
+GROUP BY td.browser_type
+ORDER BY median_seconds_between_views
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Which features are most predictive of churn? Show correlation between feature usage in first 30 days and churn in next 60 days",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to analyze feature usage correlation with churn:
+- Define user cohorts based on signup date
+- Track feature usage in first 30 days after signup
+- Identify churn status in days 31-90 after signup
+- Calculate correlation between each feature usage and churn
+- Use statistical functions to measure predictive power
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH user_signups AS (
+    SELECT
+        person_id,
+        min(timestamp) as signup_date
+    FROM events
+    WHERE event = 'user_signup'
+    GROUP BY person_id
+),
+feature_usage AS (
+    SELECT
+        us.person_id,
+        us.signup_date,
+        properties.feature_name as feature,
+        count(*) as usage_count
+    FROM events e
+    INNER JOIN user_signups us ON e.person_id = us.person_id
+    WHERE event = 'feature_used'
+      AND e.timestamp BETWEEN us.signup_date AND us.signup_date + INTERVAL 30 DAY
+    GROUP BY us.person_id, us.signup_date, properties.feature_name
+),
+churn_status AS (
+    SELECT
+        us.person_id,
+        us.signup_date,
+        CASE WHEN max(e.timestamp) < us.signup_date + INTERVAL 90 DAY THEN 1 ELSE 0 END as is_churned
+    FROM user_signups us
+    LEFT JOIN events e ON us.person_id = e.person_id AND e.timestamp > us.signup_date + INTERVAL 30 DAY
+    GROUP BY us.person_id, us.signup_date
+)
+SELECT
+    fu.feature,
+    avg(fu.usage_count) as avg_usage,
+    avg(CASE WHEN cs.is_churned = 1 THEN fu.usage_count ELSE 0 END) as avg_usage_churned,
+    avg(CASE WHEN cs.is_churned = 0 THEN fu.usage_count ELSE 0 END) as avg_usage_retained,
+    corr(fu.usage_count, cs.is_churned) as churn_correlation
+FROM feature_usage fu
+INNER JOIN churn_status cs ON fu.person_id = cs.person_id
+GROUP BY fu.feature
+ORDER BY abs(churn_correlation) DESC
+"""
+                ),
+            ),
+        ),
+        # Cases that may still fail (very challenging)
+        EvalCase(
+            input="Create a customer health score combining recency, frequency, and monetary value with weighted percentiles",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to create RFM-based customer health score:
+- Calculate Recency: days since last purchase
+- Calculate Frequency: number of purchases in period
+- Calculate Monetary: total purchase value
+- Convert each to percentile ranks
+- Apply weights and combine into health score
+- Use advanced window functions and statistical calculations
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH customer_rfm AS (
+    SELECT
+        person_id,
+        max(timestamp) as last_purchase,
+        count(*) as purchase_frequency,
+        sum(toFloat(properties.amount_usd)) as total_monetary_value,
+        dateDiff('day', max(timestamp), now()) as recency_days
+    FROM events
+    WHERE event = 'purchase'
+      AND timestamp >= now() - INTERVAL 365 DAY
+    GROUP BY person_id
+),
+rfm_percentiles AS (
+    SELECT
+        person_id,
+        recency_days,
+        purchase_frequency,
+        total_monetary_value,
+        percent_rank() OVER (ORDER BY recency_days ASC) as recency_percentile,
+        percent_rank() OVER (ORDER BY purchase_frequency DESC) as frequency_percentile,
+        percent_rank() OVER (ORDER BY total_monetary_value DESC) as monetary_percentile
+    FROM customer_rfm
+)
+SELECT
+    person_id,
+    recency_days,
+    purchase_frequency,
+    total_monetary_value,
+    (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) as health_score,
+    CASE
+        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.8 THEN 'Champion'
+        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.6 THEN 'Loyal'
+        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.4 THEN 'Potential'
+        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.2 THEN 'At Risk'
+        ELSE 'Lost'
+    END as customer_segment
+FROM rfm_percentiles
+ORDER BY health_score DESC
 """
                 ),
             ),
