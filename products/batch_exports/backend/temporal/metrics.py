@@ -60,7 +60,21 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
 }
 
 
-def get_interval_from_datetime(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime):
+def get_interval_from_bounds(
+    data_interval_start: dt.datetime | None | str, data_interval_end: dt.datetime | str
+) -> str | None:
+    if isinstance(data_interval_start, str):
+        try:
+            data_interval_start = dt.datetime.fromisoformat(data_interval_start)
+        except ValueError:
+            return None
+
+    if isinstance(data_interval_end, str):
+        try:
+            data_interval_end = dt.datetime.fromisoformat(data_interval_end)
+        except ValueError:
+            return None
+
     if data_interval_start is None:
         interval = "beginning_of_time"
     else:
@@ -85,8 +99,18 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
         if activity_type not in BATCH_EXPORT_ACTIVITY_TYPES:
             return await super().execute_activity(input)
 
+        interval = get_interval_from_bounds(input.args[0].data_interval_start, input.args[0].data_interval_end)
+        if not interval:
+            LOGGER.error(
+                "Failed to parse interval bounds ('%s', '%s'), will not record latency for '%s'",
+                input.args[0].data_interval_start,
+                input.args[0].data_interval_end,
+                activity_type,
+            )
+            return await super().execute_activity(input)
+
         histogram_attributes = {
-            "interval": get_interval_from_datetime(input.args[0].data_interval_start, input.args[0].data_interval_end),
+            "interval": interval,
         }
 
         with ExecutionTimeRecorder(
