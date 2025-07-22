@@ -218,9 +218,6 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, instance)
 
-        if not instance.enabled:
-            raise ValidationError("Cannot refresh access token for disabled sharing configuration.")
-
         # Create new sharing configuration and expire the old one
         new_instance = instance.rotate_access_token()
 

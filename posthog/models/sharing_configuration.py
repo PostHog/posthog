@@ -46,16 +46,13 @@ class SharingConfiguration(models.Model):
 
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
-        if not self.enabled:
-            raise ValueError("Cannot rotate token for disabled sharing configuration")
 
-        # Create new sharing configuration (token auto-generated via default=)
         new_config = SharingConfiguration.objects.create(
             team=self.team,
             dashboard=self.dashboard,
             insight=self.insight,
             recording=self.recording,
-            enabled=True,
+            enabled=self.enabled,
         )
 
         # Expire current configuration
@@ -67,7 +64,6 @@ class SharingConfiguration(models.Model):
             old_config_id=self.pk,
             new_config_id=new_config.pk,
             team_id=self.team_id,
-            new_token_preview=new_config.access_token[:8] + "..." if new_config.access_token else None,
         )
 
         return new_config
