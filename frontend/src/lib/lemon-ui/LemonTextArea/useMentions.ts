@@ -131,7 +131,7 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
         const members = !mentionsQuery
             ? meFirstMembers.slice(0, 10) // Show first 10 members by default
             : new Fuse(meFirstMembers, {
-                  keys: ['user.first_name'],
+                  keys: ['user.first_name', 'user.email'],
                   threshold: 0.3,
               })
                   .search(mentionsQuery)
