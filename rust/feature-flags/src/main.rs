@@ -56,7 +56,7 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
                 .with_timeout(Duration::from_secs(3)),
         )
         .install_batch(runtime::Tokio)
-        .unwrap()
+        .expect("Failed to initialize OpenTelemetry tracer")
 }
 
 #[tokio::main]
