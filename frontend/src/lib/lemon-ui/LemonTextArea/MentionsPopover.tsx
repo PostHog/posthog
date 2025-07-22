@@ -22,10 +22,11 @@ export function MentionsPopover({
 
     return (
         <div
-            className={cn(
-                'absolute bg-bg-light border rounded shadow-md max-h-[200px] overflow-y-auto min-w-[200px]',
-                `top-[${position.top + 20}px] left-[${position.left}px]`
-            )}
+            className="absolute bg-bg-light border rounded shadow-md max-h-[200px] overflow-y-auto min-w-[200px]"
+            style={{
+                top: `${position.top + 20}px`,
+                left: `${position.left}px`,
+            }}
         >
             {members.length > 0 ? (
                 members.map((member, index) => (

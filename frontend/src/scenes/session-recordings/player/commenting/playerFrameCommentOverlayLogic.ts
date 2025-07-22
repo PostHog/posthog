@@ -12,6 +12,8 @@ import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayL
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+import { extractMentionedUsers } from 'scenes/annotations/annotationMentionUtils'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 export interface RecordingAnnotationForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
@@ -35,7 +37,12 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     path(['scenes', 'session-recordings', 'player', 'PlayerFrameAnnotationOverlay']),
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
-        values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
+        values: [
+            sessionRecordingPlayerLogic(props),
+            ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData'],
+            membersLogic,
+            ['meFirstMembers'],
+        ],
         actions: [
             annotationsModel,
             ['appendAnnotations', 'replaceAnnotation'],
@@ -140,6 +147,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             }),
             submit: async (data) => {
                 const { annotationId, content, dateForTimestamp, scope } = data
+                const taggedUsers = content ? extractMentionedUsers(content, values.meFirstMembers) : []
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -150,6 +158,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     content,
                     scope: scope || AnnotationScope.Recording,
                     recording_id: props.recordingId,
+                    tagged_users: taggedUsers,
                 }
 
                 if (annotationId) {

@@ -9,6 +9,7 @@ from rest_framework import status
 from parameterized import parameterized
 
 from posthog.models import Annotation, Organization, Team, User
+from posthog.models.utils import uuid7
 from posthog.test.base import (
     APIBaseTest,
     QueryMatchingTest,
@@ -18,6 +19,11 @@ from posthog.test.base import (
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+
+        self.other_user = User.objects.create(email="paul@not-first-user.com")
+
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation(self, mock_capture: MagicMock) -> None:
         created_annotation = Annotation.objects.create(
@@ -633,60 +639,14 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json()["detail"] == error
 
-    @parameterized.expand(
-        [
-            (
-                "Valid tagged users in content",
-                "Hey @paul luke, can you check @foobarbaz about this issue?",
-                ["paul luke", "foobarbaz"],
-                ["paul luke", "foobarbaz"],
-            ),
-            (
-                "Some tagged users not in content",
-                "Hey @paul luke, can you check this?",
-                ["paul luke", "foobarbaz", "missing user"],
-                ["paul luke"],
-            ),
-            (
-                "No tagged users in content",
-                "This is a plain annotation without any tags",
-                ["paul luke", "foobarbaz"],
-                [],
-            ),
-            (
-                "Empty tagged users list",
-                "This is a plain annotation",
-                [],
-                [],
-            ),
-            (
-                "Tagged users with special characters",
-                "Check with @user-name and @user_with_underscore",
-                ["user-name", "user_with_underscore", "not-in-content"],
-                ["user-name", "user_with_underscore"],
-            ),
-            (
-                "Partial name matches should not work",
-                "Hey @paul, can you check this?",
-                ["paul luke"],
-                [],
-            ),
-            (
-                "Case sensitive matching",
-                "Hey @Paul luke, can you check this?",
-                ["paul luke"],
-                [],
-            ),
-        ]
-    )
-    def test_create_annotation_tagged_users_validation(
+    def test_create_annotation_with_tagged_users(
         self, _name: str, content: str, input_tagged_users: list[str], expected_tagged_users: list[str]
     ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
                 "content": content,
-                "tagged_users": input_tagged_users,
+                "tagged_users": [str(self.user.uuid)],
                 "scope": "project",
                 "date_marker": "2020-01-01T00:00:00.000000Z",
             },
@@ -695,38 +655,10 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED
 
         annotation = Annotation.objects.get(pk=response.json()["id"])
-        assert annotation.tagged_users == expected_tagged_users
-        assert response.json()["tagged_users"] == expected_tagged_users
+        assert annotation.tagged_users == [str(self.user.uuid)]
+        assert response.json()["tagged_users"] == [str(self.user.uuid)]
 
-    @parameterized.expand(
-        [
-            (
-                "Update to valid tagged users",
-                "Updated content with @paul luke and @foobarbaz",
-                ["paul luke", "foobarbaz"],
-                ["paul luke", "foobarbaz"],
-            ),
-            (
-                "Update to remove some tagged users",
-                "Updated content with @paul luke only",
-                ["paul luke", "foobarbaz"],
-                ["paul luke"],
-            ),
-            (
-                "Update to remove all tagged users",
-                "Updated content with no tagged users",
-                ["paul luke", "foobarbaz"],
-                [],
-            ),
-            (
-                "Update with new tagged users",
-                "Hey @new_user, please review",
-                ["new_user"],
-                ["new_user"],
-            ),
-        ]
-    )
-    def test_update_annotation_tagged_users_validation(
+    def test_update_annotation_with_tagged_users(
         self, _name: str, new_content: str, new_tagged_users: list[str], expected_tagged_users: list[str]
     ) -> None:
         annotation = Annotation.objects.create(
@@ -734,24 +666,24 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             team=self.team,
             created_by=self.user,
             content="Original content with @old_user",
-            tagged_users=["old_user"],
+            tagged_users=["not a user uuid", str(self.user.uuid)],
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/annotations/{annotation.pk}/",
-            {"content": new_content, "tagged_users": new_tagged_users},
+            {"content": new_content, "tagged_users": [str(self.user.uuid), str(self.user.uuid), "also not a uuid"]},
         )
 
         assert response.status_code == status.HTTP_200_OK
 
         annotation.refresh_from_db()
-        assert annotation.tagged_users == expected_tagged_users
-        assert response.json()["tagged_users"] == expected_tagged_users
+        assert annotation.tagged_users == [str(self.user.uuid), str(self.user.uuid)]
+        assert response.json()["tagged_users"] == [str(self.user.uuid), str(self.user.uuid)]
 
     @patch("posthog.api.annotation.log_activity")
     def test_activity_logging_when_users_tagged_in_annotation(self, mock_log_activity: MagicMock) -> None:
         content = "Important annotation with @alice and @bob"
-        tagged_users = ["alice", "bob"]
+        tagged_users = [str(self.user.uuid), str(self.other_user.uuid)]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
@@ -765,43 +697,72 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-        # Should log activity for each tagged user
-        assert mock_log_activity.call_count == 2
-
-        # Check the activity log calls
-        calls = mock_log_activity.call_args_list
-        assert any("@alice tagged in annotation" in str(call) for call in calls)
-        assert any("@bob tagged in annotation" in str(call) for call in calls)
+        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
+        assert annotations_response.status_code == status.HTTP_200_OK
+        assert response.json() == ""
 
     @patch("posthog.api.annotation.log_activity")
     def test_activity_logging_when_users_tagged_in_recording_comment(self, mock_log_activity: MagicMock) -> None:
         content = "Recording comment with @alice"
-        tagged_users = ["alice"]
-
+        tagged_users = [str(self.user.uuid)]
+        recording_id = str(uuid7())
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
                 "content": content,
                 "tagged_users": tagged_users,
                 "scope": "recording",
+                "recording_id": recording_id,
                 "date_marker": "2020-01-01T00:00:00.000000Z",
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-        annotations_response = self.client.get("/api/projects/{self.team.id}/activity_log/")
+        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
         assert annotations_response.status_code == status.HTTP_200_OK
-        assert response.json() == ""
+        assert response.json() == {
+            "content": "Recording comment with @alice",
+            "created_at": mock.ANY,
+            "created_by": {
+                "distinct_id": self.user.distinct_id,
+                "email": self.user.email,
+                "first_name": "",
+                "hedgehog_config": None,
+                "id": self.user.id,
+                "is_email_verified": None,
+                "last_name": "",
+                "role_at_organization": None,
+                "uuid": str(self.user.uuid),
+            },
+            "creation_type": "USR",
+            "dashboard_id": None,
+            "dashboard_item": None,
+            "dashboard_name": None,
+            "date_marker": "2020-01-01T00:00:00Z",
+            "deleted": False,
+            "id": response.json()["id"],
+            "insight_derived_name": None,
+            "insight_name": None,
+            "insight_short_id": None,
+            "is_emoji": False,
+            "recording_id": recording_id,
+            "scope": "recording",
+            "tagged_users": [
+                str(self.user.uuid),
+            ],
+            "updated_at": mock.ANY,
+        }
 
     @patch("posthog.api.annotation.log_activity")
     def test_activity_logging_when_updating_tagged_users(self, mock_log_activity: MagicMock) -> None:
+        unknown_user = str(uuid7())
         annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
             created_by=self.user,
             content="Original content with @old_user",
-            tagged_users=["old_user"],
+            tagged_users=[unknown_user],
         )
 
         # Update to add new tagged user
@@ -809,35 +770,12 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/annotations/{annotation.pk}/",
             {
                 "content": "Updated content with @old_user and @new_user",
-                "tagged_users": ["old_user", "new_user"],
+                "tagged_users": [unknown_user, str(self.user.uuid)],
             },
         )
 
         assert response.status_code == status.HTTP_200_OK
 
-        # Should log activity for newly tagged user only
-        assert mock_log_activity.call_count == 1
-
-        # Check that it logged the new user
-        call_args = mock_log_activity.call_args
-        assert "@new_user tagged in annotation" in str(call_args)
-
-    def test_each_tagged_user_gets_separate_activity_log_entry(self) -> None:
-        content = "Notification test with @alice, @bob, and @charlie"
-        tagged_users = ["alice", "bob", "charlie"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/annotations/",
-            {
-                "content": content,
-                "tagged_users": tagged_users,
-                "scope": "project",
-                "date_marker": "2020-01-01T00:00:00.000000Z",
-            },
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-
-        annotations_response = self.client.get("/api/projects/{self.team.id}/activity_log/")
+        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
         assert annotations_response.status_code == status.HTTP_200_OK
         assert response.json() == ""

@@ -12,7 +12,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation
+from posthog.models import Annotation, User
 from posthog.models.activity_logging.activity_log import Detail, Change, log_activity
 from posthog.models.utils import UUIDT
 
@@ -83,23 +83,29 @@ class AnnotationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("When is_emoji is True, content cannot be empty")
 
         if attrs.get("tagged_users", []):
-            """
-            Each tagged user should be in the content
-            If they're not we can simply remove them,
-            it doesn't need to be rejected
-            """
-            validated_tagged_users = []
-            for tagged_user in attrs.get("tagged_users", []):
-                if tagged_user in content:
-                    validated_tagged_users.append(tagged_user)
-
-            attrs["tagged_users"] = validated_tagged_users
+            attrs["tagged_users"] = self._check_tagged_users_exist(attrs)
 
         return attrs
+
+    @staticmethod
+    def _check_tagged_users_exist(attrs: dict[str, Any]) -> list[str]:
+        """
+        Each tagged user is the UUID of a user tagged in the content
+        we don't validate they're really in the content,
+        but they should be a valid user
+        """
+        # TODO: and visible to the user creating the content
+        validated_tagged_users = []
+        for tagged_user in attrs.get("tagged_users", []):
+            if User.objects.filter(uuid=tagged_user).exists():
+                validated_tagged_users.append(tagged_user)
+
+        return validated_tagged_users
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
+        validated_data["tagged_users"] = self._check_tagged_users_exist(validated_data)
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
             team_id=team.id,
@@ -125,7 +131,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
                 team_id=annotation.team_id,
                 user=request.user,
                 was_impersonated=is_impersonated_session(request),
-                scope="Replay" if annotation.scope == Annotation.Scope.RECORDING else annotation.scope,
+                scope="Replay" if annotation.scope == Annotation.Scope.RECORDING else "annotation",
                 item_id=annotation.id,
                 activity="tagged_user",
                 detail=Detail(
@@ -137,7 +143,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
                             after={
                                 "tagged_user": tagged_user,
                                 "annotation_scope": annotation.scope,
-                                "annotation_recording_id": annotation.recording_id,
+                                "annotation_recording_id": str(annotation.recording_id),
                                 "annotation_insight_id": annotation.insight_short_id,
                                 "annotation_dashboard_id": annotation.dashboard_id,
                             },
