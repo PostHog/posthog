@@ -53,6 +53,18 @@ export enum ProductIntentContext {
 
     // Early Access Features
     EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = 'early_access_feature_view_recordings',
+
+    // Surveys
+    SURVEY_CREATED = 'survey_created',
+    SURVEY_LAUNCHED = 'survey_launched',
+    SURVEY_VIEWED = 'survey_viewed',
+    SURVEY_COMPLETED = 'survey_completed', // stop survey
+    SURVEY_RESUMED = 'survey_resumed',
+    SURVEY_ARCHIVED = 'survey_archived',
+    SURVEY_UNARCHIVED = 'survey_unarchived',
+    SURVEY_DELETED = 'survey_deleted',
+    SURVEY_DUPLICATED = 'survey_duplicated',
+    SURVEY_EDITED = 'survey_edited',
 }
 
 export type ProductIntentMetadata = Record<string, unknown>
