@@ -863,6 +863,7 @@ class FeatureFlagViewSet(
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
 
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         for feature_flag in feature_flags_data:
             if feature_flag.get("has_encrypted_payloads", False):
                 feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
