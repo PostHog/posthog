@@ -45,7 +45,10 @@ from posthog.temporal.ai.session_summary.state import (
     store_data_in_redis,
 )
 from posthog.redis import get_async_client
-from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummaryPatternsExtractionChunksInputs,
+)
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
@@ -99,7 +102,7 @@ async def _get_session_summaries_str_from_inputs(
     ]
 
 
-async def _split_session_summaries_into_chunks_for_patterns_extraction(
+async def split_session_summaries_into_chunks_for_patterns_extraction(
     inputs: SessionGroupSummaryOfSummariesInputs,
     redis_client: aioredis.Redis,
     model: str = SESSION_SUMMARIES_SYNC_MODEL,
@@ -375,19 +378,13 @@ async def assign_events_to_patterns_activity(
 
 
 @temporalio.activity.defn
-async def combine_patterns_from_chunks_activity(
-    chunk_redis_keys: list[str],
-    redis_key_base: str,
-    session_ids: list[str],
-    user_id: int,
-    extra_summary_context: ExtraSummaryContext | None,
-) -> None:
+async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatternsExtractionChunksInputs) -> None:
     """Combine patterns from multiple chunks using LLM and store in Redis."""
     redis_client = get_async_client()
     _, _, redis_output_key = get_redis_state_client(
-        key_base=redis_key_base,
+        key_base=inputs.redis_key_base,
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
-        state_id=",".join(session_ids),
+        state_id=",".join(inputs.session_ids),
     )
 
     try:
@@ -402,7 +399,7 @@ async def combine_patterns_from_chunks_activity(
     except ValueError:
         # Retrieve all chunk patterns from Redis
         chunk_patterns = []
-        for chunk_key in chunk_redis_keys:
+        for chunk_key in inputs.redis_keys_of_chunks_to_combine:
             try:
                 chunk_pattern = await get_data_class_from_redis(
                     redis_client=redis_client,
@@ -416,14 +413,14 @@ async def combine_patterns_from_chunks_activity(
                 logger.exception(
                     f"Failed to retrieve chunk patterns from Redis key {chunk_key} when combining patterns from chunks: {err}",
                     redis_key=chunk_key,
-                    user_id=user_id,
-                    session_ids=session_ids,
+                    user_id=inputs.user_id,
+                    session_ids=inputs.session_ids,
                 )
                 raise
         if not chunk_patterns:
             raise ApplicationError(
-                f"No chunk patterns could be retrieved for sessions {session_ids} "
-                f"for user {user_id}. All chunks may be missing or corrupted."
+                f"No chunk patterns could be retrieved for sessions {inputs.session_ids} "
+                f"for user {inputs.user_id}. All chunks may be missing or corrupted."
             )
         # TODO: Create proper prompt for pattern combination
         # For now, just merge all patterns from chunks (placeholder logic)
@@ -438,8 +435,8 @@ async def combine_patterns_from_chunks_activity(
         )
         combined_patterns = await get_llm_session_group_patterns_combination(
             prompt=combined_patterns_prompt,
-            user_id=user_id,
-            session_ids=session_ids,
+            user_id=inputs.user_id,
+            session_ids=inputs.session_ids,
             trace_id=temporalio.activity.info().workflow_id,
         )
         # Store the combined patterns in Redis with 24-hour TTL

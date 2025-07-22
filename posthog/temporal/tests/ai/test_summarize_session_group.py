@@ -41,7 +41,7 @@ from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.ai import WORKFLOWS
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from posthog.temporal.ai.session_summary.activities.patterns import (
-    _split_session_summaries_into_chunks_for_patterns_extraction,
+    split_session_summaries_into_chunks_for_patterns_extraction,
 )
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -500,6 +500,103 @@ class TestSummarizeSessionGroupWorkflow:
             # - get cached DB data for 2 sessions (2)
             assert spy_get.call_count == 15
 
+    @pytest.mark.asyncio
+    async def test_summarize_session_group_workflow_with_chunking(
+        self,
+        mocker: MockerFixture,
+        mock_session_id: str,
+        mock_team: MagicMock,
+        mock_call_llm: Callable,
+        mock_raw_metadata: dict[str, Any],
+        mock_valid_event_ids: list[str],
+        mock_session_group_summary_inputs: Callable,
+        mock_patterns_extraction_yaml_response: str,
+        mock_patterns_assignment_yaml_response: str,
+        mock_cached_session_batch_events_query_response_factory: Callable,
+        redis_test_setup: AsyncRedisTestContext,
+    ):
+        """Test that the workflow works correctly with chunking when many sessions are provided."""
+        # Create many sessions to trigger chunking (>30 sessions with 5000 token estimate each)
+        session_ids = [f"{mock_session_id}-{i}-chunking" for i in range(35)]
+        workflow_id = f"test_workflow_chunking_{uuid.uuid4()}"
+        workflow_input = mock_session_group_summary_inputs(session_ids, "test_chunking_base")
+        
+        # Mock chunking to return 2 chunks
+        async def mock_split_chunks(inputs, redis_client, model=None):
+            # Force chunking into 2 groups
+            session_ids = [input.session_id for input in inputs.single_session_summaries_inputs]
+            mid_point = len(session_ids) // 2
+            return [session_ids[:mid_point], session_ids[mid_point:]]
+        
+        # Set up spies to track Redis operations
+        spy_get = mocker.spy(redis_test_setup.redis_client, "get")
+        spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
+        
+        # Need to provide combined pattern result for combination activity
+        mock_combined_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Combined Pattern",
+                    "pattern_description": "Combined from chunks",
+                    "severity": "medium",
+                    "indicators": ["combined"],
+                }
+            ]
+        )
+        
+        with patch("posthog.temporal.ai.session_summary.activities.patterns.split_session_summaries_into_chunks_for_patterns_extraction", side_effect=mock_split_chunks):
+            # Setup extra mock for pattern combination
+            call_llm_side_effects = (
+                [mock_call_llm() for _ in range(len(session_ids))]  # Single-session summaries
+                + [mock_call_llm(custom_content=mock_patterns_extraction_yaml_response) for _ in range(2)]  # Pattern extraction for 2 chunks
+                + [mock_call_llm(custom_content=mock_combined_patterns.model_dump_json())]  # Pattern combination
+                + [mock_call_llm(custom_content=mock_patterns_assignment_yaml_response)]  # Pattern assignment
+            )
+            
+            async with self.temporal_workflow_test_environment(
+                session_ids,
+                mock_call_llm,
+                mock_team,
+                mock_raw_metadata,
+                mock_valid_event_ids,
+                mock_patterns_extraction_yaml_response,
+                mock_patterns_assignment_yaml_response,
+                mock_cached_session_batch_events_query_response_factory,
+                custom_content=None,
+            ) as (activity_environment, worker):
+                # Override LLM mocks for chunking scenario
+                with patch(
+                    "ee.hogai.session_summaries.llm.consume.call_llm",
+                    new=AsyncMock(side_effect=call_llm_side_effects),
+                ):
+                    # Add combination activity to worker
+                    async with Worker(
+                        activity_environment.client,
+                        task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                        workflows=WORKFLOWS,
+                        activities=[
+                            get_llm_single_session_summary_activity,
+                            extract_session_group_patterns_activity,
+                            assign_events_to_patterns_activity,
+                            fetch_session_batch_events_activity,
+                            combine_patterns_from_chunks_activity,  # Add this
+                        ],
+                        workflow_runner=UnsandboxedWorkflowRunner(),
+                    ) as worker:
+                        # Wait for workflow to complete and get result
+                        result = await activity_environment.client.execute_workflow(
+                            SummarizeSessionGroupWorkflow.run,
+                            workflow_input,
+                            id=workflow_id,
+                            task_queue=worker.task_queue,
+                        )
+                        # Verify the result is of the correct type
+                        assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+                        # Verify Redis operations include chunk operations
+                        # Additional setex for: 2 chunk patterns + 1 combined pattern
+                        assert spy_setex.call_count > 35  # At least one per session + chunks + combined
+
 
 @pytest.mark.asyncio
 class TestPatternExtractionChunking:
@@ -513,7 +610,7 @@ class TestPatternExtractionChunking:
         )
 
         redis_client = AsyncMock()
-        chunks = await _split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
 
         assert chunks == []
         redis_client.get.assert_not_called()
@@ -552,7 +649,7 @@ class TestPatternExtractionChunking:
         mock_estimate_tokens.side_effect = [1000, 500, 500]  # Total: 2000 < 150000
 
         redis_client = AsyncMock()
-        chunks = await _split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
 
         assert len(chunks) == 1
         assert chunks[0] == ["session-1", "session-2"]
@@ -589,7 +686,7 @@ class TestPatternExtractionChunking:
         mock_estimate_tokens.side_effect = [1000, 80000, 70000, 500]
 
         redis_client = AsyncMock()
-        chunks = await _split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
 
         assert len(chunks) == 2
         assert chunks[0] == ["session-0"]
