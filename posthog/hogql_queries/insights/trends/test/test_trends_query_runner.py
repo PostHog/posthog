@@ -5722,6 +5722,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """
         Test that cohort breakdown lists work correctly when applied via filters_override.
         This tests the fix for the assertion error when breakdown is a list like [6] or [64489,65529].
+        
+        The original bug occurred because breakdown.py had an assertion that failed when:
+        - breakdown_filter.breakdown was a list (like [6])
+        - breakdown_filter.breakdown_type was "cohort" 
+        - modifiers.inCohortVia was not LEFTJOIN_CONJOINED
+        
+        The assertion on line 175 was: assert not isinstance(breakdown_filter.breakdown, list)
         """
         # Create test data
         self._create_test_events()
@@ -5761,30 +5768,34 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         cohort2.calculate_people_ch(pending_version=0)
 
+        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+        from posthog.schema import DashboardFilter
+
+        # Test 1: Single-element cohort breakdown list [cohort_id] via filters_override
+        # This is the exact scenario that was causing the assertion error
         single_cohort_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
             interval=IntervalType.DAY,
         )
 
-        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
-        from posthog.schema import DashboardFilter
-
         filters_override = DashboardFilter(
             breakdown_filter=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk])
         )
 
-        single_cohort_runner = TrendsQueryRunner(
-            team=self.team,
-            query=apply_dashboard_filters(single_cohort_query, filters_override, self.team),
-        )
+        # Apply filters_override - this modifies the query to have breakdown=[cohort1.pk]
+        modified_query = apply_dashboard_filters(single_cohort_query, filters_override, self.team)
+        
+        # Create runner with the modified query - this should not raise assertion error
+        single_cohort_runner = TrendsQueryRunner(team=self.team, query=modified_query)
 
-        # This should not raise an assertion error
+        # This should not raise an assertion error during query building/execution
         single_response = single_cohort_runner.calculate()
 
         self.assertEqual(len(single_response.results), 1)
         self.assertEqual(single_response.results[0]["breakdown_value"], cohort1.pk)
 
+        # Test 2: Multi-element cohort breakdown list [cohort1_id, cohort2_id] via filters_override
         multi_cohort_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
@@ -5795,12 +5806,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_filter=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, cohort2.pk])
         )
 
-        multi_cohort_runner = TrendsQueryRunner(
-            team=self.team,
-            query=apply_dashboard_filters(multi_cohort_query, filters_override, self.team),
-        )
+        # Apply filters_override - this modifies the query to have breakdown=[cohort1.pk, cohort2.pk]
+        modified_query = apply_dashboard_filters(multi_cohort_query, filters_override, self.team)
+        
+        # Create runner with the modified query - this should not raise assertion error
+        multi_cohort_runner = TrendsQueryRunner(team=self.team, query=modified_query)
 
-        # This should not raise an assertion error
+        # This should not raise an assertion error during query building/execution
         multi_response = multi_cohort_runner.calculate()
 
         # For multi-cohort breakdowns, we should get results for both cohorts
@@ -5811,3 +5823,77 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # The modifiers should be set to LEFTJOIN_CONJOINED for multi-cohort breakdowns
         self.assertEqual(multi_cohort_runner.modifiers.inCohortVia, InCohortVia.LEFTJOIN_CONJOINED)
+
+        # Test 3: Direct cohort breakdown list in query (not via filters_override)
+        # This ensures both code paths work correctly
+        direct_cohort_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk])
+        )
+
+        direct_cohort_runner = TrendsQueryRunner(team=self.team, query=direct_cohort_query)
+        direct_response = direct_cohort_runner.calculate()
+
+        self.assertEqual(len(direct_response.results), 1)
+        self.assertEqual(direct_response.results[0]["breakdown_value"], cohort1.pk)
+
+    def test_cohort_breakdown_list_assertion_error_scenario(self):
+        """
+        Test the specific scenario that caused the assertion error before the fix.
+        This test would fail with "assert not isinstance(breakdown_filter.breakdown, list)" 
+        without the fix in breakdown.py.
+        """
+        # Create a cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+            name="test cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Create a query with cohort breakdown as a list (the problematic case)
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+            breakdownFilter=BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT, 
+                breakdown=[cohort.pk]  # This is a list, not a single value
+            )
+        )
+
+        # Create the trends query builder to trigger the assertion
+        from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+        from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+
+        query_date_range = QueryDateRange(
+            date_from="2020-01-09",
+            date_to="2020-01-20", 
+            team=self.team,
+            interval=IntervalType.DAY,
+            now=datetime.now()
+        )
+
+        modifiers = create_default_modifiers_for_team(self.team)
+        
+        builder = TrendsQueryBuilder(
+            trends_query=query,
+            team=self.team,
+            query_date_range=query_date_range,
+            series=query.series[0],
+            timings=None,
+            modifiers=modifiers,
+            limit_context=None
+        )
+
+        # Access the breakdown property to trigger column_exprs calculation
+        # This would fail with assertion error before the fix
+        breakdown = builder.breakdown
+        column_exprs = breakdown.column_exprs  # This line would fail without the fix
+        
+        # If we get here, the fix is working
+        self.assertIsNotNone(column_exprs)
+        self.assertEqual(len(column_exprs), 1)
