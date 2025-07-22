@@ -9,7 +9,7 @@ import { LogEntryLevel } from '~/types'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
-export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
+export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 
 export type LogsViewerLogicProps = {
     sourceType: 'hog_function' | 'hog_flow'
