@@ -228,7 +228,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
-                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
                                     <div className="flex-1 text-center">
                                         <span className="text-sm font-medium">Suggested by Max</span>
                                     </div>
@@ -275,7 +275,14 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 </LemonBanner>
             ) : null}
             {showMasking ? (
-                <LemonField name="masking" label="Trigger options">
+                <LemonField
+                    name="masking"
+                    label="Trigger options"
+                    info={`
+                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed. 
+                        This is useful for rate limiting the destination for example if you only want to receive one message per day.
+                    `}
+                >
                     {({ value, onChange }) => (
                         <div className="flex flex-wrap gap-1 items-center">
                             <LemonSelect
