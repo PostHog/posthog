@@ -142,15 +142,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
         self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"plugin_disabled": False}
+        # Disable pipeline error notifications for this team for user 1
+        self.user.partial_notification_settings = {"project_pipeline_errors_disabled": {str(self.team.id): True}}
         self.user.save()
 
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
 
-        # Should only be sent to user2
+        # Should only be sent to user2 (user1 has pipeline errors disabled for this team)
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
-        self.user.partial_notification_settings = {"plugin_disabled": True}
+        # Re-enable pipeline error notifications for this team for user 1
+        self.user.partial_notification_settings = {"project_pipeline_errors_disabled": {str(self.team.id): False}}
         self.user.save()
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
         # should be sent to both
@@ -196,14 +198,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"plugin_disabled": False}
+        # Disable pipeline error notifications for this team for user 1
+        self.user.partial_notification_settings = {"project_pipeline_errors_disabled": {str(self.team.id): True}}
         self.user.save()
 
         send_batch_export_run_failure(batch_export_run.id)
-        # Should only be sent to user2
+        # Should only be sent to user2 (user1 has pipeline errors disabled for this team)
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
-        self.user.partial_notification_settings = {"plugin_disabled": True}
+        # Re-enable pipeline error notifications for this team for user 1
+        self.user.partial_notification_settings = {"project_pipeline_errors_disabled": {str(self.team.id): False}}
         self.user.save()
 
         send_batch_export_run_failure(batch_export_run.id)
@@ -273,7 +277,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"plugin_disabled": False}
+        # Disable pipeline error notifications for this team for user 1
+        self.user.partial_notification_settings = {"project_pipeline_errors_disabled": {str(self.team.id): True}}
         self.user.save()
 
         digest_data = {
@@ -324,10 +329,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_hog_functions_digest_email(digest_data)
 
-        # Should only be sent to user2 (user1 has notifications disabled)
+        # Should only be sent to user2 (user1 has pipeline errors disabled for this team)
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
-        self.user.partial_notification_settings = {"plugin_disabled": True}
+        # Re-enable pipeline error notifications for this team for user 1
+        self.user.partial_notification_settings = {"project_pipeline_errors_disabled": {str(self.team.id): False}}
         self.user.save()
         send_hog_functions_digest_email(digest_data)
 
