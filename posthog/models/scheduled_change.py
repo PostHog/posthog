@@ -13,6 +13,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
     scheduled_at = models.DateTimeField()
     executed_at = models.DateTimeField(null=True, blank=True)
     failure_reason = models.CharField(max_length=400, null=True, blank=True)
+    failure_count = models.IntegerField(default=0)
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
