@@ -1586,12 +1586,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "table": collection_name,
                     "should_sync": False,
                     "rows": None,  # MongoDB doesn't provide easy row count in schema discovery
-                    "incremental_fields": [],
-                    "incremental_available": False,
-                    "incremental_field": None,
+                    "incremental_fields": [
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in columns
+                    ],
+                    "incremental_available": True,
+                    "append_available": True,
+                    "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
-                for collection_name, _ in filtered_results
+                for collection_name, columns in filtered_results
             ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
