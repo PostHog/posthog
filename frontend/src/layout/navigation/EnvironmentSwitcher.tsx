@@ -1,12 +1,11 @@
-import { IconChevronDown, IconCornerDownRight, IconGear, IconPlus, IconWarning } from '@posthog/icons'
-import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconCheck, IconCornerDownRight, IconGear, IconPlus, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,6 +13,17 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, TeamPublicType } from '~/types'
 
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Label } from 'lib/ui/Label/Label'
+import {
+    PopoverPrimitive,
+    PopoverPrimitiveContent,
+    PopoverPrimitiveTrigger,
+} from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
+import { cn } from 'lib/utils/css-classes'
 import { globalModalsLogic } from '../GlobalModals'
 import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
 
@@ -25,133 +35,198 @@ import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './enviro
 const EMOJI_INITIAL_REGEX =
     /^(\u00a9|\u00ae|[\u25a0-\u27bf]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]) /
 
-export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
+export function EnvironmentSwitcherOverlay({
+    buttonProps = { className: 'font-semibold' },
+    onClickInside,
+}: {
+    buttonProps?: ButtonPrimitiveProps
+    onClickInside?: () => void
+}): JSX.Element {
     const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentProject } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
     const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
     const { openModal } = useActions(environmentRollbackModalLogic)
+    const [open, setOpen] = useState(false)
 
     const { location } = useValues(router)
 
     const [environmentsRollbackNotice, currentProjectSection, otherProjectsSection] = useMemo<
-        [LemonMenuSection | null, LemonMenuSection | null, LemonMenuSection | null]
+        [JSX.Element | null, JSX.Element | null, JSX.Element | null]
     >(() => {
         if (!currentOrganization || !currentTeam?.project_id) {
             return [null, null, null]
         }
 
-        const currentProjectItems: LemonMenuItem[] = []
+        const currentProjectItems: Array<JSX.Element> = []
         const matchForCurrentProject = searchedProjectsMap.get(currentTeam.project_id)
         if (matchForCurrentProject) {
             const [projectName, projectTeams] = matchForCurrentProject
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
-            currentProjectItems.push({
-                label: projectNameWithoutEmoji,
-                icon: projectNameEmojiMatch ? (
-                    <div className="size-5 text-xl leading-5 text-center">{projectNameEmojiMatch}</div>
-                ) : (
-                    <UploadedLogo
-                        name={projectName}
-                        entityId={currentTeam.project_id}
-                        outlinedLettermark
-                        size="small"
-                    />
-                ),
-                disabledReason: 'Select or create an environment of this project below',
-                sideAction: {
-                    icon: <IconGear />,
-                    tooltip: "Go to this project's settings",
-                    onClick: onClickInside,
-                    to: urls.project(currentTeam.project_id, urls.settings('project')),
-                },
-                className: 'opacity-100', // This button is not disabled in a traditional sense here
-            })
+            currentProjectItems.push(
+                <>
+                    <Label intent="menu" className="px-2">
+                        Current project
+                    </Label>
+                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+
+                    <Combobox.Group value={[projectName]}>
+                        <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
+                            <Combobox.Item asChild>
+                                <ButtonPrimitive
+                                    menuItem
+                                    active
+                                    hasSideActionRight
+                                    tooltipPlacement="right"
+                                    tooltip="Select or create an environment of this project below"
+                                    data-attr="environment-switcher-current-project-button"
+                                    className="pr-12"
+                                    disabled
+                                >
+                                    <IconCheck className="text-tertiary" />
+                                    {projectNameEmojiMatch ? (
+                                        <div className="size-5 text-xl leading-5 text-center">
+                                            {projectNameEmojiMatch}
+                                        </div>
+                                    ) : (
+                                        <UploadedLogo
+                                            name={projectName}
+                                            entityId={currentTeam.project_id}
+                                            outlinedLettermark
+                                            size="small"
+                                        />
+                                    )}
+                                    <span className="truncate">{projectNameWithoutEmoji}</span>
+                                </ButtonPrimitive>
+                            </Combobox.Item>
+
+                            <Combobox.Item asChild>
+                                <Link
+                                    buttonProps={{
+                                        iconOnly: true,
+                                        isSideActionRight: true,
+                                    }}
+                                    tooltip={`View settings for project: ${projectNameWithoutEmoji}`}
+                                    tooltipPlacement="right"
+                                    to={urls.project(currentTeam.project_id, urls.settings('project'))}
+                                    data-attr="environment-switcher-current-project-settings-button"
+                                >
+                                    <IconGear className="text-tertiary" />
+                                </Link>
+                            </Combobox.Item>
+                        </ButtonGroupPrimitive>
+                    </Combobox.Group>
+                </>
+            )
             for (const team of projectTeams) {
-                currentProjectItems.push(convertTeamToMenuItem(team, currentTeam, onClickInside))
-            }
-            currentProjectItems.push({
-                icon: <IconPlus />,
-                label: 'New environment in project',
-                onClick: () => {
-                    onClickInside?.()
-                    guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
-                        currentUsage: currentOrganization?.teams?.filter(
-                            (team) => team.project_id === currentTeam.project_id
-                        ).length,
+                currentProjectItems.push(
+                    convertTeamToMenuItem(team, currentTeam, () => {
+                        setOpen(false)
                     })
-                },
-                disabledReason:
-                    "We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects.",
-                'data-attr': 'new-environment-button',
-            })
+                )
+            }
+            currentProjectItems.push(
+                <ButtonPrimitive
+                    menuItem
+                    data-attr="new-environment-button"
+                    tooltipPlacement="right"
+                    className="shrink-0"
+                    tooltip="We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects."
+                    disabled
+                    onClick={() => {
+                        guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
+                            currentUsage: currentOrganization?.teams?.filter(
+                                (team) => team.project_id === currentTeam.project_id
+                            ).length,
+                        })
+                    }}
+                >
+                    <IconPlus />
+                    New environment in project
+                </ButtonPrimitive>
+            )
         }
 
-        const otherProjectsItems: LemonMenuItem[] = []
+        const otherProjectsItems: Array<JSX.Element> = [
+            <Label intent="menu" className="px-2" key="other-projects-label">
+                Other projects
+            </Label>,
+            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />,
+        ]
         for (const [projectId, [projectName, projectTeams]] of searchedProjectsMap.entries()) {
             if (projectId === currentTeam?.project_id) {
                 continue
             }
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
-            otherProjectsItems.push({
-                key: projectId,
-                label: (
-                    <>
-                        {projectNameWithoutEmoji}
-                        <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                            {projectTeams[0].name}
-                        </LemonTag>
-                        {projectTeams.length > 1 && (
-                            <span className="text-xs font-medium ml-1.5">+ {projectTeams.length - 1}</span>
-                        )}
-                    </>
-                ),
-                icon: projectNameEmojiMatch ? (
-                    <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
-                ) : (
-                    <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark size="small" />
-                ),
-                to: determineProjectSwitchUrl(location.pathname, projectTeams[0].id),
-                onClick: onClickInside,
-                tooltip: `Switch to this project & its ${projectTeams.length > 1 ? 'first' : 'only'} environment`,
-                sideAction:
-                    projectTeams.length > 1
-                        ? {
-                              icon: <IconChevronDown />,
-                              divider: true,
-                              dropdown: {
-                                  overlay: (
-                                      <LemonMenuOverlay
-                                          items={projectTeams.map((team) =>
-                                              convertTeamToMenuItem(team, currentTeam, onClickInside)
-                                          )}
-                                      />
-                                  ),
-                                  placement: 'bottom-start',
-                              },
-                          }
-                        : null,
-            })
+
+            otherProjectsItems.push(
+                <>
+                    <Combobox.Group value={[projectName]} key={projectId}>
+                        <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
+                            <Combobox.Item asChild>
+                                <ButtonPrimitive
+                                    menuItem
+                                    hasSideActionRight
+                                    className="pr-12"
+                                    disabled
+                                    tooltip="Select an environment for this project below"
+                                    tooltipPlacement="right"
+                                    data-attr="environment-switcher-other-project-button"
+                                >
+                                    {projectNameEmojiMatch ? (
+                                        <div className="size-6 text-xl leading-6 text-center">
+                                            {projectNameEmojiMatch}
+                                        </div>
+                                    ) : (
+                                        <UploadedLogo
+                                            name={projectName}
+                                            entityId={projectId}
+                                            outlinedLettermark
+                                            size="small"
+                                        />
+                                    )}
+                                    <span className="truncate">{projectNameWithoutEmoji}</span>
+                                </ButtonPrimitive>
+                            </Combobox.Item>
+                            <Combobox.Item asChild>
+                                <Link
+                                    buttonProps={{
+                                        iconOnly: true,
+                                        isSideActionRight: true,
+                                    }}
+                                    tooltip="View settings for this project"
+                                    tooltipPlacement="right"
+                                    to={urls.project(projectId, urls.settings('project'))}
+                                    data-attr="environment-switcher-other-project-settings-button"
+                                >
+                                    <IconGear className="text-tertiary" />
+                                </Link>
+                            </Combobox.Item>
+                        </ButtonGroupPrimitive>
+                    </Combobox.Group>
+                </>
+            )
+            for (const team of projectTeams) {
+                otherProjectsItems.push(convertTeamToMenuItem(team, currentTeam))
+            }
         }
         return [
-            hasEnvironmentsRollbackFeature
-                ? {
-                      items: [
-                          {
-                              label: `We're rolling back the environments beta`,
-                              onClick: openModal,
-                              status: 'danger',
-                              icon: <IconWarning />,
-                          },
-                      ],
-                  }
-                : null,
-            currentProjectItems.length ? { title: 'Current project', items: currentProjectItems } : null,
-            otherProjectsItems.length ? { title: 'Other projects', items: otherProjectsItems } : null,
+            hasEnvironmentsRollbackFeature ? (
+                <Combobox.Group value={['warning']} key="warning">
+                    <Combobox.Item asChild>
+                        <ButtonPrimitive menuItem onClick={openModal} variant="danger" className="h-auto">
+                            <IconWarning />
+                            We're rolling back the environments beta
+                        </ButtonPrimitive>
+                    </Combobox.Item>
+                </Combobox.Group>
+            ) : null,
+            currentProjectItems.length ? <>{currentProjectItems}</> : null,
+            otherProjectsItems.length ? <>{otherProjectsItems}</> : null,
         ]
     }, [
         currentOrganization,
@@ -171,62 +246,109 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
     }
 
     return (
-        <LemonMenuOverlay
-            items={[
-                {
-                    items: [{ label: EnvironmentSwitcherSearch }],
-                },
-                environmentsRollbackNotice,
-                currentProjectSection,
-                otherProjectsSection,
-                {
-                    icon: <IconPlus />,
-                    label: 'New project',
-                    disabledReason: projectCreationForbiddenReason,
-                    onClick: () => {
-                        onClickInside?.()
-                        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                            currentUsage: currentOrganization?.projects?.length,
-                        })
-                    },
-                    'data-attr': 'new-project-button',
-                },
-            ]}
-        />
+        <PopoverPrimitive open={open} onOpenChange={setOpen}>
+            <PopoverPrimitiveTrigger asChild>
+                <ButtonPrimitive
+                    data-attr="environment-switcher-button"
+                    size="sm"
+                    {...buttonProps}
+                    className={cn('flex-1 max-w-fit min-w-[40px]', buttonProps.className)}
+                >
+                    <span className="truncate">{currentProject?.name ?? 'Project'}</span>
+                    <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
+                        {currentTeam.name}
+                    </LemonTag>
+                    <DropdownMenuOpenIndicator />
+                </ButtonPrimitive>
+            </PopoverPrimitiveTrigger>
+            <PopoverPrimitiveContent align="start" className="w-[300px] sm:w-[500px] max-w-[300px] sm:max-w-[500px]">
+                <Combobox>
+                    <Combobox.Search placeholder="Filter projects & environments..." />
+                    <Combobox.Content>
+                        <Combobox.Empty>No projects or environments found</Combobox.Empty>
+
+                        {environmentsRollbackNotice}
+                        {currentProjectSection}
+                        {otherProjectsSection}
+
+                        <Combobox.Item
+                            asChild
+                            onClick={() =>
+                                guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                                    currentUsage: currentOrganization?.teams?.length,
+                                })
+                            }
+                        >
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="new-project-button"
+                                tooltip="Create a new project"
+                                tooltipPlacement="right"
+                                className="shrink-0"
+                                disabled={!!projectCreationForbiddenReason}
+                            >
+                                <IconPlusSmall className="text-tertiary" />
+                                New project
+                            </ButtonPrimitive>
+                        </Combobox.Item>
+                    </Combobox.Content>
+                </Combobox>
+            </PopoverPrimitiveContent>
+        </PopoverPrimitive>
     )
 }
 
 function convertTeamToMenuItem(
     team: TeamBasicTypeWithProjectName,
     currentTeam: TeamPublicType,
-    onClickInside?: () => void
-): LemonMenuItem {
-    return {
-        label: (
-            <>
-                <LemonTag size="small" className="border-text-3000 uppercase">
-                    {team.name}
-                </LemonTag>
-            </>
-        ),
-        key: team.id,
-        active: team.id === currentTeam.id,
-        to: determineProjectSwitchUrl(location.pathname, team.id),
-        icon: <IconCornerDownRight className="ml-1 -mr-1 -mt-[5px]" />,
-        tooltip:
-            team.id === currentTeam.id
-                ? 'Currently active environment'
-                : team.project_id === currentTeam.project_id
-                ? 'Switch to this environment'
-                : 'Switch to this environment of the project',
-        onClick: onClickInside,
-        sideAction: {
-            icon: <IconGear />,
-            tooltip: "Go to this environment's settings",
-            onClick: onClickInside,
-            to: urls.project(team.id, urls.settings('environment')),
-        },
-    }
+    handleActiveClick?: () => void
+): JSX.Element {
+    const active = team.id === currentTeam.id
+    return (
+        <>
+            <Combobox.Group value={[team.name]}>
+                <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
+                    <Combobox.Item asChild>
+                        <Link
+                            buttonProps={{
+                                menuItem: true,
+                                hasSideActionRight: true,
+                                className: 'pr-12 w-full',
+                                active,
+                            }}
+                            tooltip={active ? 'Currently active environment' : 'Switch to this environment'}
+                            tooltipPlacement="right"
+                            to={determineProjectSwitchUrl(location.pathname, team.id)}
+                            onClick={active ? handleActiveClick : undefined}
+                            data-attr="environment-switcher-environment-button"
+                        >
+                            <IconBlank />
+                            <IconCornerDownRight className="text-tertiary" />
+                            <LemonTag size="small" className="border-text-3000 uppercase">
+                                {team.name}
+                            </LemonTag>
+                        </Link>
+                    </Combobox.Item>
+
+                    <Combobox.Item asChild>
+                        <Link
+                            buttonProps={{
+                                iconOnly: true,
+                                isSideActionRight: true,
+                            }}
+                            tooltip={`Go to this environment's settings`}
+                            tooltipPlacement="right"
+                            to={urls.project(team.id, urls.settings('environment'))}
+                            onClick={active ? handleActiveClick : undefined}
+                            data-attr="environment-switcher-environment-settings-button"
+                        >
+                            <IconGear className="text-tertiary" />
+                        </Link>
+                    </Combobox.Item>
+                </ButtonGroupPrimitive>
+            </Combobox.Group>
+        </>
+    )
 }
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
@@ -243,24 +365,4 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
     }
 
     return getProjectSwitchTargetUrl(pathname, newTeamId, currentTeam?.project_id, targetTeamProjectId)
-}
-
-function EnvironmentSwitcherSearch(): JSX.Element {
-    const { environmentSwitcherSearch } = useValues(environmentSwitcherLogic)
-    const { setEnvironmentSwitcherSearch } = useActions(environmentSwitcherLogic)
-
-    return (
-        <LemonInput
-            value={environmentSwitcherSearch}
-            onChange={setEnvironmentSwitcherSearch}
-            type="search"
-            fullWidth
-            autoFocus
-            placeholder="Search projects & environments"
-            className="min-w-64"
-            onClick={(e) => {
-                e.stopPropagation() // Prevent dropdown from closing
-            }}
-        />
-    )
 }
