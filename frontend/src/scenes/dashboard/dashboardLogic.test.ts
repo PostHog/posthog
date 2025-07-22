@@ -527,10 +527,20 @@ describe('dashboardLogic', () => {
         })
 
         describe('reload items', () => {
-            it('reloads all items', async () => {
+            it('reloads stale insights (but not fresh ones)', async () => {
                 const dashboard = dashboards[5]
-                const insight1 = dashboard.tiles[0].insight!
-                const insight2 = dashboard.tiles[1].insight!
+                const staleInsight = {
+                    ...dashboard.tiles[0].insight!,
+                    cache_target_age: now().subtract(1, 'minute').toISOString(),
+                }
+                const freshInsight = {
+                    ...dashboard.tiles[1].insight!,
+                    cache_target_age: now().add(1, 'minute').toISOString(),
+                }
+
+                // patch dashboard tiles
+                dashboard.tiles[0].insight = staleInsight
+                dashboard.tiles[1].insight = freshInsight
 
                 await expectLogic(logic, () => {
                     logic.actions.triggerDashboardRefresh()
@@ -540,53 +550,42 @@ describe('dashboardLogic', () => {
                         'triggerDashboardRefresh',
                         'loadDashboard',
                         'updateDashboardItems',
-                        // sets the "reloading" status
-                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
+                        // sets the "reloading" status for the stale insight
+                        logic.actionCreators.setRefreshStatuses([staleInsight.short_id], false, true),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [insight1.short_id]: {
+                            [staleInsight.short_id]: {
                                 loading: false,
                                 queued: true,
                                 timer: null,
                             },
-                            [insight2.short_id]: {
-                                loading: false,
-                                queued: true,
-                                timer: null,
-                            },
+                            [freshInsight.short_id]: undefined,
                         },
                         refreshMetrics: {
                             completed: 0,
-                            total: 2,
+                            total: 1,
                         },
                     })
                     .toDispatchActionsInAnyOrder([
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.insight.short_id === insight1.short_id,
-                        (a) =>
-                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
-                            a.payload.insight.short_id === insight2.short_id,
+                            a.payload.insight.short_id === staleInsight.short_id,
                         // no longer reloading
-                        logic.actionCreators.setRefreshStatus(insight1.short_id, false),
-                        logic.actionCreators.setRefreshStatus(insight2.short_id, false),
+                        logic.actionCreators.setRefreshStatus(staleInsight.short_id, false),
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [insight1.short_id]: {
+                            [staleInsight.short_id]: {
                                 refreshed: true,
                                 timer: expect.any(Date),
                             },
-                            [insight2.short_id]: {
-                                refreshed: true,
-                                timer: expect.any(Date),
-                            },
+                            [freshInsight.short_id]: undefined,
                         },
                         refreshMetrics: {
-                            completed: 2,
-                            total: 2,
+                            completed: 1,
+                            total: 1,
                         },
                     })
             })
