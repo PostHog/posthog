@@ -91,10 +91,6 @@ export const ExternalReferences = (): JSX.Element | null => {
 }
 
 function SetupIntegrationsButton(): JSX.Element {
-    // const { push } = useActions(router)
-
-    // const onClick = (): void => push(urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }))
-
     return (
         <Link to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}>
             <ButtonPrimitive fullWidth>Setup integrations</ButtonPrimitive>

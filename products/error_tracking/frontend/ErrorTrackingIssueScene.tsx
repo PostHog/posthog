@@ -6,17 +6,11 @@ import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-
-import {} from './components/Assignee/AssigneeDisplay'
-
 import { ErrorFilters } from './components/ErrorFilters'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { ExceptionCard } from './components/ExceptionCard'
-
-import {} from './components/Indicator'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { Metadata } from './issue/Metadata'
-
 import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ErrorTrackingIssueScenePanel'
 

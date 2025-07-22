@@ -1,6 +1,4 @@
 .ErrorTrackingIssue {
-    height: calc(100vh - var(--scene-layout-header-height));
-
     & .SessionRecordingPlayer {
         min-height: 24rem;
     }
