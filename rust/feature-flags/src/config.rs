@@ -181,8 +181,8 @@ pub struct Config {
     pub flags_session_replay_quota_check: bool,
 
     // OpenTelemetry configuration
-    #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT", default = "")]
-    pub otel_url: String,
+    #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
+    pub otel_url: Option<String>,
 
     #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.01")]
     pub otel_sampling_rate: f64,
@@ -190,8 +190,8 @@ pub struct Config {
     #[envconfig(from = "OTEL_SERVICE_NAME", default = "posthog-feature-flags")]
     pub otel_service_name: String,
 
-    #[envconfig(from = "RUST_LOG", default = "info")]
-    pub log_level: Level,
+    #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
+    pub otel_log_level: Level,
 }
 
 impl Config {
@@ -223,10 +223,10 @@ impl Config {
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
             flags_session_replay_quota_check: false,
-            otel_url: "".to_string(),
+            otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
-            log_level: Level::ERROR,
+            otel_log_level: Level::ERROR,
         }
     }
 

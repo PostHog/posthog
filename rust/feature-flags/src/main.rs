@@ -75,14 +75,14 @@ async fn main() {
         .with_level(true)
         .with_filter(EnvFilter::from_default_env());
 
-    let otel_layer = if !config.otel_url.is_empty() {
+    let otel_layer = if let Some(ref otel_url) = config.otel_url {
         Some(
             OpenTelemetryLayer::new(init_tracer(
-                &config.otel_url,
+                otel_url,
                 config.otel_sampling_rate,
                 &config.otel_service_name,
             ))
-            .with_filter(LevelFilter::from_level(config.log_level)),
+            .with_filter(LevelFilter::from_level(config.otel_log_level)),
         )
     } else {
         None
