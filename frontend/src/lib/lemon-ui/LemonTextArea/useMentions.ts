@@ -119,8 +119,8 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
         const cursorRect = cursorSpan?.getBoundingClientRect()
 
         const position = {
-            top: (cursorRect?.top || 0) - textareaRect.top + textarea.scrollTop,
-            left: (cursorRect?.left || 0) - textareaRect.left + textarea.scrollLeft,
+            top: (cursorRect?.top || 0) + window.scrollY,
+            left: (cursorRect?.left || 0) + window.scrollX,
         }
 
         document.body.removeChild(div)
