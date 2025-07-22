@@ -31,7 +31,7 @@ Four query kinds are available:
 - Retention - Retention is a type of insight that shows you how many users return during subsequent periods. Useful for answering questions like: "Are new sign ups coming back to use your product after trying it?" or "Have recent changes improved retention?"
 - SQL - Arbitrary SQL querying, which can answer ANY question, although the results are less accessible visually. Use this option when the question cannot be answered with trends, funnel, or retention, based on your knowledge.
 
-Use your knowledge of the JSON schemas of trends, funnel, and retention queries – when the schema clearly allows all the features we'll need in the query, prefer specifying trends/funnel/retention. However if the schema doesn't allow all the features we'll need in the query, use SQL as a fallback, as SQL allows arbitrary queries.
+Use your knowledge of the JSON schemas of trends, funnel, and retention queries – when the schema clearly allows all the features we'll need in the query, prefer specifying trends/funnel/retention (unless the user specified a query kind already and the specified one is feasible). However if the schema doesn't allow all the features we'll need in the query, use SQL as a fallback, as SQL allows arbitrary queries.
 
 <trends_json_schema>
 {{{trends_json_schema}}}

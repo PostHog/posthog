@@ -71,7 +71,7 @@ class SQLSyntaxCorrectness(Scorer):
         team = Team.objects.latest("created_at")
         try:
             # Try to parse, print, and run the query
-            HogQLQueryRunner(query.model_dump(), team).calculate()
+            HogQLQueryRunner(query, team).calculate()
         except BaseHogQLError as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
         except InternalCHQueryError as e:
@@ -94,6 +94,308 @@ class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
 
 @pytest.mark.django_db
 async def eval_sql(call_root_for_insight_generation):
+    all_cases: list[EvalCase] = [
+        EvalCase(
+            input="Count pageviews by browser, using SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to count pageviews grouped by browser:
+- FROM: events table
+- WHERE: event = '$pageview'
+- GROUP BY: properties.$browser
+- SELECT: properties.$browser, count(*) as pageview_count
+- ORDER BY: pageview_count DESC
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT properties.$browser as browser, count(*) as pageview_count
+FROM events
+WHERE event = '$pageview'
+GROUP BY browser
+ORDER BY pageview_count DESC
+LIMIT 100
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="What are the top 10 countries by number of users in the last 7 days? Use SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to find the top 10 countries by number of users in the last 7 days:
+- FROM: events table
+- WHERE: timestamp >= now() - interval 7 day
+- GROUP BY: properties.$geoip_country_name
+- SELECT: properties.$geoip_country_name, count(distinct person_id) as user_count
+- ORDER BY: user_count DESC
+- LIMIT: 10
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT properties.$geoip_country_name as country, count(distinct person_id) as user_count
+FROM events
+WHERE timestamp >= now() - interval 7 day
+GROUP BY country
+ORDER BY user_count DESC
+LIMIT 10
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Show me the average session duration by day of week, using SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to calculate average session duration by day of week:
+- FROM: sessions table (or equivalent calculation)
+- SELECT: day_of_week(timestamp), avg(session_duration)
+- GROUP BY: day_of_week
+- ORDER BY: day_of_week
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT toDayOfWeek(timestamp) as day_of_week,
+       avg(session.$session_duration) as avg_session_duration
+FROM events
+GROUP BY day_of_week
+ORDER BY day_of_week
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="What percentage of users who visited the pricing page made a purchase in this month? Use SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to calculate the percentage of users who visited the pricing page and also made a purchase this month:
+- Subquery 1: Find distinct users who visited pricing page this month
+- Subquery 2: Find distinct users who made a purchase this month
+- Calculate: (Users who did both) / (Users who visited pricing page) * 100
+- Time filter: date_trunc('month', timestamp) = date_trunc('month', now())
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH pricing_visitors AS (
+    SELECT distinct person_id
+    FROM events
+    WHERE event = 'viewed_pricing_page'
+    AND date_trunc('month', timestamp) = date_trunc('month', now())
+),
+purchasers AS (
+    SELECT distinct person_id
+    FROM events
+    WHERE event = 'purchase'
+    AND date_trunc('month', timestamp) = date_trunc('month', now())
+)
+SELECT
+    count(DISTINCT pv.person_id) AS pricing_visitors_count,
+    count(DISTINCT p.person_id) AS purchasers_count,
+    (count(DISTINCT p.person_id) * 100.0 / nullIf(count(DISTINCT pv.person_id), 0)) AS conversion_percentage
+FROM pricing_visitors pv
+LEFT JOIN purchasers p ON pv.person_id = p.person_id
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence? Use SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to count users who completed the full onboarding sequence:
+- Use window functions to assign sequence numbers to each step
+- Check that users have all three steps in the correct order
+- Count distinct users who completed all steps
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH occurences AS (
+    SELECT
+        person_id,
+        event,
+        timestamp,
+        ROW_NUMBER() OVER (PARTITION BY person_id, event ORDER BY timestamp) as occurrence
+    FROM events
+    WHERE event IN ('viewed_welcome_page', 'created_profile', 'completed_tutorial')
+),
+user_funnel AS (
+    SELECT
+        person_id,
+        maxIf(timestamp, event = 'viewed_welcome_page') as welcome_time,
+        maxIf(timestamp, event = 'created_profile') as profile_time,
+        maxIf(timestamp, event = 'completed_tutorial') as tutorial_time
+    FROM occurences
+    WHERE occurrence = 1
+    GROUP BY person_id
+    HAVING count(distinct event) = 3
+)
+SELECT count(*) as users_completed_onboarding
+FROM user_funnel
+WHERE welcome_time < profile_time AND profile_time < tutorial_time
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence? Use SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to count users who completed the full onboarding sequence:
+- Aggregate occurences of each event per user
+- Count users who have all three events
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+WITH occurences AS (
+    SELECT person_id, event
+    FROM events
+    WHERE event IN ('viewed_welcome_page', 'created_profile', 'completed_tutorial')
+),
+user_funnel AS (
+    SELECT
+        person_id,
+        count(distinct event) as event_count
+    FROM occurences
+    GROUP BY person_id
+)
+SELECT count(*) as users_completed_onboarding
+FROM user_funnel
+WHERE event_count = 3
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            # As of May 2025, trends insights don't support "number of distinct values of property" math, so we MUST use SQL here
+            input="The number of distinct values of property $browser seen in each of the last 14 days",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query:
+- Count distinct values of property $browser seen in each of the last 14 days
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
+FROM events
+WHERE event = '$pageview'
+GROUP BY day
+ORDER BY day
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Sum up the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
+            expected=PlanAndQueryOutput(
+                plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Calculate the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
+            expected=PlanAndQueryOutput(
+                plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Who are the 5 users I should interview around file download usage?",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to find the 5 users to interview around file download usage:
+- FROM: events table
+- WHERE: event contains file download usage patterns or properties related to file download
+- GROUP BY: person_id to get unique users
+- SELECT: person.properties (name, email, etc.) and usage metrics
+- ORDER BY: usage frequency or recency
+- LIMIT: 5
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT
+    person_id,
+    person.properties.email as email,
+    person.properties.name as name,
+    count(*) as usage_count,
+    max(timestamp) as last_used
+FROM events
+WHERE event = 'file_download'
+GROUP BY person_id, person.properties.email, person.properties.name
+ORDER BY usage_count DESC, last_used DESC
+LIMIT 5
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Who are the 5 users that have downloaded the most files in the past few weeks? Who are they?",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to find the 5 users who downloaded the most files in the past few weeks:
+- FROM: events table
+- WHERE: event = 'file_download' or similar download event, timestamp in past few weeks
+- GROUP BY: person_id
+- SELECT: person details and count of downloads
+- ORDER BY: download count DESC
+- LIMIT: 5
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT
+    person_id,
+    person.properties.email as email,
+    person.properties.name as name,
+    count(*) as file_download_count,
+    max(timestamp) as last_download
+FROM events
+WHERE event = 'file_download'
+    AND timestamp >= now() - INTERVAL 14 DAY
+GROUP BY person_id, person.properties.email, person.properties.name
+ORDER BY file_download_count DESC
+LIMIT 5
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Show me 10 example person profiles of file download users",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to show 10 example person profiles of file download users:
+- FROM: events table joined with person data
+- WHERE: events related to file download usage
+- GROUP BY: person_id to get unique users
+- SELECT: person profile information (properties)
+- LIMIT: 10
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT DISTINCT
+    person_id,
+    person.properties.email as email,
+    person.properties.name as name,
+    person.properties.company as company,
+    person.properties.role as role,
+    person.properties.created_at as user_created_at,
+    count(*) as file_download_event_count
+FROM events
+WHERE event = 'file_download'
+GROUP BY person_id, person.properties.email, person.properties.name,
+         person.properties.company, person.properties.role, person.properties.created_at
+LIMIT 10
+"""
+                ),
+            ),
+        ),
+    ]
+
     await MaxEval(
         experiment_name="sql",
         task=call_root_for_insight_generation,
@@ -130,216 +432,5 @@ Important points:
             TimeRangeRelevancy(query_kind=NodeKind.HOG_QL_QUERY),
             RetryEfficiency(),
         ],
-        data=[
-            EvalCase(
-                input="Count pageviews by browser, using SQL",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query to count pageviews grouped by browser:
-- FROM: events table
-- WHERE: event = '$pageview'
-- GROUP BY: properties.$browser
-- SELECT: properties.$browser, count(*) as pageview_count
-- ORDER BY: pageview_count DESC
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-SELECT properties.$browser as browser, count(*) as pageview_count
-FROM events
-WHERE event = '$pageview'
-GROUP BY browser
-ORDER BY pageview_count DESC
-LIMIT 100
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="What are the top 10 countries by number of users in the last 7 days? Use SQL",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query to find the top 10 countries by number of users in the last 7 days:
-- FROM: events table
-- WHERE: timestamp >= now() - interval 7 day
-- GROUP BY: properties.$geoip_country_name
-- SELECT: properties.$geoip_country_name, count(distinct person_id) as user_count
-- ORDER BY: user_count DESC
-- LIMIT: 10
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-SELECT properties.$geoip_country_name as country, count(distinct person_id) as user_count
-FROM events
-WHERE timestamp >= now() - interval 7 day
-GROUP BY country
-ORDER BY user_count DESC
-LIMIT 10
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="Show me the average session duration by day of week, using SQL",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query to calculate average session duration by day of week:
-- FROM: sessions table (or equivalent calculation)
-- SELECT: day_of_week(timestamp), avg(session_duration)
-- GROUP BY: day_of_week
-- ORDER BY: day_of_week
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-SELECT toDayOfWeek(timestamp) as day_of_week,
-       avg(session.$session_duration) as avg_session_duration
-FROM events
-GROUP BY day_of_week
-ORDER BY day_of_week
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="What percentage of users who visited the pricing page made a purchase in this month? Use SQL",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query to calculate the percentage of users who visited the pricing page and also made a purchase this month:
-- Subquery 1: Find distinct users who visited pricing page this month
-- Subquery 2: Find distinct users who made a purchase this month
-- Calculate: (Users who did both) / (Users who visited pricing page) * 100
-- Time filter: date_trunc('month', timestamp) = date_trunc('month', now())
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-WITH pricing_visitors AS (
-    SELECT distinct person_id
-    FROM events
-    WHERE event = 'viewed_pricing_page'
-    AND date_trunc('month', timestamp) = date_trunc('month', now())
-),
-purchasers AS (
-    SELECT distinct person_id
-    FROM events
-    WHERE event = 'purchase'
-    AND date_trunc('month', timestamp) = date_trunc('month', now())
-)
-SELECT
-    count(DISTINCT pv.person_id) AS pricing_visitors_count,
-    count(DISTINCT p.person_id) AS purchasers_count,
-    (count(DISTINCT p.person_id) * 100.0 / nullIf(count(DISTINCT pv.person_id), 0)) AS conversion_percentage
-FROM pricing_visitors pv
-LEFT JOIN purchasers p ON pv.person_id = p.person_id
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence? Use SQL",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query to count users who completed the full onboarding sequence:
-- Use window functions to assign sequence numbers to each step
-- Check that users have all three steps in the correct order
-- Count distinct users who completed all steps
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-WITH occurences AS (
-    SELECT
-        person_id,
-        event,
-        timestamp,
-        ROW_NUMBER() OVER (PARTITION BY person_id, event ORDER BY timestamp) as occurrence
-    FROM events
-    WHERE event IN ('viewed_welcome_page', 'created_profile', 'completed_tutorial')
-),
-user_funnel AS (
-    SELECT
-        person_id,
-        maxIf(timestamp, event = 'viewed_welcome_page') as welcome_time,
-        maxIf(timestamp, event = 'created_profile') as profile_time,
-        maxIf(timestamp, event = 'completed_tutorial') as tutorial_time
-    FROM occurences
-    WHERE occurrence = 1
-    GROUP BY person_id
-    HAVING count(distinct event) = 3
-)
-SELECT count(*) as users_completed_onboarding
-FROM user_funnel
-WHERE welcome_time < profile_time AND profile_time < tutorial_time
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence? Use SQL",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query to count users who completed the full onboarding sequence:
-- Aggregate occurences of each event per user
-- Count users who have all three events
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-WITH occurences AS (
-    SELECT person_id, event
-    FROM events
-    WHERE event IN ('viewed_welcome_page', 'created_profile', 'completed_tutorial')
-),
-user_funnel AS (
-    SELECT
-        person_id,
-        count(distinct event) as event_count
-    FROM occurences
-    GROUP BY person_id
-)
-SELECT count(*) as users_completed_onboarding
-FROM user_funnel
-WHERE event_count = 3
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                # As of May 2025, trends insights don't support "number of distinct values of property" math, so we MUST use SQL here
-                input="The number of distinct values of property $browser seen in each of the last 14 days",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Query:
-- Count distinct values of property $browser seen in each of the last 14 days
-""",
-                    query=AssistantHogQLQuery(
-                        query="""
-SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
-FROM events
-WHERE event = '$pageview'
-GROUP BY day
-ORDER BY day
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="Sum up the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
-                expected=PlanAndQueryOutput(
-                    plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
-                    query=AssistantHogQLQuery(
-                        query="""
-SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
-"""
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="Calculate the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
-                expected=PlanAndQueryOutput(
-                    plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
-                    query=AssistantHogQLQuery(
-                        query="""
-SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
-"""
-                    ),
-                ),
-            ),
-        ],
+        data=all_cases,
     )

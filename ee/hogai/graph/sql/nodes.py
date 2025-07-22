@@ -1,6 +1,12 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
+from ee.hogai.graph.sql.prompts import (
+    SQL_EXPRESSIONS_DOCS,
+    SQL_SUPPORTED_AGGREGATIONS_DOCS,
+    SQL_SUPPORTED_FUNCTIONS_DOCS,
+)
+
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ..schema_generator.utils import SchemaGeneratorOutput
@@ -40,14 +46,12 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
 
         prompt = ChatPromptTemplate.from_messages(
             [
-                (
-                    "system",
-                    IDENTITY_MESSAGE
-                    + "\n\n<example_query>\n"
-                    + HOGQL_EXAMPLE_MESSAGE
-                    + "\n</example_query>\n\n"
-                    + SCHEMA_MESSAGE.format(schema_description=schema_description),
-                ),
+                ("system", IDENTITY_MESSAGE),
+                ("system", f"# Expressions guide\n\n{SQL_EXPRESSIONS_DOCS}"),
+                ("system", f"# Supported functions\n\n{SQL_SUPPORTED_FUNCTIONS_DOCS}"),
+                ("system", f"# Supported aggregations\n\n{SQL_SUPPORTED_AGGREGATIONS_DOCS}"),
+                ("system", f"# Example query\n\n{HOGQL_EXAMPLE_MESSAGE}"),
+                ("system", SCHEMA_MESSAGE.format(schema_description=schema_description)),
             ],
             template_format="mustache",
         )
@@ -63,7 +67,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
-                err_msg = f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{result.query[-5:]}".'
+                err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid SQL, or specifically HogQL.'
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
         return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
 

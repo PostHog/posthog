@@ -19,11 +19,12 @@ openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 
-IDENTITY_MESSAGE = """HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. You write HogQL based on a prompt. You don't help with other knowledge.
+IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 
-Clickhouse DOES NOT support the following functions:
-- LAG/LEAD
-
+Notes:
+- ClickHouse DOES NOT support LAG/LEAD
+- count() does not take * as an argument, it's just count()
+- A WHERE clause must be after all the JOIN clauses
 """
 HOGQL_EXAMPLE_MESSAGE = """Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":
 
@@ -53,7 +54,7 @@ Important HogQL differences versus other SQL dialects:
 """
 
 SCHEMA_MESSAGE = """
-This project's SQL schema is:
+## This project's SQL schema
 
 {schema_description}
 
@@ -63,6 +64,32 @@ Note: "persons" means "users" here - instead of a "users" table, we have a "pers
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
+
+<person_id_join_limitation>
+There is a known issue with queries that join multiple events tables where join constraints
+reference person_id fields. The person_id fields are ExpressionFields that expand to
+expressions referencing override tables (e.g., e_all__override). However, these expressions
+are resolved during type resolution (in printer.py) BEFORE lazy table processing begins.
+This creates forward references to override tables that don't exist yet.
+
+Example problematic HogQL:
+    SELECT MAX(e_all.timestamp) AS last_seen
+    FROM events e_dl
+    JOIN persons p ON e_dl.person_id = p.id
+    JOIN events e_all ON e_dl.person_id = e_all.person_id
+
+The join constraint "e_dl.person_id = e_all.person_id" expands to:
+    if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
+    if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+
+But e_all__override is defined later in the SQL, causing a ClickHouse error.
+
+WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between multiple events tables:
+    SELECT MAX(e.timestamp) AS last_seen
+    FROM events e
+    JOIN persons p ON e.person_id = p.id
+    WHERE e.event IN (SELECT event FROM events WHERE ...)
+</person_id_join_limitation>
 """.strip()
 
 CURRENT_QUERY_MESSAGE = (
