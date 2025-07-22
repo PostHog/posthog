@@ -11,17 +11,18 @@ import { forwardRef } from 'react'
 
 export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimitiveProps>(
     ({ className, variant, error, ...rest }, ref): JSX.Element => {
-    // Ensure cursor is at the end of the textarea when it is focused
-    function onFocus(e: React.FocusEvent<HTMLTextAreaElement>): void {
-        e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)
-    }
+        // Ensure cursor is at the end of the textarea when it is focused
+        function onFocus(e: React.FocusEvent<HTMLTextAreaElement>): void {
+            e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)
+        }
 
-    return (
-        <TextareaAutosize
-            ref={ref}
-            onFocus={onFocus}
-            {...rest}
-            className={cn(textInputVariants({ variant, error: !!error }), className)}
-        />
-    )
-})
+        return (
+            <TextareaAutosize
+                ref={ref}
+                onFocus={onFocus}
+                {...rest}
+                className={cn(textInputVariants({ variant, error: !!error }), className)}
+            />
+        )
+    }
+)

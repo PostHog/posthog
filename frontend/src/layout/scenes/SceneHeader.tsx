@@ -66,9 +66,11 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         </ScrollableShadows>
                     )}
 
-                    <div className={cn('flex gap-1 items-center shrink-0', {
-                        'pr-px': !scenePanelIsOverlay,
-                    })}>
+                    <div
+                        className={cn('flex gap-1 items-center shrink-0', {
+                            'pr-px': !scenePanelIsOverlay,
+                        })}
+                    >
                         <div className="contents" ref={setActionsContainer} />
 
                         {scenePanelIsPresent && scenePanelIsOverlay && (
