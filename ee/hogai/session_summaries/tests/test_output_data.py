@@ -2,15 +2,15 @@ from datetime import UTC, datetime
 from typing import Any
 import pytest
 
-from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.output_data import (
+from ee.hogai.session_summaries import SummaryValidationError
+from ee.hogai.session_summaries.session.output_data import (
     RawSessionSummarySerializer,
     calculate_time_since_start,
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
-from ee.session_recordings.session_summary.utils import get_column_index
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata
+from ee.hogai.session_summaries.utils import get_column_index
 
 
 class TestLoadRawSessionSummary:
