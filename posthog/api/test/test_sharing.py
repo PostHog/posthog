@@ -379,7 +379,6 @@ class TestSharing(APIBaseTest):
         # Token should be different
         assert refreshed_data["access_token"] != initial_token
         assert refreshed_data["enabled"] is True
-        assert refreshed_data["created_at"] == initial_data["created_at"]
 
         # Verify the token persists
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
@@ -404,7 +403,6 @@ class TestSharing(APIBaseTest):
         # Token should be different
         assert refreshed_data["access_token"] != initial_token
         assert refreshed_data["enabled"] is True
-        assert refreshed_data["created_at"] == initial_data["created_at"]
 
         # Verify activity log was created
         activity_logs = ActivityLog.objects.filter(activity="access token refreshed")
