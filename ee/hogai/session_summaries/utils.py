@@ -150,25 +150,3 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
         if string:
             total_tokens += len(encoding.encode(string))
     return total_tokens
-
-
-def estimate_tokens_from_template_files(
-    template_paths: list[Path],
-    model: str,
-    data_to_inject: list[str] | None = None,
-) -> int:
-    """Estimate token count for template files WITHOUT rendering them."""
-    template_tokens = 0
-    data_tokens = 0
-    # Estimate tokens from template files (raw, unrendered)
-    template_strings = []
-    for template_path in template_paths:
-        if not template_path.exists():
-            raise FileNotFoundError(f"Template file {template_path} not found")
-        template_content = template_path.read_text()
-        template_strings.append(template_content)
-    template_tokens = estimate_tokens_from_strings(template_strings, model)
-    # Estimate tokens from data to be injected
-    if data_to_inject:
-        data_tokens = estimate_tokens_from_strings(data_to_inject, model)
-    return template_tokens + data_tokens

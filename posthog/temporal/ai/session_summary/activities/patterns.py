@@ -1,9 +1,15 @@
 import asyncio
+import json
 from typing import cast
 from redis import asyncio as aioredis
 import structlog
 import temporalio
-from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO, PATTERNS_ASSIGNMENT_CHUNK_SIZE
+from ee.hogai.session_summaries.constants import (
+    FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
+    PATTERNS_ASSIGNMENT_CHUNK_SIZE,
+    PATTERNS_EXTRACTION_MAX_TOKENS,
+    SESSION_SUMMARIES_SYNC_MODEL,
+)
 from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
@@ -27,6 +33,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
+from ee.hogai.session_summaries.utils import estimate_tokens_from_strings
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -74,6 +81,7 @@ async def _get_session_summaries_str_from_inputs(
     redis_client: aioredis.Redis, inputs: SessionGroupSummaryOfSummariesInputs
 ) -> list[str]:
     """Fetch stringified session summaries for all input sessions from Redis."""
+    # TODO: Optimize as task group
     return [
         await get_data_str_from_redis(
             redis_client=redis_client,
@@ -86,6 +94,64 @@ async def _get_session_summaries_str_from_inputs(
         )
         for single_session_input in inputs.single_session_summaries_inputs
     ]
+
+
+async def _split_session_summaries_into_chunks_for_patterns_extraction(
+    inputs: SessionGroupSummaryOfSummariesInputs,
+    redis_client: aioredis.Redis,
+    model: str = SESSION_SUMMARIES_SYNC_MODEL,
+) -> list[list[str]]:
+    """
+    Split LLM input data into chunks based on token count.
+
+    :param session_summaries_str: List of session summaries inputs to get summaries from Redis.
+    :param redis_client: Redis client to get summaries from.
+    :param model: Model to use for token estimation.
+    :return: List of lists, where each inner list contains the indices of sessions that should be processed together in one chunk.
+    """
+    if not inputs.single_session_summaries_inputs:
+        return []
+    # Calculate token count for the prompt templates, providing empty context
+    prompt = generate_session_group_patterns_extraction_prompt(
+        session_summaries_str=[""], extra_summary_context=inputs.extra_summary_context
+    )
+    # Estimate base template tokens (without session summaries)
+    base_template_tokens = estimate_tokens_from_strings(
+        strings=[prompt.system_prompt, prompt.patterns_prompt], model=model
+    )
+    # Get session summaries from Redis
+    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Ensure we got all the summaries, as it's crucial to keep the order of sessions to match them with ids
+    if len(session_summaries_str) != len(inputs.single_session_summaries_inputs):
+        raise ValueError(
+            f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(session_summaries_str)}, when splitting into chunks for patterns extraction"
+        )
+    # Remove excessive content from summaries for token estimation, and convert to strings
+    intermediate_session_summaries_str = [
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary)) for summary in session_summaries_str
+    ]
+    # Calculate tokens for each session summary
+    session_tokens = [estimate_tokens_from_strings([summary], model) for summary in intermediate_session_summaries_str]
+    # Create chunks ensuring each stays under the token limit
+    chunks = []
+    current_chunk: list[str] = []
+    current_tokens = base_template_tokens
+    for summary_input, summary_tokens in zip(inputs.single_session_summaries_inputs, session_tokens):
+        session_id = summary_input.session_id
+        # Check if adding this session would exceed the limit
+        if current_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
+            # If current chunk is not empty, save it and start a new one
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = []
+                current_tokens = base_template_tokens
+        # Add session id to current chunk
+        current_chunk.append(session_id)
+        current_tokens += summary_tokens
+    # Don't forget the last chunk
+    if current_chunk:
+        chunks.append(current_chunk)
+    return chunks
 
 
 @temporalio.activity.defn
@@ -110,7 +176,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
         # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
         intermediate_session_summaries_str = [
-            remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+            json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
             for session_summary_str in session_summaries_str
         ]
         patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
@@ -230,11 +296,12 @@ async def assign_events_to_patterns_activity(
         session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
         # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
         intermediate_session_summaries_str = [
-            remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+            json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
             for session_summary_str in session_summaries_str
         ]
         # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
         # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
+        # TODO: Decide if to split not by number of sessions, but by tokens, as with patterns extraction
         session_summaries_chunks_str = [
             intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
             for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
