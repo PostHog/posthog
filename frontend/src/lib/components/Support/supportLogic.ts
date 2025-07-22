@@ -486,7 +486,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
