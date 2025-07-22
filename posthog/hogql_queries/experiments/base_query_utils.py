@@ -18,6 +18,7 @@ from posthog.schema import (
     FunnelMathType,
     PropertyMathType,
 )
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 
 
 def get_data_warehouse_metric_source(
@@ -67,6 +68,13 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
 
     elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
         return ast.Field(chain=["$session_id"])
+
+    elif metric.source.math == ExperimentMetricMathType.HOGQL and metric.source.math_hogql is not None:
+        # Extract the inner expression from the HogQL expression
+        # This handles cases like "sum(properties.revenue - properties.expense)"
+        # where we need to return just the inner part for aggregation
+        _, inner_expr = extract_aggregation_and_inner_expr(metric.source.math_hogql)
+        return inner_expr
 
     # Else, we default to count
     # We then just emit 1 so we can easily sum it up

@@ -1,7 +1,8 @@
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
-import { COLORS } from '../shared/colors'
-import { formatTickValue, getNiceTickValues, valueToXCoordinate } from '../shared/utils'
+import { getNiceTickValues } from '../shared/utils'
 import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
+import { useAxisScale } from './useAxisScale'
+import { TickLabels } from './TickLabels'
 
 /**
  * ConfidenceIntervalAxis renders the horizontal axis for experiment confidence interval charts, rendered at the top of the metrics results view.
@@ -16,6 +17,7 @@ import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } fr
  */
 export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number }): JSX.Element {
     const tickValues = getNiceTickValues(chartRadius)
+    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
     return (
@@ -38,24 +40,14 @@ export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number })
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
                     >
-                        {tickValues.map((value) => {
-                            const x = valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-                            return (
-                                <g key={value}>
-                                    <text
-                                        x={x}
-                                        y={TICK_PANEL_HEIGHT / 2}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={TICK_FONT_SIZE}
-                                        fill={COLORS.TICK_TEXT_COLOR}
-                                        fontWeight="600"
-                                    >
-                                        {formatTickValue(value)}
-                                    </text>
-                                </g>
-                            )
-                        })}
+                        <TickLabels
+                            tickValues={tickValues}
+                            scale={scale}
+                            y={TICK_PANEL_HEIGHT / 2}
+                            viewBoxWidth={VIEW_BOX_WIDTH}
+                            fontSize={TICK_FONT_SIZE}
+                            fontWeight="600"
+                        />
                     </svg>
                 </div>
             </div>

@@ -652,7 +652,8 @@ export class DB {
                     .reverse()
                     .map(({ distinctId }) => distinctId),
             ],
-            'insertPerson'
+            'insertPerson',
+            'warn'
         )
         const person = this.toPerson(rows[0])
 
@@ -917,7 +918,8 @@ export class DB {
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
-            'addDistinctId'
+            'addDistinctId',
+            'warn'
         )
 
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId

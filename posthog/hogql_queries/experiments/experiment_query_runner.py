@@ -5,11 +5,13 @@ from zoneinfo import ZoneInfo
 
 from posthog.exceptions_capture import capture_exception
 from rest_framework.exceptions import ValidationError
+import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import InternalHogQLError, ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
@@ -25,6 +27,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_metric_value,
     is_continuous,
 )
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     build_common_exposure_conditions,
     get_entity_key,
@@ -86,6 +89,11 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
+logger = structlog.get_logger(__name__)
+
+
+MAX_EXECUTION_TIME = 600
+
 
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
@@ -98,7 +106,10 @@ class ExperimentQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        try:
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        except Experiment.DoesNotExist:
+            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
@@ -405,24 +416,48 @@ class ExperimentQueryRunner(QueryRunner):
                 )
 
             case _:
-                raise ValueError(f"Unsupported metric: {self.metric}")
+                raise ValidationError(f"Unsupported metric: {self.metric}")
 
     def _get_metric_aggregation_expr(self) -> ast.Expr:
-        match self.metric:
-            case ExperimentMeanMetric() as metric:
-                match metric.source.math:
-                    case ExperimentMetricMathType.UNIQUE_SESSION:
-                        return parse_expr("toFloat(count(distinct metric_events.value))")
-                    case ExperimentMetricMathType.MIN:
-                        return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
-                    case ExperimentMetricMathType.MAX:
-                        return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
-                    case ExperimentMetricMathType.AVG:
-                        return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
-                    case _:
-                        return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
-            case ExperimentFunnelMetric():
-                return funnel_evaluation_expr(self.team, self.metric, events_alias="metric_events")
+        try:
+            match self.metric:
+                case ExperimentMeanMetric() as metric:
+                    match metric.source.math:
+                        case ExperimentMetricMathType.UNIQUE_SESSION:
+                            return parse_expr("toFloat(count(distinct metric_events.value))")
+                        case ExperimentMetricMathType.MIN:
+                            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+                        case ExperimentMetricMathType.MAX:
+                            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+                        case ExperimentMetricMathType.AVG:
+                            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+                        case ExperimentMetricMathType.HOGQL:
+                            # For HogQL expressions, extract the aggregation function if present
+                            if metric.source.math_hogql is not None:
+                                aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
+                                if aggregation_function:
+                                    # Use the extracted aggregation function
+                                    return parse_expr(
+                                        f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))"
+                                    )
+                            # Default to sum if no aggregation function is found
+                            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+                        case _:
+                            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+                case ExperimentFunnelMetric():
+                    return funnel_evaluation_expr(self.team, self.metric, events_alias="metric_events")
+        except InternalHogQLError as e:
+            logger.error(
+                "Internal HogQL error in metric aggregation expression",
+                experiment_id=self.experiment.id,
+                metric_type=self.metric.__class__.__name__,
+                metric_math=getattr(getattr(self.metric, "source", None), "math", None),
+                error_type=type(e).__name__,
+                exc_info=True,
+            )
+            raise ValidationError("Invalid metric configuration for experiment analysis.")
+        except ExposedHogQLError:
+            raise
 
     def _get_metrics_aggregated_per_entity_query(
         self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
@@ -584,14 +619,33 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
-        response = execute_hogql_query(
-            query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=180),
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="ExperimentQuery",
+                query=self._get_experiment_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=create_default_modifiers_for_team(self.team),
+                settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
+            )
+        except InternalHogQLError as e:
+            # Log essential context for debugging (no PII/secrets)
+            logger.error(
+                "Internal HogQL error in experiment query execution",
+                experiment_id=self.experiment.id,
+                metric_type=self.metric.__class__.__name__,
+                metric_kind=getattr(self.metric, "kind", None),
+                metric_math=getattr(getattr(self.metric, "source", None), "math", None),
+                error_type=type(e).__name__,
+                error_start=getattr(e, "start", None),
+                error_end=getattr(e, "end", None),
+                exc_info=True,
+            )
+            # Convert to user-friendly error
+            raise ValidationError("Unable to execute experiment analysis. Please check your experiment configuration.")
+        except ExposedHogQLError:
+            # Let these bubble up - they're already handled properly by the error exposure logic
+            raise
 
         # Remove the $multiple variant only when using exclude handling
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
@@ -707,7 +761,7 @@ class ExperimentQueryRunner(QueryRunner):
                         variants = funnel_variants
 
                     case _:
-                        raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
+                        raise ValidationError(f"Unsupported metric type: {self.metric.metric_type}")
 
             return ExperimentQueryResponse(
                 kind="ExperimentQuery",
@@ -759,7 +813,7 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError(detail=json.dumps(errors))
 
     def to_query(self) -> ast.SelectQuery:
-        raise ValueError(f"Cannot convert source query of type {self.query.metric.kind} to query")
+        raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")
 
     # Cache results for 24 hours
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:

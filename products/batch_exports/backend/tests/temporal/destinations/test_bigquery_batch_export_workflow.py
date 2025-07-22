@@ -12,6 +12,7 @@ import warnings
 import pyarrow as pa
 import pytest
 import pytest_asyncio
+import temporalio.common
 from django.test import override_settings
 from google.cloud import bigquery
 from temporalio import activity
@@ -1095,6 +1096,7 @@ async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
         task_queue="test",
         task_token=b"test",
         workflow_namespace="default",
+        priority=temporalio.common.Priority(priority_key=None),
     )
 
     activity_environment.info = fake_info
@@ -1188,6 +1190,7 @@ async def test_insert_into_bigquery_activity_completes_range(
         task_queue="test",
         task_token=b"test",
         workflow_namespace="default",
+        priority=temporalio.common.Priority(priority_key=None),
     )
 
     activity_environment.info = fake_info
