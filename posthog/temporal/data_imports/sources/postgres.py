@@ -36,7 +36,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
 
         return ExternalDataSource.Type.POSTGRES
 
-    def get_schemas(self, config: PostgresSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: PostgresSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
 
         # TODO: refactor get_postgres_schemas to not explictly set up ssh tunnel
@@ -68,18 +68,17 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
 
         return schemas
 
-    def validate_credentials(self, config: PostgresSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: PostgresSourceConfig, team_id: int) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
-        # TODO: get team_id in here
         valid_host, host_errors = self.is_database_host_valid(config.host, team_id, config.ssh_tunnel.enabled)
         if not valid_host:
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config)
+            self.get_schemas(config, team_id)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():

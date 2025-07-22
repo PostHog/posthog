@@ -17,8 +17,8 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.GOOGLEADS
 
-    def get_schemas(self, config: GoogleAdsSourceConfig) -> list[SourceSchema]:
-        # TODO: fix the below, and use OAuthMixin
+    def get_schemas(self, config: GoogleAdsSourceConfig, team_id: int) -> list[SourceSchema]:
+        # TODO: fix the below
         google_ads_schemas = get_google_ads_schemas(
             google_ads_config,
             team_id,
@@ -39,7 +39,7 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig], OAuthMixin):
             for endpoint in google_ads_schemas.keys()
         ]
 
-    def validate_credentials(self, config: GoogleAdsSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: GoogleAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
         return True, None
 
     def source_for_pipeline(self, config: GoogleAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:

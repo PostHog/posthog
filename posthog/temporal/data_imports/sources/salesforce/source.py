@@ -13,7 +13,7 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.SALESFORCE
 
-    def get_schemas(self, config: SalesforceSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: SalesforceSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

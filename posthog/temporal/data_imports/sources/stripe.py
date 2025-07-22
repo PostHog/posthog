@@ -22,7 +22,7 @@ class StripeSource(BaseSource[StripeSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.STRIPE
 
-    def get_schemas(self, config: StripeSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: StripeSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -33,7 +33,7 @@ class StripeSource(BaseSource[StripeSourceConfig]):
             for endpoint in STRIPE_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: StripeSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: StripeSourceConfig, team_id: int) -> tuple[bool, str | None]:
         try:
             if validate_stripe_credentials(config.stripe_secret_key):
                 return True, None

@@ -383,7 +383,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        source_schemas = source.get_schemas(source_config)
+        source_schemas = source.get_schemas(source_config, self.team_id)
         schema_names = [schema.name for schema in source_schemas]
 
         payload_schemas = payload.get("schemas", None)
@@ -545,14 +545,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # TODO: Validate the config object itself? Possible? idk
 
-        credentials_valid, credentials_error = source.validate_credentials(source_config)
+        credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
-        schemas = source.get_schemas(source_config)
+        schemas = source.get_schemas(source_config, self.team_id)
 
         data = [
             {

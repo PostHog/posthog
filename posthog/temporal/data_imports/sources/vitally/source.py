@@ -20,7 +20,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.VITALLY
 
-    def get_schemas(self, config: VitallySourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: VitallySourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -31,7 +31,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
             for endpoint in VITALLY_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: VitallySourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: VitallySourceConfig, team_id: int) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if config.region.selection == "US" and not subdomain_regex.match(config.region.subdomain):
             return False, "Vitally subdomain is incorrect"

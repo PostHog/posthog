@@ -23,7 +23,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
 
         return ExternalDataSource.Type.MYSQL
 
-    def get_schemas(self, config: MySQLSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: MySQLSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
 
         # TODO: refactor get_mysql_schemas to not explictly set up ssh tunnel
@@ -54,18 +54,17 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
 
         return schemas
 
-    def validate_credentials(self, config: MySQLSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: MySQLSourceConfig, team_id: int) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
-        # TODO: get team_id in here
         valid_host, host_errors = self.is_database_host_valid(config.host, team_id, config.ssh_tunnel.enabled)
         if not valid_host:
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config)
+            self.get_schemas(config, team_id)
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,

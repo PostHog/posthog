@@ -25,7 +25,7 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
 
         return ExternalDataSource.Type.MONGODB
 
-    def get_schemas(self, config: MongoDBSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:
         # TODO: fix config in mongo source
         mongo_schemas = get_mongo_schemas(config)
 
@@ -52,7 +52,7 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             for name, incremental_fields in filtered_results
         ]
 
-    def validate_credentials(self, config: MongoDBSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: MongoDBSourceConfig, team_id: int) -> tuple[bool, str | None]:
         from pymongo.errors import OperationFailure
 
         try:
@@ -64,13 +64,12 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             return False, "Database name is required in connection string"
 
         if not connection_params.get("is_srv"):
-            # TODO: get team_id in here
             valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id, False)
             if not valid_host:
                 return False, host_errors
 
         try:
-            schemas = self.get_schemas(config)
+            schemas = self.get_schemas(config, team_id)
             if len(schemas) == 0:
                 return False, "No collections found in database"
         except OperationFailure:

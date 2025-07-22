@@ -17,7 +17,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.BIGQUERY
 
-    def get_schemas(self, config: BigQuerySourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: BigQuerySourceConfig, team_id: int) -> list[SourceSchema]:
         # TODO: convert pipeline/bigquery to use new config
         bq_schemas = get_bigquery_schemas(
             config,
@@ -41,7 +41,7 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
             for table_name, columns in filtered_results
         ]
 
-    def validate_credentials(self, config: BigQuerySourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: BigQuerySourceConfig, team_id: int) -> tuple[bool, str | None]:
         if validate_bigquery_credentials(
             config.dataset_id,
             {

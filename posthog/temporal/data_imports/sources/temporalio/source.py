@@ -13,7 +13,7 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.TEMPORALIO
 
-    def get_schemas(self, config: TemporalIOSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: TemporalIOSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

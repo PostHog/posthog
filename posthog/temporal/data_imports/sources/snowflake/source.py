@@ -33,7 +33,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
 
         return ExternalDataSource.Type.SNOWFLAKE
 
-    def get_schemas(self, config: SnowflakeSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: SnowflakeSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
 
         # TODO: fix config in snowflake source
@@ -64,7 +64,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
 
         return schemas
 
-    def validate_credentials(self, config: SnowflakeSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: SnowflakeSourceConfig, team_id: int) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
 
@@ -74,7 +74,7 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
             return False, "Missing required parameters: passphrase, private key"
 
         try:
-            self.get_schemas(config)
+            self.get_schemas(config, team_id)
         except (ProgrammingError, DatabaseError, ForbiddenError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():

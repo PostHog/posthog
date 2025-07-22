@@ -16,7 +16,7 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.GOOGLESHEETS
 
-    def get_schemas(self, config: GoogleSheetsSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: GoogleSheetsSourceConfig, team_id: int) -> list[SourceSchema]:
         # TODO: fix the below
         sheets = get_google_sheets_schemas(config)
 
@@ -35,7 +35,7 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
 
         return schemas
 
-    def validate_credentials(self, config: GoogleSheetsSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: GoogleSheetsSourceConfig, team_id: int) -> tuple[bool, str | None]:
         return True, None
 
     def source_for_pipeline(self, config: GoogleSheetsSourceConfig, inputs: SourceInputs) -> SourceResponse:

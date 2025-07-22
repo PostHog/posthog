@@ -17,7 +17,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.CHARGEBEE
 
-    def get_schemas(self, config: ChargebeeSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -28,7 +28,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: ChargebeeSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: ChargebeeSourceConfig, team_id: int) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if not subdomain_regex.match(config.site_name):
             return False, "Chargebee site name is incorrect"

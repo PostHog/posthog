@@ -32,7 +32,7 @@ class BaseSource(ABC, Generic[ConfigType]):
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         raise NotImplementedError()
 
-    def get_schemas(self, config: ConfigType) -> list[SourceSchema]:
+    def get_schemas(self, config: ConfigType, team_id: int) -> list[SourceSchema]:
         raise NotImplementedError()
 
     def get_source_config(self) -> SourceConfig:
@@ -44,6 +44,6 @@ class BaseSource(ABC, Generic[ConfigType]):
         return self.config_class.from_dict(job_inputs)
 
     @abstractmethod
-    def validate_credentials(self, config: ConfigType) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: ConfigType, team_id: int) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None

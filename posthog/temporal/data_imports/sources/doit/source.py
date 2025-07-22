@@ -13,7 +13,7 @@ class DoItSource(BaseSource[DoItSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.DOIT
 
-    def get_schemas(self, config: DoItSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: DoItSourceConfig, team_id: int) -> list[SourceSchema]:
         # TODO: fix the below
         reports = doit_list_reports(doit_config)
 
@@ -27,7 +27,7 @@ class DoItSource(BaseSource[DoItSourceConfig]):
             for name, _id in reports
         ]
 
-    def validate_credentials(self, config: DoItSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: DoItSourceConfig, team_id: int) -> tuple[bool, str | None]:
         return True, None
 
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:

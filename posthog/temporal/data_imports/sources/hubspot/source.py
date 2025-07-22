@@ -15,7 +15,7 @@ class HubspotSource(BaseSource[HubspotSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.HUBSPOT
 
-    def get_schemas(self, config: HubspotSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: HubspotSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,

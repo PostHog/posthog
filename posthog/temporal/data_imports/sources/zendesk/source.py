@@ -20,7 +20,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.ZENDESK
 
-    def get_schemas(self, config: ZendeskSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: ZendeskSourceConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -32,7 +32,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
             + [resource for resource, endpoint_url, data_key, cursor_paginated in SUPPORT_ENDPOINTS]
         ]
 
-    def validate_credentials(self, config: ZendeskSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: ZendeskSourceConfig, team_id: int) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
         if not subdomain_regex.match(config.subdomain):
             return False, "Zendesk subdomain is incorrect"
