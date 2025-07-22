@@ -7,13 +7,14 @@ import type { HogFlowAction, HogFlowActionNode } from '../types'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 import { NODE_WIDTH, NODE_HEIGHT } from '../constants'
 
-export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
+export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone' | 'edge_deletion_button'
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
     dropzone: DropzoneNode,
+    edge_deletion_button: EdgeDeletionButtonNode, // Special node for edge deletion button
     // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
     function: HogFlowActionNode,
@@ -55,6 +56,22 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
                 <IconPlus className="text-sm text-primary" />
             </div>
+        </div>
+    )
+}
+
+function EdgeDeletionButtonNode(): JSX.Element {
+    const { deleteSelectedEdge } = useActions(hogFlowEditorLogic)
+
+    return (
+        <div
+            className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary cursor-pointer hover:bg-surface-secondary transition-all"
+            onClick={(e) => {
+                e.stopPropagation()
+                deleteSelectedEdge()
+            }}
+        >
+            <IconX className="text-xs text-muted" />
         </div>
     )
 }

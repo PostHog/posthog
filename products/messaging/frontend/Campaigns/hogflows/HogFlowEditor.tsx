@@ -26,11 +26,13 @@ import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 function HogFlowEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges, dropzoneNodes } = useValues(hogFlowEditorLogic)
+    const { nodes, edges, dropzoneNodes, edgeDeletionNodes } = useValues(hogFlowEditorLogic)
+
     const {
         onEdgesChange,
         onNodesChange,
         setSelectedNodeId,
+        setSelectedEdgeId,
         setReactFlowInstance,
         onNodesDelete,
         onEdgesDelete,
@@ -53,7 +55,7 @@ function HogFlowEditorContent(): JSX.Element {
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<HogFlowActionNode, Edge>
                 fitView
-                nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
+                nodes={[...nodes, ...dropzoneNodes, ...edgeDeletionNodes]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -64,11 +66,15 @@ function HogFlowEditorContent(): JSX.Element {
                 onDragOver={onDragOver}
                 onConnect={onConnect}
                 onDrop={onDrop}
+                onEdgeClick={(_, edge) => edge.selectable && setSelectedEdgeId(edge.id)}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
                 nodesDraggable={true}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
-                onPaneClick={() => setSelectedNodeId(null)}
+                onPaneClick={() => {
+                    setSelectedNodeId(null)
+                    setSelectedEdgeId(null)
+                }}
                 connectionLineType={ConnectionLineType.SmoothStep}
                 elementsSelectable={true}
                 nodesConnectable={true}

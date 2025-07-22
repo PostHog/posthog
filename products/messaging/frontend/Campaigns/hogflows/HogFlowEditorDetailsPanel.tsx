@@ -23,7 +23,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
         const incomingNodes = getIncomers(selectedNode, nodes, edges)
         const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
 
-        if (['trigger', 'exit'].includes(selectedNode.data.type)) {
+        if (['trigger', 'exit'].includes(selectedNode?.data.type)) {
             // Trigger and exit nodes cannot be deleted
             return false
         }
@@ -40,7 +40,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
         return new Set(outgoingNodes.map((node) => node.id)).size === 1
     }
 
-    const action = selectedNode.data
+    const action = selectedNode?.data
     const Step = getHogFlowStep(action.type)
 
     return (

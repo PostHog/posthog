@@ -54,6 +54,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(required=False, default=dict)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
+    position = serializers.JSONField(required=False, default=dict)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...

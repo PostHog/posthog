@@ -21,7 +21,7 @@ import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 import type { DragEvent } from 'react'
-import { subscriptions } from 'node_modules/kea-subscriptions/lib'
+import { subscriptions } from 'kea-subscriptions'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}_${edge.type}${edge.index === undefined ? '' : `_${edge.index}`}->${edge.to}`.trim()
@@ -36,7 +36,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         values: [campaignLogic(props), ['campaign', 'edgesByActionId']],
         actions: [
             campaignLogic(props),
-            ['setCampaignInfo', 'setCampaignActionConfig', 'setCampaignAction', 'setCampaignActionEdges'],
+            [
+                'setCampaignInfo',
+                'setCampaignActionConfig',
+                'setCampaignAction',
+                'setCampaignActionEdges',
+                'setCampaignValues',
+            ],
         ],
     })),
     actions({
@@ -46,8 +52,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onEdgesDelete: (deleted: Edge[]) => ({ deleted }),
         setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setDropzoneNodes: (dropzoneNodes: Node<{ edge: Edge }>[]) => ({ dropzoneNodes }),
+        setEdgeDeletionNodes: (edgeDeletionNodes: Node<{ edge: Edge }>[]) => ({ edgeDeletionNodes }),
+        deleteSelectedEdge: () => ({}),
         setEdges: (edges: Edge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        setSelectedEdgeId: (selectedEdgeId: string | null) => ({ selectedEdgeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
             reactFlowInstance,
@@ -90,6 +99,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 setDropzoneNodes: (_, { dropzoneNodes }) => dropzoneNodes,
             },
         ],
+        edgeDeletionNodes: [
+            [] as Node<{ edge: Edge }>[],
+            {
+                setEdgeDeletionNodes: (_, { edgeDeletionNodes }) => edgeDeletionNodes,
+            },
+        ],
         highlightedDropzoneNodeId: [
             null as string | null,
             {
@@ -106,6 +121,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             null as string | null,
             {
                 setSelectedNodeId: (_, { selectedNodeId }) => selectedNodeId,
+            },
+        ],
+        selectedEdgeId: [
+            null as string | null,
+            {
+                setSelectedEdgeId: (_, { selectedEdgeId }) => selectedEdgeId,
             },
         ],
 
@@ -461,6 +482,50 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions: values.campaign.actions,
                 edges: [...values.campaign.edges, newEdge],
             })
+        },
+
+        setSelectedEdgeId: ({ selectedEdgeId }) => {
+            const { nodes, edges } = values
+            const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId)
+            if (!selectedEdge) {
+                actions.setEdgeDeletionNodes([])
+                return
+            }
+
+            const sourceNode = nodes.find((n) => n.id === selectedEdge.source)
+            const targetNode = nodes.find((n) => n.id === selectedEdge.target)
+
+            if (sourceNode && targetNode) {
+                const sourceHandle = sourceNode.handles?.find((h) => h.id === selectedEdge.sourceHandle)
+                const targetHandle = targetNode.handles?.find((h) => h.id === selectedEdge.targetHandle)
+
+                const [, labelX, labelY] = getSmoothStepPath({
+                    sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
+                    sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
+                    targetX: targetNode.position.x + (targetHandle?.x || 0),
+                    targetY: targetNode.position.y + (targetHandle?.y || 0),
+                    sourcePosition: sourceHandle?.position || Position.Bottom,
+                    targetPosition: targetHandle?.position || Position.Top,
+                })
+
+                actions.setEdgeDeletionNodes([
+                    {
+                        id: `${selectedEdge.id}_deletion_button`,
+                        type: 'edge_deletion_button',
+                        position: { x: labelX + 10, y: labelY - 10 },
+                        draggable: false,
+                        selectable: false,
+                    },
+                ])
+            }
+        },
+
+        deleteSelectedEdge: () => {
+            const selectedEdge = values.edges.find((edge) => edge.id === values.selectedEdgeId)
+            if (selectedEdge) {
+                actions.setSelectedEdgeId(null)
+                actions.onEdgesDelete([selectedEdge])
+            }
         },
     })),
     subscriptions(({ actions }) => ({
