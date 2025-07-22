@@ -86,7 +86,7 @@ export type MailjetEmailRequest = {
     html: string
 }
 
-export class MessagingMailjetManagerService {
+export class EmailService {
     constructor(private hub: Hub) {}
 
     private validateEmailDomain(integration: IntegrationType, email: string): string | undefined {

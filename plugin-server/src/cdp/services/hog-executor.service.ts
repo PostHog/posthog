@@ -30,7 +30,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
-import { MessagingMailjetManagerService } from './messaging/mailjet-manager.service'
+import { EmailService } from './messaging/email.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -94,11 +94,11 @@ export type HogExecutorExecuteOptions = {
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
-    private emailService: MessagingMailjetManagerService
+    private emailService: EmailService
 
     constructor(private hub: Hub) {
         this.hogInputsService = new HogInputsService(hub)
-        this.emailService = new MessagingMailjetManagerService(hub)
+        this.emailService = new EmailService(hub)
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 

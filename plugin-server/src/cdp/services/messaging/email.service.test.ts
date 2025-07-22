@@ -8,10 +8,10 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
-import { MessagingMailjetManagerService } from './mailjet-manager.service'
+import { EmailService } from './email.service'
 
-describe('MessagingMailjetManagerService', () => {
-    let service: MessagingMailjetManagerService
+describe('EmailService', () => {
+    let service: EmailService
     let hub: Hub
     const secretKey = 'test-secret-key'
 
@@ -62,7 +62,7 @@ describe('MessagingMailjetManagerService', () => {
             MAILJET_SECRET_KEY: 'mailjet-secret-key',
             MAILJET_PUBLIC_KEY: 'mailjet-public-key',
         })
-        service = new MessagingMailjetManagerService(hub)
+        service = new EmailService(hub)
 
         mockFetch.mockClear()
     })
