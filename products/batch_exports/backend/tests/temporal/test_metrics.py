@@ -140,6 +140,9 @@ async def test_interceptor_calls_histogram_metrics(
             name="batch_exports_workflow_interval_execution_latency", description=None, unit="ms"
         )
 
+        number_of_record_calls = len(
+            mocked_meter.return_value.create_histogram_timedelta.return_value.record.mock_calls
+        )
         assert (
-            len(mocked_meter.return_value.create_histogram_timedelta.return_value.record.mock_calls) == 2
-        ), "expected to have recorded two metrics: for workflow and activity execution latency"
+            number_of_record_calls == 2
+        ), f"expected to have recorded two metrics: for workflow and activity execution latency, but only found {number_of_record_calls}"
