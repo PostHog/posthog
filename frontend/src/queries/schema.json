@@ -22129,31 +22129,16 @@
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
-                "autoDisappear": {
-                    "type": "boolean"
-                },
                 "backgroundColor": {
                     "type": "string"
                 },
                 "borderColor": {
                     "type": "string"
                 },
-                "borderRadius": {
+                "buttonColor": {
                     "type": "string"
                 },
-                "boxPadding": {
-                    "type": "string"
-                },
-                "boxShadow": {
-                    "type": "string"
-                },
-                "disabledButtonOpacity": {
-                    "type": "string"
-                },
-                "displayThankYouMessage": {
-                    "type": "boolean"
-                },
-                "fontFamily": {
+                "buttonTextColor": {
                     "type": "string"
                 },
                 "inputBackground": {
@@ -22177,17 +22162,11 @@
                 "shuffleQuestions": {
                     "type": "boolean"
                 },
-                "submitButtonColor": {
-                    "type": "string"
-                },
-                "submitButtonText": {
-                    "type": "string"
-                },
-                "submitButtonTextColor": {
-                    "type": "string"
-                },
                 "surveyPopupDelaySeconds": {
                     "type": "number"
+                },
+                "textColor": {
+                    "type": "string"
                 },
                 "textSubtleColor": {
                     "type": "string"
@@ -22231,14 +22210,14 @@
                 "appearance": {
                     "$ref": "#/definitions/SurveyAppearanceSchema"
                 },
+                "archived": {
+                    "type": "boolean"
+                },
                 "conditions": {
                     "$ref": "#/definitions/SurveyDisplayConditionsSchema"
                 },
                 "description": {
                     "type": "string"
-                },
-                "enable_partial_responses": {
-                    "type": "boolean"
                 },
                 "end_date": {
                     "type": "string"
@@ -22271,12 +22250,35 @@
                     "$ref": "#/definitions/SurveyType"
                 }
             },
-            "required": ["name", "description", "type", "questions"],
+            "required": ["name", "type", "questions"],
             "type": "object"
         },
         "SurveyDisplayConditionsSchema": {
             "additionalProperties": false,
             "properties": {
+                "actions": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "values": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {
+                                        "type": "number"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["id", "name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["values"],
+                    "type": "object"
+                },
                 "deviceTypes": {
                     "items": {
                         "type": "string"
@@ -22327,6 +22329,26 @@
         "SurveyQuestionSchema": {
             "additionalProperties": false,
             "properties": {
+                "branching": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "index": {
+                            "type": "number"
+                        },
+                        "responseValues": {
+                            "additionalProperties": {
+                                "type": ["string", "number"]
+                            },
+                            "type": "object"
+                        },
+                        "type": {
+                            "enum": ["next_question", "end", "response_based", "specific_question"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
                 "buttonText": {
                     "type": "string"
                 },
@@ -22349,9 +22371,6 @@
                 "hasOpenChoice": {
                     "type": "boolean"
                 },
-                "id": {
-                    "type": "string"
-                },
                 "link": {
                     "type": "string"
                 },
@@ -22365,13 +22384,9 @@
                     "type": "string"
                 },
                 "scale": {
-                    "enum": [5, 7, 10],
                     "type": "number"
                 },
                 "shuffleOptions": {
-                    "type": "boolean"
-                },
-                "skipSubmitButton": {
                     "type": "boolean"
                 },
                 "type": {

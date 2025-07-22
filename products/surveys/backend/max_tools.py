@@ -76,8 +76,8 @@ class CreateSurveyTool(MaxTool):
                         "details": "No questions provided",
                     }
 
-                # Convert to PostHog survey format
-                survey_data = self._convert_to_posthog_format(result, team)
+                # Apply appearance defaults and prepare survey data
+                survey_data = self._prepare_survey_data(result, team)
 
                 # Set launch date if requested
                 if result.should_launch:
@@ -135,70 +135,20 @@ class CreateSurveyTool(MaxTool):
             capture_exception(e, {"team_id": self._team.id})
             return "Unable to load existing surveys"
 
-    def _convert_to_posthog_format(self, llm_output: SurveyCreationSchema, team: Team) -> dict[str, Any]:
-        """Convert LLM output to PostHog survey format."""
-        # Convert questions to PostHog format
-        questions = []
-        for q in llm_output.questions:
-            question_data = {
-                "type": q.type,
-                "question": q.question,
-                "description": q.description or "",
-                "optional": q.optional,
-                "buttonText": q.buttonText,
-            }
+    def _prepare_survey_data(self, survey_schema: SurveyCreationSchema, team: Team) -> dict[str, Any]:
+        """Prepare survey data with appearance defaults applied."""
+        # Convert schema to dict, removing should_launch field
+        if hasattr(survey_schema, "model_dump"):
+            survey_data = survey_schema.model_dump(exclude_unset=True, exclude={"should_launch"})
+        else:
+            survey_data = survey_schema.__dict__.copy()
+            survey_data.pop("should_launch", None)
 
-            # Add type-specific fields
-            if q.type in ["single_choice", "multiple_choice"] and q.choices:
-                question_data["choices"] = q.choices
-            elif q.type == "rating":
-                if q.display:
-                    question_data["display"] = q.display
-                if q.scale:
-                    question_data["scale"] = q.scale
-                if q.lowerBoundLabel:
-                    question_data["lowerBoundLabel"] = q.lowerBoundLabel
-                if q.upperBoundLabel:
-                    question_data["upperBoundLabel"] = q.upperBoundLabel
-            elif q.type == "link" and q.link:
-                question_data["link"] = q.link
+        # Ensure required fields have defaults
+        survey_data.setdefault("archived", False)
+        survey_data.setdefault("description", "")
 
-            # Add skipSubmitButton for rating and single_choice questions
-            if q.type in ["rating", "single_choice"] and q.skipSubmitButton is not None:
-                question_data["skipSubmitButton"] = q.skipSubmitButton
-
-            questions.append(question_data)
-
-        # Build the survey data
-        survey_data = {
-            "name": llm_output.name,
-            "description": llm_output.description,
-            "type": llm_output.type,
-            "questions": questions,
-            "archived": False,
-            "enable_partial_responses": llm_output.enable_partial_responses,
-        }
-
-        # Add conditions if specified
-        if llm_output.conditions:
-            conditions = {}
-            if llm_output.conditions.url:
-                conditions["url"] = llm_output.conditions.url
-                conditions["urlMatchType"] = llm_output.conditions.urlMatchType or "contains"
-            if llm_output.conditions.selector:
-                conditions["selector"] = llm_output.conditions.selector
-            if llm_output.conditions.seenSurveyWaitPeriodInDays:
-                conditions["seenSurveyWaitPeriodInDays"] = llm_output.conditions.seenSurveyWaitPeriodInDays
-            if llm_output.conditions.deviceTypes:
-                conditions["deviceTypes"] = llm_output.conditions.deviceTypes
-            if llm_output.conditions.deviceTypesMatchType:
-                conditions["deviceTypesMatchType"] = llm_output.conditions.deviceTypesMatchType
-
-            if conditions:
-                survey_data["conditions"] = conditions
-
-        # Add appearance settings with proper defaults
-        # Start with the frontend default appearance
+        # Apply appearance defaults
         appearance = DEFAULT_SURVEY_APPEARANCE.copy()
 
         # Override with team-specific defaults if they exist
@@ -206,15 +156,16 @@ class CreateSurveyTool(MaxTool):
         if team_appearance:
             appearance.update(team_appearance)
 
-        # Finally, override with LLM-specified appearance settings
-        if llm_output.appearance:
-            # Convert the appearance object to dict
-            if hasattr(llm_output.appearance, "model_dump"):
-                llm_appearance = llm_output.appearance.model_dump(exclude_unset=False)
-            else:
-                llm_appearance = llm_output.appearance.__dict__
+        # Finally, override with survey-specified appearance settings
+        if survey_data.get("appearance"):
+            survey_appearance = survey_data["appearance"]
+            # Convert to dict if needed
+            if hasattr(survey_appearance, "model_dump"):
+                survey_appearance = survey_appearance.model_dump(exclude_unset=True)
+            elif hasattr(survey_appearance, "__dict__"):
+                survey_appearance = survey_appearance.__dict__
             # Only update fields that are actually set (not None)
-            appearance.update({k: v for k, v in llm_appearance.items() if v is not None})
+            appearance.update({k: v for k, v in survey_appearance.items() if v is not None})
 
         # Always set appearance to ensure surveys have consistent defaults
         survey_data["appearance"] = appearance

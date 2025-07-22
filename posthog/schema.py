@@ -2306,6 +2306,21 @@ class SuggestedQuestionsQueryResponse(BaseModel):
     questions: list[str]
 
 
+class Value(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    name: str
+
+
+class Actions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    values: list[Value]
+
+
 class SurveyMatchType(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -2333,15 +2348,25 @@ class SurveyQuestionDescriptionContentType(StrEnum):
     TEXT = "text"
 
 
+class Type5(StrEnum):
+    NEXT_QUESTION = "next_question"
+    END = "end"
+    RESPONSE_BASED = "response_based"
+    SPECIFIC_QUESTION = "specific_question"
+
+
+class Branching(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    index: Optional[float] = None
+    responseValues: Optional[dict[str, Union[str, float]]] = None
+    type: Type5
+
+
 class Display1(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
-
-
-class Scale(float, Enum):
-    NUMBER_5 = 5
-    NUMBER_7 = 7
-    NUMBER_10 = 10
 
 
 class SurveyQuestionType(StrEnum):
@@ -2592,7 +2617,7 @@ class WebVitalsPercentile(StrEnum):
     P99 = "p99"
 
 
-class Scale1(StrEnum):
+class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
 
@@ -2601,7 +2626,7 @@ class YAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    scale: Optional[Scale1] = None
+    scale: Optional[Scale] = None
     startAtZero: Optional[bool] = Field(default=None, description="Whether the Y axis should start at zero")
 
 
@@ -4303,15 +4328,10 @@ class SurveyAppearanceSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    autoDisappear: Optional[bool] = None
     backgroundColor: Optional[str] = None
     borderColor: Optional[str] = None
-    borderRadius: Optional[str] = None
-    boxPadding: Optional[str] = None
-    boxShadow: Optional[str] = None
-    disabledButtonOpacity: Optional[str] = None
-    displayThankYouMessage: Optional[bool] = None
-    fontFamily: Optional[str] = None
+    buttonColor: Optional[str] = None
+    buttonTextColor: Optional[str] = None
     inputBackground: Optional[str] = None
     maxWidth: Optional[str] = None
     placeholder: Optional[str] = None
@@ -4319,10 +4339,8 @@ class SurveyAppearanceSchema(BaseModel):
     ratingButtonActiveColor: Optional[str] = None
     ratingButtonColor: Optional[str] = None
     shuffleQuestions: Optional[bool] = None
-    submitButtonColor: Optional[str] = None
-    submitButtonText: Optional[str] = None
-    submitButtonTextColor: Optional[str] = None
     surveyPopupDelaySeconds: Optional[float] = None
+    textColor: Optional[str] = None
     textSubtleColor: Optional[str] = None
     thankYouMessageCloseButtonText: Optional[str] = None
     thankYouMessageDescription: Optional[str] = None
@@ -4340,6 +4358,7 @@ class SurveyDisplayConditionsSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actions: Optional[Actions] = None
     deviceTypes: Optional[list[str]] = None
     deviceTypesMatchType: Optional[SurveyMatchType] = None
     seenSurveyWaitPeriodInDays: Optional[float] = None
@@ -4352,20 +4371,19 @@ class SurveyQuestionSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    branching: Optional[Branching] = None
     buttonText: Optional[str] = None
     choices: Optional[list[str]] = None
     description: Optional[str] = None
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
-    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
     question: str
-    scale: Optional[Scale] = None
+    scale: Optional[float] = None
     shuffleOptions: Optional[bool] = None
-    skipSubmitButton: Optional[bool] = None
     type: SurveyQuestionType
     upperBoundLabel: Optional[str] = None
 
@@ -9890,9 +9908,9 @@ class SurveyCreationSchema(BaseModel):
         extra="forbid",
     )
     appearance: Optional[SurveyAppearanceSchema] = None
+    archived: Optional[bool] = None
     conditions: Optional[SurveyDisplayConditionsSchema] = None
-    description: str
-    enable_partial_responses: Optional[bool] = None
+    description: Optional[str] = None
     end_date: Optional[str] = None
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None

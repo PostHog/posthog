@@ -12,28 +12,27 @@ import type {
 export { SurveyMatchType, SurveyPosition, SurveyQuestionType, SurveyType, SurveyWidgetType }
 export type { SurveyQuestionDescriptionContentType }
 
-// Simplified survey creation schema for the LLM tool - avoiding complex nested types
+// Survey creation schema matching PostHog Survey model format
 export interface SurveyCreationSchema {
     name: string
-    description: string
+    description?: string
     type: SurveyType
     questions: SurveyQuestionSchema[]
     should_launch?: boolean
     conditions?: SurveyDisplayConditionsSchema
     appearance?: SurveyAppearanceSchema
-    enable_partial_responses?: boolean
     start_date?: string
     end_date?: string
     responses_limit?: number
     iteration_count?: number
     iteration_frequency_days?: number
+    archived?: boolean
 }
 
-// Simplified question schema
+// Question schema matching PostHog Survey model format
 export interface SurveyQuestionSchema {
     type: SurveyQuestionType
     question: string
-    id?: string
     description?: string
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
@@ -46,56 +45,61 @@ export interface SurveyQuestionSchema {
 
     // Rating questions
     display?: 'number' | 'emoji'
-    scale?: 5 | 7 | 10
+    scale?: number
     lowerBoundLabel?: string
     upperBoundLabel?: string
-    skipSubmitButton?: boolean
 
     // Link questions
     link?: string
+
+    // Branching logic
+    branching?: {
+        type: 'next_question' | 'end' | 'response_based' | 'specific_question'
+        responseValues?: Record<string, string | number>
+        index?: number
+    }
 }
 
-// Simplified display conditions
+// Display conditions matching PostHog Survey model format
 export interface SurveyDisplayConditionsSchema {
     url?: string
-    selector?: string
-    seenSurveyWaitPeriodInDays?: number
     urlMatchType?: SurveyMatchType
+    selector?: string
     deviceTypes?: string[]
     deviceTypesMatchType?: SurveyMatchType
+    seenSurveyWaitPeriodInDays?: number
+    actions?: {
+        values: Array<{
+            id: number
+            name: string
+        }>
+    }
 }
 
-// Simplified appearance schema
+// Appearance schema matching PostHog Survey model format
 export interface SurveyAppearanceSchema {
     backgroundColor?: string
-    submitButtonColor?: string
-    submitButtonText?: string
-    submitButtonTextColor?: string
-    ratingButtonColor?: string
-    ratingButtonActiveColor?: string
     borderColor?: string
-    placeholder?: string
+    position?: SurveyPosition
     whiteLabel?: boolean
-    displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
-    autoDisappear?: boolean
-    position?: SurveyPosition
-    zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     widgetType?: SurveyWidgetType
-    widgetSelector?: string
     widgetLabel?: string
+    widgetSelector?: string
     widgetColor?: string
-    fontFamily?: string
-    disabledButtonOpacity?: string
     maxWidth?: string
-    textSubtleColor?: string
+    zIndex?: string
+    placeholder?: string
     inputBackground?: string
-    boxPadding?: string
-    boxShadow?: string
-    borderRadius?: string
+    buttonColor?: string
+    buttonTextColor?: string
+    textColor?: string
+    textSubtleColor?: string
+    ratingButtonColor?: string
+    ratingButtonActiveColor?: string
 }
