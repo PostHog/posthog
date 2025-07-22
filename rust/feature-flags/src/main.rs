@@ -64,7 +64,7 @@ async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     // Instantiate tracing outputs:
-    //   - stdout with a level configured by the RUST_LOG envvar 
+    //   - stdout with a level configured by the RUST_LOG envvar
     //   - OpenTelemetry if enabled, for levels INFO and higher
     let log_layer = fmt::layer()
         .with_span_events(
@@ -74,7 +74,7 @@ async fn main() {
         .with_thread_ids(true)
         .with_level(true)
         .with_filter(EnvFilter::from_default_env());
-    
+
     let otel_layer = if !config.otel_url.is_empty() {
         Some(
             OpenTelemetryLayer::new(init_tracer(
@@ -87,7 +87,7 @@ async fn main() {
     } else {
         None
     };
-    
+
     tracing_subscriber::registry()
         .with(log_layer)
         .with(otel_layer)
