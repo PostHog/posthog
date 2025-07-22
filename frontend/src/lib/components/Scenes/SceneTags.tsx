@@ -1,9 +1,9 @@
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { Label } from 'lib/ui/Label/Label'
 import { useEffect, useState } from 'react'
 import { ObjectTags } from '../ObjectTags/ObjectTags'
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 type SceneDescriptionProps = {
     onSave: (value: string[]) => void
@@ -34,10 +34,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-tags" className="flex flex-col gap-1">
-            <div className="gap-0">
-                <Label intent="menu" htmlFor="new-tag-input">
-                    Tags
-                </Label>
+            <ScenePanelLabel htmlFor="new-tag-input" title="Tags">
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
@@ -51,7 +48,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
                     autoFocus
                     className="-ml-1.5"
                 />
-            </div>
+            </ScenePanelLabel>
             <div className="flex gap-1">
                 <ButtonPrimitive
                     type="submit"
@@ -77,8 +74,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
             </div>
         </form>
     ) : (
-        <div className="gap-0">
-            <Label intent="menu">Tags</Label>
+        <ScenePanelLabel title="Tags">
             <div className="-ml-1.5">
                 <ButtonPrimitive
                     className="hyphens-auto flex gap-1 items-center"
@@ -95,6 +91,6 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
                     )}
                 </ButtonPrimitive>
             </div>
-        </div>
+        </ScenePanelLabel>
     )
 }

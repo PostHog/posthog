@@ -11,7 +11,7 @@ const labelVariants = cva({
     },
 })
 
-interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
+export interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
     intent?: 'menu'
 }
 

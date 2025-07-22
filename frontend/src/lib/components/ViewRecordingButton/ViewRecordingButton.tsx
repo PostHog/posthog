@@ -43,7 +43,7 @@ export default function ViewRecordingButton({
                     sideIcon={<IconPlayCircle />}
                     {...props}
                 >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
                         <span>{label ? label : 'View recording'}</span>
                         {maybeUnwatchedIndicator}
                     </div>

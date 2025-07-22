@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect, useRef } from 'react'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { Label } from 'lib/ui/Label/Label'
+import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
@@ -62,6 +62,19 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
                 Actions
             </Label>
             <div className="flex flex-col gap-px">{children}</div>
+        </div>
+    )
+}
+
+export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
+    return (
+        <div>
+            <div className="gap-0">
+                <Label intent="menu" {...props}>
+                    {title}
+                </Label>
+                {children}
+            </div>
         </div>
     )
 }

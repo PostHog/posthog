@@ -67,7 +67,7 @@ export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undef
 
 interface StatusIndicatorProps {
     status: IssueStatus
-    intention?: boolean
+    intent?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     withTooltip?: boolean
     className?: string
@@ -76,7 +76,7 @@ interface StatusIndicatorProps {
 export function StatusIndicator({
     status,
     size = 'small',
-    intention = false,
+    intent = false,
     className,
     withTooltip,
 }: StatusIndicatorProps): JSX.Element {
@@ -84,7 +84,7 @@ export function StatusIndicator({
         <LabelIndicator
             intent={STATUS_INTENT[status]}
             size={size}
-            label={intention ? STATUS_INTENT_LABEL[status] : STATUS_LABEL[status]}
+            label={intent ? STATUS_INTENT_LABEL[status] : STATUS_LABEL[status]}
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
             className={className}
         />

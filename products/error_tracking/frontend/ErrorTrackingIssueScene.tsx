@@ -17,7 +17,6 @@ import {} from './components/Indicator'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { Metadata } from './issue/Metadata'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ErrorTrackingIssueScenePanel'
 
@@ -57,8 +56,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 }
             /> */}
 
-            <div className="ErrorTrackingIssue gap-x-4 flex">
-                <div className="flex-1 space-y-2">
+            <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
+                <div className="space-y-2 col-span-3">
                     <ExceptionCard
                         issue={issue ?? undefined}
                         issueLoading={issueLoading}

@@ -1,28 +1,26 @@
 import { SceneName } from 'lib/components/Scenes/SceneName'
 import { useActions, useValues } from 'kea'
-import { ScenePanelActions, ScenePanelCommonActions, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
+import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconAI, IconCheckCircle, IconChevronDown, IconEllipsis, IconRefresh } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
-import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema'
-import { Label } from 'lib/ui/Label/Label'
-import { IssueStatus, LabelIndicator, STATUS_TOOLTIP, StatusIndicator, StatusIntent } from './components/Indicator'
-import { GenericSelect } from './components/GenericSelect'
-import { ISSUE_STATUS_OPTIONS } from './utils'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { StatusIndicator } from './components/Indicator'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+
+// TODO: external references
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
@@ -36,9 +34,11 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 onSave={updateDescription}
                 dataAttr="insight-description"
             />
-            <IssueStatus status={issue.status} />
-            {issue.status === 'active' && <IssueAssignee assignee={issue.assignee} onChange={updateAssignee} />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+
+            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+            {issue.status === 'active' && <IssueAssigneeSelect assignee={issue.assignee} onChange={updateAssignee} />}
+            <IssueExternalReference />
 
             <ScenePanelDivider />
 
@@ -55,20 +55,11 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                     }}
                 />
             </ScenePanelCommonActions>
-
-            <ScenePanelActions>
-                {/* <IssueExternalReference /> */}
-
-                <ButtonPrimitive fullWidth>
-                    <IconAI />
-                    Fix with AI
-                </ButtonPrimitive>
-            </ScenePanelActions>
         </div>
     ) : null
 }
 
-const IssueStatus = ({
+const IssueStatusSelect = ({
     status,
     onChange,
 }: {
@@ -76,47 +67,43 @@ const IssueStatus = ({
     onChange: (status: ErrorTrackingIssue['status']) => void
 }): JSX.Element => {
     return (
-        <div>
-            <div className="gap-0">
-                <Label intent="menu">Status</Label>
+        <ScenePanelLabel title="Status">
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive fullWidth className="flex justify-between">
+                        <StatusIndicator status={status} withTooltip={true} />
+                        <IconChevronDown />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
 
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive fullWidth className="flex justify-between">
-                            <StatusIndicator status={status} withTooltip={true} />
-                            <IconChevronDown />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-
-                    <DropdownMenuContent loop matchTriggerWidth>
-                        {status == 'active' ? (
-                            <>
-                                <DropdownMenuItem asChild>
-                                    <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
-                                        <StatusIndicator status="resolved" intention />
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                    <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
-                                        <StatusIndicator status="suppressed" intention />
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            </>
-                        ) : (
+                <DropdownMenuContent loop matchTriggerWidth>
+                    {status == 'active' ? (
+                        <>
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('active')}>
-                                    <StatusIndicator status="active" intention />
+                                <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
+                                    <StatusIndicator status="resolved" intent />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
-                        )}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-        </div>
+                            <DropdownMenuItem asChild>
+                                <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
+                                    <StatusIndicator status="suppressed" intent />
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </>
+                    ) : (
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive menuItem onClick={() => onChange('active')}>
+                                <StatusIndicator status="active" intent />
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    )}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </ScenePanelLabel>
     )
 }
 
-const IssueAssignee = ({
+const IssueAssigneeSelect = ({
     assignee,
     onChange,
 }: {
@@ -124,25 +111,26 @@ const IssueAssignee = ({
     onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
 }): JSX.Element => {
     return (
-        <div>
-            <div className="gap-0">
-                <Label intent="menu">Assignee</Label>
-                <AssigneeSelect assignee={assignee} onChange={onChange}>
-                    {(anyAssignee) => (
-                        <ButtonPrimitive menuItem fullWidth className="flex justify-between">
-                            <div className="flex items-center">
-                                <AssigneeIconDisplay assignee={anyAssignee} size="small" />
-                                <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
-                            </div>
-                            <IconChevronDown />
-                        </ButtonPrimitive>
-                    )}
-                </AssigneeSelect>
-            </div>
-        </div>
+        <ScenePanelLabel title="Assignee">
+            <AssigneeSelect assignee={assignee} onChange={onChange}>
+                {(anyAssignee) => (
+                    <ButtonPrimitive menuItem fullWidth className="flex justify-between">
+                        <div className="flex items-center">
+                            <AssigneeIconDisplay assignee={anyAssignee} size="small" />
+                            <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
+                        </div>
+                        <IconChevronDown />
+                    </ButtonPrimitive>
+                )}
+            </AssigneeSelect>
+        </ScenePanelLabel>
     )
 }
 
 const IssueExternalReference = (): JSX.Element => {
-    return <div>Add external reference</div>
+    return (
+        <ScenePanelLabel title="External references">
+            <div>References go here</div>
+        </ScenePanelLabel>
+    )
 }

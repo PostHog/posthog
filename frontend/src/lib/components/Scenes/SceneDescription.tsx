@@ -3,6 +3,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 type SceneDescriptionProps = {
     defaultValue: string
@@ -68,8 +69,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
             </div>
         </form>
     ) : (
-        <div className="gap-0">
-            <Label intent="menu">Description</Label>
+        <ScenePanelLabel title="Description">
             <div className="-ml-1.5">
                 <ButtonPrimitive
                     className="hyphens-auto flex gap-1 items-center"
@@ -82,6 +82,6 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
                     {defaultValue || <span className="text-tertiary font-normal">Description (optional)</span>}
                 </ButtonPrimitive>
             </div>
-        </div>
+        </ScenePanelLabel>
     )
 }
