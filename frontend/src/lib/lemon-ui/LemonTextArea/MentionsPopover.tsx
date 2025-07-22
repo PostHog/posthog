@@ -40,7 +40,7 @@ export function MentionsPopover({
                     >
                         <ProfilePicture user={member.user} size="sm" />
                         <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-gray-900 truncate">
+                            <div className="text-sm font-medium text-3000 truncate">
                                 {member.user.first_name} &lt;{member.user.email}&gt;
                             </div>
                         </div>

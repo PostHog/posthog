@@ -131,7 +131,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
                 team_id=annotation.team_id,
                 user=request.user,
                 was_impersonated=is_impersonated_session(request),
-                scope="Replay" if annotation.scope == Annotation.Scope.RECORDING else "annotation",
+                scope="Replay" if annotation.scope == Annotation.Scope.RECORDING.value else "annotation",
                 item_id=annotation.id,
                 activity="tagged_user",
                 detail=Detail(
@@ -143,9 +143,12 @@ class AnnotationSerializer(serializers.ModelSerializer):
                             after={
                                 "tagged_user": tagged_user,
                                 "annotation_scope": annotation.scope,
-                                "annotation_recording_id": str(annotation.recording_id),
+                                "annotation_recording_id": str(annotation.recording_id)
+                                if annotation.recording_id
+                                else None,
                                 "annotation_insight_id": annotation.insight_short_id,
                                 "annotation_dashboard_id": annotation.dashboard_id,
+                                "annotation_content": annotation.content,
                             },
                         )
                     ],

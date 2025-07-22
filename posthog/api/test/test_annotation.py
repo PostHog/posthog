@@ -639,13 +639,11 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json()["detail"] == error
 
-    def test_create_annotation_with_tagged_users(
-        self, _name: str, content: str, input_tagged_users: list[str], expected_tagged_users: list[str]
-    ) -> None:
+    def test_create_annotation_with_tagged_users(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
-                "content": content,
+                "content": "Original content with @a_user",
                 "tagged_users": [str(self.user.uuid)],
                 "scope": "project",
                 "date_marker": "2020-01-01T00:00:00.000000Z",
@@ -658,30 +656,49 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert annotation.tagged_users == [str(self.user.uuid)]
         assert response.json()["tagged_users"] == [str(self.user.uuid)]
 
-    def test_update_annotation_with_tagged_users(
-        self, _name: str, new_content: str, new_tagged_users: list[str], expected_tagged_users: list[str]
-    ) -> None:
+    def test_create_annotation_tagged_users_must_be_valid_uuid(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Original content with @a_user",
+                "tagged_users": ["not a uuid"],
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "“not a uuid” is not a valid UUID.",
+            "type": "validation_error",
+        }
+
+    def test_update_annotation_with_tagged_users(self) -> None:
         annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
             created_by=self.user,
             content="Original content with @old_user",
-            tagged_users=["not a user uuid", str(self.user.uuid)],
+            tagged_users=[str(uuid7()), str(self.user.uuid)],
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/annotations/{annotation.pk}/",
-            {"content": new_content, "tagged_users": [str(self.user.uuid), str(self.user.uuid), "also not a uuid"]},
+            {
+                "content": "Updated content with @old_user",
+                "tagged_users": [str(self.user.uuid), str(self.user.uuid), str(uuid7())],
+            },
         )
-
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
         annotation.refresh_from_db()
         assert annotation.tagged_users == [str(self.user.uuid), str(self.user.uuid)]
         assert response.json()["tagged_users"] == [str(self.user.uuid), str(self.user.uuid)]
 
-    @patch("posthog.api.annotation.log_activity")
-    def test_activity_logging_when_users_tagged_in_annotation(self, mock_log_activity: MagicMock) -> None:
+    def test_activity_logging_when_users_tagged_in_annotation(self) -> None:
         content = "Important annotation with @alice and @bob"
         tagged_users = [str(self.user.uuid), str(self.other_user.uuid)]
 
@@ -697,12 +714,25 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
-        assert annotations_response.status_code == status.HTTP_200_OK
-        assert response.json() == ""
+        self._assert_single_entry_activity_log(
+            {
+                "scope": "annotation",
+                "item_id": str(response.json()["id"]),
+            },
+            detail_override={
+                "name": str(self.user.uuid),
+            },
+            changes_override={
+                "type": "project",
+            },
+            changes_after_override={
+                "annotation_content": "Important annotation with @alice and @bob",
+                "annotation_scope": "project",
+                "tagged_user": str(self.user.uuid),
+            },
+        )
 
-    @patch("posthog.api.annotation.log_activity")
-    def test_activity_logging_when_users_tagged_in_recording_comment(self, mock_log_activity: MagicMock) -> None:
+    def test_activity_logging_when_users_tagged_in_recording_comment(self) -> None:
         content = "Recording comment with @alice"
         tagged_users = [str(self.user.uuid)]
         recording_id = str(uuid7())
@@ -719,43 +749,26 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
-        assert annotations_response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "content": "Recording comment with @alice",
-            "created_at": mock.ANY,
-            "created_by": {
-                "distinct_id": self.user.distinct_id,
-                "email": self.user.email,
-                "first_name": "",
-                "hedgehog_config": None,
-                "id": self.user.id,
-                "is_email_verified": None,
-                "last_name": "",
-                "role_at_organization": None,
-                "uuid": str(self.user.uuid),
+        self._assert_single_entry_activity_log(
+            {
+                "scope": "Replay",
+                "item_id": str(response.json()["id"]),
             },
-            "creation_type": "USR",
-            "dashboard_id": None,
-            "dashboard_item": None,
-            "dashboard_name": None,
-            "date_marker": "2020-01-01T00:00:00Z",
-            "deleted": False,
-            "id": response.json()["id"],
-            "insight_derived_name": None,
-            "insight_name": None,
-            "insight_short_id": None,
-            "is_emoji": False,
-            "recording_id": recording_id,
-            "scope": "recording",
-            "tagged_users": [
-                str(self.user.uuid),
-            ],
-            "updated_at": mock.ANY,
-        }
+            detail_override={
+                "name": str(self.user.uuid),
+            },
+            changes_override={
+                "type": "Replay",
+            },
+            changes_after_override={
+                "annotation_recording_id": recording_id,
+                "annotation_content": content,
+                "annotation_scope": "recording",
+                "tagged_user": str(self.user.uuid),
+            },
+        )
 
-    @patch("posthog.api.annotation.log_activity")
-    def test_activity_logging_when_updating_tagged_users(self, mock_log_activity: MagicMock) -> None:
+    def test_activity_logging_when_updating_tagged_users(self) -> None:
         unknown_user = str(uuid7())
         annotation = Annotation.objects.create(
             organization=self.organization,
@@ -763,6 +776,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             content="Original content with @old_user",
             tagged_users=[unknown_user],
+            scope="organization",
         )
 
         # Update to add new tagged user
@@ -776,6 +790,75 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
 
+        self._assert_single_entry_activity_log(
+            {
+                "scope": "annotation",
+                "item_id": str(response.json()["id"]),
+            },
+            detail_override={
+                "name": str(self.user.uuid),
+            },
+            changes_override={
+                "type": "organization",
+            },
+            changes_after_override={
+                "annotation_content": "Updated content with @old_user and @new_user",
+                "annotation_scope": "organization",
+                "tagged_user": str(self.user.uuid),
+            },
+        )
+
+    def _assert_single_entry_activity_log(
+        self, log_override: dict, detail_override: dict, changes_override: dict, changes_after_override: dict
+    ):
         annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
         assert annotations_response.status_code == status.HTTP_200_OK
-        assert response.json() == ""
+        assert annotations_response.json()["results"] == [
+            {
+                "activity": "tagged_user",
+                "created_at": mock.ANY,
+                "detail": {
+                    "changes": [
+                        {
+                            "action": "tagged_user",
+                            "after": {
+                                "annotation_dashboard_id": None,
+                                "annotation_insight_id": None,
+                                "annotation_recording_id": None,
+                                "annotation_scope": None,
+                                "tagged_user": None,
+                                **changes_after_override,
+                            },
+                            "before": None,
+                            "field": None,
+                            "type": None,
+                            **changes_override,
+                        }
+                    ],
+                    "name": None,
+                    "short_id": None,
+                    "trigger": None,
+                    "type": None,
+                    **detail_override,
+                },
+                "id": mock.ANY,
+                "is_system": False,
+                "item_id": None,
+                "organization_id": str(self.team.organization_id),
+                "scope": None,
+                "unread": False,
+                "user": {
+                    "distinct_id": self.user.distinct_id,
+                    "email": self.user.email,
+                    "first_name": "",
+                    "hedgehog_config": None,
+                    "id": self.user.id,
+                    "is_email_verified": None,
+                    "last_name": "",
+                    "role_at_organization": None,
+                    "uuid": str(self.user.uuid),
+                },
+                "was_impersonated": False,
+                **log_override,
+            }
+        ]
