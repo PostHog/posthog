@@ -409,6 +409,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
+    "toFloatOrDefault": HogQLFunctionMeta(
+        "toFloat64OrDefault",
+        1,
+        2,
+        signatures=[
+            ((DecimalType(), FloatType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            ((FloatType(), FloatType()), FloatType()),
+            ((StringType(), FloatType()), FloatType()),
+        ],
+    ),
     "toDecimal": HogQLFunctionMeta(
         "accurateCastOrNull",
         2,
@@ -433,7 +445,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         tz_aware=True,
         overloads=[
             ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
-            # ((ast.StringType,), "parseDateTime64"), # missing in version: 24.8.7.41
+            # ((ast.StringType,), "parseDateTime64"),
         ],
         signatures=[
             ((StringType(),), DateTimeType()),

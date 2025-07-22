@@ -615,7 +615,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
-        self.assertEqual(result.root_tool_insight_type, "trends")
+        self.assertEqual(result.root_tool_insight_type, None)  # Insight type is determined by query planner node
 
     async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
