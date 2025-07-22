@@ -851,7 +851,9 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
-def background_delete_model_task(model_name: str, team_id: int, batch_size: int = 10000) -> None:
+def background_delete_model_task(
+    model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
+) -> None:
     """
     Background task to delete records from a model in batches.
 
@@ -859,11 +861,14 @@ def background_delete_model_task(model_name: str, team_id: int, batch_size: int 
         model_name: Django model name in format 'app_label.model_name'
         team_id: Team ID to filter records for deletion
         batch_size: Number of records to delete per batch
+        records_to_delete: Maximum number of records to delete (None means delete all)
     """
+    import logging
     from django.apps import apps
     import structlog
 
     logger = structlog.get_logger(__name__)
+    logger.setLevel(logging.INFO)
 
     try:
         # Parse model name
@@ -877,13 +882,29 @@ def background_delete_model_task(model_name: str, team_id: int, batch_size: int 
         total_count = model.objects.filter(**{team_field: team_id}).count()
         logger.info(f"Starting background deletion for {model_name}, team_id={team_id}, total={total_count}")
 
+        # Determine how many records to actually delete
+        if records_to_delete is not None:
+            records_to_delete = min(records_to_delete, total_count)
+            logger.info(f"Will delete up to {records_to_delete} records due to records_to_delete limit")
+        else:
+            records_to_delete = total_count
+
+        # At this point, records_to_delete is guaranteed to be an int
+        records_to_delete_int: int = records_to_delete  # type: ignore
+
         deleted_count = 0
         batch_num = 0
 
-        while True:
+        while deleted_count < records_to_delete_int:
+            # Calculate how many more records we can delete
+            remaining_to_delete = records_to_delete_int - deleted_count
+            current_batch_size = min(batch_size, remaining_to_delete)
+
             # Get batch of IDs to delete
             batch_ids = list(
-                model.objects.filter(**{team_field: team_id}).order_by("id").values_list("id", flat=True)[:batch_size]
+                model.objects.filter(**{team_field: team_id})
+                .order_by("id")
+                .values_list("id", flat=True)[:current_batch_size]
             )
 
             if not batch_ids:
@@ -898,11 +919,11 @@ def background_delete_model_task(model_name: str, team_id: int, batch_size: int 
             logger.info(
                 f"Deleted batch {batch_num} for {model_name}, "
                 f"team_id={team_id}, batch_size={deleted_in_batch}, "
-                f"total_deleted={deleted_count}/{total_count}"
+                f"total_deleted={deleted_count}/{records_to_delete_int}"
             )
 
-            # If we got fewer records than batch_size, we're done
-            if len(batch_ids) < batch_size:
+            # If we got fewer records than requested, we're done
+            if len(batch_ids) < current_batch_size:
                 break
 
             time.sleep(0.2)  # Sleep to avoid overwhelming the database
