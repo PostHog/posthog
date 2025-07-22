@@ -112,7 +112,7 @@ def should_send_notification(
         # Default to enabled for pipeline errors if no specific setting
         return True
 
-    # DEPRECATED: Global toggle for pipeline errors - kept for backwards compatibility
+    # Global toggle for pipeline errors - kept for backwards compatibility
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
         return not settings.get(notification_type, True)
 

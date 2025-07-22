@@ -30,7 +30,7 @@ class Notifications(TypedDict, total=False):
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
-    "plugin_disabled": True,  # DEPRECATED: Global toggle for pipeline destination issues - use project_pipeline_errors_disabled instead
+    "plugin_disabled": True,  # Global toggle for pipeline destination issues - use project_pipeline_errors_disabled instead
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "project_pipeline_errors_disabled": {},  # Empty dict by default - no projects disabled for pipeline errors
