@@ -288,7 +288,7 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
-        return self._generate_properties_xml(self._enrich_props_with_descriptions("event", props))
+        return self._generate_properties_output(self._enrich_props_with_descriptions("event", props))
 
     def _format_property_values(
         self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False

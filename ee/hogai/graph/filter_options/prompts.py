@@ -50,16 +50,21 @@ WHEN GENERATING A FILTER BASED ON MORE THAN ONE PROPERTY ALWAYS MAKE SURE TO KEE
 """.strip()
 
 TOOL_USAGE_PROMPT = """
-<tool_usage_rules>
+
+## Tool Usage Rules
 1. **Property Discovery Required**: Use tools to find properties.
+2. Users can be looking for properties related to PERSON, SESSION, ORGANIZATION, or EVENT. EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
 
 2. **Tool Workflow**:
-   - Use `retrieve_entity_properties` to discover available properties for an entity
-   - Use `retrieve_entity_property_values` to get possible values for a specific property
+   - Infer if the user is asking for a person, session, organization, or event property.
+   - Use `retrieve_entity_properties` to discover available properties for an entity such as person, session, organization, etc.
+   - Use `retrieve_entity_property_values` to get possible values for a specific property related to person, session, organization, etc.
    - Use `retrieve_event_properties` to discover available properties for an event
-   - Use `retrieve_event_property_values` to get possible values for a specific event property
+   - Use `retrieve_event_property_values` to get possible values for a specific property related to event.
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete filter information
+   - *CRITICAL*: Call the event tools if you have found a property related to event, do not call the entity tools.
+   - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
 3. **When to Ask for Help**:
    - No properties found for the entity/group
@@ -67,32 +72,16 @@ TOOL_USAGE_PROMPT = """
    - Property values don't match user's request
    - Any ambiguity in the user's request
 
-4. **Multi-Filter Entity Inference**:
-   - Identify ALL filter components in the user's request
-   - For EACH filter component, determine which entity/group it belongs to
-   - Use `retrieve_entity_properties` for EACH entity type mentioned
-   - Use `retrieve_entity_property_values` for EACH property you need to filter on
-   - Use `retrieve_event_properties` to discover available properties for an event
-   - Use `retrieve_event_property_values` to get possible values for a specific event property
-   - Don't skip any filter component - process ALL of them
-   - If you retrieved properties and values for one of the filters but not the others you must return what you found and ask clarification for the other filters.
-   - Do not call the same tool multiple times for the same filter component.
+4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
-5. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
-
-6. **Multi-Filter Example**: If user mentions "mobile users who completed signup":
+5. **Multi-Filter Example**: If user mentions "mobile users who completed signup":
    - Filter 1: Infer entity type "person" for "mobile" → find $device_type property → get values → use "Mobile"
    - Filter 2: Infer entity type "event" for "signup" → find $signup_event → get event properties if needed
    - Combine both filters with AND logic
    - Use `final_answer` only when ALL filters are processed
 
-7. **Validation**: Before using `final_answer`, ensure you've processed ALL filter components mentioned in the user's request.
+6. Use the output of the tools to build the filter. Merge the results for each filter component into a single filter.
 
-8. **CRITICAL**: DO NOT CALL THE SAME TOOL MULTIPLE TIMES FOR THE SAME PROPERTY, ENTITY OR FILTER COMPONENT, AFTER YOU HAVE FOUND THE PROPERTY OR ENTITY TYPE MOVE ON TO THE NEXT FILTER COMPONENT. IF YOU CANNOT FIND GOOD MATCHES FOR ONE FILTER MOVE ONTO THE NEXT ONE.YOU WILL BE REWARDED FOR MATCHING THE MOST FILTERS.
-
-9. Use the output of the tools to build the filter. Merge the results for each filter component into a single filter.
-
-</tool_usage_rules>
 """.strip()
 
 ALGORITHM_PROMPT = """

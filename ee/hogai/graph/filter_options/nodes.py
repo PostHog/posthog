@@ -36,7 +36,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from .toolkit import EntityType, FilterOptionsTool, FilterOptionsToolkit, ask_user_for_help, final_answer
 
 from abc import ABC
-import json
 
 from pydantic import ValidationError
 
@@ -44,7 +43,6 @@ from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
 )
-from posthog.schema import AssistantToolCallMessage
 from ee.hogai.llm import MaxChatOpenAI
 
 
@@ -216,24 +214,17 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
 
                 return PartialFilterOptionsState(
                     generated_filter_options=full_response,
-                    change=state.change,
-                    intermediate_steps=[],
-                    messages=[
-                        AssistantToolCallMessage(
-                            tool_call_id=state.root_tool_call_id or "",  # Default to empty string if None
-                            content=json.dumps(full_response),
-                        )
-                    ],
+                    intermediate_steps=None,
                 )
 
             # The agent has requested help, so we return a message to the root node
             if input.name == "ask_user_for_help":
                 help_message = input.arguments.request  # type: ignore
-                return self._get_reset_state(str(help_message), input.name, state)
+                return self._get_reset_state(str(help_message), input.name)
 
         # If we're still here, check if we've hit the iteration limit within this cycle
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
-            return self._get_reset_state(FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations", state)
+            return self._get_reset_state(FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations")
 
         if input and not output:
             # Generate progress message before executing tool
@@ -272,23 +263,21 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
 
         # Check if we have help request messages (created by _get_reset_state)
         # These are AssistantToolCallMessage instances with specific help content
-        if state.messages:
-            last_message = state.messages[-1]
-            if isinstance(last_message, AssistantToolCallMessage):
-                if last_message.tool_call_id == "max_iterations" or last_message.tool_call_id == "ask_user_for_help":
-                    return "end"
+        if state.intermediate_steps:
+            action, _ = state.intermediate_steps[-1]
+
+            if action.tool == "max_iterations" or action.tool == "ask_user_for_help":
+                return "end"
 
         # Continue normal processing - agent should see tool results and make next decision
         return "continue"
 
-    def _get_reset_state(self, output: str, tool_call_id: str, state: FilterOptionsState):
+    def _get_reset_state(self, output: str, tool_call_id: str):
         reset_state = PartialFilterOptionsState.get_reset_state()
-        reset_state.messages = [
-            AssistantToolCallMessage(
-                tool_call_id=tool_call_id,
-                content=output,
+        reset_state.intermediate_steps = [
+            (
+                AgentAction(tool=tool_call_id, tool_input=output, log=""),
+                None,
             )
         ]
-        reset_state.change = state.change
-        reset_state.current_filters = state.current_filters
         return reset_state

@@ -59,13 +59,13 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.ainvoke(graph_input)
 
         if "generated_filter_options" not in result or result["generated_filter_options"] is None:
-            last_message = result["messages"][-1]
+            last_message = result["intermediate_steps"][-1]
             help_content = "I need more information to proceed."
 
-            tool_call_id = getattr(last_message, "tool_call_id", None)
-            content = getattr(last_message, "content", None)
+            tool_call_id = getattr(last_message, "tool", None)
 
-            if tool_call_id == "ask_user_for_help":
+            if tool_call_id == "ask_user_for_help" or tool_call_id == "max_iterations":
+                content = getattr(last_message, "tool_input", None)
                 help_content = str(content)
 
             current_filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))

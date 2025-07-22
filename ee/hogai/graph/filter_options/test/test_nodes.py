@@ -46,7 +46,6 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
 
         with patch.object(node, "_get_model", return_value=mock_model):
             state = FilterOptionsState(
-                messages=[],
                 change="show me user properties",
                 current_filters={"property": "active"},
             )
@@ -74,7 +73,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(messages=[], change="test query")
+            state = FilterOptionsState(change="test query")
 
             with self.assertRaises(ValueError) as context:
                 node.run(state, {})
@@ -91,7 +90,9 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(messages=[], change="filter users by activity", current_filters={"active": True})
+            state = FilterOptionsState(
+                intermediate_steps=[], change="filter users by activity", current_filters={"active": True}
+            )
 
             result = node.run(state, {})
 
@@ -116,7 +117,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(messages=[], change="")
+            state = FilterOptionsState(intermediate_steps=[], change="")
 
             result = node.run(state, {})
 
@@ -139,7 +140,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         existing_steps: list[tuple[AgentAction, str | None]] = [(existing_action, "previous_result")]
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(messages=[], change="continue processing", intermediate_steps=existing_steps)
+            state = FilterOptionsState(intermediate_steps=existing_steps, change="continue processing")
 
             result = node.run(state, {})
 
@@ -175,7 +176,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        state = FilterOptionsState(messages=[], change="test query")
+        state = FilterOptionsState(intermediate_steps=[], change="test query")
 
         # Test that both node configurations work through the public interface
         # This proves injected prompts don't break functionality
@@ -202,7 +203,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_with_generated_filter_options(self):
         """Test router returns 'end' when filter options are generated."""
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = FilterOptionsState(messages=[], generated_filter_options={"result": "filter", "data": {}})
+        state = FilterOptionsState(intermediate_steps=[], generated_filter_options={"result": "filter", "data": {}})
 
         result = node.router(state)
 
@@ -210,12 +211,10 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
     def test_router_with_help_request_message(self):
         """Test router returns 'end' for help request messages."""
-        from posthog.schema import AssistantToolCallMessage
-
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = FilterOptionsState(
-            messages=[AssistantToolCallMessage(tool_call_id="ask_user_for_help", content="Need help with filters")]
-        )
+        # Create state with intermediate steps that have help request action
+        action = AgentAction(tool="ask_user_for_help", tool_input="Need help with filters", log="")
+        state = FilterOptionsState(intermediate_steps=[(action, None)])
 
         result = node.router(state)
 
@@ -223,12 +222,10 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
     def test_router_with_max_iterations_message(self):
         """Test router returns 'end' for max iterations message."""
-        from posthog.schema import AssistantToolCallMessage
-
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = FilterOptionsState(
-            messages=[AssistantToolCallMessage(tool_call_id="max_iterations", content="Reached maximum iterations")]
-        )
+        # Create state with intermediate steps that have max iterations action
+        action = AgentAction(tool="max_iterations", tool_input="Reached maximum iterations", log="")
+        state = FilterOptionsState(intermediate_steps=[(action, None)])
 
         result = node.router(state)
 
@@ -237,7 +234,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_continue_normal_processing(self):
         """Test router returns 'continue' for normal processing."""
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = FilterOptionsState(messages=[])
+        state = FilterOptionsState(intermediate_steps=[])
 
         result = node.router(state)
 
@@ -266,7 +263,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
         node = FilterOptionsToolsNode(self.team, self.user)
         action = AgentAction(tool=tool_name, tool_input=tool_args["arguments"], log="test")
-        state = FilterOptionsState(messages=[], intermediate_steps=[(action, None)])
+        state = FilterOptionsState(intermediate_steps=[(action, None)])
 
         if tool_name == "final_answer":
             result = node.run(state, {})
@@ -275,11 +272,12 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(result.generated_filter_options["data"], {"filter_group": {}})
         elif tool_name == "ask_user_for_help":
             result = node.run(state, {})
-            # Should return reset state with help message
-            self.assertEqual(len(result.messages), 1)
-            message = result.messages[0]
-            self.assertEqual(getattr(message, "tool_call_id", None), "ask_user_for_help")
-            self.assertEqual(getattr(message, "content", None), "Need clarification")
+            # Should return reset state with help message in intermediate_steps
+            assert result.intermediate_steps is not None
+            self.assertEqual(len(result.intermediate_steps), 1)
+            action, output = result.intermediate_steps[0]
+            self.assertEqual(action.tool, "ask_user_for_help")
+            self.assertEqual(action.tool_input, "Need clarification")
         elif tool_name == "retrieve_entity_property_values":
             result = node.run(state, {})
             mock_toolkit.retrieve_entity_property_values.assert_called_once_with(
