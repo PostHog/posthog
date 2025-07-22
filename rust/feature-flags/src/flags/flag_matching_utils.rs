@@ -364,11 +364,10 @@ pub fn match_flag_value_to_flag_filter(
     filter: &PropertyFilter,
     flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
 ) -> bool {
-    // If the operator is not exact, we can't match the flag value to the flag filter
-    if filter.operator != Some(OperatorType::Exact) {
-        // Should we log this?
+    // Flag dependencies must use the flag_evaluates_to operator
+    if filter.operator != Some(OperatorType::FlagEvaluatesTo) {
         tracing::error!(
-            "Flag filter operator for property type Flag is not `exact`, skipping flag value matching: {:?}",
+            "Flag filter operator for property type Flag must be `flag_evaluates_to`, skipping flag value matching: {:?}",
             filter
         );
         return false;
