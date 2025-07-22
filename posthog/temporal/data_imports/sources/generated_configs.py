@@ -4,13 +4,22 @@
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
-from typing import Any, Literal
+from typing import Literal
 
 
 @config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
+class BigQueryKeyFileConfig(config.Config):
+    project_id: str
+    private_key: str
+    private_key_id: str
+    client_email: str
+    token_uri: str
 
 
 @config.config
@@ -36,7 +45,7 @@ class VitallyRegionConfig(config.Config):
 
 @config.config
 class BigQuerySourceConfig(config.Config):
-    key_file: dict[str, Any]
+    key_file: BigQueryKeyFileConfig
     dataset_id: str
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(alias="temporary-dataset", default=None)
     dataset_project: BigQueryDatasetProjectConfig | None = None

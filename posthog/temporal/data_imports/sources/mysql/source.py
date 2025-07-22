@@ -1,52 +1,38 @@
 from typing import TYPE_CHECKING
-
-from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.pipelines.postgres.postgres import (
-    postgres_source,
-    get_schemas as get_postgres_schemas,
-)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from posthog.warehouse.sql_schemas import filter_postgres_incremental_fields
+from posthog.temporal.data_imports.pipelines.mysql.mysql import get_schemas as get_mysql_schemas, mysql_source
+from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from posthog.warehouse.sql_schemas import filter_mysql_incremental_fields
 from posthog.warehouse.types import IncrementalField
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSource
 
-PostgresErrors = {
-    "password authentication failed for user": "Invalid user or password",
-    "could not translate host name": "Could not connect to the host",
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
-    'database "': "Database does not exist",
-    "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
-}
-
 
 @SourceRegistry.register
-class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
     def source_type(self) -> "ExternalDataSource.Type":
         from posthog.warehouse.models import ExternalDataSource
 
-        return ExternalDataSource.Type.POSTGRES
+        return ExternalDataSource.Type.MYSQL
 
-    def get_schemas(self, config: PostgresSourceConfig) -> list[SourceSchema]:
+    def get_schemas(self, config: MySQLSourceConfig) -> list[SourceSchema]:
         schemas = []
 
-        # TODO: refactor get_postgres_schemas to not explictly set up ssh tunnel
-        db_schemas = get_postgres_schemas(config)
+        # TODO: refactor get_mysql_schemas to not explictly set up ssh tunnel
+        db_schemas = get_mysql_schemas(config)
 
-        # TODO: add in row counts from get_postgres_row_count
         for table_name, columns in db_schemas.items():
             column_info = [(col_name, col_type) for col_name, col_type in columns]
 
-            incremental_field_tuples = filter_postgres_incremental_fields(column_info)
+            incremental_field_tuples = filter_mysql_incremental_fields(column_info)
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -68,7 +54,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
 
         return schemas
 
-    def validate_credentials(self, config: PostgresSourceConfig) -> tuple[bool, str | None]:
+    def validate_credentials(self, config: MySQLSourceConfig) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
@@ -80,35 +66,27 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
 
         try:
             self.get_schemas(config)
-        except OperationalError as e:
-            error_msg = " ".join(str(n) for n in e.args)
-            for key, value in PostgresErrors.items():
-                if key in error_msg:
-                    return False, value
-
-            capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
                 e.value
-                or "Could not connect to Postgres via the SSH tunnel. Please check all connection details are valid.",
+                or "Could not connect to MySQL via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, "Could not connect to MySQL. Please check all connection details are valid."
 
         return True, None
 
-    def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
         with self.with_ssh_tunnel(config) as (host, port):
-            return postgres_source(
+            return mysql_source(
                 host=host,
                 port=port,
                 user=config.user,
                 password=config.password,
                 database=config.database,
-                sslmode="prefer",
+                using_ssl=config.using_ssl,
                 schema=config.schema,
                 table_names=[inputs.schema_name],
                 should_use_incremental_field=inputs.should_use_incremental_field,
@@ -116,5 +94,4 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                 incremental_field=inputs.incremental_field,
                 incremental_field_type=inputs.incremental_field_type,
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-                team_id=inputs.team_id,
             )

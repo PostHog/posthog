@@ -2,8 +2,8 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.stripe import (
+    StripePermissionError,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
@@ -12,13 +12,8 @@ from posthog.temporal.data_imports.pipelines.stripe.settings import (
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.warehouse.models import ExternalDataSource
-
-
-@config.config
-class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
-    stripe_account_id: str | None = None
 
 
 @SourceRegistry.register
@@ -26,10 +21,6 @@ class StripeSource(BaseSource[StripeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.STRIPE
-
-    @property
-    def config_class(self) -> type[StripeSourceConfig]:
-        return StripeSourceConfig
 
     def get_schemas(self, config: StripeSourceConfig) -> list[SourceSchema]:
         return [
@@ -42,11 +33,17 @@ class StripeSource(BaseSource[StripeSourceConfig]):
             for endpoint in STRIPE_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: StripeSourceConfig) -> bool:
+    def validate_credentials(self, config: StripeSourceConfig) -> tuple[bool, str | None]:
         try:
-            return validate_stripe_credentials(config.stripe_secret_key)
-        except Exception:
-            return False
+            if validate_stripe_credentials(config.stripe_secret_key):
+                return True, None
+            else:
+                return False, "Invalid Stripe credentials"
+        except StripePermissionError as e:
+            missing_resources = ", ".join(e.missing_permissions.keys())
+            return False, f"Stripe API key lacks permissions for {missing_resources}"
+        except Exception as e:
+            return False, str(e)
 
     def source_for_pipeline(self, config: StripeSourceConfig, inputs: SourceInputs) -> SourceResponse:
         # TODO: Move the stripe source func in here
