@@ -1,13 +1,14 @@
 import { ProfilePicture } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { FloatingPortal } from '@floating-ui/react'
+import { OrganizationMemberType } from '~/types'
 
 export interface MentionsPopoverProps {
     isOpen: boolean
     position: { top: number; left: number }
-    members: any[]
+    members: OrganizationMemberType[]
     selectedIndex: number
-    onSelect: (member: any) => void
+    onSelect: (member: OrganizationMemberType) => void
 }
 
 export function MentionsPopover({

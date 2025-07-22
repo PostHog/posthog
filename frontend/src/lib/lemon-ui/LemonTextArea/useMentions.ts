@@ -2,14 +2,7 @@ import { useCallback, useState, useMemo, KeyboardEvent, RefObject } from 'react'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import Fuse from 'fuse.js'
-
-export interface MentionsState {
-    mentionsOpen: boolean
-    mentionsQuery: string
-    mentionsPosition: { top: number; left: number }
-    mentionsStartIndex: number
-    selectedMentionIndex: number
-}
+import { OrganizationMemberType } from '~/types'
 
 export interface UseMentionsProps {
     textAreaRef: RefObject<HTMLTextAreaElement>
@@ -23,8 +16,8 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
     mentionsPosition: { top: number; left: number }
     mentionsStartIndex: number
     selectedMentionIndex: number
-    filteredMembers: any[]
-    selectMention: (member: any) => void
+    filteredMembers: OrganizationMemberType[]
+    selectMention: (member: OrganizationMemberType) => void
     setMentionsOpen: (open: boolean) => void
     handleTextChange: (newValue: string) => void
     handleKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean
