@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 export interface MarkdownMentionProps {
-    /** The user ID to mention */
-    userId?: number
+    /** The user UUID to mention */
+    userId?: string
     /** The display name if user ID is not available */
     displayName?: string
 }
@@ -12,9 +12,8 @@ export interface MarkdownMentionProps {
 export function MarkdownMention({ userId, displayName }: MarkdownMentionProps): JSX.Element {
     const { meFirstMembers } = useValues(membersLogic)
 
-    // Try to find member by ID first, then by first name
     const member = userId
-        ? meFirstMembers.find((member) => member.user.id === userId)
+        ? meFirstMembers.find((member) => member.user.uuid === userId)
         : displayName
         ? meFirstMembers.find((member) => {
               const firstName = member.user.first_name

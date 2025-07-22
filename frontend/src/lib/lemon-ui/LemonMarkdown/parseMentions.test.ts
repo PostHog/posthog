@@ -1,27 +1,32 @@
 import { OrganizationMemberType } from '~/types'
 import { findMentionMatch, parseMentions } from './parseMentions'
+import { uuid } from 'lib/utils'
 
+const uuid1 = uuid()
+const uuid2 = uuid()
+const uuid3 = uuid()
+const uuid4 = uuid()
 const mockMembers: OrganizationMemberType[] = [
     {
-        user: { id: 1, first_name: 'Alice', last_name: 'Smith', email: 'alice@example.com' },
+        user: { uuid: uuid1, first_name: 'Alice', last_name: 'Smith', email: 'alice@example.com' },
         level: 1,
         joined_at: '2023-01-01',
         updated_at: '2023-01-01',
     },
     {
-        user: { id: 2, first_name: 'Bob', last_name: 'Johnson', email: 'bob@example.com' },
+        user: { uuid: uuid2, first_name: 'Bob', last_name: 'Johnson', email: 'bob@example.com' },
         level: 1,
         joined_at: '2023-01-02',
         updated_at: '2023-01-02',
     },
     {
-        user: { id: 3, first_name: 'Charlie', last_name: 'Brown', email: 'charlie@example.com' },
+        user: { uuid: uuid3, first_name: 'Charlie', last_name: 'Brown', email: 'charlie@example.com' },
         level: 1,
         joined_at: '2023-01-03',
         updated_at: '2023-01-03',
     },
     {
-        user: { id: 4, first_name: 'Al', last_name: 'Green', email: 'al@example.com' },
+        user: { uuid: uuid4, first_name: 'Al', last_name: 'Green', email: 'al@example.com' },
         level: 1,
         joined_at: '2023-01-04',
         updated_at: '2023-01-04',
@@ -35,14 +40,14 @@ describe('parseMentions', () => {
             'Hello @Alice',
             [
                 { type: 'text', content: 'Hello ' },
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
             ],
         ],
         [
             'Hello @Alice how are you?',
             [
                 { type: 'text', content: 'Hello ' },
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
                 { type: 'text', content: ' how are you?' },
             ],
         ],
@@ -50,40 +55,40 @@ describe('parseMentions', () => {
             'Hello @Alice and @Bob',
             [
                 { type: 'text', content: 'Hello ' },
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
                 { type: 'text', content: ' and ' },
-                { type: 'mention', content: 'Bob', userId: 2, originalText: '@Bob' },
+                { type: 'mention', content: 'Bob', userId: uuid2, originalText: '@Bob' },
             ],
         ],
         [
             '@Alice hello',
             [
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
                 { type: 'text', content: ' hello' },
             ],
         ],
-        ['@Alice', [{ type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' }]],
+        ['@Alice', [{ type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' }]],
         [
             'Hello @alice',
             [
                 { type: 'text', content: 'Hello ' },
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
             ],
         ],
         [
             'Hello @Al',
             [
                 { type: 'text', content: 'Hello ' },
-                { type: 'mention', content: 'Al', userId: 4, originalText: '@Al' },
+                { type: 'mention', content: 'Al', userId: uuid4, originalText: '@Al' },
             ],
         ],
         [
             'Hey @Alice, can you help @Bob with the task? Thanks!',
             [
                 { type: 'text', content: 'Hey ' },
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
                 { type: 'text', content: ', can you help ' },
-                { type: 'mention', content: 'Bob', userId: 2, originalText: '@Bob' },
+                { type: 'mention', content: 'Bob', userId: uuid2, originalText: '@Bob' },
                 { type: 'text', content: ' with the task? Thanks!' },
             ],
         ],
@@ -112,7 +117,7 @@ describe('parseMentions', () => {
             [
                 { type: 'text', content: 'Hello ' },
                 { type: 'text', content: '@' },
-                { type: 'mention', content: 'Alice', userId: 1, originalText: '@Alice' },
+                { type: 'mention', content: 'Alice', userId: uuid1, originalText: '@Alice' },
             ],
         ],
         [
@@ -161,16 +166,16 @@ describe('parseMentions', () => {
 
     describe('findMentionMatch', () => {
         it.each([
-            ['Alice', { displayName: 'Alice', userId: 1, length: 5 }],
-            ['alice', { displayName: 'Alice', userId: 1, length: 5 }],
-            ['Alice how are you?', { displayName: 'Alice', userId: 1, length: 5 }],
-            ['Al', { displayName: 'Al', userId: 4, length: 2 }],
+            ['Alice', { displayName: 'Alice', userId: uuid1, length: 5 }],
+            ['alice', { displayName: 'Alice', userId: uuid1, length: 5 }],
+            ['Alice how are you?', { displayName: 'Alice', userId: uuid1, length: 5 }],
+            ['Al', { displayName: 'Al', userId: uuid4, length: 2 }],
         ])('finds match for "%s"', (input, expected) => {
             const result = findMentionMatch(input, mockMembers)
 
             expect(result).not.toBeNull()
             expect(result?.displayName).toBe(expected.displayName)
-            expect(result?.member.user.id).toBe(expected.userId)
+            expect(result?.member.user.uuid).toBe(expected.userId)
             expect(result?.length).toBe(expected.length)
         })
 

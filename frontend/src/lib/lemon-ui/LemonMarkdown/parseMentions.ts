@@ -12,7 +12,7 @@ export interface ParsedMentionPart {
     /** The content - for text parts this is the text, for mention parts this is the display name */
     content: string
     /** only for mention parts */
-    userId?: number
+    userId?: string
     /** The original text that was matched (for debugging/testing) */
     originalText?: string
 }
@@ -81,7 +81,7 @@ export function parseMentions(text: string, members: OrganizationMemberType[]): 
                 result.push({
                     type: 'mention',
                     content: match.displayName,
-                    userId: match.member.user.id,
+                    userId: match.member.user.uuid,
                     originalText: `@${match.displayName}`,
                 })
 
