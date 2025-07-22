@@ -409,59 +409,10 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
-
-        # Build source metrics from actual results
-        source_metrics = {}
-        for row in response.results:
-            source = row[1]
-            if source not in source_metrics:
-                source_metrics[source] = {"campaigns": 0, "total_cost": 0, "total_impressions": 0, "total_clicks": 0}
-
-            source_metrics[source]["campaigns"] += 1
-            source_metrics[source]["total_cost"] += float(row[2] or 0)
-            source_metrics[source]["total_impressions"] += int(row[4] or 0)
-            source_metrics[source]["total_clicks"] += int(row[3] or 0)
-
-        assert (
-            source_metrics["Facebook Ads"]["campaigns"] == 5
-        ), f"Expected 5 Facebook campaigns, got {source_metrics['Facebook Ads']['campaigns']}"
-        assert (
-            round(source_metrics["Facebook Ads"]["total_cost"], 2) == 18.66
-        ), f"Expected Facebook cost $18.66, got ${source_metrics['Facebook Ads']['total_cost']}"
-        assert (
-            source_metrics["Facebook Ads"]["total_impressions"] == 1676
-        ), f"Expected Facebook impressions 1676, got {source_metrics['Facebook Ads']['total_impressions']}"
-        assert (
-            source_metrics["Facebook Ads"]["total_clicks"] == 12
-        ), f"Expected Facebook clicks 12, got {source_metrics['Facebook Ads']['total_clicks']}"
-
-        assert (
-            source_metrics["TikTok Ads"]["campaigns"] == 9
-        ), f"Expected 9 TikTok campaigns, got {source_metrics['TikTok Ads']['campaigns']}"
-        assert (
-            round(source_metrics["TikTok Ads"]["total_cost"], 2) == 108.51
-        ), f"Expected TikTok cost $108.51, got ${source_metrics['TikTok Ads']['total_cost']}"
-        assert (
-            source_metrics["TikTok Ads"]["total_impressions"] == 543
-        ), f"Expected TikTok impressions 543, got {source_metrics['TikTok Ads']['total_impressions']}"
-        assert (
-            source_metrics["TikTok Ads"]["total_clicks"] == 124
-        ), f"Expected TikTok clicks 124, got {source_metrics['TikTok Ads']['total_clicks']}"
-
-        assert (
-            source_metrics["LinkedIn Ads"]["campaigns"] == 9
-        ), f"Expected 9 LinkedIn campaigns, got {source_metrics['LinkedIn Ads']['campaigns']}"
-        assert (
-            round(source_metrics["LinkedIn Ads"]["total_cost"], 2) == 125.00
-        ), f"Expected LinkedIn cost $125.00, got ${source_metrics['LinkedIn Ads']['total_cost']}"
-        assert (
-            source_metrics["LinkedIn Ads"]["total_impressions"] == 9540
-        ), f"Expected LinkedIn impressions 9540, got {source_metrics['LinkedIn Ads']['total_impressions']}"
-        assert (
-            source_metrics["LinkedIn Ads"]["total_clicks"] == 26
-        ), f"Expected LinkedIn clicks 26, got {source_metrics['LinkedIn Ads']['total_clicks']}"
-
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert {
+            "response": response.results,
+            "query": pretty_print_in_tests(response.hogql, self.team.pk),
+        } == self.snapshot
 
     def test_cost_efficiency_analysis(self):
         facebook_info = self._setup_csv_table("facebook_ads")
