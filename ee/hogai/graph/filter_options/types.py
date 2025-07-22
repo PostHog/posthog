@@ -46,30 +46,7 @@ class FilterOptionsState(PartialFilterOptionsState):
     Only includes fields relevant to filter options generation.
     """
 
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
-    """
-    Actions taken by the ReAct agent.
-    """
-
-    generated_filter_options: Optional[dict] = Field(default=None)
-    """
-    The filter options to apply to the product.
-    """
-
-    change: Optional[str] = Field(default=None)
-    """
-    The change requested for the filters.
-    """
-
-    current_filters: Optional[dict] = Field(default=None)
-    """
-    The current filters applied to the product.
-    """
-
-    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
-    """
-    The messages with tool calls to collect tool progress.
-    """
+    pass
 
 
 class FilterOptionsNodeName(StrEnum):
