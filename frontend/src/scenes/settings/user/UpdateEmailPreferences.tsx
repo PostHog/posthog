@@ -10,9 +10,8 @@ export function UpdateEmailPreferences(): JSX.Element {
     const { updateUser } = useActions(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(false)
-
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
+    const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
     const pipelineErrorsEnabled = !(user?.notification_settings?.plugin_disabled || false)
 
     const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
@@ -34,7 +33,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     return (
         <div className="deprecated-space-y-4">
             <h3>Email notifications</h3>
-            <p>Configure which email notifications you want to receive and for which projects.</p>
+            <p>Configure which email notifications you want to receive.</p>
 
             <div className="deprecated-space-y-4">
                 <div className="deprecated-space-y-4">
@@ -58,8 +57,11 @@ export function UpdateEmailPreferences(): JSX.Element {
                             checked={weeklyDigestEnabled}
                             disabled={userLoading}
                             label="Weekly digest"
-                            tooltip="Receive weekly summaries of activity for selected projects"
                         />
+                        <p className="text-muted mt-2">
+                            The weekly digest keeps you up to date with everything that's happening in your PostHog
+                            organizations.
+                        </p>
 
                         {weeklyDigestEnabled && (
                             <div className="ml-6">
