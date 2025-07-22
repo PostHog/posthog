@@ -324,7 +324,7 @@ export function InsightMetaContent({
                     title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
                     placement="top-end"
                 >
-                    <span className="text-accent text-sm font-medium ml-1.5">
+                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
                         <Spinner className="mr-1.5 text-base" textColored />
                         {loading ? 'Loading' : 'Waiting to load'}
                     </span>
