@@ -152,7 +152,11 @@ export function ExperimentMetricForm({
                             <div className="text-muted text-sm mt-2">
                                 SQL expressions allow you to write custom aggregations using HogQL. The expression
                                 should return a numeric value per user.{' '}
-                                <Link to="https://posthog.com/docs/hogql/expressions" target="_blank">
+                                <Link
+                                    to="https://posthog.com/docs/hogql/expressions"
+                                    target="_blank"
+                                    disableDocsPanel={true}
+                                >
                                     Learn more about HogQL expressions
                                 </Link>
                             </div>
