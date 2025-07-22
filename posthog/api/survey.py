@@ -49,7 +49,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
 from posthog.models.surveys.util import (
-    SurveyFeatureFlags,
     get_unique_survey_event_uuids_sql_subquery,
     SurveyEventName,
     SurveyEventProperties,
@@ -735,17 +734,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
-    def is_partial_responses_enabled(self) -> bool:
-        distinct_id = "" if self.request.user.is_anonymous else str(self.request.user.distinct_id)
-        return posthoganalytics.feature_enabled(
-            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES,
-            distinct_id,
-            groups={"organization": str(self.organization.id)},
-            group_properties={
-                "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at}
-            },
-        )
-
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
@@ -776,13 +764,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
-        partial_responses_enabled = self.is_partial_responses_enabled()
-        if not partial_responses_enabled:
-            return f"""(
-                NOT JSONHas(properties, '{SurveyEventProperties.SURVEY_COMPLETED}')
-                OR JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_COMPLETED}') = true
-            )"""
-
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=base_conditions_sql,
         )
