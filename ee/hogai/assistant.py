@@ -42,6 +42,7 @@ from ee.hogai.utils.state import (
     validate_value_update,
 )
 from ee.hogai.utils.types import (
+    AssistantMessageOrStatusUnion,
     AssistantMessageUnion,
     AssistantMode,
     AssistantNodeName,
@@ -228,7 +229,7 @@ class Assistant:
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
-                            yield AssistantEventType.MESSAGE, cast(AssistantMessageUnion, message)
+                            yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
                 state = await self._graph.aget_state(config)
@@ -457,7 +458,7 @@ class Assistant:
                 # If update involves new state from a thinking node, we reset the thinking headline to be sure
                 self._reasoning_headline_chunk = None
 
-        return None
+        return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
