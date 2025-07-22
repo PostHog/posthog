@@ -714,23 +714,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-        self._assert_single_entry_activity_log(
-            {
-                "scope": "annotation",
-                "item_id": str(response.json()["id"]),
-            },
-            detail_override={
-                "name": str(self.user.uuid),
-            },
-            changes_override={
-                "type": "project",
-            },
-            changes_after_override={
-                "annotation_content": "Important annotation with @alice and @bob",
-                "annotation_scope": "project",
-                "tagged_user": str(self.user.uuid),
-            },
-        )
+        self._assert_activity_log([])
 
     def test_activity_logging_when_users_tagged_in_recording_comment(self) -> None:
         content = "Recording comment with @alice"
@@ -808,57 +792,62 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             },
         )
 
+    def _assert_activity_log(self, expected: list[dict]) -> None:
+        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
+        assert annotations_response.status_code == status.HTTP_200_OK
+        assert annotations_response.json()["results"] == expected
+
     def _assert_single_entry_activity_log(
         self, log_override: dict, detail_override: dict, changes_override: dict, changes_after_override: dict
     ):
-        annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
-        assert annotations_response.status_code == status.HTTP_200_OK
-        assert annotations_response.json()["results"] == [
-            {
-                "activity": "tagged_user",
-                "created_at": mock.ANY,
-                "detail": {
-                    "changes": [
-                        {
-                            "action": "tagged_user",
-                            "after": {
-                                "annotation_dashboard_id": None,
-                                "annotation_insight_id": None,
-                                "annotation_recording_id": None,
-                                "annotation_scope": None,
-                                "tagged_user": None,
-                                **changes_after_override,
-                            },
-                            "before": None,
-                            "field": None,
-                            "type": None,
-                            **changes_override,
-                        }
-                    ],
-                    "name": None,
-                    "short_id": None,
-                    "trigger": None,
-                    "type": None,
-                    **detail_override,
-                },
-                "id": mock.ANY,
-                "is_system": False,
-                "item_id": None,
-                "organization_id": str(self.team.organization_id),
-                "scope": None,
-                "unread": False,
-                "user": {
-                    "distinct_id": self.user.distinct_id,
-                    "email": self.user.email,
-                    "first_name": "",
-                    "hedgehog_config": None,
-                    "id": self.user.id,
-                    "is_email_verified": None,
-                    "last_name": "",
-                    "role_at_organization": None,
-                    "uuid": str(self.user.uuid),
-                },
-                "was_impersonated": False,
-                **log_override,
-            }
-        ]
+        self._assert_activity_log(
+            [
+                {
+                    "activity": "tagged_user",
+                    "created_at": mock.ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "tagged_user",
+                                "after": {
+                                    "annotation_dashboard_id": None,
+                                    "annotation_insight_id": None,
+                                    "annotation_recording_id": None,
+                                    "annotation_scope": None,
+                                    "tagged_user": None,
+                                    **changes_after_override,
+                                },
+                                "before": None,
+                                "field": None,
+                                "type": None,
+                                **changes_override,
+                            }
+                        ],
+                        "name": None,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                        **detail_override,
+                    },
+                    "id": mock.ANY,
+                    "is_system": False,
+                    "item_id": None,
+                    "organization_id": str(self.team.organization_id),
+                    "scope": None,
+                    "unread": False,
+                    "user": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": str(self.user.uuid),
+                    },
+                    "was_impersonated": False,
+                    **log_override,
+                }
+            ]
+        )
