@@ -41,7 +41,6 @@ MOCK_CORE_FILTER_DEFINITIONS = {
 class TestFormatEventsPrompt(BaseTest):
     def setUp(self):
         super().setUp()
-        self.team = self.team
         # Mock CORE_FILTER_DEFINITIONS_BY_GROUP
         self.core_definitions_patcher = patch(
             "posthog.taxonomy.taxonomy.CORE_FILTER_DEFINITIONS_BY_GROUP", MOCK_CORE_FILTER_DEFINITIONS
