@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 
 
 class SchemaRoot(RootModel[Any]):
@@ -1863,6 +1863,7 @@ class PropertyFilterType(StrEnum):
     PERSON = "person"
     ELEMENT = "element"
     FEATURE = "feature"
+    FLAG = "flag"
     SESSION = "session"
     COHORT = "cohort"
     RECORDING = "recording"
@@ -1911,6 +1912,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    FLAG_EVALUATES_TO = "flag_evaluates_to"
 
 
 class QueryIndexUsage(StrEnum):
@@ -3514,6 +3516,24 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class FlagDependencyPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["flag"] = Field(default="flag", description="Feature flag dependency (property type is 'flag')")
+    value: Optional[Union[str, bool]] = None
+
+    @field_validator("operator")
+    @classmethod
+    def validate_flag_operator(cls, v: PropertyOperator) -> PropertyOperator:
+        if v != PropertyOperator.FLAG_EVALUATES_TO:
+            raise ValueError("Flag dependencies must use the 'flag_evaluates_to' operator")
+        return v
 
 
 class FunnelCorrelationResult(BaseModel):
