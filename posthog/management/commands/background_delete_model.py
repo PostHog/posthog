@@ -21,12 +21,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run", action="store_true", help="Show what would be deleted without actually deleting"
         )
+        parser.add_argument("--synchronous", action="store_true", help="Run the task synchronously")
 
     def handle(self, *args, **options):
         model_name = args[0] if args else options.get("model_name")
         team_id = options["team_id"]
         batch_size = options.get("batch_size", 10000)
         dry_run = options.get("dry_run", False)
+        synchronous = options.get("synchronous", False)
 
         # Safety: Limit batch size to prevent memory issues
         max_batch_size = 50000
@@ -83,11 +85,15 @@ class Command(BaseCommand):
             return
 
         # Start the background task
-        task = background_delete_model_task.delay(model_name=model_name, team_id=team_id, batch_size=batch_size)
-
-        logger.info(f"Started background deletion task: {task.id}")
-        logger.info(f"Model: {model_name}")
-        logger.info(f"Team ID: {team_id}")
-        logger.info(f"Total records: {total_count}")
-        logger.info(f"Batch size: {batch_size}")
-        logger.info(f"Task ID: {task.id}")
+        if synchronous:
+            logger.info("Running task synchronously")
+            background_delete_model_task(model_name=model_name, team_id=team_id, batch_size=batch_size)
+            logger.info("Task completed")
+        else:
+            task = background_delete_model_task.delay(model_name=model_name, team_id=team_id, batch_size=batch_size)
+            logger.info(f"Started background deletion task: {task.id}")
+            logger.info(f"Model: {model_name}")
+            logger.info(f"Team ID: {team_id}")
+            logger.info(f"Total records: {total_count}")
+            logger.info(f"Batch size: {batch_size}")
+            logger.info(f"Task ID: {task.id}")

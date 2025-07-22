@@ -154,3 +154,18 @@ class TestBackgroundDeleteModel(BaseTest):
 
             # Verify task was called with the limited batch size
             mock_task.delay.assert_called_once_with(model_name="posthog.Person", team_id=self.team.id, batch_size=50000)
+
+    @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
+    @patch("builtins.input", return_value="DELETE 2 RECORDS")
+    def test_synchronous_execution(self, mock_input, mock_task):
+        """Test that synchronous flag runs task directly instead of using .delay()"""
+        # Create some test persons
+        Person.objects.create(team=self.team, properties={})
+        Person.objects.create(team=self.team, properties={})
+
+        self.command.handle("posthog.Person", team_id=self.team.id, synchronous=True)
+
+        # Verify task was called directly (not with .delay())
+        mock_task.assert_called_once_with(model_name="posthog.Person", team_id=self.team.id, batch_size=10000)
+        # Verify .delay() was not called
+        mock_task.delay.assert_not_called()
