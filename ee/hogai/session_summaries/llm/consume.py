@@ -5,24 +5,24 @@ from typing import Any
 import openai
 import structlog
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.session_recordings.session_summary.llm.call import call_llm, stream_llm
-from ee.session_recordings.session_summary.output_data import (
+from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
+from ee.hogai.session_summaries.session.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValidationError
+from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from prometheus_client import Histogram
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
-from ee.session_recordings.session_summary.summarize_session import PatternsPrompt
+from ee.hogai.session_summaries.session.summarize_session import PatternsPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -100,8 +100,9 @@ def _convert_llm_content_to_session_summary_json_str(
         session_duration=session_duration,
         session_id=session_id,
     )
-    # Track generation for history of experiments
-    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR"):
+
+    # Track generation for history of experiments. Don't run in tests.
+    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
         _track_session_summary_generation(
             summary_prompt=summary_prompt,
             raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
@@ -353,7 +354,7 @@ def _track_session_summary_generation(
         f.write(raw_session_summary)
     with open(current_experiment_dir / f"enriched_response_{datetime_marker}.yml", "w") as f:
         f.write(session_summary)
-    template_dir = Path(__file__).parent.parent / "templates" / "identify-objectives"
+    template_dir = Path(__file__).parent.parent / "session" / "templates" / "identify-objectives"
     with open(template_dir / "prompt.djt") as fr:
         with open(current_experiment_dir / f"prompt_template_{datetime_marker}.txt", "w") as fw:
             fw.write(fr.read())
