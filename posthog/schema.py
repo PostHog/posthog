@@ -1664,6 +1664,79 @@ class MaxActionContext(BaseModel):
     type: Literal["action"] = "action"
 
 
+class MaxAddonInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_usage: float
+    custom_limit_usd: Optional[float] = None
+    description: str
+    docs_url: Optional[str] = None
+    has_exceeded_limit: bool
+    is_used: bool
+    name: str
+    next_period_custom_limit_usd: Optional[float] = None
+    percentage_usage: Optional[float] = None
+    type: str
+    usage_limit: Optional[float] = None
+
+
+class Interval(StrEnum):
+    MONTH = "month"
+    YEAR = "year"
+
+
+class BillingPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_period_end: str
+    current_period_start: str
+    interval: Interval
+
+
+class Settings1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_destinations: float
+    autocapture_on: bool
+
+
+class SubscriptionLevel(StrEnum):
+    FREE = "free"
+    PAID = "paid"
+    CUSTOM = "custom"
+
+
+class Trial(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expires_at: Optional[str] = None
+    is_active: bool
+    target: Optional[str] = None
+
+
+class BreakdownType1(Enum):
+    TYPE = "type"
+    TEAM = "team"
+    MULTIPLE = "multiple"
+    NONE_TYPE_NONE = None
+
+
+class UsageHistoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_type: Optional[BreakdownType1]
+    breakdown_value: Optional[Union[str, list[str]]] = None
+    data: list[float]
+    dates: list[str]
+    id: float
+    label: str
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1672,6 +1745,23 @@ class MaxEventContext(BaseModel):
     id: str
     name: Optional[str] = None
     type: Literal["event"] = "event"
+
+
+class MaxProductInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_usage: Optional[float] = None
+    custom_limit_usd: Optional[float] = None
+    description: str
+    docs_url: Optional[str] = None
+    has_exceeded_limit: bool
+    is_used: bool
+    name: str
+    next_period_custom_limit_usd: Optional[float] = None
+    percentage_usage: float
+    type: str
+    usage_limit: Optional[float] = None
 
 
 class MinimalHedgehogConfig(BaseModel):
@@ -3628,6 +3718,26 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: Optional[str] = None
+
+
+class MaxBillingContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    addons: list[MaxAddonInfo]
+    billing_period: Optional[BillingPeriod] = None
+    billing_plan: Optional[str] = None
+    has_active_subscription: bool
+    is_deactivated: Optional[bool] = None
+    products: list[MaxProductInfo]
+    settings: Settings1
+    startup_program_label: Optional[str] = None
+    startup_program_label_previous: Optional[str] = None
+    subscription_level: SubscriptionLevel
+    total_current_amount_usd: Optional[str] = None
+    total_projected_amount_usd: Optional[str] = None
+    trial: Optional[Trial] = None
+    usage_history: Optional[list[UsageHistoryItem]] = None
 
 
 class NewExperimentQueryResponse(BaseModel):
@@ -12920,6 +13030,7 @@ class MaxUIContext(BaseModel):
         extra="forbid",
     )
     actions: Optional[list[MaxActionContext]] = None
+    billing: Optional[MaxBillingContext] = None
     dashboards: Optional[list[MaxDashboardContext]] = None
     events: Optional[list[MaxEventContext]] = None
     filters_override: Optional[DashboardFilter] = None

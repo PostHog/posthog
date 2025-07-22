@@ -8,7 +8,15 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    ActionType,
+    BillingType,
+    DashboardType,
+    EventDefinition,
+    InsightShortId,
+    QueryBasedInsightModel,
+    TeamType,
+} from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import {
@@ -22,15 +30,25 @@ import {
     MaxEventContext,
     MaxInsightContext,
     MaxContextInput,
+    MaxBillingContext,
 } from './maxTypes'
 import { subscriptions } from 'kea-subscriptions'
 import { DashboardLoadAction, dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import {
     actionToMaxContextPayload,
+    billingToMaxContext,
     dashboardToMaxContext,
     eventToMaxContextPayload,
     insightToMaxContext,
 } from './utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingUsageLogic } from 'scenes/billing/billingUsageLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
+import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
+import { Destination } from 'scenes/pipeline/types'
 
 // Type definitions for better reusability
 export type TaxonomicItem =
@@ -67,8 +85,27 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ['filtersOverride', 'variablesOverride'],
             sceneLogic,
             ['activeScene', 'activeSceneLogic', 'activeLoadedScene'],
+            billingLogic,
+            ['billing'],
+            billingUsageLogic,
+            ['billingUsageResponse', 'dateFrom as billingUsageDateFrom', 'dateTo as billingUsageDateTo'],
+            organizationLogic,
+            ['isAdminOrOwner'],
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
+            ['destinations'],
         ],
-        actions: [router, ['locationChanged']],
+        actions: [
+            router,
+            ['locationChanged'],
+            billingLogic,
+            ['loadBilling'],
+            billingUsageLogic,
+            ['loadBillingUsage', 'setDateRange as billingUsageSetDateRange', 'setFilters'],
+        ],
     })),
     actions({
         addOrUpdateContextInsight: (data: InsightWithQuery) => ({ data }),
@@ -87,6 +124,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             groupType: TaxonomicFilterGroupType,
             item: TaxonomicItem
         ) => ({ value, groupType, item }),
+        loadBillingContext: true,
         resetContext: true,
         applyContext: (context: MaxContextItem[]) => ({ context }),
     }),
@@ -152,6 +190,30 @@ export const maxContextLogic = kea<maxContextLogicType>([
         ],
     }),
     listeners(({ actions, cache, values }) => ({
+        loadBillingContext: async () => {
+            // Check if user has access to billing data
+            if (!values.isAdminOrOwner) {
+                return
+            }
+            // Load billing data
+            actions.loadBilling()
+
+            // Set date range for last 30 days and load usage with weekly interval
+            const endDate = new Date()
+            endDate.setDate(endDate.getDate() - 1) // Yesterday as today's usage is not available yet
+            const startDate = new Date()
+            startDate.setDate(startDate.getDate() - 31) // 30 days ago
+
+            actions.billingUsageSetDateRange(
+                startDate.toISOString().split('T')[0],
+                endDate.toISOString().split('T')[0],
+                false
+            )
+
+            // Set weekly interval for billing usage
+            actions.setFilters({ interval: 'week' }, false)
+            actions.loadBillingUsage()
+        },
         locationChanged: () => {
             // Don't reset context if the only change is the side panel opening/closing
             const currentLocation = router.values.location
@@ -454,6 +516,29 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 return groupTypes
             },
         ],
+        billingContext: [
+            (s: any) => [
+                s.billing,
+                s.billingUsageResponse,
+                s.isAdminOrOwner,
+                s.currentTeam,
+                s.featureFlags,
+                s.destinations,
+            ],
+            (
+                billing: BillingType | null,
+                billingUsageResponse: any,
+                isAdminOrOwner: boolean,
+                currentTeam: TeamType,
+                featureFlags: Record<string, any>,
+                destinations: Destination[]
+            ): MaxBillingContext | null => {
+                if (!isAdminOrOwner) {
+                    return null
+                }
+                return billingToMaxContext(billing, featureFlags, currentTeam, destinations, billingUsageResponse)
+            },
+        ],
         compiledContext: [
             (s: any) => [
                 s.hasData,
@@ -463,6 +548,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.contextActions,
                 s.filtersOverride,
                 s.variablesOverride,
+                s.billingContext,
             ],
             (
                 hasData: boolean,
@@ -471,7 +557,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 contextEvents: MaxEventContext[],
                 contextActions: MaxActionContext[],
                 filtersOverride: DashboardFilter,
-                variablesOverride: Record<string, HogQLVariable> | null
+                variablesOverride: Record<string, HogQLVariable> | null,
+                billingContext: MaxBillingContext | null
             ): MaxUIContext | null => {
                 const context: MaxUIContext = {}
 
@@ -506,6 +593,10 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                 if (variablesOverride) {
                     context.variables_override = variablesOverride
+                }
+
+                if (billingContext) {
+                    context.billing = billingContext
                 }
 
                 // Deduplicate dashboards by ID

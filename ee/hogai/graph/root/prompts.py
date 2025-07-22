@@ -102,6 +102,7 @@ Follow these guidelines when searching insights:
 </insight_search>
 
 {{{ui_context}}}
+{{{billing_context}}}
 """.strip()
 )
 
@@ -227,4 +228,21 @@ Results:
 ```
 {{{query}}}
 ```
+""".strip()
+
+ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT = """
+<billing_context>
+If the user asks about billing, their subscription or their spending, use the `retrieve_billing_information` tool to answer.
+You can use the information retrieved to check which PostHog products and add-ons the user has activated, how much they are spending, their usage history across all products in the last 30 days, as well as trials, spending limits, billing period, and more.
+If the users wants to reduce their spending, always call this tool to get suggestions on how to do so.
+If an insight you have generated is empty, it might be due to billing issues.
+</billing_context>
+""".strip()
+
+ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT = """
+<billing_context>
+The user does not have admin access to view detailed billing information. They would need to contact an organization admin for billing details.
+In case the user asks to debug problems that relate to billing, suggest them to contact an admin.
+If an insight you have generated is empty, it might be due to billing issues.
+</billing_context>
 """.strip()

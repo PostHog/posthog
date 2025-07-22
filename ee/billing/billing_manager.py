@@ -14,6 +14,7 @@ from rest_framework.exceptions import NotAuthenticated
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
+from ee.models.license import LicenseError
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
@@ -234,7 +235,7 @@ class BillingManager:
         Ensure the license details are up-to-date locally
         """
         if not self.license:  # mypy
-            raise Exception("No license found")
+            raise LicenseError("no_license", "No license found")
 
         license_modified = False
 
@@ -259,7 +260,7 @@ class BillingManager:
         Retrieves billing info and updates local models if necessary
         """
         if not self.license:  # mypy
-            raise Exception("No license found")
+            raise LicenseError("no_license", "No license found")
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
@@ -274,10 +275,10 @@ class BillingManager:
 
     def _get_stripe_portal_url(self, organization: Organization) -> str:
         """
-        Retrieves stripe protal url
+        Retrieves stripe portal url
         """
         if not self.license:  # mypy
-            raise Exception("No license found")
+            raise LicenseError("no_license", "No license found")
 
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/portal",
@@ -372,7 +373,7 @@ class BillingManager:
 
     def get_auth_headers(self, organization: Organization):
         if not self.license:  # mypy
-            raise Exception("No license found")
+            raise LicenseError("no_license", "No license found")
         billing_service_token = build_billing_token(self.license, organization, self.user)
         return {"Authorization": f"Bearer {billing_service_token}"}
 

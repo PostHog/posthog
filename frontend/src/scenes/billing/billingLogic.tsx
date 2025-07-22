@@ -234,11 +234,18 @@ export const billingLogic = kea<billingLogicType>([
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
                     const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-                    const response = await api.get(
-                        'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
-                    )
+                    try {
+                        const response = await api.get(
+                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
+                        )
 
-                    return parseBillingResponse(response)
+                        return parseBillingResponse(response)
+                    } catch (error: any) {
+                        if (error.data?.code === 'no_license') {
+                            return null
+                        }
+                        throw error
+                    }
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {

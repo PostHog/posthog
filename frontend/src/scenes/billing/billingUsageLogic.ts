@@ -98,7 +98,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     try {
                         const response = await api.get(`api/billing/usage/?${toParams(params)}`)
                         return response
-                    } catch (error) {
+                    } catch (error: any) {
+                        if (error.data?.code === 'no_license') {
+                            return null
+                        }
                         lemonToast.error('Failed to load billing usage. Please try again or contact support.')
                         throw error
                     }
