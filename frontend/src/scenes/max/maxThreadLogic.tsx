@@ -449,12 +449,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
 
-        loadConversationHistorySuccess: ({ payload }) => {
+        loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
             if (payload?.doNotUpdateCurrentThread || values.autoRun) {
                 return
             }
-
-            if (values.conversation?.status === ConversationStatus.InProgress) {
+            const conversation = conversationHistory.find((c) => c.id === values.conversationId)
+            if (conversation?.status === ConversationStatus.InProgress) {
                 setTimeout(() => {
                     actions.reconnectToStream()
                 }, 0)
