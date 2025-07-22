@@ -1,5 +1,7 @@
-import { LemonCheckbox, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -7,6 +9,9 @@ export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
+
+    const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(false)
+    const [pipelineErrorsProjectsExpanded, setPipelineErrorsProjectsExpanded] = useState(false)
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const pipelineErrorsEnabled = !user?.notification_settings?.plugin_disabled
@@ -74,30 +79,45 @@ export function UpdateEmailPreferences(): JSX.Element {
                         />
 
                         {weeklyDigestEnabled && (
-                            <div className="ml-8 deprecated-space-y-2">
-                                <p className="text-muted text-sm">
-                                    Select which projects to receive weekly digests for:
-                                </p>
-                                <div className="flex flex-col gap-2">
-                                    {currentOrganization?.teams?.map((team) => (
-                                        <LemonCheckbox
-                                            key={`weekly-digest-${team.id}`}
-                                            id={`weekly-digest-${team.id}`}
-                                            data-attr={`weekly_digest_${team.id}`}
-                                            onChange={(checked) => updateWeeklyDigestForProject(team.id, checked)}
-                                            checked={
-                                                !user?.notification_settings.project_weekly_digest_disabled?.[team.id]
-                                            }
-                                            disabled={userLoading}
-                                            label={
-                                                <div className="flex items-center gap-2">
-                                                    <span>{team.name}</span>
-                                                    <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
-                                                </div>
-                                            }
-                                        />
-                                    ))}
-                                </div>
+                            <div className="ml-6">
+                                <LemonButton
+                                    icon={weeklyDigestProjectsExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                                    onClick={() => setWeeklyDigestProjectsExpanded(!weeklyDigestProjectsExpanded)}
+                                    size="small"
+                                    type="tertiary"
+                                    className="p-0"
+                                >
+                                    Select projects ({currentOrganization?.teams?.length || 0} available)
+                                </LemonButton>
+
+                                {weeklyDigestProjectsExpanded && (
+                                    <div className="mt-3 ml-6 deprecated-space-y-2">
+                                        <div className="flex flex-col gap-2">
+                                            {currentOrganization?.teams?.map((team) => (
+                                                <LemonCheckbox
+                                                    key={`weekly-digest-${team.id}`}
+                                                    id={`weekly-digest-${team.id}`}
+                                                    data-attr={`weekly_digest_${team.id}`}
+                                                    onChange={(checked) =>
+                                                        updateWeeklyDigestForProject(team.id, checked)
+                                                    }
+                                                    checked={
+                                                        !user?.notification_settings.project_weekly_digest_disabled?.[
+                                                            team.id
+                                                        ]
+                                                    }
+                                                    disabled={userLoading}
+                                                    label={
+                                                        <div className="flex items-center gap-2">
+                                                            <span>{team.name}</span>
+                                                            <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                                                        </div>
+                                                    }
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -123,30 +143,45 @@ export function UpdateEmailPreferences(): JSX.Element {
                         />
 
                         {pipelineErrorsEnabled && (
-                            <div className="ml-8 deprecated-space-y-2">
-                                <p className="text-muted text-sm">
-                                    Select which projects to receive pipeline error notifications for:
-                                </p>
-                                <div className="flex flex-col gap-2">
-                                    {currentOrganization?.teams?.map((team) => (
-                                        <LemonCheckbox
-                                            key={`pipeline-errors-${team.id}`}
-                                            id={`pipeline-errors-${team.id}`}
-                                            data-attr={`pipeline_errors_${team.id}`}
-                                            onChange={(checked) => updatePipelineErrorsForProject(team.id, checked)}
-                                            checked={
-                                                !user?.notification_settings.project_pipeline_errors_disabled?.[team.id]
-                                            }
-                                            disabled={userLoading}
-                                            label={
-                                                <div className="flex items-center gap-2">
-                                                    <span>{team.name}</span>
-                                                    <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
-                                                </div>
-                                            }
-                                        />
-                                    ))}
-                                </div>
+                            <div className="ml-6">
+                                <LemonButton
+                                    icon={pipelineErrorsProjectsExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                                    onClick={() => setPipelineErrorsProjectsExpanded(!pipelineErrorsProjectsExpanded)}
+                                    size="small"
+                                    type="tertiary"
+                                    className="p-0"
+                                >
+                                    Select projects ({currentOrganization?.teams?.length || 0} available)
+                                </LemonButton>
+
+                                {pipelineErrorsProjectsExpanded && (
+                                    <div className="mt-3 ml-6 deprecated-space-y-2">
+                                        <div className="flex flex-col gap-2">
+                                            {currentOrganization?.teams?.map((team) => (
+                                                <LemonCheckbox
+                                                    key={`pipeline-errors-${team.id}`}
+                                                    id={`pipeline-errors-${team.id}`}
+                                                    data-attr={`pipeline_errors_${team.id}`}
+                                                    onChange={(checked) =>
+                                                        updatePipelineErrorsForProject(team.id, checked)
+                                                    }
+                                                    checked={
+                                                        !user?.notification_settings.project_pipeline_errors_disabled?.[
+                                                            team.id
+                                                        ]
+                                                    }
+                                                    disabled={userLoading}
+                                                    label={
+                                                        <div className="flex items-center gap-2">
+                                                            <span>{team.name}</span>
+                                                            <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                                                        </div>
+                                                    }
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
