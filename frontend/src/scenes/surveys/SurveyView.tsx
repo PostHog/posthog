@@ -263,7 +263,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         value={survey.description || ''}
                                         placeholder="Description (optional)"
                                         onSave={(value) => {
-                                            updateSurvey({ description: value })
+                                            updateSurvey({ id: id, description: value })
                                             addProductIntent({
                                                 product_type: ProductKey.SURVEYS,
                                                 intent_context: ProductIntentContext.SURVEY_EDITED,
