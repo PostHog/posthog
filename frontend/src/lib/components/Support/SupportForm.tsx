@@ -171,7 +171,11 @@ export function SupportForm(): JSX.Element | null {
                             </span>
                         </Tooltip>
                     </label>
-                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                    <Link
+                        target="_blank"
+                        disableDocsPanel
+                        to="https://posthog.com/docs/support-options#severity-levels"
+                    >
                         Definitions
                     </Link>
                 </div>
