@@ -341,11 +341,11 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", ONBOARDING_COMPRESSION_PROMPT),
-                ("human", core_memory.initial_text),
+                ("human", "{memory_content}"),
             ]
         )
         chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({}, config=config))
+        compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         core_memory.set_core_memory(compressed_memory)
         return PartialAssistantState(
