@@ -71,8 +71,6 @@ NON_RETRYABLE_ERROR_TYPES = [
     "EndpointConnectionError",
     # User provided an invalid S3 key
     "InvalidS3Key",
-    # All consumers failed with non-retryable errors.
-    "RecordBatchConsumerNonRetryableExceptionGroup",
     # Invalid S3 endpoint URL
     "InvalidS3EndpointError",
     # Invalid file_format input
