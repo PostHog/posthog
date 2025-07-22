@@ -164,11 +164,10 @@ class _SharedAssistantState(BaseModel):
 
 
 class AssistantState(_SharedAssistantState):
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
     """
     Messages exposed to the user.
     """
-
-    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
 
 
 class PartialAssistantState(_SharedAssistantState):
@@ -180,21 +179,7 @@ class PartialAssistantState(_SharedAssistantState):
 
     @classmethod
     def get_reset_state(cls) -> "PartialAssistantState":
-        return cls(
-            intermediate_steps=[],
-            plan="",
-            graph_status="",
-            memory_updated=False,
-            memory_collection_messages=[],
-            root_tool_call_id="",
-            root_tool_insight_plan="",
-            root_tool_insight_type="",
-            root_tool_calls_count=0,
-            root_conversation_start_id="",
-            rag_context="",
-            query_planner_previous_response_id="",
-            query_generation_retry_count=0,
-        )
+        return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
 
 class AssistantNodeName(StrEnum):

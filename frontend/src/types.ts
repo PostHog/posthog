@@ -816,6 +816,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
+    History = 'history',
 }
 
 export enum ActivityTab {
@@ -1355,6 +1356,12 @@ export type SearchResponse = {
 }
 
 export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
+
+export type CreateGroupParams = {
+    group_type_index: GroupTypeIndex
+    group_key: string
+    group_properties?: Record<string, any>
+}
 
 export interface MatchedRecordingEvent {
     uuid: string
@@ -4152,6 +4159,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'twilio'
     | 'linear'
     | 'github'
     | 'meta-ads'
@@ -5233,6 +5241,7 @@ export type HogFunctionTemplateType = Pick<
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {

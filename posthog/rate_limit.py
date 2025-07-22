@@ -3,7 +3,7 @@ import re
 import time
 from functools import lru_cache
 from typing import Optional
-
+from django.conf import settings
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
@@ -381,6 +381,16 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_burst"
+    rate = "240/minute"
+
+
+class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_sustained"
+    rate = "2400/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
@@ -415,7 +425,10 @@ class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"  # Since the authentication hash is valid for a short period, this is effectively per-user
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "20/day"
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):

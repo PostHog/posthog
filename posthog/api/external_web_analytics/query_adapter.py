@@ -3,6 +3,7 @@ from typing import Optional, Any
 from dataclasses import dataclass
 from collections.abc import Callable
 
+from rest_framework.utils.urls import replace_query_param, remove_query_param
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.schema import (
@@ -97,18 +98,19 @@ class ExternalWebAnalyticsQueryAdapter:
     It tries to separate the web analytics query runners from the external API.
     """
 
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, request=None):
         self.team = team
         self.breakdown_metrics_config = BreakdownMetricsConfig()
+        self.request = request
 
-    def _get_base_properties(self, domain: Optional[str] = None) -> list[EventPropertyFilter]:
+    def _get_base_properties(self, host: Optional[str] = None) -> list[EventPropertyFilter]:
         properties = []
-        if domain:
+        if host:
             properties.append(
                 EventPropertyFilter(
                     key="$host",
                     operator=PropertyOperator.EXACT,
-                    value=[domain],
+                    value=[host],
                 )
             )
         return properties
@@ -131,9 +133,9 @@ class ExternalWebAnalyticsQueryAdapter:
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
             ),
-            properties=self._get_base_properties(data.get("domain")),
+            properties=self._get_base_properties(data.get("host")),
             filterTestAccounts=data.get("filter_test_accounts", True),
-            doPathCleaning=data.get("do_path_cleaning", True),
+            doPathCleaning=data.get("apply_path_cleaning", True),
             includeRevenue=False,
         )
 
@@ -151,6 +153,8 @@ class ExternalWebAnalyticsQueryAdapter:
         data = serializer.validated_data
 
         breakdown_by = WebStatsBreakdown(data["breakdown_by"])
+        limit = data.get("limit", EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT)
+        offset = data.get("offset", 0)
 
         query = WebStatsTableQuery(
             kind="WebStatsTableQuery",
@@ -159,11 +163,12 @@ class ExternalWebAnalyticsQueryAdapter:
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
             ),
-            properties=self._get_base_properties(data.get("domain")),
+            properties=self._get_base_properties(data.get("host")),
             filterTestAccounts=data.get("filter_test_accounts", True),
-            doPathCleaning=data.get("do_path_cleaning", True),
+            doPathCleaning=data.get("apply_path_cleaning", True),
             includeBounceRate=self.breakdown_metrics_config.is_metric_supported("bounce_rate", breakdown_by),
-            limit=data.get("limit", EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT),
+            limit=limit,
+            offset=offset,
         )
 
         runner = WebStatsTableQueryRunner(
@@ -174,10 +179,14 @@ class ExternalWebAnalyticsQueryAdapter:
 
         response = runner.calculate()
 
-        return self._transform_breakdown_response(response, breakdown_by, data.get("metrics", []))
+        return self._transform_breakdown_response(response, breakdown_by, limit, offset)
 
     def _transform_breakdown_response(
-        self, response: WebStatsTableQueryResponse, breakdown: WebStatsBreakdown, requested_metrics: list[str]
+        self,
+        response: WebStatsTableQueryResponse,
+        breakdown: WebStatsBreakdown,
+        limit: int,
+        offset: int,
     ) -> dict[str, Any]:
         """
         Transform the internal WebStatsTableQueryResponse to external API format.
@@ -209,27 +218,24 @@ class ExternalWebAnalyticsQueryAdapter:
             return self._empty_breakdown_response()
 
         supported_metrics = self.breakdown_metrics_config.get_supported_metrics_for_breakdown(breakdown)
-
         column_indices = {col: i for i, col in enumerate(response.columns)}
 
         transformed_results = [
-            self._transform_breakdown_row(row, column_indices, supported_metrics, requested_metrics)
-            for row in response.results
+            self._transform_breakdown_row(row, column_indices, supported_metrics) for row in response.results
         ]
 
+        # Generate pagination URLs
+        pagination_info = self._get_pagination_info(response, limit, offset)
+
         return {
-            "count": len(transformed_results),
             "results": transformed_results,
-            "next": None,
-            "previous": None,
+            "next": pagination_info["next"],
         }
 
     def _empty_breakdown_response(self) -> dict[str, Any]:
         return {
-            "count": 0,
             "results": [],
             "next": None,
-            "previous": None,
         }
 
     def _transform_breakdown_row(
@@ -237,7 +243,6 @@ class ExternalWebAnalyticsQueryAdapter:
         row: list,
         column_indices: dict[str, int],
         supported_metrics: dict[str, MetricDefinition],
-        requested_metrics: list[str],
     ) -> dict[str, Any]:
         result = {}
 
@@ -246,16 +251,11 @@ class ExternalWebAnalyticsQueryAdapter:
             if metric_def.internal_column not in column_indices:
                 continue
 
-            # Check if this metric should be included based on user request
-            if self._should_include_metric(metric_def.external_key, requested_metrics):
-                col_index = column_indices[metric_def.internal_column]
-                raw_value = row[col_index] if col_index < len(row) else None
-                result[metric_def.external_key] = metric_def.transformer(raw_value)
+            col_index = column_indices[metric_def.internal_column]
+            raw_value = row[col_index] if col_index < len(row) else None
+            result[metric_def.external_key] = metric_def.transformer(raw_value)
 
         return result
-
-    def _should_include_metric(self, metric_key: str, requested_metrics: list[str]) -> bool:
-        return not requested_metrics or metric_key == "breakdown_value" or metric_key in requested_metrics
 
     def _transform_overview_response(self, response: WebOverviewQueryResponse) -> dict[str, Any]:
         """
@@ -299,3 +299,40 @@ class ExternalWebAnalyticsQueryAdapter:
             "bounce_rate": result_dict.get("bounce_rate", 0.0),
             "session_duration": result_dict.get("session_duration", 0.0),
         }
+
+    def _get_pagination_info(
+        self, response: WebStatsTableQueryResponse, limit: int, offset: int
+    ) -> dict[str, Optional[str]]:
+        if not self.request:
+            return {"next": None}
+
+        # Use hasMore from the response if available, otherwise check if we have enough results
+        has_more = (
+            getattr(response, "hasMore", False)
+            if hasattr(response, "hasMore")
+            else len(response.results or []) >= limit
+        )
+
+        next_url = None
+
+        if has_more:
+            next_url = self._build_pagination_url(limit, offset + limit)
+
+        return {
+            "next": next_url,
+        }
+
+    def _build_pagination_url(self, limit: int, offset: int) -> Optional[str]:
+        if not self.request:
+            return None
+
+        url = self.request.build_absolute_uri()
+
+        url = replace_query_param(url, "limit", limit)
+
+        if offset > 0:
+            url = replace_query_param(url, "offset", offset)
+        else:
+            url = remove_query_param(url, "offset")
+
+        return url

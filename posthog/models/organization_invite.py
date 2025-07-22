@@ -125,7 +125,8 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
-        for item in self.private_project_access:
+
+        for item in self.private_project_access or []:
             try:
                 team: Team = self.organization.teams.get(id=item["id"])
                 parent_membership = OrganizationMembership.objects.get(

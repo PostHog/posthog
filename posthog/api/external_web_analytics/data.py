@@ -41,7 +41,7 @@ class WebAnalyticsDataFactory:
     def generate_trends_data(self, request_data: dict[str, Any], request: Request, team_id: int) -> dict[str, Any]:
         date_from = request_data["date_from"]
         date_to = request_data["date_to"]
-        domain = request_data["domain"]
+        host = request_data["host"]
 
         if isinstance(date_from, str):
             date_from = datetime.strptime(date_from, "%Y-%m-%d").date()
@@ -80,34 +80,26 @@ class WebAnalyticsDataFactory:
 
         # Generate dummy pagination URLs
         has_next = offset + limit < total_count
-        has_previous = offset > 0
 
         base_params = {
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
-            "domain": domain,
+            "host": host,
             "interval": interval,
             "metric": metric,
             "limit": limit,
             "offset": offset,
         }
 
-        # Initialize pagination URLs
+        # Initialize pagination URL
         next_url = None
-        previous_url = None
 
         if has_next:
             next_params = {**base_params, "offset": offset + limit}
             next_url = self._get_api_url(request, team_id, "trend", next_params)
 
-        if has_previous:
-            prev_params = {**base_params, "offset": max(0, offset - limit)}
-            previous_url = self._get_api_url(request, team_id, "trend", prev_params)
-
         data = {
-            "count": total_count,
             "next": next_url,
-            "previous": previous_url,
             "results": paginated_results,
         }
 

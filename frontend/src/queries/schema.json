@@ -13967,6 +13967,7 @@
                 "snapchat",
                 "intercom",
                 "email",
+                "twilio",
                 "linear",
                 "github",
                 "meta-ads"
@@ -22179,6 +22180,7 @@
                 "replay",
                 "revenue_analytics_properties",
                 "resources",
+                "error_tracking_properties",
                 "max_ai_context"
             ],
             "type": "string"
@@ -23776,6 +23778,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
                     "$ref": "#/definitions/WebAnalyticsOrderBy"

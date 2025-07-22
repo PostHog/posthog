@@ -108,7 +108,7 @@ impl FeatureFlagList {
                         version: row.version,
                     }),
                     Err(e) => {
-                        tracing::error!(
+                        tracing::warn!(
                             "Failed to deserialize filters for flag {} in project {} (team {}): {}",
                             row.key,
                             project_id,

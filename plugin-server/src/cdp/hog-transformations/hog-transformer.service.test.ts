@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { parseJSON } from '~/utils/json-parse'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
@@ -191,6 +192,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := 'test_value'
@@ -282,6 +284,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := 'test_value'
@@ -298,6 +301,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := null
@@ -366,6 +370,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     return event
                 `,
@@ -380,6 +385,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     return event
                 `,
@@ -394,6 +400,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     return event
                 `,
@@ -471,6 +478,7 @@ describe('HogTransformer', () => {
                 name: 'Success Template',
                 description: 'A template that should succeed',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.success := true
@@ -488,6 +496,7 @@ describe('HogTransformer', () => {
                 name: 'Failing Template',
                 description: 'A template that should fail',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     // Return invalid result (not an object with properties)
                     return "invalid"
@@ -551,6 +560,7 @@ describe('HogTransformer', () => {
                 name: 'Input Setter',
                 description: 'A template that sets the inputs',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.inputs := {
@@ -644,6 +654,7 @@ describe('HogTransformer', () => {
                 name: 'Success Template',
                 description: 'A template that should succeed',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.success := true
@@ -1329,6 +1340,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := true
@@ -1371,6 +1383,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := true
@@ -1484,6 +1497,7 @@ describe('HogTransformer', () => {
                 name: 'Disabled Test Template',
                 description: 'A test template that should be skipped due to disabled state',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.should_not_be_set := true
@@ -1541,6 +1555,7 @@ describe('HogTransformer', () => {
                 name: 'Healthy Test Template',
                 description: 'A test template that should execute because state is healthy',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.should_be_set := true
@@ -1599,6 +1614,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A test template that should execute despite disabled state because hogwatcher is off',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.should_be_set := true
@@ -1642,6 +1658,91 @@ describe('HogTransformer', () => {
 
             // Reset spies
             executeHogFunctionSpy.mockRestore()
+        })
+
+        it('should capture events with correct Kafka headers', async () => {
+            // Create a transformation function that captures an event
+            const captureTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-capture',
+                name: 'Capture Template',
+                description: 'A template that captures an event',
+                category: ['Custom'],
+                code_language: 'hog',
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.captured := true
+
+                    // Capture a new event
+                    postHogCapture({
+                        'event': 'captured_event',
+                        'distinct_id': 'captured_user',
+                        'properties': {
+                            'source': 'hog_function',
+                            'original_event': event.event,
+                            'original_distinct_id': event.distinct_id,
+                            'captured_at': '2024-01-01T00:00:00Z'
+                        }
+                    })
+
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: captureTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(captureTemplate.hog),
+                id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)
+            await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.processInvocationResults()
+
+            const messages = mockProducerObserver.getProducedKafkaMessages()
+
+            // Find the captured event message
+            const capturedEventMessage = messages.find((msg) => {
+                try {
+                    const data = parseJSON(msg.value.data as string)
+                    return data.event === 'captured_event' && data.distinct_id === 'captured_user'
+                } catch {
+                    return false
+                }
+            })
+
+            expect(capturedEventMessage).toBeDefined()
+
+            const capturedEventData = parseJSON(capturedEventMessage!.value.data as string)
+
+            expect(capturedEventData).toMatchObject({
+                event: 'captured_event',
+                distinct_id: 'captured_user',
+                properties: {
+                    source: 'hog_function',
+                    original_event: 'original-event',
+                    original_distinct_id: 'original_user',
+                    captured_at: '2024-01-01T00:00:00Z',
+                    $hog_function_execution_count: 1,
+                },
+                timestamp: '2025-01-01T00:00:00.000Z',
+            })
+
+            // Check that the Kafka headers are correct
+            expect(capturedEventMessage?.headers).toBeDefined()
+            expect(capturedEventMessage?.headers).toMatchObject({
+                distinct_id: 'captured_user',
+                token: 'THIS IS NOT A TOKEN FOR TEAM 2',
+            })
         })
     })
 })
