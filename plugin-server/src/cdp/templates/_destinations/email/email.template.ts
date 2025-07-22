@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: "Send an email using PostHog's built-in email service",
     icon_url: '/static/hedgehog/mail-hog.png',
     category: ['Communication'],
+    code_language: 'hog',
     hog: `
 let emailConfig := inputs.email_config
 let recipient := inputs.recipient
