@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
