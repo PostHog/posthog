@@ -1,12 +1,17 @@
 from datetime import datetime, UTC
+from pathlib import Path
+import tempfile
 
 import pytest
 
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.utils import (
     get_column_index,
     prepare_datetime,
     serialize_to_sse_event,
     shorten_url,
+    estimate_tokens_from_strings,
+    estimate_tokens_from_template_files,
 )
 
 
@@ -98,3 +103,42 @@ def test_shorten_url(url: str, expected: str) -> None:
 def test_serialize_to_sse_event(event_label: str, event_data: str, expected: str) -> None:
     result = serialize_to_sse_event(event_label, event_data)
     assert result == expected
+
+
+class TestTokenEstimation:
+    def test_estimate_tokens_from_strings(self):
+        """Test exact token estimation for strings using o3 model."""
+        # Empty input returns 0
+        assert estimate_tokens_from_strings(strings=[], model=SESSION_SUMMARIES_SYNC_MODEL) == 0
+        # Test with exact token count for o3 model
+        result = estimate_tokens_from_strings(
+            strings=["Hello world", "Test content"], model=SESSION_SUMMARIES_SYNC_MODEL
+        )
+        assert result == 4  # Exact token count for these strings with o3 model
+
+    def test_estimate_tokens_from_template_files(self):
+        """Test token estimation for template files with data injection."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".djt", delete=False) as f:
+            f.write("Prompt: {{ SESSION_SUMMARIES }}")
+            f.flush()
+            template_path = Path(f.name)
+
+            try:
+                # Template alone has exactly 8 tokens with o3 model
+                template_only = estimate_tokens_from_template_files(
+                    template_paths=[template_path], model=SESSION_SUMMARIES_SYNC_MODEL
+                )
+                assert template_only == 8
+                # With injected data, token count is sum of template + data
+                data_to_inject = ["Summary 1", "Summary 2"]
+                with_data = estimate_tokens_from_template_files(
+                    template_paths=[template_path], data_to_inject=data_to_inject, model=SESSION_SUMMARIES_SYNC_MODEL
+                )
+                assert with_data == 14  # 8 (template) + 6 (data) = 14 tokens
+            finally:
+                template_path.unlink()
+        # Non-existent file raises FileNotFoundError
+        with pytest.raises(FileNotFoundError):
+            estimate_tokens_from_template_files(
+                template_paths=[Path("/nonexistent.djt")], model=SESSION_SUMMARIES_SYNC_MODEL
+            )
