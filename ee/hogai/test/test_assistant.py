@@ -36,6 +36,8 @@ from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
+    AssistantGenerationStatusEvent,
+    AssistantGenerationStatusType,
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionActionsNode,
@@ -56,6 +58,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from ee.hogai.utils.state import GraphValueUpdateTuple
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
@@ -129,6 +132,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
         ui_context: Optional[MaxUIContext] = None,
+        filter_ack_messages: bool = True,
     ) -> tuple[list[tuple[str, Any]], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
@@ -147,6 +151,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output: list[AssistantOutput] = []
         async for event in assistant.astream():
             output.append(event)
+        if filter_ack_messages:
+            output = [
+                event
+                for event in output
+                if event[0] != AssistantEventType.STATUS and event[1].type != AssistantGenerationStatusType.ACK
+            ]
         return output, assistant
 
     def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[tuple[Any, Any]]):
@@ -1760,3 +1770,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result, "")  # Should return empty headline
         self.assertIsNone(assistant._reasoning_headline_chunk)
         self.assertEqual(assistant._last_reasoning_headline, "")
+
+    def test_process_value_update_returns_ack_event(self):
+        """Test that _process_value_update returns an ACK event for state updates."""
+
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
+
+        # Create a value update tuple that doesn't match special nodes
+        update: GraphValueUpdateTuple = (
+            AssistantNodeName.ROOT,
+            {"root": {"messages": []}},  # Empty update that doesn't match visualization or verbose nodes
+        )
+
+        # Process the update
+        result = assistant._process_value_update(update)
+
+        # Should receive a list with an ACK event
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
+        self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
