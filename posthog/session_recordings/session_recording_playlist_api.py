@@ -197,9 +197,17 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
-        # If 'type' is in read_only_fields, it won't be in validated_data.
+        # because 'type' is in read_only_fields, it won't be in validated_data.
         # Get it from initial_data to allow setting it on creation.
-        playlist_type = self.initial_data.get("type")
+        playlist_type = self.initial_data.get("type", None)
+        if not playlist_type or playlist_type not in ["collection", "filters"]:
+            raise ValidationError("Must provide a valid playlist type: either filters or collection")
+
+        if playlist_type == "collection" and validated_data.get("filters", None) is not None:
+            raise ValidationError("You cannot create a collection with filters")
+
+        if playlist_type == "filters" and validated_data.get("filters", None) is None:
+            raise ValidationError("You must provide a valid filters when creating a saved filter")
 
         playlist = SessionRecordingPlaylist.objects.create(
             team=team,
@@ -231,6 +239,11 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         if validated_data.keys() & SessionRecordingPlaylist.MATERIAL_PLAYLIST_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
+
+        if instance.type == "collection" and validated_data.get("filters", None) is not None:
+            raise ValidationError("You cannot update a collection to add filters")
+        if instance.type == "filters" and not validated_data.get("filters", None):
+            raise ValidationError("You cannot remove all filters when updating a saved filter")
 
         updated_playlist = super().update(instance, validated_data)
         changes = changes_between("SessionRecordingPlaylist", previous=before_update, current=updated_playlist)
@@ -280,32 +293,15 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
-        # Pre-calculate Q objects for playlists with items
-        playlist_ids_with_items = SessionRecordingPlaylistItem.objects.filter(
-            playlist__team_id=self.team.id
-        ).values_list("playlist_id", flat=True)
-        has_items = Q(id__in=playlist_ids_with_items)
-        has_no_items = ~has_items
-        has_filters = ~Q(filters={})
-        type_is_null = Q(type__isnull=True)
-
         for key in filters:
             request_value = filters[key]
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "type":
-                if request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
-                    # Explicitly type 'filters' OR (null type AND has filters AND no items)
-                    queryset = queryset.filter(
-                        Q(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
-                        | (type_is_null & has_filters & has_no_items)
-                    )
-                elif request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-                    # Explicitly type 'collection' OR (null type AND has items)
-                    queryset = queryset.filter(
-                        Q(type=SessionRecordingPlaylist.PlaylistType.COLLECTION) | (type_is_null & has_items)
-                    )
-                # If type param is something else, ignore it for now
+                if request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+                    queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.COLLECTION)
+                elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                    queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":
@@ -501,8 +497,6 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         user = request.user
         team = self.team
 
-        if not playlist.filters:
-            raise ValidationError("Playlist filters are required to mark a playlist as viewed.")
         if user.is_anonymous:
             raise ValidationError("Only authenticated users can mark a playlist as viewed.")
 
