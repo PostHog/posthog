@@ -751,40 +751,36 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             [
                 with_changes(
                     [
-                        [
-                            {
-                                "action": "tagged_user",
-                                "after": {
-                                    "annotation_dashboard_id": None,
-                                    "annotation_insight_id": None,
-                                    "annotation_recording_id": None,
-                                    "annotation_scope": None,
-                                    "tagged_user": None,
-                                },
-                                "before": None,
-                                "field": None,
-                                "type": None,
-                            }
-                        ]
+                        {
+                            "action": "tagged_user",
+                            "after": {
+                                "annotation_dashboard_id": None,
+                                "annotation_insight_id": None,
+                                "annotation_recording_id": None,
+                                "annotation_scope": None,
+                                "tagged_user": None,
+                            },
+                            "before": None,
+                            "field": None,
+                            "type": None,
+                        }
                     ]
                 ),
                 with_changes(
                     [
-                        [
-                            {
-                                "action": "tagged_user",
-                                "after": {
-                                    "annotation_dashboard_id": None,
-                                    "annotation_insight_id": None,
-                                    "annotation_recording_id": None,
-                                    "annotation_scope": None,
-                                    "tagged_user": None,
-                                },
-                                "before": None,
-                                "field": None,
-                                "type": None,
-                            }
-                        ]
+                        {
+                            "action": "tagged_user",
+                            "after": {
+                                "annotation_dashboard_id": None,
+                                "annotation_insight_id": None,
+                                "annotation_recording_id": None,
+                                "annotation_scope": None,
+                                "tagged_user": None,
+                            },
+                            "before": None,
+                            "field": None,
+                            "type": None,
+                        }
                     ]
                 ),
             ]
