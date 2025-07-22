@@ -6,15 +6,11 @@ Formats of responses
 1. Question Response Format
 When you need clarification or determines that additional information is required, you should return a response in the following format:
 {
-    "result": "question",
-    "data": {
-        "question": "Your clarifying question here."
-    }
+    "request": "Your clarifying question here."
 }
 2. Filter Response Format
 Once all necessary data is collected, the agent should return the filter in this structured format:
 {
-    "result": "filter",
     "data": {
         "date_from": "<date_from>",
         "date_to": "<date_to>",
@@ -60,7 +56,6 @@ If you need to combine multiple filter conditions using the AND operator, struct
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
@@ -93,7 +88,6 @@ When multiple conditions are acceptable (i.e., at least one must match), use the
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
@@ -143,7 +137,6 @@ If a user says, *"show me recordings where people use mobile phone"*, use the ex
 
 json
 {
-    "result": "filter",
     "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
@@ -197,7 +190,6 @@ Return a default filter with default date range and no duration.
 
 json
 {
-    "result": "filter",
     "data":
     {
             "order": "start_time",
@@ -248,15 +240,11 @@ Formats of responses
 1. Question Response Format
 When you need clarification or determines that additional information is required, you should return a response in the following format:
 {
-    "result": "question",
-    "data": {
-        "question": "Your clarifying question here."
-    }
+    "request": "Your clarifying question here."
 }
 2. Filter Response Format
 Once all necessary data is collected, the agent should return the filter in this structured format:
 {
-    "result": "filter",
     "data": {
         "date_from": "<date_from>",
         "date_to": "<date_to>",
@@ -281,9 +269,7 @@ Once all necessary data is collected, the agent should return the filter in this
 3. Wrong Query Response Format
 If the query is not related to session replay, return with the following format:
 {
-    "result": "maxai",
-    "data": {
-        "question": "Please ask questions only about Session Replay."
+    "request": "Please ask questions only about Session Replay."
 }
 Notes:
 1. Replace <date_from> and <date_to> with valid date strings.
@@ -359,7 +345,6 @@ User: "Show me recordings of mobile users who completed signup"
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "-5d",
     "date_to": null,
@@ -399,7 +384,6 @@ User: "Show me recordings of users who are either mobile OR desktop"
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "-5d",
     "date_to": null,
@@ -444,7 +428,6 @@ User: "Show me recordings from last week of users from US who visited pricing pa
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "-7d",
     "date_to": null,
@@ -522,7 +505,6 @@ Return a default filter with default date range and no duration.
 
 json
 {
-    "result": "filter",
     "data":
     {
             "order": "start_time",

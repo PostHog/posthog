@@ -133,6 +133,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
                     "filter_logical_operators_prompt": injected_prompts.get(
                         "filter_logical_operators_prompt", FILTER_LOGICAL_OPERATORS_PROMPT
                     ),
+                    "multiple_filters_prompt": injected_prompts.get("multiple_filters_prompt", ""),
                     "date_fields_prompt": injected_prompts.get("date_fields_prompt", DATE_FIELDS_PROMPT),
                     "tool_usage_prompt": injected_prompts.get("tool_usage_prompt", TOOL_USAGE_PROMPT),
                     "examples_prompt": injected_prompts.get("examples_prompt", EXAMPLES_PROMPT),
@@ -143,7 +144,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         """Process the state and return filtering options."""
-        progress_messages = list(getattr(state, "messages", []))
+        progress_messages = list(getattr(state, "tool_progress_messages", []))
         full_conversation = self._construct_messages(state)
 
         chain = full_conversation | merge_message_runs() | self._get_model(state)
@@ -208,7 +209,6 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
             if input.name == "final_answer":
                 # Extract the full response structure
                 full_response = {
-                    "result": input.arguments.result,  # type: ignore
                     "data": input.arguments.data,  # type: ignore
                 }
 

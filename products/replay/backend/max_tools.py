@@ -73,8 +73,8 @@ class SearchSessionRecordingsTool(MaxTool):
             return help_content, current_filters
 
         try:
-            result = MaxRecordingUniversalFilters.model_validate(result["generated_filter_options"]["data"])
+            result = result["generated_filter_options"]["data"]
         except Exception as e:
-            raise ValueError(f"Failed to convert filter options to MaxRecordingUniversalFilters: {e}")
+            raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
 
         return "✅ Updated session recordings filters.", result

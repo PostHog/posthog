@@ -1,4 +1,6 @@
 from datetime import datetime
+import json
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
 
 RESPONSE_FORMATS_PROMPT = """
 <response_formats>
@@ -6,15 +8,11 @@ Formats of responses
 1. Question Response Format
 When you need clarification or determines that additional information is required, you should return a response in the following format:
 {
-    "result": "question",
-    "data": {
-        "question": "Your clarifying question here."
-    }
+    "request": "Your clarifying question here."
 }
 2. Filter Response Format
 Once all necessary data is collected, the agent should return the filter in this structured format:
 {
-    "result": "filter",
     "data": {
         "date_from": "<date_from>",
         "date_to": "<date_to>",
@@ -211,7 +209,6 @@ User: "Show me recordings of mobile users who completed signup"
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "-5d",
     "date_to": null,
@@ -247,7 +244,6 @@ User: "Show me recordings of users who are either mobile OR desktop"
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "-5d",
     "date_to": null,
@@ -288,7 +284,6 @@ User: "Show me recordings from last week of users from US who visited pricing pa
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "-7d",
     "date_to": null,
@@ -362,7 +357,6 @@ Return a default filter with default date range and no duration.
 
 json
 {
-    "result": "filter",
     "data":
     {
             "order": "start_time",
@@ -414,7 +408,7 @@ day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
 FILTER_INITIAL_PROMPT += f"\nToday is {today_date}."
 
-FILTER_FIELDS_TAXONOMY_PROMPT = """
+FILTER_FIELDS_TAXONOMY_PROMPT = f"""
 <taxonomy_info>
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -476,14 +470,23 @@ All operators take a single value except for `equals` and `doesn't equal` which 
 </supported_operators>
 
 
-Special Considerations and Examples
+<list_of_property_and_event_names>
+The following is a list of property names, event names and their definitions.
+If you find the property name the user is asking for in the list, use it without calling a tool.
+If you cannot find the property name in the list, call the tool to get the list of properties for the entity or event.
 
-- Guessing the Property Type:
-Use the property_type information to determine how to format the <value>. For instance, if the property is numeric, do not wrap the number in quotes.
 
-- Multiple filters in the same query:
-Users can ask to filter based on multiple properties at the same time. Make sure to repeat the same process for each property in order to get the correct filter.
+SOME OF THE AVAILABLE PROPERTIES, EVENTS and their definitions:
+```json
+{json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP, indent=2)}
+```
+#### SOME OF THE AVAILABLE CAMPAIGN PROPERTIES and their definitions:
 
+```json
+{json.dumps(CAMPAIGN_PROPERTIES, indent=2)}
+```
+
+</list_of_property_and_event_names>
 
 </taxonomy_info>
 

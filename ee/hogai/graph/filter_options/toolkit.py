@@ -10,6 +10,7 @@ from ee.hogai.graph.query_planner.toolkit import (
     retrieve_event_property_values,
 )
 from posthog.models.property_definition import PropertyDefinition
+from posthog.schema import MaxRecordingUniversalFilters
 import yaml
 
 
@@ -42,8 +43,7 @@ class final_answer(BaseModel):
     If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
     """
 
-    result: str = Field(description="Should be 'filter' for filter responses.")
-    data: dict = Field(description="Complete filter object as defined in the prompts")
+    data: MaxRecordingUniversalFilters = Field(description="Complete filter object as defined in the prompts")
 
 
 FilterOptionsToolUnion = Union[
