@@ -890,7 +890,7 @@ def background_delete_model_task(
             records_to_delete = total_count
 
         # At this point, records_to_delete is guaranteed to be an int
-        records_to_delete_int: int = records_to_delete
+        records_to_delete_int: int = records_to_delete  # type: ignore
 
         deleted_count = 0
         batch_num = 0
