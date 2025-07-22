@@ -29,6 +29,7 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
 )
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
+    combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
 )
 from posthog import constants
@@ -593,3 +594,177 @@ class TestPatternExtractionChunking:
         assert len(chunks) == 2
         assert chunks[0] == ["session-0"]
         assert chunks[1] == ["session-1", "session-2"]
+
+
+@pytest.mark.asyncio
+async def test_combine_patterns_from_chunks_activity(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test combine_patterns_from_chunks_activity."""
+    # Prepare test data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2", f"{mock_session_id}-3"]
+    redis_key_base = "test-combine-patterns"
+    user_id = 1
+    # Create chunk patterns to store in Redis
+    chunk_patterns_1 = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 1,
+                "pattern_name": "Login Flow",
+                "pattern_description": "User login pattern",
+                "severity": "low",
+                "indicators": ["clicked login", "entered credentials"],
+            }
+        ]
+    )
+    chunk_patterns_2 = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 2,
+                "pattern_name": "Error Pattern",
+                "pattern_description": "Multiple errors occurred",
+                "severity": "high",
+                "indicators": ["error message", "retry attempt"],
+            }
+        ]
+    )
+    # Store chunk patterns in Redis
+    chunk_key_1 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-1",
+    )
+    chunk_key_2 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-2",
+    )
+    await store_data_in_redis(
+        redis_client=redis_test_setup.redis_client,
+        redis_key=chunk_key_1,
+        data=chunk_patterns_1.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    await store_data_in_redis(
+        redis_client=redis_test_setup.redis_client,
+        redis_key=chunk_key_2,
+        data=chunk_patterns_2.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.extend([chunk_key_1, chunk_key_2])
+    # Set up spies
+    spy_get = mocker.spy(redis_test_setup.redis_client, "get")
+    spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
+    # Mock the LLM combination function
+    with (
+        patch("posthog.temporal.ai.session_summary.activities.patterns.get_llm_session_group_patterns_combination") as mock_combine,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock returns combined patterns (placeholder for now)
+        mock_combine.return_value = RawSessionGroupSummaryPatternsList(patterns=[])
+        # Execute the activity
+        await combine_patterns_from_chunks_activity(
+            chunk_redis_keys=[chunk_key_1, chunk_key_2],
+            redis_key_base=redis_key_base,
+            session_ids=session_ids,
+            user_id=user_id,
+            extra_summary_context=None,
+        )
+        # Verify Redis operations
+        # 1 get for checking if combined patterns exist + 2 gets for chunk patterns
+        assert spy_get.call_count == 3
+        # 1 setex for storing combined patterns (2 initial setex were before spy)
+        assert spy_setex.call_count == 1
+        # Verify LLM was called
+        mock_combine.assert_called_once()
+
+
+@pytest.mark.asyncio 
+async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test that combine_patterns_from_chunks_activity fails when any chunk is missing."""
+    # Prepare test data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    redis_key_base = "test-combine-patterns-missing"
+    user_id = 1
+    # Create only one chunk pattern (simulating missing chunk)
+    chunk_patterns_1 = RawSessionGroupSummaryPatternsList(
+        patterns=[
+            {
+                "pattern_id": 1,
+                "pattern_name": "Test Pattern",
+                "pattern_description": "Test",
+                "severity": "low",
+                "indicators": ["test"],
+            }
+        ]
+    )
+    chunk_key_1 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-1",
+    )
+    chunk_key_2 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="chunk-2-missing",  # This one won't exist in Redis
+    )
+    # Store only the first chunk
+    await store_data_in_redis(
+        redis_client=redis_test_setup.redis_client,
+        redis_key=chunk_key_1,
+        data=chunk_patterns_1.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.append(chunk_key_1)
+
+    with patch("temporalio.activity.info") as mock_activity_info:
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Should raise ValueError when a chunk is missing
+        with pytest.raises(ValueError):
+            await combine_patterns_from_chunks_activity(
+                chunk_redis_keys=[chunk_key_1, chunk_key_2],
+                redis_key_base=redis_key_base,
+                session_ids=session_ids,
+                user_id=user_id,
+                extra_summary_context=None,
+            )
+
+
+@pytest.mark.asyncio
+async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
+    mock_session_id: str,
+    redis_test_setup: AsyncRedisTestContext,
+):
+    """Test that activity fails when no chunks can be retrieved."""
+    # Prepare test data with non-existent chunk keys
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    redis_key_base = "test-combine-patterns-fail"
+    user_id = 1
+    chunk_key_1 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="non-existent-1",
+    )
+    chunk_key_2 = generate_state_key(
+        key_base=redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id="non-existent-2",
+    )
+    
+    with patch("temporalio.activity.info") as mock_activity_info:
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Should raise ValueError when chunks are missing
+        with pytest.raises(ValueError):
+            await combine_patterns_from_chunks_activity(
+                chunk_redis_keys=[chunk_key_1, chunk_key_2],
+                redis_key_base=redis_key_base,
+                session_ids=session_ids,
+                user_id=user_id,
+                extra_summary_context=None,
+            )

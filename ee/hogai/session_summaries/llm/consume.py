@@ -158,6 +158,16 @@ async def get_llm_session_group_patterns_assignment(
     return patterns
 
 
+async def get_llm_session_group_patterns_combination(
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+) -> RawSessionGroupSummaryPatternsList:
+    """Call LLM to combine patterns from multiple chunks."""
+    sessions_identifier = ",".join(session_ids)
+    # TODO: Implement LLM logic to combine patterns from chunks
+    # For now, return empty patterns list as a placeholder
+    return RawSessionGroupSummaryPatternsList(patterns=[])
+
+
 async def get_llm_single_session_summary(
     summary_prompt: str,
     user_id: int,

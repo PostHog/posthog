@@ -12,6 +12,7 @@ from ee.hogai.session_summaries.constants import (
 )
 from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
+    get_llm_session_group_patterns_combination,
     get_llm_session_group_patterns_extraction,
 )
 from ee.hogai.session_summaries.session_group.patterns import (
@@ -26,6 +27,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
 )
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
+    PatternsPrompt,
     SingleSessionSummaryLlmInputs,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
@@ -42,6 +44,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
+from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
 from temporalio.exceptions import ApplicationError
 
@@ -369,3 +372,82 @@ async def assign_events_to_patterns_activity(
             label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
         )
     return patterns_with_events_context
+
+
+@temporalio.activity.defn
+async def combine_patterns_from_chunks_activity(
+    chunk_redis_keys: list[str],
+    redis_key_base: str,
+    session_ids: list[str],
+    user_id: int,
+    extra_summary_context: ExtraSummaryContext | None,
+) -> None:
+    """Combine patterns from multiple chunks using LLM and store in Redis."""
+    redis_client = get_async_client()
+    _, _, redis_output_key = get_redis_state_client(
+        key_base=redis_key_base,
+        output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=",".join(session_ids),
+    )
+
+    try:
+        # Check if combined patterns are already in Redis
+        await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            target_class=RawSessionGroupSummaryPatternsList,
+        )
+        return None  # Already exists, no need to regenerate
+    except ValueError:
+        # Retrieve all chunk patterns from Redis
+        chunk_patterns = []
+        for chunk_key in chunk_redis_keys:
+            try:
+                chunk_pattern = await get_data_class_from_redis(
+                    redis_client=redis_client,
+                    redis_key=chunk_key,
+                    label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+                    target_class=RawSessionGroupSummaryPatternsList,
+                )
+                chunk_patterns.append(chunk_pattern)
+            except ValueError as err:
+                # Raise error if any chunk is missing
+                logger.exception(
+                    f"Failed to retrieve chunk patterns from Redis key {chunk_key} when combining patterns from chunks: {err}",
+                    redis_key=chunk_key,
+                    user_id=user_id,
+                    session_ids=session_ids,
+                )
+                raise
+        if not chunk_patterns:
+            raise ApplicationError(
+                f"No chunk patterns could be retrieved for sessions {session_ids} "
+                f"for user {user_id}. All chunks may be missing or corrupted."
+            )
+        # TODO: Create proper prompt for pattern combination
+        # For now, just merge all patterns from chunks (placeholder logic)
+        all_patterns = []
+        for chunk in chunk_patterns:
+            all_patterns.extend(chunk.patterns)
+        # Use LLM to intelligently combine and deduplicate patterns
+        # This is a placeholder - actual implementation will call the LLM
+        combined_patterns_prompt = PatternsPrompt(
+            patterns_prompt="Combine the following patterns...",  # TODO: proper prompt
+            system_prompt="You are an AI assistant that combines patterns...",  # TODO: proper prompt
+        )
+        combined_patterns = await get_llm_session_group_patterns_combination(
+            prompt=combined_patterns_prompt,
+            user_id=user_id,
+            session_ids=session_ids,
+            trace_id=temporalio.activity.info().workflow_id,
+        )
+        # Store the combined patterns in Redis with 24-hour TTL
+        combined_patterns_str = combined_patterns.model_dump_json(exclude_none=True)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=combined_patterns_str,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
+    return None
