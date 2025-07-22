@@ -63,9 +63,6 @@ from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    UnsupportedFileFormatError,
-)
 from products.batch_exports.backend.tests.temporal.utils import (
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
@@ -528,7 +525,11 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
+        result = await self._run_activity(activity_environment, insert_inputs)
+        records_exported = result.records_completed
+        bytes_exported = result.bytes_exported
+        assert result.error is None
+
         events_to_export_created, persons_to_export_created = generate_test_data
         assert (
             records_exported == len(events_to_export_created)
@@ -647,7 +648,10 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
+        result = await self._run_activity(activity_environment, insert_inputs)
+        records_exported = result.records_completed
+        bytes_exported = result.bytes_exported
+        assert result.error is None
 
         assert records_exported == len(events_to_export_created)
         assert isinstance(bytes_exported, int)
@@ -735,7 +739,7 @@ class TestInsertIntoS3ActivityFromStage:
         model: BatchExportModel,
         ateam,
     ):
-        """Test the insert_into_s3_activity_from_stage_activity function fails with an invalid file format."""
+        """Test the insert_into_s3_activity_from_stage_activity function returns an error when an invalid file format is requested."""
 
         insert_inputs = S3InsertInputs(
             bucket_name=bucket_name,
@@ -756,8 +760,9 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        with pytest.raises(UnsupportedFileFormatError):
-            await self._run_activity(activity_environment, insert_inputs)
+        result = await self._run_activity(activity_environment, insert_inputs)
+        assert result.error is not None
+        assert result.error == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
 
 
 @pytest_asyncio.fixture

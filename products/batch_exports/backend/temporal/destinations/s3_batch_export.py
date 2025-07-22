@@ -56,9 +56,6 @@ from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    UnsupportedFileFormatError,
-)
 
 NON_RETRYABLE_ERROR_TYPES = [
     # S3 parameter validation failed.
@@ -97,6 +94,13 @@ SUPPORTED_COMPRESSIONS = {
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
+
+
+class UnsupportedFileFormatError(Exception):
+    """Raised when an unsupported file format is requested."""
+
+    def __init__(self, file_format: str):
+        super().__init__(f"'{file_format}' is not a supported format for S3 batch exports.")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -150,7 +154,7 @@ def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
     try:
         file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
     except KeyError:
-        raise UnsupportedFileFormatError(inputs.file_format, "S3")
+        raise UnsupportedFileFormatError(inputs.file_format)
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
     # to maintain backwards compatibility with the old file naming scheme
