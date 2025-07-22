@@ -18,17 +18,19 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
 ]
 
 interface SlashCommandAutocompleteProps {
+    /** Enter click - activate the command. */
+    onActivate: (command: SlashCommand) => void
+    /** Right arrow click - set input value without activating the command. */
     onSelect: (command: SlashCommand) => void
     onClose: () => void
     visible: boolean
     searchText: string
-    className?: string
     children: React.ReactElement
 }
 // Convert Command to LemonMenuItem
 const slashCommandToMenuItem = (
     command: SlashCommand,
-    onSelect: (command: SlashCommand) => void,
+    onActivate: (command: SlashCommand) => void,
     active: boolean
 ): LemonMenuItem => ({
     key: command.name,
@@ -39,16 +41,16 @@ const slashCommandToMenuItem = (
         </div>
     ),
     icon: command.icon,
-    onClick: () => onSelect(command),
+    onClick: () => onActivate(command),
     active,
 })
 
 export function SlashCommandAutocomplete({
+    onActivate,
     onSelect,
     onClose,
     visible,
     searchText,
-    className,
     children,
 }: SlashCommandAutocompleteProps): JSX.Element {
     const filteredCommands = useMemo(() => {
@@ -74,22 +76,24 @@ export function SlashCommandAutocomplete({
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 setActiveItemIndex(activeItemIndex > 0 ? activeItemIndex - 1 : filteredCommands.length - 1)
+            } else if (e.key === 'ArrowRight') {
+                onSelect(filteredCommands[activeItemIndex]) // And do NOT prevent default
             } else if (e.key === 'Escape') {
                 e.preventDefault()
                 onClose()
             } else if (e.key === 'Enter') {
                 e.preventDefault()
-                onSelect(filteredCommands[activeItemIndex])
+                onActivate(filteredCommands[activeItemIndex])
             }
         }
         document.addEventListener('keydown', handleKeyDown, { capture: true }) // Capture phase to run this before LemonTextArea's onEnter
         return () => document.removeEventListener('keydown', handleKeyDown, { capture: true })
-    }, [visible, filteredCommands, activeItemIndex, onSelect, onClose])
+    }, [visible, filteredCommands, activeItemIndex, onActivate, onSelect, onClose])
 
     return (
         <LemonMenu
             items={filteredCommands
-                .map((command, index) => slashCommandToMenuItem(command, onSelect, index === activeItemIndex))
+                .map((command, index) => slashCommandToMenuItem(command, onActivate, index === activeItemIndex))
                 .concat([
                     {
                         key: 'navigation-hint',
@@ -102,7 +106,6 @@ export function SlashCommandAutocomplete({
                     onClose()
                 }
             }}
-            className={className}
             closeOnClickInside
             onClickOutside={() => onClose()}
             placement="top-start"
@@ -124,7 +127,7 @@ export function SlashCommandAutocomplete({
 function NavigationHint(): JSX.Element {
     return (
         <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-alt font-medium select-none">
-            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}⏎ to select • Esc to close
+            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}⏎ to activate • → to select • Esc to close
         </div>
     )
 }

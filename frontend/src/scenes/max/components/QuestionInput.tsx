@@ -13,7 +13,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
-import { SlashCommandAutocomplete, SlashCommand } from './SlashCommandAutocomplete'
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -57,14 +57,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     useEffect(() => {
         setShowAutocomplete(question.startsWith('/') && question.length > 0)
     }, [question])
-
-    // Handle command selection
-    const handleCommandSelect = (command: SlashCommand): void => {
-        // Execute the command immediately and clear the input
-        setQuestion('')
-        setShowAutocomplete(false)
-        askMax(command.name)
-    }
 
     return (
         <div
@@ -110,7 +102,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
 
                         <SlashCommandAutocomplete
-                            onSelect={handleCommandSelect}
+                            onActivate={(command) => {
+                                setShowAutocomplete(false)
+                                askMax(command.name)
+                            }}
+                            onSelect={(command) => setQuestion(command.name)}
                             visible={showAutocomplete}
                             onClose={() => setShowAutocomplete(false)}
                             searchText={question}

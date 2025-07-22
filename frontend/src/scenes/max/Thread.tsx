@@ -169,8 +169,9 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
             >
                 {messages.map((message, messageIndex) => {
                     const key = message.id || messageIndex
-
                     if (isHumanMessage(message)) {
+                        const maybeCommand = MAX_SLASH_COMMANDS.find((cmd) => cmd.name === message.content)
+
                         return (
                             <MessageTemplate
                                 key={key}
@@ -186,9 +187,17 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                         useCurrentPageContext={false}
                                     />
                                 )}
-                                {MAX_SLASH_COMMANDS.some((cmd) => cmd.name === message.content) ? (
+                                {maybeCommand ? (
                                     <div className="flex items-center">
-                                        <Tooltip title="This is a Max command">
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    This is a Max command:
+                                                    <br />
+                                                    <i>{maybeCommand.description}</i>
+                                                </>
+                                            }
+                                        >
                                             <IconBolt className="text-base mr-1.5" />
                                         </Tooltip>
                                         <span className="font-mono">{message.content}</span>
