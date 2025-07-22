@@ -4,7 +4,7 @@ from typing import Any
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.models.team import Team
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
     PatternAssignedEventSegmentContext,

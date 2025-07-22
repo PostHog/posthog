@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator, Callable
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.tests.conftest import *
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.tests.conftest import *
 from posthog.redis import TEST_clear_clients
 from unittest.mock import MagicMock
 import pytest

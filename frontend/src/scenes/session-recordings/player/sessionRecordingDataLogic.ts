@@ -1015,16 +1015,13 @@ AND properties.$lib != 'web'`
         ],
     })),
     subscriptions(({ actions, values }) => ({
-        webVitalsEvents: (value: RecordingEventType[]) => {
-            // we preload all web vitals data, so it can be used before user interaction
-            if (!values.sessionEventsDataLoading) {
-                actions.loadFullEventData(value)
-            }
-        },
-        AIEvents: (value: RecordingEventType[]) => {
-            // we preload all AI  data, so it can be used before user interaction
-            if (value.length > 0) {
-                actions.loadFullEventData(value)
+        sessionEventsData: (sed: null | RecordingEventType[]) => {
+            const preloadEventTypes = ['$web_vitals', '$ai_', '$exception']
+            const preloadableEvents = (sed || []).filter((e) =>
+                preloadEventTypes.some((pet) => e.event.startsWith(pet))
+            )
+            if (preloadableEvents.length) {
+                actions.loadFullEventData(preloadableEvents)
             }
         },
         isRecentAndInvalid: (prev: boolean, next: boolean) => {
