@@ -59,36 +59,19 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
     "postgres-export",
 }
 
+Attributes = dict[str, str | int | float | bool]
 
-def get_interval_from_bounds(
-    data_interval_start: dt.datetime | None | str, data_interval_end: dt.datetime | str
-) -> str | None:
-    if isinstance(data_interval_start, str):
-        try:
-            data_interval_start = dt.datetime.fromisoformat(data_interval_start)
-        except ValueError:
-            return None
 
-    if isinstance(data_interval_end, str):
-        try:
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end)
-        except ValueError:
-            return None
+class BatchExportsMetricsInterceptor(Interceptor):
+    """Interceptor to emit Prometheus metrics for batch exports."""
 
-    if data_interval_start is None:
-        interval = "beginning_of_time"
-    else:
-        match (data_interval_end - data_interval_start).total_seconds():
-            case 3600.0:
-                interval = "hour"
-            case 86400.0:
-                interval = "day"
-            case 604800.0:
-                interval = "week"
-            case s:
-                interval = f"every_{int(s) / 60}_minutes"
+    def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
+        return _BatchExportsMetricsActivityInboundInterceptor(super().intercept_activity(next))
 
-    return interval
+    def workflow_interceptor_class(
+        self, input: WorkflowInterceptorClassInput
+    ) -> type[WorkflowInboundInterceptor] | None:
+        return _BatchExportsMetricsWorkflowInterceptor
 
 
 class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -109,7 +92,7 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             )
             return await super().execute_activity(input)
 
-        histogram_attributes = {
+        histogram_attributes: Attributes = {
             "interval": interval,
         }
 
@@ -127,27 +110,12 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         if workflow_type not in BATCH_EXPORT_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
-        histogram_attributes = {"interval": input.args[0].interval}
+        histogram_attributes: Attributes = {"interval": input.args[0].interval}
 
         with ExecutionTimeRecorder(
             "batch_exports_workflow_interval_execution_latency", histogram_attributes=histogram_attributes, log=False
         ):
             return await super().execute_workflow(input)
-
-
-class BatchExportsMetricsInterceptor(Interceptor):
-    """Interceptor to emit Prometheus metrics for batch exports."""
-
-    def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
-        return _BatchExportsMetricsActivityInboundInterceptor(super().intercept_activity(next))
-
-    def workflow_interceptor_class(
-        self, input: WorkflowInterceptorClassInput
-    ) -> type[WorkflowInboundInterceptor] | None:
-        return _BatchExportsMetricsWorkflowInterceptor
-
-
-Attributes = dict[str, str | int | float | bool]
 
 
 class ExecutionTimeRecorder:
@@ -352,3 +320,34 @@ def log_execution_time(
             arguments,
             structlog.get_config(),
         )
+
+
+def get_interval_from_bounds(
+    data_interval_start: dt.datetime | None | str, data_interval_end: dt.datetime | str
+) -> str | None:
+    if isinstance(data_interval_start, str):
+        try:
+            data_interval_start = dt.datetime.fromisoformat(data_interval_start)
+        except ValueError:
+            return None
+
+    if isinstance(data_interval_end, str):
+        try:
+            data_interval_end = dt.datetime.fromisoformat(data_interval_end)
+        except ValueError:
+            return None
+
+    if data_interval_start is None:
+        interval = "beginning_of_time"
+    else:
+        match (data_interval_end - data_interval_start).total_seconds():
+            case 3600.0:
+                interval = "hour"
+            case 86400.0:
+                interval = "day"
+            case 604800.0:
+                interval = "week"
+            case s:
+                interval = f"every_{int(s) / 60}_minutes"
+
+    return interval
