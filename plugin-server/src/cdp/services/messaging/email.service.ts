@@ -2,13 +2,13 @@ import crypto from 'crypto'
 import express from 'express'
 import { Counter } from 'prom-client'
 
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
-import { IntegrationType } from '../managers/integration-manager.service'
 
 export type MailjetEventType = keyof typeof EVENT_TYPE_TO_CATEGORY
 
@@ -93,8 +93,8 @@ export class EmailService {
         // First check its a valid domain in general
         const domain = email.split('@')[1]
         // Then check its the same as the integration domain
-        if (!domain || (integration.config.domain && integration.config.domain === domain)) {
-            return 'The selected email integration domain does not match the email domain'
+        if (!domain || (integration.config.domain && integration.config.domain !== domain)) {
+            return `The selected email integration domain (${integration.config.domain}) does not match the 'from' email domain (${domain})`
         }
 
         if (!integration.config.mailjet_verified) {
@@ -120,7 +120,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const { integrationId, ...params } = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(integrationId.toString())
+        const integration = await this.hub.integrationManager.get(integrationId)
 
         let success: boolean = false
 
@@ -165,7 +165,7 @@ export class EmailService {
 
             // TODO: Add support for retries - in fact if it fails should we actually crash out the service?
 
-            if (!response.ok) {
+            if (response.status >= 400) {
                 throw new Error(`Failed to send email to ${params.to.email} with status ${response.status}`)
             } else {
                 addLog('info', `Email sent to ${params.to.email}`)
