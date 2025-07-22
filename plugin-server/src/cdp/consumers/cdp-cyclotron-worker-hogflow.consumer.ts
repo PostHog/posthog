@@ -14,7 +14,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
 
     constructor(hub: Hub) {
-        super(hub, 'hogflow')
+        super(hub)
+        this.queue = 'hogflow' // NOTE: Hogflows are a different processing logic to hogfunctions so we currently explicitly set the queue
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {

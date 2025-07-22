@@ -17,11 +17,11 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
-    private queue: CyclotronJobQueueKind
+    protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
+    constructor(hub: Hub) {
         super(hub)
-        this.queue = queue
+        this.queue = hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
