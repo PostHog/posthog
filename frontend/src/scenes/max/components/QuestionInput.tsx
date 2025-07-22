@@ -14,6 +14,7 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import posthog from 'posthog-js'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -55,8 +56,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     // Update autocomplete visibility when question changes
     useEffect(() => {
-        setShowAutocomplete(question.startsWith('/') && question.length > 0)
-    }, [question])
+        const isSlashCommand = question[0] === '/'
+        if (isSlashCommand && !showAutocomplete) {
+            posthog.capture('Max slash command autocomplete shown')
+        }
+        setShowAutocomplete(isSlashCommand)
+    }, [question, showAutocomplete])
 
     return (
         <div
