@@ -486,3 +486,63 @@ class TestSharing(APIBaseTest):
 
         response = self.client.get(f"/shared/{first_token}")  # too old
         assert response.status_code == 404
+
+    def test_token_uniqueness_constraints(self):
+        """Test that token uniqueness is enforced at the database level"""
+        from posthog.models.sharing_configuration import SharingConfiguration
+
+        # Create first sharing configuration with a specific token
+        config1 = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+        )
+        # Token should be auto-generated
+        assert config1.access_token is not None
+        original_token = config1.access_token
+
+        # Try to manually set another config with the same token - should fail due to DB constraint
+        config2 = SharingConfiguration(
+            team=self.team,
+            insight=self.insight,
+            enabled=True,
+            access_token=original_token,  # Duplicate token
+        )
+
+        # This should raise IntegrityError due to unique constraint
+        from django.db import IntegrityError
+
+        with self.assertRaises(IntegrityError):
+            config2.save()
+
+    def test_token_rotation_handles_race_conditions(self):
+        """Test that token rotation retries on collisions"""
+        from posthog.models.sharing_configuration import SharingConfiguration
+        from unittest.mock import patch
+
+        # Enable sharing
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        config = SharingConfiguration.objects.get(dashboard=self.dashboard)
+
+        # Mock get_default_access_token to return predictable tokens
+        token_sequence = ["collision_token", "collision_token", "unique_token"]
+        token_iter = iter(token_sequence)
+
+        def mock_token_gen():
+            return next(token_iter)
+
+        with patch("posthog.models.sharing_configuration.get_default_access_token", side_effect=mock_token_gen):
+            # Create another config with the collision token to simulate race condition
+            SharingConfiguration.objects.create(
+                team=self.team, insight=self.insight, enabled=True, access_token="collision_token"
+            )
+
+            # Now rotate the original config's token - should retry and get "unique_token"
+            new_token = config.rotate_access_token()
+
+            # Should have skipped the collision tokens and gotten the unique one
+            assert new_token == "unique_token"
+            assert config.access_token == "unique_token"
