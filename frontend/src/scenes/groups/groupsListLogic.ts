@@ -5,7 +5,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { hogql } from '~/queries/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DataTableNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
@@ -27,7 +26,7 @@ const persistConfig = (groupTypeIndex: GroupTypeIndex): { persist: boolean; pref
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
     key((props: GroupsListLogicProps) => props.groupTypeIndex),
-    path(['groups', 'groupsListLogic']),
+    path(['scenes', 'groups', 'groupsListLogic']),
     connect(() => ({
         values: [
             teamLogic,
@@ -38,6 +37,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
             ['groupsEnabled'],
         ],
     })),
+    connect({
+        values: [groupsModel, ['groupTypes', 'groupsTaxonomicTypes']],
+    }),
     actions(() => ({
         setQuery: (query: DataTableNode) => ({ query }),
         setGroupsSummaryQuery: (query: HogQLQuery) => ({ query }),
@@ -64,7 +66,10 @@ export const groupsListLogic = kea<groupsListLogicType>([
         groupsSummaryQuery: [
             (_: any, props: GroupsListLogicProps) => ({
                 kind: NodeKind.HogQLQuery,
-                query: getGroupsSummaryQuery(props.groupTypeIndex, INITIAL_GROUPS_FILTER),
+                query: `SELECT count() as group_count, sum(toFloatOrDefault(JSONExtractString(properties, 'mrr'), 0.0)) as mrr_sum FROM groups WHERE index = ${props.groupTypeIndex}`,
+                filters: {
+                    properties: INITIAL_GROUPS_FILTER,
+                },
             }),
             {
                 setGroupsSummaryQuery: (state, { query }) => ({
@@ -74,17 +79,18 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 setGroupFilters: (state, { filters }) => {
                     return {
                         ...state,
-                        query: getGroupsSummaryQuery(props.groupTypeIndex, filters),
+                        filters: {
+                            properties: filters,
+                        },
                     }
                 },
                 setQuery: (state, { query }) => {
                     if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
                         return {
                             ...state,
-                            query: getGroupsSummaryQuery(
-                                props.groupTypeIndex,
-                                query.source.properties as GroupPropertyFilter[]
-                            ),
+                            filters: {
+                                properties: query.source.properties as GroupPropertyFilter[],
+                            },
                         }
                     }
                     return state
@@ -123,9 +129,21 @@ export const groupsListLogic = kea<groupsListLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setQuery: () => {
             actions.setQueryWasModified(true)
+        },
+        setGroupFilters: ({ filters }) => {
+            // Update the summary query when filters change
+            if (values.query.source.kind === NodeKind.GroupsQuery) {
+                actions.setGroupsSummaryQuery({
+                    kind: NodeKind.HogQLQuery,
+                    query: `SELECT count() as group_count, sum(toFloatOrDefault(JSONExtractString(properties, 'mrr'), 0.0)) as mrr_sum FROM groups WHERE index = ${values.query.source.group_type_index}`,
+                    filters: {
+                        properties: filters,
+                    },
+                })
+            }
         },
     })),
     actionToUrl(({ values, props }) => ({
@@ -199,47 +217,3 @@ export const groupsListLogic = kea<groupsListLogicType>([
         }
     }),
 ])
-
-function getGroupsSummaryQuery(groupTypeIndex: GroupTypeIndex, filters: GroupPropertyFilter[]): string {
-    if (filters && filters.length > 0) {
-        const propertyConditions = filters
-            .map((filter) => {
-                if ('key' in filter && 'value' in filter) {
-                    const { key, value } = filter
-                    const operator = 'operator' in filter ? filter.operator : 'exact'
-
-                    if (operator === 'exact' || !operator) {
-                        if (Array.isArray(value)) {
-                            // Handle array values with IN operator
-                            return hogql`JSONExtractString(properties, ${key}) IN ${value}`
-                        }
-                        // Handle single values
-                        return hogql`JSONExtractString(properties, ${key}) = ${value}`
-                    } else if (operator === 'icontains') {
-                        if (Array.isArray(value)) {
-                            // For array with icontains, check if any value matches
-                            const conditions = value.map(
-                                (v) => hogql`positionCaseInsensitive(JSONExtractString(properties, ${key}), ${v}) > 0`
-                            )
-                            return `(${conditions.join(' OR ')})`
-                        }
-                        return hogql`positionCaseInsensitive(JSONExtractString(properties, ${key}), ${value}) > 0`
-                    } else if (operator === 'is_set') {
-                        return hogql`JSONHas(properties, ${key})`
-                    } else if (operator === 'is_not_set') {
-                        return hogql`NOT JSONHas(properties, ${key})`
-                    }
-                }
-                return null
-            })
-            .filter(Boolean)
-
-        if (propertyConditions.length > 0) {
-            return hogql`SELECT count() as group_count, sum(toFloatOrDefault(JSONExtractString(properties, 'mrr'), 0.0)) as mrr_sum FROM groups WHERE index = ${groupTypeIndex} AND ${hogql.raw(
-                propertyConditions.join(' AND ')
-            )}`
-        }
-    }
-
-    return hogql`SELECT count() as group_count, sum(toFloatOrDefault(JSONExtractString(properties, 'mrr'), 0.0)) as mrr_sum FROM groups WHERE index = ${groupTypeIndex}`
-}
