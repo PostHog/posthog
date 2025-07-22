@@ -850,14 +850,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
     environments_rollback_migration(organization_id, environment_mappings, user_id)
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-    autoretry_for=(Exception,),
-    retry_backoff=60,
-    retry_backoff_max=300,
-    max_retries=3,
-)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(model_name: str, team_id: int, batch_size: int = 10000) -> None:
     """
     Background task to delete records from a model in batches.
@@ -911,6 +904,8 @@ def background_delete_model_task(model_name: str, team_id: int, batch_size: int 
             # If we got fewer records than batch_size, we're done
             if len(batch_ids) < batch_size:
                 break
+
+            time.sleep(0.2)  # Sleep to avoid overwhelming the database
 
         logger.info(
             f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"

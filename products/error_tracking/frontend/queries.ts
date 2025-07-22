@@ -72,6 +72,7 @@ export const errorTrackingIssueQuery = ({
     searchQuery,
     volumeResolution = 0,
     withFirstEvent = false,
+    withLastEvent = false,
     withAggregations = false,
 }: {
     issueId: string
@@ -81,6 +82,7 @@ export const errorTrackingIssueQuery = ({
     searchQuery?: string
     volumeResolution?: number
     withFirstEvent?: boolean
+    withLastEvent?: boolean
     withAggregations?: boolean
 }): ErrorTrackingQuery => {
     return setLatestVersionsOnQuery<ErrorTrackingQuery>({
@@ -93,6 +95,7 @@ export const errorTrackingIssueQuery = ({
         volumeResolution,
         withFirstEvent,
         withAggregations,
+        withLastEvent,
         tags: {
             productKey: ProductKey.ERROR_TRACKING,
         },

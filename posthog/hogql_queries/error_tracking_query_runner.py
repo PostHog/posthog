@@ -49,6 +49,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if self.query.withFirstEvent is None:
             self.query.withFirstEvent = True
 
+        if self.query.withLastEvent is None:
+            self.query.withLastEvent = False
+
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=self.select(),
@@ -107,6 +110,26 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     alias="first_event",
                     expr=ast.Call(
                         name="argMin",
+                        args=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Field(chain=["uuid"]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.Field(chain=["properties"]),
+                                ]
+                            ),
+                            ast.Field(chain=["timestamp"]),
+                        ],
+                    ),
+                )
+            )
+
+        if self.query.withLastEvent:
+            exprs.append(
+                ast.Alias(
+                    alias="last_event",
+                    expr=ast.Call(
+                        name="argMax",
                         args=[
                             ast.Tuple(
                                 exprs=[
@@ -421,6 +444,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                                 self.extract_event(result_dict.get("first_event"))
                                 if self.query.withFirstEvent
                                 else None
+                            ),
+                            "last_event": (
+                                self.extract_event(result_dict.get("last_event")) if self.query.withLastEvent else None
                             ),
                             "aggregations": (
                                 self.extract_aggregations(result_dict) if self.query.withAggregations else None
