@@ -3,7 +3,6 @@ import { SceneDataAttrKeyProps } from './utils'
 
 type SceneShareButtonProps = SceneDataAttrKeyProps & {
     buttonProps?: Omit<ButtonPrimitiveProps, 'children' | 'data-attr'>
-    onClick?: () => void
     children?: React.ReactNode
 }
 
