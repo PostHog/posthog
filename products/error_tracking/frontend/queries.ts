@@ -44,7 +44,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange: resolveDateRange(dateRange).toDateRange(),
+            dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
             assignee,
             volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -88,7 +88,7 @@ export const errorTrackingIssueQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingQuery>({
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange: resolveDateRange(dateRange).toDateRange(),
+        dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         searchQuery,
