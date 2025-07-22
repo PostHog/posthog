@@ -10,6 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Trigger Zaps in Zapier based on PostHog events. NOTE: Typically this is created from within Zapier using the PostHog app there.",
     icon_url="/static/services/zapier.png",
     category=["Custom"],
+    code_language="hog",
     hog="""
 let hook_path := inputs.hook;
 let prefix := 'https://hooks.zapier.com/';

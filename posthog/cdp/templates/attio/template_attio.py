@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Create and update contacts in Attio",
     icon_url="/static/services/attio.png",
     category=["Advertisement"],
+    code_language="hog",
     hog="""
 let body := {
     'data': {

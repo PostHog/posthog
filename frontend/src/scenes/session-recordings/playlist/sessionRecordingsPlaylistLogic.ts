@@ -45,6 +45,8 @@ import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlay
 import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+
 export type PersonUUID = string
 
 interface Params {
@@ -391,6 +393,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
+        setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
+        setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
+        handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -633,6 +638,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
             },
         ],
+        isNewCollectionDialogOpen: [
+            false,
+            {
+                setIsNewCollectionDialogOpen: (_, { isNewCollectionDialogOpen }) => isNewCollectionDialogOpen,
+            },
+        ],
+        newCollectionName: [
+            '',
+            {
+                setNewCollectionName: (_, { newCollectionName }) => newCollectionName,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -705,7 +722,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 {},
                 {
                     button: {
-                        label: 'View playlist',
+                        label: 'View collection',
                         action: () => router.actions.push(urls.replayPlaylist(short_id)),
                     },
                 }
@@ -772,6 +789,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }...`,
                 }
             )
+        },
+        handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
+            const newPlaylist = await createPlaylist({
+                name: values.newCollectionName,
+                type: 'collection',
+            })
+
+            if (newPlaylist) {
+                actions.handleBulkAddToPlaylist(newPlaylist.short_id)
+                actions.setIsNewCollectionDialogOpen(false)
+                actions.setNewCollectionName('')
+                onSuccess()
+            }
         },
     })),
     selectors({

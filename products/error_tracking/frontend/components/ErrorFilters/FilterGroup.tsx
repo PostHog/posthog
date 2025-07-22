@@ -16,6 +16,7 @@ import { errorFiltersLogic } from './errorFiltersLogic'
 
 export const taxonomicFilterLogicKey = 'error-tracking'
 export const taxonomicGroupTypes = [
+    TaxonomicFilterGroupType.ErrorTrackingProperties,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.ErrorTrackingIssues,
