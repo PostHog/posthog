@@ -1,5 +1,5 @@
 from typing import cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -143,7 +143,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(first_message.tool_call_id, test_tool_call_id)
 
             # Check that the output state resets tool_call_id
-            self.assertEqual(next_state.root_tool_call_id, "")
+            self.assertEqual(next_state.root_tool_call_id, None)
 
     def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
@@ -165,16 +165,3 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(first_message.id)
             self.assertIsNotNone(second_message.id)
             self.assertNotEqual(first_message.id, second_message.id)
-
-    def test_model_has_correct_max_retries(self) -> None:
-        with patch("ee.hogai.graph.inkeep_docs.nodes.ChatOpenAI") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_chat_openai.return_value = mock_model
-
-            node = InkeepDocsNode(self.team, self.user)
-
-            node._get_model()
-
-            mock_chat_openai.assert_called_once()
-            call_args = mock_chat_openai.call_args
-            self.assertEqual(call_args.kwargs["max_retries"], 3)

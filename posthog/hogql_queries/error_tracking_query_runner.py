@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import re
 import structlog
-from typing import Any
 from django.core.exceptions import ValidationError
 
 from posthog.hogql import ast
@@ -19,6 +18,7 @@ from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.property.util import property_to_django_filter
+from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +48,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         if self.query.withFirstEvent is None:
             self.query.withFirstEvent = True
+
+        if self.query.withLastEvent is None:
+            self.query.withLastEvent = False
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -107,6 +110,26 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     alias="first_event",
                     expr=ast.Call(
                         name="argMin",
+                        args=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Field(chain=["uuid"]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.Field(chain=["properties"]),
+                                ]
+                            ),
+                            ast.Field(chain=["timestamp"]),
+                        ],
+                    ),
+                )
+            )
+
+        if self.query.withLastEvent:
+            exprs.append(
+                ast.Alias(
+                    alias="last_event",
+                    expr=ast.Call(
+                        name="argMax",
                         args=[
                             ast.Tuple(
                                 exprs=[
@@ -409,7 +432,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         with self.timings.measure("issue_resolution"):
             for result_dict in mapped_results:
-                issue = issues.get(result_dict["id"])
+                issue = issues.get(str(result_dict["id"]))
 
                 if issue:
                     results.append(
@@ -421,6 +444,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                                 self.extract_event(result_dict.get("first_event"))
                                 if self.query.withFirstEvent
                                 else None
+                            ),
+                            "last_event": (
+                                self.extract_event(result_dict.get("last_event")) if self.query.withLastEvent else None
                             ),
                             "aggregations": (
                                 self.extract_aggregations(result_dict) if self.query.withAggregations else None
@@ -466,7 +492,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def error_tracking_issues(self, ids):
         status = self.query.status
         queryset = (
-            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
+            ErrorTrackingIssue.objects.with_first_seen()
+            .select_related("assignment")
+            .prefetch_related("external_issues__integration")
+            .filter(team=self.team, id__in=ids)
         )
 
         if self.query.issueId:
@@ -484,39 +513,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
         for filter in self.issue_properties:
             queryset = property_to_django_filter(queryset, filter)
 
-        issues = queryset.values(
-            "id",
-            "status",
-            "name",
-            "description",
-            "first_seen",
-            "assignment__user_id",
-            "assignment__role_id",
-        )
-
-        results = {}
-        for issue in issues:
-            result: dict[str, Any] = {
-                "id": str(issue["id"]),
-                "name": issue["name"],
-                "status": issue["status"],
-                "description": issue["description"],
-                "first_seen": issue["first_seen"],
-                "assignee": None,
-            }
-
-            assignment_user_id = issue.get("assignment__user_id")
-            assignment_role_id = issue.get("assignment__role_id")
-
-            if assignment_user_id or assignment_role_id:
-                result["assignee"] = {
-                    "id": assignment_user_id or str(assignment_role_id),
-                    "type": ("user" if assignment_user_id else "role"),
-                }
-
-            results[issue["id"]] = result
-
-        return results
+        serializer = ErrorTrackingIssueSerializer(queryset, many=True)
+        return {issue["id"]: issue for issue in serializer.data}
 
     def prefetch_issue_ids(self) -> list[str]:
         # We hit postgres to get a list of "valid" issue id's based on issue properties that aren't in
@@ -549,7 +547,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if not use_prefetched:
             return []
 
-        return [str(issue.id) for issue in queryset.only("id").iterator()]
+        return [str(issue["id"]) for issue in queryset.values("id")]
 
     @cached_property
     def issue_properties(self):

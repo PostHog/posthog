@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types' // Assuming this path is correct from your initial file
+import { HogFunctionTemplate } from '~/cdp/types' // Assuming this path is correct from your initial file
 
 interface DestinationConfig {
     name: string
@@ -1088,5 +1088,6 @@ export const allComingSoonTemplates: HogFunctionTemplate[] = destinationDefiniti
     status: 'coming_soon' as const,
     type: 'destination' as const,
     hog: `return event;`,
+    code_language: 'javascript',
     inputs_schema: [],
 }))

@@ -1,8 +1,9 @@
 import {
-    IconCdCase,
+    IconApps,
     IconChevronRight,
     IconClock,
     IconDatabase,
+    IconDatabaseBolt,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -19,10 +20,9 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
@@ -81,7 +81,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { isAccountPopoverOpen } = useValues(navigationLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -141,18 +140,20 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             onClick: () => {
                 handleStaticNavbarItemClick(urls.projectHomepage(), true)
             },
-            tooltip: isLayoutNavCollapsed ? 'Home' : null,
+            tooltip: 'Home',
         },
         {
             identifier: 'Products',
             id: 'Products',
-            icon: <IconCdCase />,
+            icon: <IconApps />,
             onClick: (e?: React.KeyboardEvent) => {
                 if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                     handlePanelTriggerClick('Products')
                 }
             },
             showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Products' ? 'Close products' : 'Open products',
+            tooltipDocLink: 'https://posthog.com/blog/redesigned-nav-menu',
         },
         {
             identifier: 'Project',
@@ -164,27 +165,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutNavCollapsed
-                ? isLayoutPanelVisible && activePanelIdentifier === 'Project'
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Project'
                     ? 'Close project tree'
-                    : 'Open project tree'
-                : null,
+                    : 'Open project tree',
+            tooltipDocLink: 'https://posthog.com/blog/redesigned-nav-menu',
         },
-        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
-            ? [
-                  {
-                      identifier: 'Database',
-                      id: 'Database',
-                      icon: <IconDatabase />,
-                      onClick: (e?: React.KeyboardEvent) => {
-                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                              handlePanelTriggerClick('Database')
-                          }
-                      },
-                      showChevron: true,
-                  },
-              ]
-            : []),
+        {
+            identifier: 'Database',
+            id: 'Database',
+            icon: <IconDatabaseBolt />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Database')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Database' ? 'Close database' : 'Open database',
+            tooltipDocLink: 'https://posthog.com/docs/data-warehouse/sql',
+        },
         {
             identifier: 'DataManagement',
             id: 'Data management',
@@ -195,6 +194,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'DataManagement'
+                    ? 'Close data management'
+                    : 'Open data management',
+            tooltipDocLink: 'https://posthog.com/docs/data',
         },
         {
             identifier: 'People',
@@ -206,6 +210,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'People' ? 'Close people' : 'Open people',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -218,6 +223,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Shortcuts' ? 'Close shortcuts' : 'Open shortcuts',
+            tooltipDocLink: 'https://posthog.com/blog/redesigned-nav-menu',
         },
         {
             identifier: 'Activity',
@@ -304,7 +312,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     className="group"
                                                     menuItem={!isLayoutNavCollapsed}
                                                     iconOnly={isLayoutNavCollapsed}
-                                                    tooltip={item.tooltip}
+                                                    tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
                                                     tooltipPlacement="right"
                                                     tooltipDocLink={item.tooltipDocLink}
                                                     data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
@@ -341,7 +349,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             iconOnly: isLayoutNavCollapsed,
                                                         }}
                                                         to={item.to}
-                                                        tooltip={item.tooltip}
+                                                        tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
                                                         tooltipPlacement="right"
                                                         tooltipDocLink={item.tooltipDocLink}
                                                     >

@@ -8,8 +8,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-01-21 14:40:09'
-    AND (NOT JSONHas(properties, '$survey_completed')
-         OR JSONExtractBool(properties, '$survey_completed') = true)
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-01-21 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
@@ -22,8 +31,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-04-25 14:40:09'
-    AND (NOT JSONHas(properties, '$survey_completed')
-         OR JSONExtractBool(properties, '$survey_completed') = true)
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-04-25 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
@@ -116,6 +134,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -205,6 +225,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -338,6 +360,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -476,6 +500,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -565,6 +591,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -710,6 +738,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -848,6 +878,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -937,6 +969,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1046,6 +1080,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1154,6 +1190,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1264,6 +1302,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1353,6 +1393,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1486,6 +1528,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1607,6 +1651,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2210,6 +2256,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2348,6 +2396,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",

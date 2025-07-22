@@ -230,6 +230,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 types: string[][]
             }
         ) => ({ view }),
+        setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
+        setHoveredNode: (nodeId: string | null) => ({ nodeId }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -405,6 +407,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             {
                 setQueryInput: () => null,
                 fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
+        upstreamViewMode: [
+            'graph' as 'graph' | 'table',
+            {
+                setUpstreamViewMode: (_: 'graph' | 'table', { mode }: { mode: 'graph' | 'table' }) => mode,
+            },
+        ],
+        hoveredNode: [
+            null as string | null,
+            {
+                setHoveredNode: (_, { nodeId }) => nodeId,
             },
         ],
     })),

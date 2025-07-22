@@ -26,6 +26,7 @@ const counterHogFunctionMetric = new Counter({
 export type HogFunctionMonitoringMessage = {
     topic: string
     value: LogEntrySerialized | AppMetricType
+    headers?: Record<string, string>
     key: string
 }
 
@@ -46,6 +47,7 @@ export class HogFunctionMonitoringService {
                         topic: x.topic,
                         key: x.key ? Buffer.from(x.key) : null,
                         value,
+                        headers: x.headers,
                     })
                     .catch((error) => {
                         // NOTE: We don't hard fail here - this is because we don't want to disrupt the
@@ -55,6 +57,7 @@ export class HogFunctionMonitoringService {
                             messageLength: value?.length,
                             topic: x.topic,
                             key: x.key,
+                            headers: x.headers,
                         })
 
                         captureException(error)
@@ -148,6 +151,10 @@ export class HogFunctionMonitoringService {
                                 topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
                                 value: convertToCaptureEvent(event, team),
                                 key: `${team.api_token}:${event.distinct_id}`,
+                                headers: {
+                                    distinct_id: event.distinct_id,
+                                    token: team.api_token,
+                                },
                             })
                         }
                     })

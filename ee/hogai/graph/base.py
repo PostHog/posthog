@@ -12,13 +12,22 @@ from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
 from posthog.sync import database_sync_to_async
+from typing import Generic
 
-from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
+
+from ..utils.types import (
+    AssistantMessageUnion,
+    AssistantState,
+    PartialAssistantState,
+    StateType,
+    PartialStateType,
+)
+from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 
 
-class AssistantNode(ABC):
+class BaseAssistantNode(ABC, Generic[StateType, PartialStateType]):
     _team: Team
     _user: User
 
@@ -26,7 +35,7 @@ class AssistantNode(ABC):
         self._team = team
         self._user = user
 
-    async def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
@@ -39,11 +48,11 @@ class AssistantNode(ABC):
             return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     # DEPRECATED: Use `arun` instead
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""
         raise NotImplementedError
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
 
     async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
@@ -126,11 +135,13 @@ class AssistantNode(ABC):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
 
-    def _get_ui_context(self, state: AssistantState) -> MaxContextShape | None:
+    def _get_ui_context(self, state: StateType) -> MaxUIContext | None:
         """
         Extracts the UI context from the latest human message.
         """
-        return find_last_ui_context(state.messages)
+        if hasattr(state, "messages"):
+            return find_last_ui_context(state.messages)
+        return None
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """
@@ -143,3 +154,7 @@ class AssistantNode(ABC):
         Extracts the trace ID from the runnable config.
         """
         return (config.get("configurable") or {}).get("trace_id") or None
+
+
+AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
+FilterOptionsBaseNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

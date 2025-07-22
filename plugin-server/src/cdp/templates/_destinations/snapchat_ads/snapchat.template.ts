@@ -1,6 +1,5 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
-
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] => {
     return [
@@ -96,6 +95,7 @@ export const template: HogFunctionTemplate = {
     description: 'Send conversion events to Snapchat Ads',
     icon_url: '/static/services/snapchat.png',
     category: ['Advertisement'],
+    code_language: 'hog',
     hog: `
 if (empty(inputs.pixelId) or empty(inputs.oauth.access_token)) {
     throw Error('Pixel ID and access token are required')

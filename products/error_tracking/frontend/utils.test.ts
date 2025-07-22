@@ -1,6 +1,7 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { generateDateRangeLabel, generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
+import { dayjs } from 'lib/dayjs'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -19,6 +20,7 @@ describe('mergeIssues', () => {
             },
             library: 'web',
             status: 'active',
+            external_issues: [],
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -37,6 +39,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
             {
                 id: 'thirdId',
@@ -53,6 +56,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
             {
                 id: 'fourthId',
@@ -69,6 +73,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
         ]
 
@@ -85,6 +90,7 @@ describe('mergeIssues', () => {
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
+            external_issues: [],
             library: 'web',
             aggregations: {
                 // sums counts
@@ -93,7 +99,7 @@ describe('mergeIssues', () => {
                 users: 102,
                 volumeRange: [0, 500, 1510, 1026, 1406],
             },
-        })
+        } satisfies ErrorTrackingIssue)
     })
 })
 
@@ -129,7 +135,7 @@ describe('generate sparkline labels', () => {
     })
 
     it('test date resolution', async () => {
-        const resolvedDate = resolveDate('yStart')
+        const resolvedDate = resolveDate(dayjs(), 'yStart')
         expect(resolvedDate.toISOString()).toEqual('2023-01-01T00:00:00.000Z')
     })
 

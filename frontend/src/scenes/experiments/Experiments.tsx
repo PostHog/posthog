@@ -1,6 +1,7 @@
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -21,7 +22,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
 import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
@@ -112,7 +113,7 @@ export function Experiments(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag experiment={experiment} />
+                return <StatusTag status={getExperimentStatus(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
@@ -257,6 +258,7 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
                     { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' },
+                    { key: ExperimentsTabs.History, label: 'History' },
                 ]}
             />
 
@@ -264,6 +266,8 @@ export function Experiments(): JSX.Element {
                 <Holdouts />
             ) : tab === ExperimentsTabs.SharedMetrics ? (
                 <SharedMetrics />
+            ) : tab === ExperimentsTabs.History ? (
+                <ActivityLog scope={ActivityScope.EXPERIMENT} />
             ) : (
                 <>
                     {tab === ExperimentsTabs.Archived ? (

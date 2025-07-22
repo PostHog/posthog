@@ -23,21 +23,14 @@ describe('Commands API', () => {
         app = express()
         app.use(express.json())
         app.use('/', service.router())
-        await service.start()
     })
 
     afterEach(async () => {
         await closeHub(hub)
-        await service.stop()
     })
 
     afterAll(() => {
         jest.useRealTimers()
-    })
-
-    it('errors if missing command', async () => {
-        const res = await supertest(app).post(`/api/commands`).send({ command: 'missing', message: {} })
-        expect(res.status).toEqual(400)
     })
 
     it('succeeds with valid command', async () => {
@@ -47,19 +40,18 @@ describe('Commands API', () => {
 
     describe('command triggers', () => {
         beforeEach(() => {
-            for (const command of Object.keys(service.messageMap)) {
-                jest.spyOn(service.messageMap, command)
-            }
+            jest.spyOn(service as any, 'reloadPlugins')
+            jest.spyOn(service as any, 'populatePluginCapabilities')
         })
 
         it.each([
-            ['reload-plugins', {}],
-            ['populate-plugin-capabilities', { pluginId: '123' }],
-        ])('triggers the appropriate pubsub message', async (command, message) => {
+            ['reload-plugins', 'reloadPlugins', {}],
+            ['populate-plugin-capabilities', 'populatePluginCapabilities', { pluginId: '123' }],
+        ])('triggers the appropriate pubsub message', async (command, method, message) => {
             await supertest(app).post(`/api/commands`).send({ command, message })
             // Slight delay as it is received via the pubsub
             await waitForExpect(() => {
-                expect(service.messageMap[command]).toHaveBeenCalledWith(JSON.stringify(message))
+                expect((service as any)[method]).toHaveBeenCalledWith(message)
             }, 100)
         })
     })

@@ -1,7 +1,7 @@
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
-from posthog.hogql.ast import AST_CLASSES, AST
+from posthog.hogql.ast import AST_CLASSES, AST, Expr, Constant
 
 
 def unwrap_optional(t):
@@ -62,10 +62,14 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
                         raise ValueError(f"Unexpected value for field '{key}' in AST node '{kind}'")
             else:
                 field_type = unwrap_optional(cls_fields[key])
+                # We need an AST node, but we get just a string/number, see if a Constant is expected
                 if is_ast_subclass(field_type):
-                    raise ValueError(
-                        f"Invalid type for field '{key}' in AST node '{kind}'. Expected {field_type}, got {type(item)}"
-                    )
+                    if (field_type in (Expr, Constant)) and is_simple_value(value):
+                        init_args[key] = Constant(value=value)
+                    else:
+                        raise ValueError(
+                            f"Invalid type for field '{key}' in AST node '{kind}'. Expected {field_type}, got {type(value)}"
+                        )
                 elif is_simple_value(value):
                     init_args[key] = value
                 else:

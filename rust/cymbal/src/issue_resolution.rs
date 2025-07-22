@@ -269,7 +269,13 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(&context, &issue, assignment).await?;
+            send_issue_reopened_alert(
+                &context,
+                &issue,
+                &event_properties.fingerprint.value,
+                assignment,
+            )
+            .await?;
         }
         return Ok(issue);
     }
@@ -320,7 +326,13 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(&context, &issue, assignment).await?;
+            send_issue_reopened_alert(
+                &context,
+                &issue,
+                &event_properties.fingerprint.value,
+                assignment,
+            )
+            .await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
@@ -331,7 +343,13 @@ pub async fn resolve_issue(
             event_properties.clone(),
         )
         .await?;
-        send_issue_created_alert(&context, &issue, assignment).await?;
+        send_issue_created_alert(
+            &context,
+            &issue,
+            &event_properties.fingerprint.value,
+            assignment,
+        )
+        .await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     };
@@ -363,23 +381,40 @@ pub async fn process_assignment(
 async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
+    fingerprint: &String,
     assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_created", issue, assignment).await
+    send_internal_event(
+        context,
+        "$error_tracking_issue_created",
+        issue,
+        fingerprint,
+        assignment,
+    )
+    .await
 }
 
 async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
+    fingerprint: &String,
     assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_reopened", issue, assignment).await
+    send_internal_event(
+        context,
+        "$error_tracking_issue_reopened",
+        issue,
+        fingerprint,
+        assignment,
+    )
+    .await
 }
 
 async fn send_internal_event(
     context: &AppContext,
     event: &str,
     issue: &Issue,
+    fingerprint: &String,
     new_assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
@@ -390,6 +425,7 @@ async fn send_internal_event(
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
     event.insert_prop("status", issue.status.as_str())?;
+    event.insert_prop("fingerprint", fingerprint)?;
 
     if let Some(assignment) = new_assignment {
         let assignee = Assignee::try_from(&assignment)?;

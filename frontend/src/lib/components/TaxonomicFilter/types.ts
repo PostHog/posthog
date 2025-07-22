@@ -2,7 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -47,7 +47,7 @@ export interface TaxonomicFilterProps {
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
-    maxContextOptions?: MaxContextOption[]
+    maxContextOptions?: MaxContextTaxonomicFilterOption[]
     /**
      * Controls the layout of taxonomic groups.
      * When undefined (default), vertical/columnar layout is automatically used when there are more than VERTICAL_LAYOUT_THRESHOLD (4) groups.
@@ -97,6 +97,7 @@ export interface TaxonomicFilterGroup {
     value?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
+    getGroup?: (instance: any) => TaxonomicFilterGroup
     getName?: (instance: any) => string
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
@@ -148,6 +149,7 @@ export enum TaxonomicFilterGroupType {
     Replay = 'replay',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
+    ErrorTrackingProperties = 'error_tracking_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
 }
@@ -186,4 +188,4 @@ export type TaxonomicDefinitionTypes =
     | ActionType
     | PersonProperty
     | DataWarehouseTableForInsight
-    | MaxContextOption
+    | MaxContextTaxonomicFilterOption

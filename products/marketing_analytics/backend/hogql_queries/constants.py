@@ -9,8 +9,11 @@ PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999
 UNKNOWN_CAMPAIGN = "Unknown Campaign"
 UNKNOWN_SOURCE = "Unknown Source"
+ORGANIC_CAMPAIGN = "organic"
+ORGANIC_SOURCE = "organic"
 CTR_PERCENTAGE_MULTIPLIER = 100
 DECIMAL_PRECISION = 2
+DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"

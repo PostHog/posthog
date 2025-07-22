@@ -85,6 +85,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         return null
     }
 
+    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
+    const maxToolActive = !embedded
+
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
@@ -387,7 +390,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <>
+            <div className="EditorFiltersWrapper">
+                {shouldShowSessionAnalysisWarning ? (
+                    <LemonBanner type="info" className="mb-4">
+                        When using sessions and session properties, events without session IDs will be excluded from the
+                        set of results.{' '}
+                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
+                    </LemonBanner>
+                ) : null}
+
                 <MaxTool
                     name="create_and_query_insight"
                     displayName="Edit insight"
@@ -415,7 +426,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         }
                     }}
                     initialMaxPrompt="Show me users who "
-                    className="EditorFiltersWrapper"
+                    active={maxToolActive}
                 >
                     <div
                         className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
@@ -436,15 +447,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         ))}
                     </div>
                 </MaxTool>
-
-                {shouldShowSessionAnalysisWarning ? (
-                    <LemonBanner type="info" className="mt-2">
-                        When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.{' '}
-                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
-                    </LemonBanner>
-                ) : null}
-            </>
+            </div>
         </CSSTransition>
     )
 }

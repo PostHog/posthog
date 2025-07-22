@@ -11,9 +11,18 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import find_start_message
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.schema import (
+    FailureMessage,
+    VisualizationMessage,
+)
+
+from ..base import AssistantNode
 from .parsers import (
     PydanticOutputParserException,
     parse_pydantic_structured_output,
@@ -27,14 +36,6 @@ from .prompts import (
     QUESTION_PROMPT,
 )
 from .utils import SchemaGeneratorOutput
-from ee.hogai.utils.helpers import find_start_message
-from ..base import AssistantNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    FailureMessage,
-    VisualizationMessage,
-)
 
 Q = TypeVar("Q", bound=BaseModel)
 
@@ -51,8 +52,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, max_retries=3
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
         ).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
@@ -97,8 +98,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                             content=f"Oops! It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
-                    intermediate_steps=[],
-                    plan="",
+                    intermediate_steps=None,
+                    plan=None,
                     query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
@@ -120,8 +121,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         return PartialAssistantState(
             messages=[final_message],
-            intermediate_steps=[],
-            plan="",
+            intermediate_steps=None,
+            plan=None,
             query_generation_retry_count=len(intermediate_steps),
         )
 

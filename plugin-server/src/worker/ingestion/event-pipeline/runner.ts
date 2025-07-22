@@ -13,6 +13,7 @@ import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { dropOldEventsStep } from './dropOldEventsStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
@@ -25,7 +26,6 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
-import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
@@ -273,21 +273,21 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const dropOldEventsResult = await this.runStep(dropOldEventsStep, [this, event, team], event.team_id)
 
-        if (processedEvent == null) {
-            // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+        if (dropOldEventsResult == null) {
+            // Event was dropped because it's too old.
+            return this.registerLastStep('dropOldEventsStep', [event], kafkaAcks)
         }
 
         const { event: transformedEvent } = await this.runStep(
             transformEventStep,
-            [processedEvent, this.hogTransformer],
+            [dropOldEventsResult, this.hogTransformer],
             event.team_id
         )
 
         if (transformedEvent === null) {
-            return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
+            return this.registerLastStep('transformEventStep', [dropOldEventsResult], kafkaAcks)
         }
 
         const [normalizedEvent, timestamp] = await this.runStep(

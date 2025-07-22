@@ -1,9 +1,11 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-
+import { ActivityScope } from '~/types'
+import { AISummary } from '../components/AISummary'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -21,7 +23,6 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -38,6 +39,7 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 
 const ResultsTab = (): JSX.Element => {
     const {
@@ -57,6 +59,8 @@ const ResultsTab = (): JSX.Element => {
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
     const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
+
+    const hasLegacyResults = legacyPrimaryMetricsResults.some((result) => result != null)
 
     return (
         <>
@@ -78,7 +82,7 @@ const ResultsTab = (): JSX.Element => {
             {/**
              *  check if we should render the legacy metrics view or the new one
              */}
-            {legacyPrimaryMetricsResults.length > 0 ? (
+            {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
@@ -180,6 +184,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
+                        <AISummary experimentId={experimentId} />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
@@ -194,6 +199,11 @@ export function ExperimentView(): JSX.Element {
                                     key: 'variants',
                                     label: 'Variants',
                                     content: <VariantsTab />,
+                                },
+                                {
+                                    key: 'history',
+                                    label: 'History',
+                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                                 },
                             ]}
                         />
