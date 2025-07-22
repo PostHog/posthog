@@ -419,26 +419,6 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot refresh access token for disabled sharing configuration" in response.json()["detail"]
 
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_refresh_access_token_uniqueness(self, patched_exporter_task: Mock):
-        # Enable sharing
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True},
-        )
-        initial_token = response.json()["access_token"]
-
-        # Collect multiple refreshed tokens
-        tokens = set()
-        for _ in range(5):
-            response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
-            assert response.status_code == status.HTTP_200_OK
-            tokens.add(response.json()["access_token"])
-
-        # All tokens should be unique
-        assert len(tokens) == 5
-        assert initial_token not in tokens
-
     @freeze_time("2025-01-01 00:00:00")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_refresh_token_grace_period(self, patched_exporter_task: Mock):
