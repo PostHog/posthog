@@ -57,6 +57,23 @@ async def create_worker(
             metric_prefix=metric_prefix,
             metrics=PrometheusConfig(
                 bind_address=f"0.0.0.0:{metrics_port:d}",
+                durations_as_seconds=False,
+                # Units are u64 milliseconds in sdk-core,
+                # given that the `duration_as_seconds` is `False`.
+                # But in Python we still need to pass floats due to type hints.
+                histogram_bucket_overrides={
+                    "batch_exports_activity_execution_latency": [
+                        1_000.0,
+                        60_000.0,  # 1 minute
+                        300_000.0,  # 5 minutes
+                        900_000.0,  # 15 minutes
+                        1_800_000.0,  # 30 minutes
+                        3_600_000.0,  # 1 hour
+                        21_600_000.0,  # 6 hours
+                        43_200_000.0,  # 12 hours
+                        86_400_000.0,  # 24 hours
+                    ],
+                },
             ),
         )
     )
