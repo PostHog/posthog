@@ -1,13 +1,12 @@
 import { cn } from 'lib/utils/css-classes'
 import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
 import { TextInputBaseProps, textInputVariants } from '../TextInputPrimitive/TextInputPrimitive'
+import { forwardRef } from 'react'
 
 type TextareaPrimitiveProps = TextareaAutosizeProps &
     TextInputBaseProps & {
         error?: boolean
     }
-
-import { forwardRef } from 'react'
 
 export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimitiveProps>(
     ({ className, variant, error, ...rest }, ref): JSX.Element => {
