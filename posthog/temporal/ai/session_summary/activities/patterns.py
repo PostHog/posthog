@@ -8,7 +8,7 @@ from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
 )
-from ee.hogai.session_summaries.patterns.output_data import (
+from ee.hogai.session_summaries.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,

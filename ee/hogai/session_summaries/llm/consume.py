@@ -16,7 +16,7 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
-from ee.hogai.session_summaries.patterns.output_data import (
+from ee.hogai.session_summaries.patterns import (
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,

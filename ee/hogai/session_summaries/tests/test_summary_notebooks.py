@@ -2,7 +2,7 @@ import json
 
 from posthog.test.base import APIBaseTest
 
-from ee.hogai.session_summaries.patterns.output_data import (
+from ee.hogai.session_summaries.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,

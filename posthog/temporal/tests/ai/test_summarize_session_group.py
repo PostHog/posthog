@@ -12,7 +12,7 @@ from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.prompt_data import SessionSummaryPromptData
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
-from ee.hogai.session_summaries.patterns.output_data import (
+from ee.hogai.session_summaries.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,
     EnrichedSessionGroupSummaryPatternsList,

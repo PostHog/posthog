@@ -13,7 +13,7 @@ from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
 from ee.hogai.session_summaries.input_data import add_context_and_filter_events, get_team
 from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary
-from ee.hogai.session_summaries.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
