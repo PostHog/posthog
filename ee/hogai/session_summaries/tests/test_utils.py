@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 
 import pytest
 
-from ee.session_recordings.session_summary.utils import (
+from ee.hogai.session_summaries.utils import (
     get_column_index,
     prepare_datetime,
     serialize_to_sse_event,
