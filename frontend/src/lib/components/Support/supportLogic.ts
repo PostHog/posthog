@@ -563,7 +563,7 @@ export const supportLogic = kea<supportLogicType>([
                 }
             }
 
-            const startupProgramLabel = billing?.startup_program_label || billing?.startup_program_label_previous
+            const startupProgramLabel = billing?.startup_program_label
             if (startupProgramLabel === StartupProgramLabel.YC) {
                 planLevelTag = 'plan_yc'
             } else if (startupProgramLabel === StartupProgramLabel.Startup) {
