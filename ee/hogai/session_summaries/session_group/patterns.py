@@ -5,10 +5,10 @@ from enum import Enum
 
 import yaml
 import structlog
-from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.output_data import SessionSummarySerializer
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.utils import strip_raw_llm_content, unpack_full_event_id
+from ee.hogai.session_summaries import SummaryValidationError
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.utils import strip_raw_llm_content, unpack_full_event_id
 
 logger = structlog.get_logger(__name__)
 

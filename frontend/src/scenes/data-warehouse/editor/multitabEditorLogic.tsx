@@ -1144,7 +1144,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ?.run()
                 ?.catch((error) => {
                     posthog.captureException(error)
-                    console.error(error)
                     lemonToast.error('Failed to format SQL query')
                 })
         },
