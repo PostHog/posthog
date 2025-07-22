@@ -27,6 +27,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -322,7 +323,7 @@ class RootNode(RootNodeUIContextMixin):
 
         ui_context = self._format_ui_context(self._get_ui_context(state))
 
-        has_billing_access = self._get_billing_context(config) is not None
+        has_billing_access = self._has_billing_access(config)
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
@@ -353,6 +354,13 @@ class RootNode(RootNodeUIContextMixin):
                     id=str(uuid4()),
                 ),
             ],
+        )
+
+    def _has_billing_access(self, config: RunnableConfig) -> bool:
+        return (
+            self._user.organization_memberships.get(organization=self._team.organization).level
+            in (OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER)
+            and self._get_billing_context(config) is not None
         )
 
     def _get_model(self, state: AssistantState, config: RunnableConfig):
@@ -396,7 +404,7 @@ class RootNode(RootNodeUIContextMixin):
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             available_tools.append(ToolClass())  # type: ignore
 
-        has_billing_access = self._get_billing_context(config) is not None
+        has_billing_access = self._has_billing_access(config)
         if has_billing_access:
             available_tools.append(retrieve_billing_information)
 
@@ -597,18 +605,17 @@ class RootNodeTools(AssistantNode):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
-            if not tool_calls or not isinstance(tool_calls, list) or not tool_calls:
-                return "end"
-            tool_call = tool_calls[0]
-            tool_call_name = tool_call.name
-            if tool_call_name == "retrieve_billing_information":
-                return "billing"
-            elif tool_call_name == "search_documentation":
-                return "search_documentation"
-            if state.root_tool_insight_type:
+            if tool_calls and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                tool_call_name = tool_call.name
+                if tool_call_name == "retrieve_billing_information":
+                    return "billing"
+            if state.root_tool_insight_plan:
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"
+            else:
+                return "search_documentation"
         return "end"

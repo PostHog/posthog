@@ -1,17 +1,32 @@
 from typing import Any, cast
 from uuid import uuid4
-from datetime import datetime, timedelta
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCallMessage, MaxBillingContext
+from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 from posthog.clickhouse.client import sync_execute
+
+# sync with frontend/src/scenes/billing/constants.ts
+USAGE_TYPES = [
+    {"label": "Events", "value": "event_count_in_period"},
+    {"label": "Recordings", "value": "recording_count_in_period"},
+    {"label": "Mobile Recordings", "value": "mobile_recording_count_in_period"},
+    {"label": "Feature Flags", "value": "billable_feature_flag_requests_count_in_period"},
+    {"label": "Exceptions", "value": "exceptions_captured_in_period"},
+    {"label": "Rows Synced", "value": "rows_synced_in_period"},
+    {"label": "Persons", "value": "enhanced_persons_event_count_in_period"},
+    {"label": "Survey Responses", "value": "survey_responses_count_in_period"},
+    {"label": "Data Pipelines", "value": "data_pipelines"},
+    {"label": "Group Analytics", "value": "group_analytics"},
+]
 
 
 class BillingNode(AssistantNode):
+    _teams_map: dict[int, str] = {}
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         billing_context = self._get_billing_context(config)
         if not billing_context:
@@ -40,11 +55,18 @@ class BillingNode(AssistantNode):
             "billing_plan": billing_context.billing_plan,
             "has_active_subscription": billing_context.has_active_subscription,
             "is_deactivated": billing_context.is_deactivated,
+            "organization_teams_count": len(self._teams_map.keys()),
+            "current_team_name": self._team.name,
+            "current_team_id": self._team.id,
         }
 
         # Add startup program info
         if billing_context.startup_program_label:
             template_data["startup_program_label"] = billing_context.startup_program_label
+        if billing_context.startup_program_label_previous:
+            template_data["startup_program_label_previous"] = billing_context.startup_program_label_previous
+        if not billing_context.startup_program_label and not billing_context.startup_program_label_previous:
+            template_data["startup_program_label"] = "None"
 
         # Add billing period info
         if billing_context.billing_period:
@@ -57,8 +79,20 @@ class BillingNode(AssistantNode):
         # Add cost information
         if billing_context.total_current_amount_usd:
             template_data["total_current_amount_usd"] = billing_context.total_current_amount_usd
-        if billing_context.total_projected_amount_usd:
-            template_data["total_projected_amount_usd"] = billing_context.total_projected_amount_usd
+        if billing_context.projected_total_amount_usd:
+            template_data["projected_total_amount_usd"] = billing_context.projected_total_amount_usd
+        if billing_context.projected_total_amount_usd_after_discount:
+            template_data["projected_total_amount_usd_after_discount"] = (
+                billing_context.projected_total_amount_usd_after_discount
+            )
+        if billing_context.projected_total_amount_usd_with_limit:
+            template_data["projected_total_amount_usd_with_limit"] = (
+                billing_context.projected_total_amount_usd_with_limit
+            )
+        if billing_context.projected_total_amount_usd_with_limit_after_discount:
+            template_data["projected_total_amount_usd_with_limit_after_discount"] = (
+                billing_context.projected_total_amount_usd_with_limit_after_discount
+            )
 
         # Add products information
         if billing_context.products:
@@ -75,6 +109,8 @@ class BillingNode(AssistantNode):
                     "custom_limit_usd": product.custom_limit_usd,
                     "next_period_custom_limit_usd": product.next_period_custom_limit_usd,
                     "docs_url": product.docs_url,
+                    "projected_amount_usd": product.projected_amount_usd,
+                    "projected_amount_usd_with_limit": product.projected_amount_usd_with_limit,
                 }
                 template_data["products"].append(product_data)
 
@@ -89,6 +125,7 @@ class BillingNode(AssistantNode):
                     "current_usage": int(addon.current_usage) if addon.current_usage else None,
                     "usage_limit": int(addon.usage_limit) if addon.usage_limit else None,
                     "docs_url": addon.docs_url,
+                    "projected_amount_usd": addon.projected_amount_usd,
                 }
                 template_data["addons"].append(addon_data)
 
@@ -102,8 +139,13 @@ class BillingNode(AssistantNode):
 
         if billing_context.usage_history:
             # Format usage history as a table with breakdown by date
-            usage_table = self._format_usage_history_table(billing_context.usage_history)
+            usage_table = self._format_history_table(billing_context.usage_history)
             template_data["usage_history_table"] = usage_table
+
+        if billing_context.spend_history:
+            # Format spend history as a table with breakdown by date
+            spend_table = self._format_history_table(billing_context.spend_history)
+            template_data["spend_history_table"] = spend_table
 
         # Add settings
         template_data["settings"] = {
@@ -119,65 +161,97 @@ class BillingNode(AssistantNode):
         template = PromptTemplate.from_template(BILLING_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(**template_data).to_string()
 
-    def _format_usage_history_table(self, usage_history) -> str:
-        """Format multiple breakdowns as compact weekly breakdown table."""
+    def _get_teams_map(self) -> dict[int, str]:
+        if self._teams_map:
+            return self._teams_map
+        self._teams_map = {team.id: f"{team.name} (ID: {team.id})" for team in self._team.organization.teams.all()}
+        return self._teams_map
 
-        # Create dynamic header with breakdown columns
-        breakdown_names = [result.breakdown_value or "Unknown" for result in usage_history]
-        header = "| Week | " + " | ".join(breakdown_names) + " |"
-        separator = "|------|" + "|".join(["-------"] * len(breakdown_names)) + "|"
+    def _format_history_table(self, usage_history: list[UsageHistoryItem] | list[SpendHistoryItem]) -> str:
+        """Format multiple breakdowns as breakdown table."""
+        if not usage_history:
+            return "No data available"
 
-        table_lines = [header, separator]
+        # Group history items by team if breakdown_value contains team IDs
+        tables = []
+        team_items: dict[str, list] = {}
+        other_items = []
 
-        # Get all unique weeks across all breakdowns
-        all_weeks: set[str] = set()
-        breakdown_data: dict[int, dict[str, float]] = {}
-        week_date_mapping: dict[str, str] = {}  # Maps week_key to actual date range
+        for item in usage_history:
+            # Check if this item has team breakdown
+            team_id_found = None
+            if item.breakdown_value and isinstance(item.breakdown_value, list):
+                # Search for team ID in any position of breakdown_value
+                for value in item.breakdown_value:
+                    if value in [str(team_id) for team_id in self._teams_map.keys()]:
+                        team_id_found = value
+                        break
 
-        for i, result in enumerate(usage_history):
-            breakdown_data[i] = {}
-            if result.dates and result.data:
-                for date, usage in zip(result.dates, result.data):
-                    try:
-                        date_obj = datetime.strptime(date, "%Y-%m-%d")
-                        # Calculate the start of the week (Monday)
-                        days_since_monday = date_obj.weekday()
-                        week_start = date_obj - timedelta(days=days_since_monday)
-                        week_end = week_start + timedelta(days=6)
-                        week_key = week_start.strftime("%Y-%m-%d")  # Use start date as key
-                        week_range = f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d')}"
+            if team_id_found:
+                if team_id_found not in team_items:
+                    team_items[team_id_found] = []
+                team_items[team_id_found].append(item)
+            else:
+                other_items.append(item)
 
-                        all_weeks.add(week_key)
-                        week_date_mapping[week_key] = week_range
-                        breakdown_data[i][week_key] = float(usage) if usage is not None else 0
-                    except (ValueError, TypeError):
-                        # Fallback to original date format if parsing fails
-                        week_key = date
-                        all_weeks.add(week_key)
-                        week_date_mapping[week_key] = date
-                        breakdown_data[i][week_key] = float(usage) if usage is not None else 0
+        # Create tables for each team
+        for team_id, items in team_items.items():
+            team_name = self._teams_map.get(int(team_id), f"Project ID: {team_id}")
+            table = self._format_single_team_table(items, team_name)
+            tables.append(table)
 
-        # Sort weeks and show most recent 4-6 weeks
-        sorted_weeks = sorted(all_weeks)[-6:] if len(all_weeks) > 6 else sorted(all_weeks)
+        # Add table for non-team items if any
+        if other_items:
+            table = self._format_single_team_table(other_items, "Overall (all projects)")
+            tables.append(table)
 
-        # Create rows for each week
-        for week in sorted_weeks:
-            week_totals = []
-            for i in range(len(usage_history)):
-                total = breakdown_data[i].get(week, 0)
-                if total >= 1000:
-                    week_totals.append(f"{total:,.0f}")
+        return "\n\n".join(tables)
+
+    def _format_single_team_table(self, items: list[UsageHistoryItem] | list[SpendHistoryItem], title: str) -> str:
+        """Format a single table for a team or overall data."""
+        if not items:
+            return f"### {title}\nNo data available"
+
+        # Get all unique dates across all items
+        all_dates = set()
+        for item in items:
+            all_dates.update(item.dates)
+        sorted_dates = sorted(all_dates)
+
+        # Build table header
+        table_lines = [f"### {title}"]
+        if not sorted_dates:
+            return f"### {title}\nNo data available"
+
+        # Create header row
+        header = "| Data Type | " + " | ".join(sorted_dates) + " |"
+        separator = "|" + "|".join([" --- "] * (len(sorted_dates) + 1)) + "|"
+        table_lines.extend([header, separator])
+
+        # Add data rows
+        for item in items:
+            # Create a mapping from date to value
+            date_to_value = dict(zip(item.dates, item.data))
+
+            # Build row with values aligned to dates
+            row_values = []
+            for date in sorted_dates:
+                value = date_to_value.get(date, 0)
+                # Format the value appropriately
+                if isinstance(value, int | float):
+                    formatted_value = f"{float(value):,.2f}"
                 else:
-                    week_totals.append(f"{total:.0f}")
+                    formatted_value = str(value)
+                row_values.append(formatted_value)
 
-            week_display = week_date_mapping.get(week, week)
-            week_row = f"| {week_display} | " + " | ".join(week_totals) + " |"
-            table_lines.append(week_row)
+            label = next((t["label"] for t in USAGE_TYPES if t["value"] == item.label), item.label)
+            row = f"| {label} | " + " | ".join(row_values) + " |"
+            table_lines.append(row)
 
         return "\n".join(table_lines)
 
     def _get_top_events_by_usage(self) -> list[dict[str, Any]]:
-        """Get top 20 events by usage over the last 30 days."""
+        """Get top 20 events by usage over the last 30 days for the current team."""
         try:
             query = """
                 SELECT

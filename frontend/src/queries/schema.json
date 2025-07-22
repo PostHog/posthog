@@ -14842,6 +14842,12 @@
                 "percentage_usage": {
                     "type": "number"
                 },
+                "projected_amount_usd": {
+                    "type": ["string", "null"]
+                },
+                "projected_amount_usd_with_limit": {
+                    "type": ["string", "null"]
+                },
                 "type": {
                     "type": "string"
                 },
@@ -14893,6 +14899,18 @@
                     },
                     "type": "array"
                 },
+                "projected_total_amount_usd": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_after_discount": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_with_limit": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_with_limit_after_discount": {
+                    "type": "string"
+                },
                 "settings": {
                     "additionalProperties": false,
                     "properties": {
@@ -14906,6 +14924,54 @@
                     "required": ["autocapture_on", "active_destinations"],
                     "type": "object"
                 },
+                "spend_history": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "breakdown_type": {
+                                "enum": ["type", "team", "multiple", null],
+                                "type": ["string", "null"]
+                            },
+                            "breakdown_value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "data": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            "dates": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "id": {
+                                "type": "number"
+                            },
+                            "label": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["id", "label", "data", "dates", "breakdown_type", "breakdown_value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "startup_program_label": {
                     "type": "string"
                 },
@@ -14917,9 +14983,6 @@
                     "type": "string"
                 },
                 "total_current_amount_usd": {
-                    "type": "string"
-                },
-                "total_projected_amount_usd": {
                     "type": "string"
                 },
                 "trial": {
@@ -15130,6 +15193,12 @@
                 },
                 "percentage_usage": {
                     "type": "number"
+                },
+                "projected_amount_usd": {
+                    "type": ["string", "null"]
+                },
+                "projected_amount_usd_with_limit": {
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "type": "string"

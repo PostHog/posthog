@@ -22,7 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import HumanMessage
+from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -53,6 +53,13 @@ class MessageSerializer(serializers.Serializer):
             # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
             # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
             data["message"] = None
+        billing_context = data.get("billing_context")
+        if billing_context:
+            try:
+                billing_context = MaxBillingContext.model_validate(billing_context)
+                data["billing_context"] = billing_context
+            except pydantic.ValidationError:
+                raise serializers.ValidationError("Invalid billing context.")
         return data
 
 

@@ -1,9 +1,6 @@
 import { decodeParams, encodeParams } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
-import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
-import { isAddonVisible } from 'scenes/billing/utils'
-import { Destination } from 'scenes/pipeline/types'
 
 import {
     AssistantMessage,
@@ -23,18 +20,8 @@ import {
 } from '~/queries/schema/schema-assistant-queries'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import {
-    ActionType,
-    BillingType,
-    DashboardType,
-    EventDefinition,
-    QueryBasedInsightModel,
-    SidePanelTab,
-    TeamType,
-} from '~/types'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
-
-import { MaxAddonInfo, MaxBillingContext, MaxProductInfo } from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -219,135 +206,5 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
         id: action.id,
         name: action.name || `Action ${action.id}`,
         description: action.description || '',
-    }
-}
-
-export const billingToMaxContext = (
-    billing: BillingType | null,
-    featureFlags: Record<string, any>,
-    currentTeam: TeamType,
-    destinations: Destination[],
-    usageResponse?: BillingUsageResponse
-): MaxBillingContext | null => {
-    if (!billing) {
-        return null
-    }
-
-    // Helper function to get custom limit for a product
-    const getCustomLimitForProduct = (productType: string, usageKey?: string): number | null => {
-        if (!billing.custom_limits_usd) {
-            return null
-        }
-
-        // First try product type, then fallback to usage key
-        const customLimit = billing.custom_limits_usd[productType]
-        if (customLimit === 0 || customLimit) {
-            return customLimit
-        }
-
-        return usageKey ? billing.custom_limits_usd[usageKey] ?? null : null
-    }
-    const getNextPeriodCustomLimitForProduct = (productType: string, usageKey?: string): number | null => {
-        if (!billing.next_period_custom_limits_usd) {
-            return null
-        }
-
-        const customLimit = billing.next_period_custom_limits_usd[productType]
-        if (customLimit === 0 || customLimit) {
-            return customLimit
-        }
-
-        return usageKey ? billing.next_period_custom_limits_usd[usageKey] ?? null : null
-    }
-
-    // Filter platform products to only include the highest tier available
-    const processedProducts = (billing.products || []).map((product) => {
-        if (product.type === 'platform_and_support') {
-            const availablePlans = product.plans || []
-            const currentPlanIndex = availablePlans.findIndex((plan) => plan.current_plan)
-            const highestAvailablePlan =
-                currentPlanIndex >= 0 ? availablePlans[currentPlanIndex] : availablePlans[availablePlans.length - 1] // Fallback to highest plan
-
-            if (highestAvailablePlan) {
-                return {
-                    ...product,
-                    name: `${product.name} (${highestAvailablePlan.name})`,
-                    description: highestAvailablePlan.description || product.description,
-                }
-            }
-        }
-        return product
-    })
-
-    const maxProducts: MaxProductInfo[] = processedProducts.map((product) => {
-        const customLimit = getCustomLimitForProduct(product.type, product.usage_key || undefined)
-        const nextPeriodCustomLimit = getNextPeriodCustomLimitForProduct(product.type, product.usage_key || undefined)
-        return {
-            type: product.type,
-            name: product.name,
-            description: product.description || '',
-            is_used: (product.current_usage || 0) > 0,
-            has_exceeded_limit: product.percentage_usage > 1,
-            current_usage: product.current_usage,
-            usage_limit: product.tiered && product.tiers ? product.tiers?.[0].up_to : product.free_allocation,
-            percentage_usage: product.percentage_usage || 0,
-            custom_limit_usd: customLimit,
-            next_period_custom_limit_usd: nextPeriodCustomLimit,
-            docs_url: product.docs_url,
-        }
-    })
-
-    const maxAddons: MaxAddonInfo[] = (billing.products || [])
-        .flatMap((product) => (product.addons || []).map((addon) => ({ product, addon })))
-        .filter(({ product, addon }) => isAddonVisible(product, addon, featureFlags))
-        .map(({ addon }) => {
-            const customLimit = getCustomLimitForProduct(addon.type, addon.usage_key || undefined)
-            const nextPeriodCustomLimit = getNextPeriodCustomLimitForProduct(addon.type, addon.usage_key || undefined)
-
-            return {
-                type: addon.type,
-                name: addon.name,
-                description: addon.description || '',
-                is_used: (addon.current_usage || 0) > 0,
-                has_exceeded_limit: (addon.percentage_usage || 0) > 1,
-                current_usage: addon.current_usage || 0,
-                usage_limit: addon.usage_limit,
-                percentage_usage: addon.percentage_usage,
-                custom_limit_usd: customLimit,
-                next_period_custom_limit_usd: nextPeriodCustomLimit,
-                docs_url: addon.docs_url || undefined,
-            }
-        })
-
-    return {
-        has_active_subscription: billing.has_active_subscription || false,
-        subscription_level: billing.has_active_subscription ? 'paid' : 'free',
-        billing_plan: billing.billing_plan || null,
-        is_deactivated: billing.deactivated,
-        products: maxProducts,
-        addons: maxAddons,
-        total_current_amount_usd: billing.current_total_amount_usd,
-        total_projected_amount_usd: billing.projected_total_amount_usd,
-        startup_program_label: billing.startup_program_label || undefined,
-        startup_program_label_previous: billing.startup_program_label_previous || undefined,
-        trial: billing.trial
-            ? {
-                  is_active: billing.trial.status === 'active',
-                  expires_at: billing.trial.expires_at,
-                  target: billing.trial.target,
-              }
-            : undefined,
-        billing_period: billing.billing_period
-            ? {
-                  current_period_start: billing.billing_period.current_period_start.format('YYYY-MM-DD'),
-                  current_period_end: billing.billing_period.current_period_end.format('YYYY-MM-DD'),
-                  interval: billing.billing_period.interval,
-              }
-            : undefined,
-        usage_history: usageResponse?.results,
-        settings: {
-            autocapture_on: !currentTeam.autocapture_opt_out,
-            active_destinations: destinations.length,
-        },
     }
 }

@@ -1677,6 +1677,8 @@ class MaxAddonInfo(BaseModel):
     name: str
     next_period_custom_limit_usd: Optional[float] = None
     percentage_usage: Optional[float] = None
+    projected_amount_usd: Optional[str] = None
+    projected_amount_usd_with_limit: Optional[str] = None
     type: str
     usage_limit: Optional[float] = None
 
@@ -1703,6 +1705,25 @@ class Settings1(BaseModel):
     autocapture_on: bool
 
 
+class BreakdownType1(Enum):
+    TYPE = "type"
+    TEAM = "team"
+    MULTIPLE = "multiple"
+    NONE_TYPE_NONE = None
+
+
+class SpendHistoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_type: Optional[BreakdownType1]
+    breakdown_value: Optional[Union[str, list[str]]] = None
+    data: list[float]
+    dates: list[str]
+    id: float
+    label: str
+
+
 class SubscriptionLevel(StrEnum):
     FREE = "free"
     PAID = "paid"
@@ -1716,13 +1737,6 @@ class Trial(BaseModel):
     expires_at: Optional[str] = None
     is_active: bool
     target: Optional[str] = None
-
-
-class BreakdownType1(Enum):
-    TYPE = "type"
-    TEAM = "team"
-    MULTIPLE = "multiple"
-    NONE_TYPE_NONE = None
 
 
 class UsageHistoryItem(BaseModel):
@@ -1760,6 +1774,8 @@ class MaxProductInfo(BaseModel):
     name: str
     next_period_custom_limit_usd: Optional[float] = None
     percentage_usage: float
+    projected_amount_usd: Optional[str] = None
+    projected_amount_usd_with_limit: Optional[str] = None
     type: str
     usage_limit: Optional[float] = None
 
@@ -3730,12 +3746,16 @@ class MaxBillingContext(BaseModel):
     has_active_subscription: bool
     is_deactivated: Optional[bool] = None
     products: list[MaxProductInfo]
+    projected_total_amount_usd: Optional[str] = None
+    projected_total_amount_usd_after_discount: Optional[str] = None
+    projected_total_amount_usd_with_limit: Optional[str] = None
+    projected_total_amount_usd_with_limit_after_discount: Optional[str] = None
     settings: Settings1
+    spend_history: Optional[list[SpendHistoryItem]] = None
     startup_program_label: Optional[str] = None
     startup_program_label_previous: Optional[str] = None
     subscription_level: SubscriptionLevel
     total_current_amount_usd: Optional[str] = None
-    total_projected_amount_usd: Optional[str] = None
     trial: Optional[Trial] = None
     usage_history: Optional[list[UsageHistoryItem]] = None
 

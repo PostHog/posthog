@@ -1,12 +1,12 @@
 import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
+import { BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'
@@ -364,4 +364,28 @@ export function buildTrackingProperties(
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
         interval: values.filters.interval || 'day',
     }
+}
+
+export const isAddonVisible = (
+    product: BillingProductV2Type,
+    addon: BillingProductV2AddonType,
+    featureFlags: Record<string, any>
+): boolean => {
+    // Filter out inclusion-only addons if personless events are not supported
+    if (addon.inclusion_only && featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
+        return false
+    }
+
+    // Filter out legacy addons for platform_and_support if not subscribed
+    if (product.type === 'platform_and_support' && addon.legacy_product && !addon.subscribed) {
+        return false
+    }
+
+    // Filter out addons that are hidden by feature flag
+    const hideAddonFlag = `billing_hide_addon_${addon.type}`
+    if (featureFlags[hideAddonFlag]) {
+        return false
+    }
+
+    return true
 }

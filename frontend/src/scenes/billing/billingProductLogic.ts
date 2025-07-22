@@ -16,11 +16,10 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { convertAmountToUsage } from './billing-utils'
+import { convertAmountToUsage, isAddonVisible } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
-import { isAddonVisible } from './utils'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 

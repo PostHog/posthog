@@ -23,6 +23,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'signup', // Special error handling on login
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
+    'loadBillingUsage', // Gracefully handled if it fails
+    'loadBillingSpend', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
 ]

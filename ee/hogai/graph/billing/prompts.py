@@ -1,14 +1,19 @@
 BILLING_CONTEXT_PROMPT = """
 <billing_context>
-# Billing & Subscription Information
-The user has {{subscription_level}} subscription{{#billing_plan}} ({{billing_plan}}){{/billing_plan}}.
+The user's organization has {{subscription_level}} subscription{{#billing_plan}} ({{billing_plan}}){{/billing_plan}}.
+The user's organization has {{organization_teams_count}} projects.
+The user's current project is {{current_team_name}} (ID: {{current_team_id}}).
 
+<organization_billing_info>
 {{#has_active_subscription}}
 ## Current Subscription Status
 - Active subscription: Yes
 {{#startup_program_label}}
 - Startup program: {{startup_program_label}}
 {{/startup_program_label}}
+{{#startup_program_label_previous}}
+- Previous startup program: {{startup_program_label_previous}}
+{{/startup_program_label_previous}}
 {{#is_deactivated}}
 - Status: Account is deactivated
 {{/is_deactivated}}
@@ -24,9 +29,19 @@ The user has {{subscription_level}} subscription{{#billing_plan}} ({{billing_pla
 {{#total_projected_amount_usd}}
 - Projected period cost: ${{total_projected_amount_usd}}
 {{/total_projected_amount_usd}}
+{{#total_projected_amount_usd_after_discount}}
+- Projected period cost after discount: ${{total_projected_amount_usd_after_discount}}
+{{/total_projected_amount_usd_after_discount}}
+{{#total_projected_amount_usd_with_limit}}
+- Projected period cost with spending limit: ${{total_projected_amount_usd_with_limit}}
+{{/total_projected_amount_usd_with_limit}}
+{{#total_projected_amount_usd_with_limit_after_discount}}
+- Projected period cost with spending limit after discount: ${{total_projected_amount_usd_with_limit_after_discount}}
+{{/total_projected_amount_usd_with_limit_after_discount}}
 {{/total_current_amount_usd}}
+</organization_billing_info>
 
-## Products & Usage
+<products_info>
 {{#products}}
 {{#.}}
 ### {{name}}
@@ -44,6 +59,12 @@ The user has {{subscription_level}} subscription{{#billing_plan}} ({{billing_pla
 {{#next_period_custom_limit_usd}}
 - Next period custom spending limit: ${{next_period_custom_limit_usd}}
 {{/next_period_custom_limit_usd}}
+{{#projected_amount_usd}}
+- Projected period cost: ${{projected_amount_usd}}
+{{/projected_amount_usd}}
+{{#projected_amount_usd_with_limit}}
+- Projected period cost with spending limit: ${{projected_amount_usd_with_limit}}
+{{/projected_amount_usd_with_limit}}
 {{#docs_url}}
 - Docs: {{docs_url}}
 {{/docs_url}}
@@ -62,12 +83,15 @@ The user has {{subscription_level}} subscription{{#billing_plan}} ({{billing_pla
 {{#current_usage}}
 - Current usage: {{current_usage}}{{#usage_limit}} of {{usage_limit}} limit{{/usage_limit}}
 {{/current_usage}}
+{{#projected_amount_usd}}
+- Projected period cost: ${{projected_amount_usd}}
+{{/projected_amount_usd}}
 {{#docs_url}}
 - Docs: {{docs_url}}
 {{/docs_url}}
-
 {{/.}}
 {{/addons}}
+</products_info>
 
 {{#trial}}
 ## Trial Information
@@ -91,23 +115,37 @@ The user has {{subscription_level}} subscription{{#billing_plan}} ({{billing_pla
 {{/has_active_subscription}}
 
 {{#usage_history_table}}
-## Usage History for the last 30 days
+<usage_history_table>
+## Usage History for the last 30 days, breakdown by project, broken down by data type
 {{{usage_history_table}}}
+</usage_history_table>
 {{/usage_history_table}}
 
+{{#spend_history_table}}
+<spend_history_table>
+## Spend History for the last 30 days, breakdown by project, broken down by data type
+{{{spend_history_table}}}
+</spend_history_table>
+{{/spend_history_table}}
+
 {{#settings}}
-## Enabled settings:
+<settings>
 - Autocapture: {{autocapture_on}} (automatically capture frontend events like pageview, screen, click, change of input, or submission associated with a button, form, input, select, or textarea.)
 - Active destinations: {{active_destinations}}
+</settings>
 {{/settings}}
 
-## Top 20 Events by Usage (Last 30 Days)
+<top_events_for_current_project>
+## Top 20 Events by Usage (Last 30 Days) for the current project
+To gather information about top events for other projects, ask the user to switch to a different project in the top left corner of the page.
 {{#top_events}}
 {{#.}}
 - **{{event}}**: {{formatted_count}} events
 {{/.}}
 {{/top_events}}
+</top_events_for_current_project>
 
+<cost_reduction_strategies>
 ### Cost Reduction Strategies
 When users ask about reducing costs, analyze their billing situation and usage data using the following strategies:
 
@@ -163,10 +201,13 @@ See: https://posthog.com/docs/cdp/sources
 Do not give the user a generic list of strategies, be analytical and suggest data-driven solutions, referencing actual user data.
 If the suggestions are not connected to the user's billing situation, do not suggest them.
 Example: "Since you're using product X, you can reduce costs this way..."
+</cost_reduction_strategies>
 
+<upselling>
 ### Upselling
 You can use this information to suggest the user new products, add-ons, or other features that they may want to use.
 If you can upsell the user on product they're not using or a new add-on, always do so.
 When mentioning a product or add-on, always include a link to the docs page.
+</upselling>
 </billing_context>
 """.strip()

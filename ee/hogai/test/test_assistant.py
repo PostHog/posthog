@@ -48,10 +48,15 @@ from posthog.schema import (
     DashboardFilter,
     FailureMessage,
     HumanMessage,
+    MaxAddonInfo,
+    MaxBillingContext,
     MaxDashboardContext,
     MaxInsightContext,
+    MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
+    Settings1,
+    SubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -99,6 +104,33 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.checkpointer_patch = patch("ee.hogai.graph.graph.global_checkpointer", new=DjangoCheckpointer())
         self.checkpointer_patch.start()
+
+        self.billing_context = MaxBillingContext(
+            has_active_subscription=True,
+            subscription_level=SubscriptionLevel.PAID,
+            settings=Settings1(active_destinations=2.0, autocapture_on=True),
+            products=[
+                MaxProductInfo(
+                    name="Product Analytics",
+                    description="Track user behavior",
+                    current_usage=1000000.0,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    percentage_usage=85.0,
+                    type="product_analytics",
+                )
+            ],
+            addons=[
+                MaxAddonInfo(
+                    name="Data Pipeline",
+                    description="Advanced data pipeline features",
+                    current_usage=100.0,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    type="data_pipeline",
+                )
+            ],
+        )
 
     def tearDown(self):
         self.checkpointer_patch.stop()
@@ -1760,3 +1792,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result, "")  # Should return empty headline
         self.assertIsNone(assistant._reasoning_headline_chunk)
         self.assertEqual(assistant._last_reasoning_headline, "")
+
+    def test_billing_context_in_config(self):
+        assistant = Assistant(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            billing_context=self.billing_context,
+        )
+
+        config = assistant._get_config()
+        self.assertEqual(config["configurable"]["billing_context"], self.billing_context)
