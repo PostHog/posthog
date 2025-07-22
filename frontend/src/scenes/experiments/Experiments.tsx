@@ -296,31 +296,35 @@ export function Experiments(): JSX.Element {
                             value={filters.search || ''}
                         />
                         <div className="flex items-center gap-2">
-                            <span>
-                                <b>Status</b>
-                            </span>
-                            <LemonSelect
-                                size="small"
-                                onChange={(status) => {
-                                    if (status === 'all') {
-                                        const { status: _, ...restFilters } = filters
-                                        setExperimentsFilters({ ...restFilters, page: 1 }, true)
-                                    } else {
-                                        setExperimentsFilters({ status: status as ProgressStatus, page: 1 })
-                                    }
-                                }}
-                                options={
-                                    [
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Draft', value: ProgressStatus.Draft },
-                                        { label: 'Running', value: ProgressStatus.Running },
-                                        { label: 'Complete', value: ProgressStatus.Complete },
-                                    ] as { label: string; value: string }[]
-                                }
-                                value={filters.status ?? 'all'}
-                                dropdownMatchSelectWidth={false}
-                                dropdownMaxContentWidth
-                            />
+                            {ExperimentsTabs.Archived !== tab && (
+                                <>
+                                    <span>
+                                        <b>Status</b>
+                                    </span>
+                                    <LemonSelect
+                                        size="small"
+                                        onChange={(status) => {
+                                            if (status === 'all') {
+                                                const { status: _, ...restFilters } = filters
+                                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
+                                            } else {
+                                                setExperimentsFilters({ status: status as ProgressStatus, page: 1 })
+                                            }
+                                        }}
+                                        options={
+                                            [
+                                                { label: 'All', value: 'all' },
+                                                { label: 'Draft', value: ProgressStatus.Draft },
+                                                { label: 'Running', value: ProgressStatus.Running },
+                                                { label: 'Complete', value: ProgressStatus.Complete },
+                                            ] as { label: string; value: string }[]
+                                        }
+                                        value={filters.status ?? 'all'}
+                                        dropdownMatchSelectWidth={false}
+                                        dropdownMaxContentWidth
+                                    />
+                                </>
+                            )}
                             <span className="ml-1">
                                 <b>Created by</b>
                             </span>
