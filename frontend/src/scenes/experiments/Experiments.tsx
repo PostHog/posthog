@@ -34,6 +34,17 @@ export const scene: SceneExport = {
     logic: experimentsLogic,
 }
 
+const EXPERIMENTS_PRODUCT_DESCRIPTION =
+    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+
+const getExperimentDuration = (experiment: Experiment): number | undefined => {
+    return experiment.end_date
+        ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
+        : experiment.start_date
+        ? dayjs().diff(dayjs(experiment.start_date), 'day')
+        : undefined
+}
+
 export function Experiments(): JSX.Element {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
@@ -42,20 +53,9 @@ export function Experiments(): JSX.Element {
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
 
-    const EXPERIMENTS_PRODUCT_DESCRIPTION =
-        'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
-
     const page = filters.page || 1
     const startCount = count === 0 ? 0 : (page - 1) * EXPERIMENTS_PER_PAGE + 1
     const endCount = page * EXPERIMENTS_PER_PAGE < count ? page * EXPERIMENTS_PER_PAGE : count
-
-    const getExperimentDuration = (experiment: Experiment): number | undefined => {
-        return experiment.end_date
-            ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
-            : experiment.start_date
-            ? dayjs().diff(dayjs(experiment.start_date), 'day')
-            : undefined
-    }
 
     const columns: LemonTableColumns<Experiment> = [
         {
