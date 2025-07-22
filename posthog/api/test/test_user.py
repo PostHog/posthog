@@ -1198,6 +1198,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
+                "project_pipeline_errors_disabled": {},  # New field should default to empty dict
                 "all_weekly_digest_disabled": False,
                 "error_tracking_issue_assigned": True,
             },
@@ -1209,6 +1210,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "project_weekly_digest_disabled": {"123": True},
+                "project_pipeline_errors_disabled": {},
                 "all_weekly_digest_disabled": False,
                 "error_tracking_issue_assigned": True,
             },
@@ -1274,9 +1276,51 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
+                "project_pipeline_errors_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
             },
+        )
+
+    def test_can_update_pipeline_error_notification_settings(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "project_pipeline_errors_disabled": {123: True, 456: False},
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["project_pipeline_errors_disabled"],
+            {"123": True, "456": False},  # Note: JSON converts int keys to strings
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.partial_notification_settings["project_pipeline_errors_disabled"],
+            {"123": True, "456": False},
+        )
+
+    def test_pipeline_error_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_pipeline_errors_disabled": {123: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different project
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_pipeline_errors_disabled": {456: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["project_pipeline_errors_disabled"], {"123": True, "456": True}
         )
 
 

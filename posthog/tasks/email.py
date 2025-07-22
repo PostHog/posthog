@@ -55,7 +55,8 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
         organization_id=team.organization_id
     )
     for membership in memberships:
-        if not membership.user.notification_settings.get(notification_setting, True):
+        # Use the new project-aware should_send_notification function
+        if not should_send_notification(membership.user, notification_setting, team.id):
             continue
         team_permissions = UserPermissions(membership.user).team(team)
         # Only send the email to users who have access to the affected project
@@ -100,7 +101,21 @@ def should_send_notification(
 
         return True
 
-    # Default to False (disabled) if not set
+    elif notification_type == NotificationSetting.PROJECT_PIPELINE_ERRORS.value:
+        # First check global digest setting (pipeline errors are disabled when all notifications are disabled)
+        if settings.get("all_weekly_digest_disabled", False):
+            return False
+
+        # Then check project-specific pipeline error setting if team_id provided
+        if team_id is not None:
+            project_settings = settings.get("project_pipeline_errors_disabled", {})
+            team_disabled = project_settings.get(str(team_id), False)
+            return not team_disabled
+
+        # Default to enabled for pipeline errors if no specific setting
+        return True
+
+    # DEPRECATED: Global toggle for pipeline errors - kept for backwards compatibility
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
         return not settings.get(notification_type, True)
 
@@ -241,7 +256,7 @@ def send_fatal_plugin_error(
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify(team, "project_pipeline_errors")
     if not memberships_to_email:
         return
 
@@ -270,7 +285,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     team = hog_function.team
 
     # We re-use the setting as it is the same from a user perspective
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify(team, "project_pipeline_errors")
     if not memberships_to_email:
         return
 
@@ -301,7 +316,7 @@ def send_batch_export_run_failure(
     )
     team: Team = batch_export_run.batch_export.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify(team, "project_pipeline_errors")
     if not memberships_to_email:
         return
 
@@ -521,7 +536,7 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         return
 
     # Get members to email
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify(team, "project_pipeline_errors")
     if not memberships_to_email:
         return
 

@@ -25,13 +25,15 @@ class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
+    project_pipeline_errors_disabled: dict[str, Any]  # Maps project ID to disabled status for pipeline errors
     all_weekly_digest_disabled: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
-    "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
+    "plugin_disabled": True,  # DEPRECATED: Global toggle for pipeline destination issues - use project_pipeline_errors_disabled instead
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
+    "project_pipeline_errors_disabled": {},  # Empty dict by default - no projects disabled for pipeline errors
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
 }
 

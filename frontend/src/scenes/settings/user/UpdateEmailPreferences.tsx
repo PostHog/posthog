@@ -27,6 +27,22 @@ export function UpdateEmailPreferences(): JSX.Element {
         })
     }
 
+    const updatePipelineErrorsForProject = (teamId: number, enabled: boolean): void => {
+        if (!user?.notification_settings) {
+            return
+        }
+
+        updateUser({
+            notification_settings: {
+                ...user.notification_settings,
+                project_pipeline_errors_disabled: {
+                    ...user.notification_settings.project_pipeline_errors_disabled,
+                    [teamId]: !enabled,
+                },
+            },
+        })
+    }
+
     return (
         <div className="deprecated-space-y-4">
             <h3>Email notifications</h3>
@@ -109,9 +125,28 @@ export function UpdateEmailPreferences(): JSX.Element {
                         {pipelineErrorsEnabled && (
                             <div className="ml-8 deprecated-space-y-2">
                                 <p className="text-muted text-sm">
-                                    Pipeline error notifications will be sent for all projects. Project-specific
-                                    settings will be available in a future update.
+                                    Select which projects to receive pipeline error notifications for:
                                 </p>
+                                <div className="flex flex-col gap-2">
+                                    {currentOrganization?.teams?.map((team) => (
+                                        <LemonCheckbox
+                                            key={`pipeline-errors-${team.id}`}
+                                            id={`pipeline-errors-${team.id}`}
+                                            data-attr={`pipeline_errors_${team.id}`}
+                                            onChange={(checked) => updatePipelineErrorsForProject(team.id, checked)}
+                                            checked={
+                                                !user?.notification_settings.project_pipeline_errors_disabled?.[team.id]
+                                            }
+                                            disabled={userLoading}
+                                            label={
+                                                <div className="flex items-center gap-2">
+                                                    <span>{team.name}</span>
+                                                    <LemonTag type="muted">id: {team.id.toString()}</LemonTag>
+                                                </div>
+                                            }
+                                        />
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>

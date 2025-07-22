@@ -321,6 +321,7 @@ export interface UserType extends UserBaseType {
     notification_settings: {
         plugin_disabled: boolean
         project_weekly_digest_disabled: Record<number, boolean>
+        project_pipeline_errors_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
     }
     events_column_config: ColumnConfig
@@ -381,6 +382,7 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
 export interface NotificationSettings {
     plugin_disabled: boolean
     project_weekly_digest_disabled: Record<string, boolean>
+    project_pipeline_errors_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
 }
 

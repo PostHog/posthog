@@ -226,12 +226,10 @@ class UserSerializer(serializers.ModelSerializer):
                     f"Key {key} is not valid as a key for notification settings", code="invalid_input"
                 )
 
-            expected_type = Notifications.__annotations__[key]
-
-            if key == "project_weekly_digest_disabled":
+            if key in ["project_weekly_digest_disabled", "project_pipeline_errors_disabled"]:
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
-                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        f"{key} must be a dictionary mapping project IDs to boolean values",
                         code="invalid_input",
                     )
                 # Validate each project setting is a boolean
@@ -242,12 +240,23 @@ class UserSerializer(serializers.ModelSerializer):
                             code="invalid_input",
                         )
                 # Merge with existing settings
-                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+                current_settings[key] = {**current_settings.get(key, {}), **value}
             else:
                 # For non-dict settings, validate type directly
-                if not isinstance(value, expected_type):
+                # Handle specific known types to avoid parameterized generic issues
+                if key == "plugin_disabled" and not isinstance(value, bool):
                     raise serializers.ValidationError(
-                        f"{value} is not a valid type for notification settings, should be {expected_type}",
+                        f"plugin_disabled must be a boolean, got {type(value)} instead",
+                        code="invalid_input",
+                    )
+                elif key == "error_tracking_issue_assigned" and not isinstance(value, bool):
+                    raise serializers.ValidationError(
+                        f"error_tracking_issue_assigned must be a boolean, got {type(value)} instead",
+                        code="invalid_input",
+                    )
+                elif key == "all_weekly_digest_disabled" and not isinstance(value, bool):
+                    raise serializers.ValidationError(
+                        f"all_weekly_digest_disabled must be a boolean, got {type(value)} instead",
                         code="invalid_input",
                     )
                 current_settings[key] = value
