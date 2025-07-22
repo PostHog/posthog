@@ -714,7 +714,81 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-        self._assert_activity_log([])
+        user_json = {
+            "distinct_id": self.user.distinct_id,
+            "email": self.user.email,
+            "first_name": "",
+            "hedgehog_config": None,
+            "id": self.user.id,
+            "is_email_verified": None,
+            "last_name": "",
+            "role_at_organization": None,
+            "uuid": str(self.user.uuid),
+        }
+
+        def with_changes(changes: list[dict]) -> dict:
+            return {
+                "activity": "tagged_user",
+                "created_at": mock.ANY,
+                "detail": {
+                    "changes": changes,
+                    "name": None,
+                    "short_id": None,
+                    "trigger": None,
+                    "type": None,
+                },
+                "id": mock.ANY,
+                "is_system": False,
+                "item_id": None,
+                "organization_id": str(self.team.organization_id),
+                "scope": None,
+                "unread": False,
+                "user": user_json,
+                "was_impersonated": False,
+            }
+
+        self._assert_activity_log(
+            [
+                with_changes(
+                    [
+                        [
+                            {
+                                "action": "tagged_user",
+                                "after": {
+                                    "annotation_dashboard_id": None,
+                                    "annotation_insight_id": None,
+                                    "annotation_recording_id": None,
+                                    "annotation_scope": None,
+                                    "tagged_user": None,
+                                },
+                                "before": None,
+                                "field": None,
+                                "type": None,
+                            }
+                        ]
+                    ]
+                ),
+                with_changes(
+                    [
+                        [
+                            {
+                                "action": "tagged_user",
+                                "after": {
+                                    "annotation_dashboard_id": None,
+                                    "annotation_insight_id": None,
+                                    "annotation_recording_id": None,
+                                    "annotation_scope": None,
+                                    "tagged_user": None,
+                                },
+                                "before": None,
+                                "field": None,
+                                "type": None,
+                            }
+                        ]
+                    ]
+                ),
+            ]
+        )
 
     def test_activity_logging_when_users_tagged_in_recording_comment(self) -> None:
         content = "Recording comment with @alice"
