@@ -14,6 +14,9 @@ import {
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
+    iOSInstructions,
+    FlutterInstructions,
+    RNInstructions,
 } from '.'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
@@ -30,4 +33,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.SVELTE]: SvelteInstructions,
     [SDKKey.VUE_JS]: VueInstructions,
     [SDKKey.WEBFLOW]: WebflowInstructions,
+    [SDKKey.IOS]: iOSInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
+    [SDKKey.REACT_NATIVE]: RNInstructions,
 }
