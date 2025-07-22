@@ -19,7 +19,7 @@ import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
-import type { DragEvent } from 'react'
+import type { DragEvent, MouseEvent } from 'react'
 import { subscriptions } from 'kea-subscriptions'
 import { getSmartStepPath } from './steps/SmartEdge'
 
@@ -65,7 +65,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
         onNodeDragStart: () => ({}),
-        onNodeDragStop: (_event: React.MouseEvent, node: HogFlowActionNode) => ({ node }),
+        onNodeDragStop: (_event: MouseEvent, node: HogFlowActionNode) => ({ node }),
         onConnect: ({
             source,
             target,
