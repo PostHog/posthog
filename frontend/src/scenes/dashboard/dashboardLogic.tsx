@@ -1404,7 +1404,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
                 // only refresh stale insights
-                .filter((i) => !i.cache_target_age || dayjs(i.cache_target_age).isBefore(dayjs()))
+                .filter(
+                    (i) => manualDashboardRefresh || !i.cache_target_age || dayjs(i.cache_target_age).isBefore(dayjs())
+                )
 
             const insightsToRefresh = sortedInsights
             if (insightsToRefresh.length > 0) {
