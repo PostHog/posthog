@@ -464,6 +464,7 @@ class TestSharing(APIBaseTest):
         assert response.status_code == 200
 
         # Within grace period (4 minutes later), old token should still work
+        # Note: Grace period is 5 minutes (SHARING_TOKEN_GRACE_PERIOD_SECONDS)
         with freeze_time("2025-01-01 00:04:00"):
             response = self.client.get(f"/shared/{initial_token}")
             assert response.status_code == 200

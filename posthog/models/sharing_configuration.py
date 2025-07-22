@@ -2,6 +2,7 @@ import secrets
 from typing import cast
 from datetime import timedelta
 from django.utils import timezone
+from django.conf import settings
 
 from django.db import models
 
@@ -69,17 +70,16 @@ class SharingConfiguration(models.Model):
         return []
 
     def is_token_valid(self, token: str) -> bool:
-        """Check if a token is valid (current or within grace period)"""
+        """Check if a token is valid (current token or previous tokenwithin grace period)"""
         if token == self.access_token:
             return True
 
-        # Check if it's the previous token within grace period
         if (
             token == self.previous_access_token
             and self.previous_access_token
             and self.token_rotated_at
-            and timezone.now() - self.token_rotated_at < timedelta(minutes=5)
-        ):  # 5 minute grace period
+            and timezone.now() - self.token_rotated_at < timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
+        ):
             return True
 
         return False

@@ -220,11 +220,6 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         if not instance.enabled:
             raise ValidationError("Cannot refresh access token for disabled sharing configuration.")
 
-        if context.get("recording"):
-            recording = cast(SessionRecording, context.get("recording"))
-            # Special case where we need to save the instance for recordings so that the actual record gets created
-            recording.save()
-
         # Use the new rotation method that implements grace period
         instance.rotate_access_token()
         instance.save()
