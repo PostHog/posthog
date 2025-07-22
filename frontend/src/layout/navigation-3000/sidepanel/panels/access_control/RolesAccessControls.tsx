@@ -53,13 +53,11 @@ export function RolesAccessControls(): JSX.Element {
                 return role ? (
                     role.members.length ? (
                         <ProfileBubbles
-                            people={
-                                role?.members?.map((member) => ({
-                                    email: member.user.email,
-                                    name: fullName(member.user),
-                                    title: `${fullName(member.user)} <${member.user.email}>`,
-                                })) ?? []
-                            }
+                            people={role.members.map((member) => ({
+                                email: member.user.email,
+                                name: member.user.first_name,
+                                title: `${member.user.first_name} <${member.user.email}>`,
+                            }))}
                             onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
                         />
                     ) : (
