@@ -8,17 +8,19 @@
 
 {% block section %}
 <p>
-    Your data pipelines had failures in the last 24 hours in project <strong>{{ team.name }}</strong>. Here's what needs attention:
+    Your data pipelines had significant failures (>1% failure rate) in the last 24 hours in project <strong>{{ team.name }}</strong>. Functions are sorted by criticality with highest failure rates at the top. You can <a href="{% absolute_uri '/settings/user-notifications' %}">manage these notifications in PostHog</a>.
 </p>
+
 
 <div class="mb mt">
     {% for function in functions %}
-        <div class="mb">
-            <h3>
-                <a href="{{ function.url }}" target="_blank">{{ function.name }}</a>
+        <div class="mb" style="border: 1px solid #e1e5e9; padding: 16px; border-radius: 8px; {% if function.failure_rate >= 10 %}border-left: 4px solid #dc3545;{% elif function.failure_rate >= 5 %}border-left: 4px solid #fd7e14;{% else %}border-left: 4px solid #ffc107;{% endif %}">
+            <h3 style="margin: 0 0 4px 0;">
+                <a href="{{ function.url }}" target="_blank" style="text-decoration: none; color: #f54e00;">{{ function.name }}</a>
             </h3>
-            <p class="muted">Type: {{ function.type|capfirst }}</p>
-            <p>✅ Successful runs: {{ function.succeeded|intcomma }} | ❌ Failed runs: {{ function.failed|intcomma }}</p>
+            <p style="margin: 4px 0; font-size: 0.95em;">Failure rate: <span style="{% if function.failure_rate >= 10 %}color: #dc3545;{% elif function.failure_rate >= 5 %}color: #fd7e14;{% else %}color: #f59e0b;{% endif %}">{{ function.failure_rate }}%</span></p>
+            <p class="muted" style="margin: 4px 0;">Type: {{ function.type|capfirst }}</p>
+            <p style="margin: 8px 0 0 0;">✅ Successful runs: {{ function.succeeded|intcomma }} | ❌ Failed runs: {{ function.failed|intcomma }}</p>
         </div>
     {% endfor %}
 </div>
