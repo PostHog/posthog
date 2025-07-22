@@ -8,6 +8,57 @@ from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from langchain_core.agents import AgentAction
+from posthog.schema import (
+    MaxRecordingUniversalFilters,
+    RecordingDurationFilter,
+    PropertyOperator,
+    MaxOuterUniversalFiltersGroup,
+    MaxInnerUniversalFiltersGroup,
+    FilterLogicalOperator,
+    PersonPropertyFilter,
+    EventPropertyFilter,
+    DurationType,
+)
+
+AND_FILTER_EXAMPLE = MaxRecordingUniversalFilters(
+    duration=[
+        RecordingDurationFilter(
+            key=DurationType.DURATION,
+            operator=PropertyOperator.GTE,
+            value=60,
+            type="recording",
+        )
+    ],
+    date_from="-3d",
+    date_to=None,
+    filter_group=MaxOuterUniversalFiltersGroup(
+        type=FilterLogicalOperator.AND_,
+        values=[
+            MaxInnerUniversalFiltersGroup(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PersonPropertyFilter(
+                        key="$browser",
+                        type="person",
+                        value=["Mobile"],
+                        operator=PropertyOperator.EXACT,
+                    )
+                ],
+            ),
+            MaxInnerUniversalFiltersGroup(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    EventPropertyFilter(
+                        key="$login_page",
+                        type="event",
+                        value=["true"],
+                        operator=PropertyOperator.EXACT,
+                    )
+                ],
+            ),
+        ],
+    ),
+)
 
 
 class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
@@ -242,7 +293,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ["final_answer", {"name": "final_answer", "arguments": {"result": "filter", "data": {"filter_group": {}}}}],
+            ["final_answer", {"name": "final_answer", "arguments": {"data": AND_FILTER_EXAMPLE}}],
             ["ask_user_for_help", {"name": "ask_user_for_help", "arguments": {"request": "Need clarification"}}],
             [
                 "retrieve_entity_property_values",
@@ -268,8 +319,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         if tool_name == "final_answer":
             result = node.run(state, {})
             assert result.generated_filter_options is not None  # Type guard
-            self.assertEqual(result.generated_filter_options["result"], "filter")
-            self.assertEqual(result.generated_filter_options["data"], {"filter_group": {}})
+            self.assertEqual(result.generated_filter_options["data"], AND_FILTER_EXAMPLE)
         elif tool_name == "ask_user_for_help":
             result = node.run(state, {})
             # Should return reset state with help message in intermediate_steps
