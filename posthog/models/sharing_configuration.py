@@ -3,7 +3,7 @@ from typing import cast
 from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
-from django.db import models, transaction
+from django.db import models
 import structlog
 
 from posthog.models.insight import Insight
@@ -29,53 +29,48 @@ class SharingConfiguration(models.Model):
         blank=True,
     )
 
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+
     enabled = models.BooleanField(default=False)
     access_token = models.CharField(
-        max_length=400, null=True, blank=True, unique=True, default=get_default_access_token
+        max_length=400,
+        null=True,
+        blank=True,
+        default=get_default_access_token,
+        unique=True,
     )
 
-    # Expiry for token rotation - null means active/current token
     expires_at = models.DateTimeField(
         null=True, blank=True, help_text="When this sharing configuration expires (null = active)"
     )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        indexes = [
-            # Index for fast lookups by token and expiry
-            models.Index(fields=["access_token", "expires_at"], name="sharing_token_expiry_idx"),
-        ]
 
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
         if not self.enabled:
             raise ValueError("Cannot rotate token for disabled sharing configuration")
 
-        with transaction.atomic():
-            # Create new sharing configuration (token auto-generated via default=)
-            new_config = SharingConfiguration.objects.create(
-                team=self.team,
-                dashboard=self.dashboard,
-                insight=self.insight,
-                recording=self.recording,
-                enabled=True,
-            )
+        # Create new sharing configuration (token auto-generated via default=)
+        new_config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            insight=self.insight,
+            recording=self.recording,
+            enabled=True,
+        )
 
-            # Expire current configuration
-            self.expires_at = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
-            self.save()
+        # Expire current configuration
+        self.expires_at = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
+        self.save()
 
-            logger.info(
-                "sharing_token_rotated",
-                old_config_id=self.pk,
-                new_config_id=new_config.pk,
-                team_id=self.team_id,
-                new_token_preview=new_config.access_token[:8] + "..." if new_config.access_token else None,
-            )
+        logger.info(
+            "sharing_token_rotated",
+            old_config_id=self.pk,
+            new_config_id=new_config.pk,
+            team_id=self.team_id,
+            new_token_preview=new_config.access_token[:8] + "..." if new_config.access_token else None,
+        )
 
-            return new_config
+        return new_config
 
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore
@@ -98,25 +93,3 @@ class SharingConfiguration(models.Model):
         elif self.dashboard:
             if self.dashboard.deleted:
                 return []
-
-            from posthog.models.dashboard import Dashboard
-
-            return list(
-                cast(Dashboard, self.dashboard)
-                .tiles.filter(deleted=False)
-                .exclude(insight__deleted=True)
-                .values_list("insight_id", flat=True)
-            )
-        elif self.recording:
-            return []
-        else:
-            return []
-
-    def get_insight(self) -> "Insight":
-        if self.insight:
-            return self.insight
-
-        if self.dashboard:
-            return self.dashboard.tiles.filter(deleted=False).exclude(insight__deleted=True).first().insight
-
-        raise ValueError("Attempted to get insight from a sharing configuration that is not tied to one")
