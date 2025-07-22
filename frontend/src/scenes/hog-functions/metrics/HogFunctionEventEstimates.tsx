@@ -68,11 +68,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                         </p>
                     )}
 
-                    {hasMasking && (
-                        <p>
-                            The estimate does not take into account <b>trigger options</b>
-                        </p>
-                    )}
+                    {hasMasking && <p>The estimate does not take into account trigger options.</p>}
 
                     {'warning' in sparkline && sparkline.warning && (
                         <LemonBanner type="info">{sparkline.warning}</LemonBanner>
