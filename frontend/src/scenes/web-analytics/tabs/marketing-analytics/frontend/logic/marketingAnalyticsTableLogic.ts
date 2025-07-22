@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { isNotNil } from 'lib/utils'
 
 import {
@@ -6,7 +6,6 @@ import {
     SourceMap,
     ConversionGoalFilter,
     DataTableNode,
-    NodeKind,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
 } from '~/queries/schema/schema-general'
@@ -42,7 +41,6 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         actions: [marketingAnalyticsLogic, ['setDynamicConversionGoal']],
     })),
     actions({
-        setSelectedColumns: (defaultColumns: string[]) => ({ defaultColumns }),
         setQuery: (query: DataTableNode) => ({ query }),
     }),
     reducers({
@@ -70,12 +68,4 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setQuery: () => {
-            if (values.query?.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
-                const source = values.query.source
-                actions.setSelectedColumns(source.select || [])
-            }
-        },
-    })),
 ])
