@@ -50,10 +50,15 @@ from posthog.schema import (
     DashboardFilter,
     FailureMessage,
     HumanMessage,
+    MaxAddonInfo,
+    MaxBillingContext,
     MaxDashboardContext,
     MaxInsightContext,
+    MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
+    Settings1,
+    SubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -1790,3 +1795,40 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
         self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
+
+    def test_billing_context_in_config(self):
+        billing_context = MaxBillingContext(
+            has_active_subscription=True,
+            subscription_level=SubscriptionLevel.PAID,
+            settings=Settings1(active_destinations=2.0, autocapture_on=True),
+            products=[
+                MaxProductInfo(
+                    name="Product Analytics",
+                    description="Track user behavior",
+                    current_usage=1000000.0,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    percentage_usage=85.0,
+                    type="product_analytics",
+                )
+            ],
+            addons=[
+                MaxAddonInfo(
+                    name="Data Pipeline",
+                    description="Advanced data pipeline features",
+                    current_usage=100.0,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    type="data_pipeline",
+                )
+            ],
+        )
+        assistant = Assistant(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            billing_context=billing_context,
+        )
+
+        config = assistant._get_config()
+        self.assertEqual(config["configurable"]["billing_context"], billing_context)

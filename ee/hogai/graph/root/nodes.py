@@ -27,6 +27,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -44,6 +45,8 @@ from posthog.schema import (
 
 from ..base import AssistantNode
 from .prompts import (
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
@@ -63,7 +66,9 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 }
 
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
+RouteName = Literal[
+    "insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search", "billing"
+]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -318,6 +323,7 @@ class RootNode(RootNodeUIContextMixin):
 
         ui_context = self._format_ui_context(self._get_ui_context(state))
 
+        has_billing_access = self._has_billing_access(config)
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
@@ -328,6 +334,9 @@ class RootNode(RootNodeUIContextMixin):
                 "user_full_name": self._user.get_full_name(),
                 "user_email": self._user.email,
                 "ui_context": ui_context,
+                "billing_context": ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT
+                if has_billing_access
+                else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
             },
             config,
         )
@@ -345,6 +354,13 @@ class RootNode(RootNodeUIContextMixin):
                     id=str(uuid4()),
                 ),
             ],
+        )
+
+    def _has_billing_access(self, config: RunnableConfig) -> bool:
+        return (
+            self._user.organization_memberships.get(organization=self._team.organization).level
+            in (OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER)
+            and self._get_billing_context(config) is not None
         )
 
     def _get_model(self, state: AssistantState, config: RunnableConfig):
@@ -371,6 +387,7 @@ class RootNode(RootNodeUIContextMixin):
             get_contextual_tool_class,
             search_documentation,
             search_insights,
+            retrieve_billing_information,
         )
 
         available_tools: list[type[BaseModel]] = [search_insights]
@@ -386,6 +403,11 @@ class RootNode(RootNodeUIContextMixin):
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             available_tools.append(ToolClass())  # type: ignore
+
+        has_billing_access = self._has_billing_access(config)
+        if has_billing_access:
+            available_tools.append(retrieve_billing_information)
+
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -520,7 +542,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_plan=tool_call.args["query_description"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "search_documentation":
+        elif tool_call.name in ["search_documentation", "retrieve_billing_information"]:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_calls_count=tool_call_count + 1,
@@ -581,7 +603,13 @@ class RootNodeTools(AssistantNode):
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        if state.root_tool_call_id:
+        if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
+            tool_calls = getattr(last_message, "tool_calls", None)
+            if tool_calls and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                tool_call_name = tool_call.name
+                if tool_call_name == "retrieve_billing_information":
+                    return "billing"
             if state.root_tool_insight_plan:
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"

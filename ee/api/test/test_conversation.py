@@ -12,7 +12,17 @@ from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import AssistantEventType, AssistantMessage
+from posthog.schema import (
+    AssistantEventType,
+    AssistantMessage,
+    BillingPeriod,
+    Interval,
+    MaxBillingContext,
+    MaxProductInfo,
+    Settings1,
+    SubscriptionLevel,
+    Trial,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -37,6 +47,33 @@ class TestConversation(APIBaseTest):
             email="other@posthog.com",
             password="password",
             first_name="Other",
+        )
+        self.billing_context = MaxBillingContext(
+            subscription_level=SubscriptionLevel.PAID,
+            billing_plan="paid",
+            has_active_subscription=True,
+            is_deactivated=False,
+            billing_period=BillingPeriod(
+                current_period_start=str(datetime.date(2023, 1, 1)),
+                current_period_end=str(datetime.date(2023, 1, 31)),
+                interval=Interval.MONTH,
+            ),
+            total_current_amount_usd="100.00",
+            products=[
+                MaxProductInfo(
+                    name="Product A",
+                    type="type_a",
+                    description="Desc A",
+                    current_usage=50,
+                    usage_limit=100,
+                    percentage_usage=0.5,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                )
+            ],
+            addons=[],
+            trial=Trial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+            settings=Settings1(autocapture_on=True, active_destinations=2),
         )
 
     def _get_streaming_content(self, response):
@@ -548,3 +585,52 @@ class TestConversation(APIBaseTest):
         throttles = viewset.get_throttles()
         self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
         self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)
+
+    def test_billing_context_validation_valid_data(self):
+        """Test that valid billing context data is accepted."""
+
+        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
+            with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "billing_context": self.billing_context.model_dump(),
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                mock_init.assert_called_once()
+                self.assertEqual(mock_init.call_args.kwargs["billing_context"], self.billing_context)
+
+    def test_billing_context_assistant_initialization_parameters(self):
+        """Test that all expected parameters including billing_context are passed to Assistant."""
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+        billing_context = self.billing_context.model_dump()
+        contextual_tools = {"tool1": {"param": "value"}}
+        trace_id = uuid.uuid4()
+
+        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
+            with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "conversation": str(conversation.id),
+                        "content": "test query",
+                        "trace_id": str(trace_id),
+                        "billing_context": billing_context,
+                        "contextual_tools": contextual_tools,
+                    },
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                mock_init.assert_called_once()
+
+                # Verify all expected parameters were passed
+                kwargs = mock_init.call_args.kwargs
+                self.assertEqual(kwargs["billing_context"], self.billing_context)
+                self.assertEqual(kwargs["contextual_tools"], contextual_tools)
+                self.assertEqual(kwargs["trace_id"], trace_id)
+                self.assertEqual(kwargs["is_new_conversation"], False)
+                self.assertIsNotNone(kwargs["new_message"])
