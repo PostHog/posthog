@@ -91,6 +91,9 @@ from posthog.schema import (
 logger = structlog.get_logger(__name__)
 
 
+MAX_EXECUTION_TIME = 600
+
+
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     response: ExperimentQueryResponse
@@ -611,7 +614,7 @@ class ExperimentQueryRunner(QueryRunner):
                 team=self.team,
                 timings=self.timings,
                 modifiers=create_default_modifiers_for_team(self.team),
-                settings=HogQLGlobalSettings(max_execution_time=180),
+                settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
             )
         except InternalHogQLError as e:
             # Log essential context for debugging (no PII/secrets)
