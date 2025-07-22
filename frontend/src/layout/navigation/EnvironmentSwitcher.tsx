@@ -216,11 +216,13 @@ export function EnvironmentSwitcherOverlay({
         }
         return [
             hasEnvironmentsRollbackFeature ? (
-                <Combobox.Group value={['asdfasads']}>
-                    <ButtonPrimitive menuItem onClick={openModal} variant="danger" className="h-auto">
-                        <IconWarning />
-                        We're rolling back the environments beta
-                    </ButtonPrimitive>
+                <Combobox.Group value={['warning']} key="warning">
+                    <Combobox.Item asChild>
+                        <ButtonPrimitive menuItem onClick={openModal} variant="danger" className="h-auto">
+                            <IconWarning />
+                            We're rolling back the environments beta
+                        </ButtonPrimitive>
+                    </Combobox.Item>
                 </Combobox.Group>
             ) : null,
             currentProjectItems.length ? <>{currentProjectItems}</> : null,

@@ -49,7 +49,7 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /** Root ListBox implementation */
 const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
-    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, onKeyDown, ...props },
+    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, ...props },
     ref
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
