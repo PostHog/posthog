@@ -130,13 +130,16 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
     for item in response.results:
         if len(response.results) > 25 and item.count <= 3:
             continue
+        if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(item.event):
+            if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
+                continue  # Skip system or ignored events
         events.append(item.event)
     event_to_description: dict[str, str] = {}
     for event in events_in_context:
         if event.name and event.name not in events:
             events.append(event.name)
-            if event.description:
-                event_to_description[event.name] = event.description
+        if event.name and event.description:
+            event_to_description[event.name] = event.description
 
     # Create a set of event names from context for efficient lookup
     context_event_names = {event.name for event in events_in_context if event.name}
@@ -146,8 +149,8 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
         event_tag = ET.SubElement(root, "event")
         name_tag = ET.SubElement(event_tag, "name")
         name_tag.text = event_name
-
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
+            # Only skip if it's not in context (context events should always be included)
             if event_name not in context_event_names and (
                 event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
             ):
