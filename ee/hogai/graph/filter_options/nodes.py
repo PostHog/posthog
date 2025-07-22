@@ -11,7 +11,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from ee.hogai.graph.base import FilterOptionsBaseNode
-from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
+from .types import FilterOptionsState, PartialFilterOptionsState
 from ee.hogai.graph.query_planner.toolkit import (
     retrieve_entity_properties,
     retrieve_entity_property_values,
@@ -272,7 +272,7 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
         # Continue normal processing - agent should see tool results and make next decision
         return "continue"
 
-    def _get_reset_state(self, output: str, tool_call_id: str):
+    def _get_reset_state(self, output: str, tool_call_id: str) -> PartialFilterOptionsState:
         reset_state = PartialFilterOptionsState.get_reset_state()
         reset_state.intermediate_steps = [
             (

@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 from ee.hogai.utils.tests import FakeChatOpenAI
 
 from ee.hogai.graph.filter_options.nodes import FilterOptionsNode, FilterOptionsToolsNode
-from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
+from ee.hogai.graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from langchain_core.agents import AgentAction

@@ -49,6 +49,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Action, Team, User
@@ -77,15 +78,15 @@ VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]]
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName] = {
+STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-    AssistantNodeName.FILTER_OPTIONS,
-    AssistantNodeName.FILTER_OPTIONS_TOOLS,
+    FilterOptionsNodeName.FILTER_OPTIONS,
+    FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can stream messages to the client."""
 
@@ -93,8 +94,8 @@ STREAMING_NODES: set[AssistantNodeName] = {
 VERBOSE_NODES = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
-    AssistantNodeName.FILTER_OPTIONS,
-    AssistantNodeName.FILTER_OPTIONS_TOOLS,
+    FilterOptionsNodeName.FILTER_OPTIONS,
+    FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can send messages to the client."""
 
@@ -331,7 +332,7 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER | AssistantNodeName.FILTER_OPTIONS:
+            case AssistantNodeName.QUERY_PLANNER | FilterOptionsNodeName.FILTER_OPTIONS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:

@@ -14,20 +14,17 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
 from posthog.sync import database_sync_to_async
-from pydantic import BaseModel
-from typing import TypeVar, Generic
+from typing import Generic
 
 
 from ..utils.types import (
     AssistantMessageUnion,
     AssistantState,
     PartialAssistantState,
-    FilterOptionsState,
-    PartialFilterOptionsState,
+    StateType,
+    PartialStateType,
 )
-
-StateType = TypeVar("StateType", bound=BaseModel)
-PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
+from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 
 
 class BaseAssistantNode(ABC, Generic[StateType, PartialStateType]):

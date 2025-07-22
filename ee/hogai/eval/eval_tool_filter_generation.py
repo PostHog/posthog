@@ -78,8 +78,7 @@ class FilterGenerationCorrectness(Scorer):
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         try:
-            actual_filters = output["generated_filter_options"]["data"]
-            actual_filters = MaxRecordingUniversalFilters(**actual_filters)
+            actual_filters = MaxRecordingUniversalFilters.model_validate(output["generated_filter_options"]["data"])
         except Exception as e:
             logger.exception(f"Error parsing filters: {e}")
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})

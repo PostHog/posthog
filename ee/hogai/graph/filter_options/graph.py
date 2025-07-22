@@ -1,4 +1,5 @@
-from ee.hogai.utils.types import AssistantNodeName, FilterOptionsState
+from ee.hogai.utils.types import AssistantNodeName
+from .types import FilterOptionsState, FilterOptionsNodeName
 
 from .nodes import FilterOptionsNode, FilterOptionsToolsNode
 from typing import Optional
@@ -20,20 +21,20 @@ class FilterOptionsGraph(BaseAssistantGraph[FilterOptionsState]):
 
         # Add the main filter options node with injected prompts
         filter_options = FilterOptionsNode(self._team, self._user, injected_prompts=self.injected_prompts)
-        builder.add_node(AssistantNodeName.FILTER_OPTIONS, filter_options)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.FILTER_OPTIONS)
+        builder.add_node(FilterOptionsNodeName.FILTER_OPTIONS, filter_options)
+        builder.add_edge(AssistantNodeName.START, FilterOptionsNodeName.FILTER_OPTIONS)
 
         # Add the tools node
         filter_options_tools = FilterOptionsToolsNode(self._team, self._user)
-        builder.add_node(AssistantNodeName.FILTER_OPTIONS_TOOLS, filter_options_tools)
-        builder.add_edge(AssistantNodeName.FILTER_OPTIONS, AssistantNodeName.FILTER_OPTIONS_TOOLS)
+        builder.add_node(FilterOptionsNodeName.FILTER_OPTIONS_TOOLS, filter_options_tools)
+        builder.add_edge(FilterOptionsNodeName.FILTER_OPTIONS, FilterOptionsNodeName.FILTER_OPTIONS_TOOLS)
 
         # Add conditional edges based on the tools node's router
         builder.add_conditional_edges(
-            AssistantNodeName.FILTER_OPTIONS_TOOLS,
+            FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
             filter_options_tools.router,
             {
-                "continue": AssistantNodeName.FILTER_OPTIONS,
+                "continue": FilterOptionsNodeName.FILTER_OPTIONS,
                 "end": next_node,
             },
         )

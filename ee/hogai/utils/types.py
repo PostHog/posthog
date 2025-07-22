@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union, TypeVar
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -94,7 +94,20 @@ def merge_retry_counts(left: int, right: int) -> int:
     return max(left, right)
 
 
-class _SharedAssistantState(BaseModel):
+StateType = TypeVar("StateType", bound=BaseModel)
+PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
+
+
+class BaseState(BaseModel):
+    """Base state class with reset functionality."""
+
+    @classmethod
+    def get_reset_state(cls: type[StateType]) -> StateType:
+        """Returns a new instance with all fields reset to their default values."""
+        return cls(**{k: v.default for k, v in cls.model_fields.items()})
+
+
+class _SharedAssistantState(BaseState):
     """
     The state of the root node.
     """
@@ -184,84 +197,6 @@ class PartialAssistantState(_SharedAssistantState):
 
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
 
-    @classmethod
-    def get_reset_state(cls) -> "PartialAssistantState":
-        return cls(**{k: v.default for k, v in cls.model_fields.items()})
-
-
-class FilterOptionsState(BaseModel):
-    """
-    State class specifically for filter options functionality.
-    Only includes fields relevant to filter options generation.
-    """
-
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
-    """
-    Actions taken by the ReAct agent.
-    """
-
-    generated_filter_options: Optional[dict] = Field(default=None)
-    """
-    The filter options to apply to the product.
-    """
-
-    change: Optional[str] = Field(default=None)
-    """
-    The change requested for the filters.
-    """
-
-    current_filters: Optional[dict] = Field(default=None)
-    """
-    The current filters applied to the product.
-    """
-
-    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
-    """
-    The messages with tool calls to collect tool progress.
-    """
-
-
-class PartialFilterOptionsState(BaseModel):
-    """
-    Partial state class for filter options functionality.
-    Only includes fields relevant to filter options generation.
-    """
-
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
-    """
-    Actions taken by the ReAct agent.
-    """
-
-    generated_filter_options: Optional[dict] = Field(default=None)
-    """
-    The filter options to apply to the product.
-    """
-
-    change: Optional[str] = Field(default=None)
-    """
-    The change requested for the filters.
-    """
-
-    current_filters: Optional[dict] = Field(default=None)
-    """
-    The current filters applied to the product.
-    """
-
-    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
-    """
-    The messages with tool calls to collect tool progress.
-    """
-
-    @classmethod
-    def get_reset_state(cls) -> "PartialFilterOptionsState":
-        return cls(
-            intermediate_steps=[],
-            generated_filter_options=None,
-            change="",
-            current_filters=None,
-            tool_progress_messages=[],
-        )
-
 
 class AssistantNodeName(StrEnum):
     START = START
@@ -292,8 +227,6 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
-    FILTER_OPTIONS = "filter_options"
-    FILTER_OPTIONS_TOOLS = "filter_options_tools"
 
 
 class AssistantMode(StrEnum):
