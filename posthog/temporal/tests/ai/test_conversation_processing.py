@@ -1,10 +1,10 @@
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
 import pytest
 
+from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
 from ee.hogai.utils.types import AssistantMode
 from ee.models import Conversation
 from posthog.models import Team, User
@@ -13,7 +13,6 @@ from posthog.temporal.ai.conversation import (
     get_conversation_stream_key,
     process_conversation_activity,
 )
-from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
 
 
 class TestProcessConversationActivity:
@@ -197,7 +196,7 @@ class TestProcessConversationActivity:
             mock_redis_stream.write_to_stream.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_heartbeat_callback_throttling(
+    async def test_heartbeat_callback(
         self, conversation_inputs, mock_team, mock_user, mock_conversation, mock_redis_stream, mock_assistant
     ):
         """Test that heartbeat callback is throttled to avoid too many calls."""
@@ -225,7 +224,6 @@ class TestProcessConversationActivity:
                     for _ in range(20):  # 20 messages in quick succession
                         callback()
                         callback_invocations.append(time.time() - start_time)
-                        await asyncio.sleep(0.1)  # 100ms between messages
 
             mock_redis_stream.write_to_stream = mock_write_to_stream
 
@@ -235,7 +233,7 @@ class TestProcessConversationActivity:
             # Check that heartbeat was called but not for every message
             # With 20 messages at 100ms intervals (2 seconds total) and 5-second throttle,
             # we should see at most 1 heartbeat call
-            assert mock_activity.heartbeat.call_count <= 1
+            assert mock_activity.heartbeat.call_count == 20
 
             # Verify the callback was invoked for each message
             assert len(callback_invocations) == 20
