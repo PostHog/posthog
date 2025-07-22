@@ -20,7 +20,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-
+import { match } from 'ts-pattern'
 import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
@@ -262,28 +262,30 @@ export function Experiments(): JSX.Element {
                     },
                 ]}
             />
-            {tab === ExperimentsTabs.All && (
-                <ProductIntroduction
-                    productName="Experiments"
-                    productKey={ProductKey.EXPERIMENTS}
-                    thingName="experiment"
-                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                    docsURL="https://posthog.com/docs/experiments"
-                    action={() => router.actions.push(urls.experiment('new'))}
-                    isEmpty={shouldShowEmptyState}
-                    customHog={ExperimentsHog}
-                />
-            )}
-            {tab === ExperimentsTabs.Archived && (
-                <ProductIntroduction
-                    productName="Experiments"
-                    productKey={ProductKey.EXPERIMENTS}
-                    thingName="archived experiment"
-                    description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                    docsURL="https://posthog.com/docs/experiments"
-                    isEmpty={shouldShowEmptyState}
-                />
-            )}
+            {match(tab)
+                .with(ExperimentsTabs.All, () => (
+                    <ProductIntroduction
+                        productName="Experiments"
+                        productKey={ProductKey.EXPERIMENTS}
+                        thingName="experiment"
+                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                        docsURL="https://posthog.com/docs/experiments"
+                        action={() => router.actions.push(urls.experiment('new'))}
+                        isEmpty={shouldShowEmptyState}
+                        customHog={ExperimentsHog}
+                    />
+                ))
+                .with(ExperimentsTabs.Archived, () => (
+                    <ProductIntroduction
+                        productName="Experiments"
+                        productKey={ProductKey.EXPERIMENTS}
+                        thingName="archived experiment"
+                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                        docsURL="https://posthog.com/docs/experiments"
+                        isEmpty={shouldShowEmptyState}
+                    />
+                ))
+                .otherwise(() => null)}
             {!shouldShowEmptyState && (tab === ExperimentsTabs.All || tab === ExperimentsTabs.Archived) && (
                 <>
                     <div className="flex justify-between mb-4 gap-2 flex-wrap">
