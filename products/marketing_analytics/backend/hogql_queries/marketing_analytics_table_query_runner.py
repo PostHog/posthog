@@ -12,6 +12,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
@@ -231,7 +232,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             conversion_joins = []
 
         # Combine base and conversion goal columns
-        all_columns = []
+        all_columns: list[ast.Expr] = []
         try:
             if self.query.select is None or len(self.query.select) == 0:
                 all_columns = list(conversion_columns_mapping.values())
@@ -251,7 +252,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             from_clause = self._append_joins(from_clause, conversion_joins)
 
         # Build ORDER BY
-        order_by_exprs = self._build_order_by_exprs()
+        order_by_exprs = self._build_order_by_exprs(all_columns)
 
         # Build LIMIT and OFFSET
         limit = self.query.limit or DEFAULT_LIMIT
@@ -275,23 +276,26 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             base_join.next_join = current_join
         return initial_join
 
-    def _build_order_by_exprs(self) -> list[ast.OrderExpr]:
+    def _build_order_by_exprs(self, select_columns: list[ast.Expr]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
 
         order_by_exprs = []
+        select_columns_aliases = [column.alias for column in select_columns]
 
         if hasattr(self.query, "orderBy") and self.query.orderBy and len(self.query.orderBy) > 0:
             for order_expr_str in self.query.orderBy:
                 column_name, order_by = order_expr_str
-                order_by_exprs.append(
-                    ast.OrderExpr(
-                        expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
+                if column_name in select_columns_aliases:
+                    order_by_exprs.append(
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
+                        )
                     )
-                )
         else:
-            # Build default order by: campaign_costs.total_cost DESC
-            default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
-            order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
+            if MarketingAnalyticsBaseColumns.TOTAL_COST.value in select_columns_aliases:
+                # Build default order by: Total Cost DESC
+                default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.TOTAL_COST.value])
+                order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
         return order_by_exprs
 

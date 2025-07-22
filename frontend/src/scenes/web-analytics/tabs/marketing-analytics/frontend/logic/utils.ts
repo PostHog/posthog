@@ -87,10 +87,13 @@ export const injectDynamicConversionGoal = (
     }
 
     const selectWithoutDynamicConversionGoal = selectList.filter(
-        (column) => column !== dynamicConversionGoal?.conversion_goal_name
+        (column) =>
+            column !== dynamicConversionGoal?.conversion_goal_name &&
+            column !==
+                `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal?.conversion_goal_name}`
     )
 
-    let lastIndex = selectWithoutDynamicConversionGoal.length
+    let lastIndex = 0
     const newSelect = []
     for (const selectColumn of selectWithoutDynamicConversionGoal) {
         // if in the base column add the cost per goal
@@ -104,8 +107,8 @@ export const injectDynamicConversionGoal = (
     }
     newSelect.push(
         ...selectWithoutDynamicConversionGoal.slice(0, lastIndex),
-        `${dynamicConversionGoal?.conversion_goal_name}`,
-        `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal?.conversion_goal_name}`,
+        `${dynamicConversionGoal.conversion_goal_name}`,
+        `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal.conversion_goal_name}`,
         ...selectWithoutDynamicConversionGoal.slice(lastIndex)
     )
     return newSelect

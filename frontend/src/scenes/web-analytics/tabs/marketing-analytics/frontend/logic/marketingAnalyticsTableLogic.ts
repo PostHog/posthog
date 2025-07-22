@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { isNotNil } from 'lib/utils'
 
 import {
@@ -8,6 +8,7 @@ import {
     DataTableNode,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
@@ -68,4 +69,21 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        setDynamicConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
+            if (!goal) {
+                const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
+                if (typedQuery?.orderBy && !values.defaultColumns.includes(typedQuery?.orderBy[0][0])) {
+                    typedQuery.orderBy = []
+                    actions.setQuery({
+                        ...values.query,
+                        source: {
+                            ...values.query?.source,
+                            orderBy: typedQuery.orderBy,
+                        },
+                    } as DataTableNode)
+                }
+            }
+        },
+    })),
 ])
