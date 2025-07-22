@@ -15,6 +15,8 @@ import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopove
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useMentions } from './useMentions'
+import { MentionsPopover } from './MentionsPopover'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
     function LemonTextAreaMarkdown({ value, onChange, className, ...editAreaProps }, ref): JSX.Element {
@@ -40,6 +42,8 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
             [ref]
         )
 
+        const mentions = useMentions({ textAreaRef, value, onChange })
+
         const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
             onUpload: (url, fileName) => {
                 onChange?.(value + `\n\n![${fileName}](${url})`)
@@ -61,13 +65,25 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                         key: 'write',
                         label: 'Write',
                         content: (
-                            <div ref={dropRef} className="LemonTextMarkdown flex flex-col gap-y-1 rounded">
+                            <div ref={dropRef} className="LemonTextMarkdown flex flex-col gap-y-1 rounded relative">
                                 <LemonTextArea
                                     ref={combinedRef}
                                     {...editAreaProps}
                                     autoFocus
                                     value={value}
-                                    onChange={onChange}
+                                    onKeyDown={(e) => {
+                                        // Handle mentions keyboard navigation
+                                        const handled = mentions.handleKeyDown(e)
+
+                                        // If mentions didn't handle it, call the original handler
+                                        if (!handled) {
+                                            editAreaProps.onKeyDown?.(e)
+                                        }
+                                    }}
+                                    onChange={(newValue) => {
+                                        // Handle mentions detection
+                                        mentions.handleTextChange(newValue)
+                                    }}
                                     rightFooter={
                                         <>
                                             <Tooltip title="Markdown formatting supported">
@@ -139,6 +155,14 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                             }}
                                         />,
                                     ]}
+                                />
+
+                                <MentionsPopover
+                                    isOpen={mentions.mentionsOpen}
+                                    position={mentions.mentionsPosition}
+                                    members={mentions.filteredMembers}
+                                    selectedIndex={mentions.selectedMentionIndex}
+                                    onSelect={mentions.selectMention}
                                 />
                             </div>
                         ),

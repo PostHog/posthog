@@ -4,8 +4,12 @@ import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { useValues } from 'kea'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { Link } from '../Link'
+import { MarkdownMention } from './MarkdownMention'
+import { parseMentions } from './parseMentions'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -32,6 +36,8 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableDocsRedirect = false,
     wrapCode = false,
 }: LemonMarkdownProps): JSX.Element {
+    const { meFirstMembers } = useValues(membersLogic)
+
     const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
         () => ({
             link: ({ href, children }: any): JSX.Element => (
@@ -44,13 +50,27 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     {value}
                 </CodeSnippet>
             ),
+            text: ({ value }: any): JSX.Element => {
+                const parsedParts = parseMentions(value, meFirstMembers)
+                const result: React.ReactNode[] = []
+
+                parsedParts.forEach((part, index) => {
+                    if (part.type === 'mention') {
+                        result.push(<MarkdownMention key={index} displayName={part.content} userId={part.userId} />)
+                    } else {
+                        result.push(part.content)
+                    }
+                })
+
+                return <>{result}</>
+            },
             ...(lowKeyHeadings
                 ? {
                       heading: 'strong',
                   }
                 : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode, meFirstMembers]
     )
 
     return (
