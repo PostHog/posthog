@@ -30,7 +30,8 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
 }
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
-    const [isHighlighted, setIsHighlighted] = useState(false)
+    const { highlightedDropzoneNodeId } = useValues(hogFlowEditorLogic)
+    const [isHighlighted, setIsHighlighted] = useState(highlightedDropzoneNodeId === id)
     const { setHighlightedDropzoneNodeId } = useActions(hogFlowEditorLogic)
 
     useEffect(() => {

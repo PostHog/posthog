@@ -21,7 +21,7 @@ export const StepConditionalBranch: HogFlowStep<'conditional_branch'> = {
     create: () => {
         return {
             action: {
-                name: 'Conditional',
+                name: 'Conditional branch',
                 description: '',
                 type: 'conditional_branch',
                 on_error: 'continue',

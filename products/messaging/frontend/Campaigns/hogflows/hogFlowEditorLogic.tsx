@@ -190,7 +190,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    if (action.type !== 'exit') {
+                    if (!['random_cohort_branch', 'exit'].includes(action.type)) {
                         if (!handlesByIdByNodeId[action.id]) {
                             handlesByIdByNodeId[action.id] = {}
                         }

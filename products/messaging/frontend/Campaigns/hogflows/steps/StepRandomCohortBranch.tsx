@@ -1,5 +1,5 @@
 import { IconPercentage, IconPlus, IconX } from '@posthog/icons'
-import { Node } from '@xyflow/react'
+import { Node, useUpdateNodeInternals } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -29,6 +29,9 @@ export const StepRandomCohortBranch: HogFlowStep<'random_cohort_branch'> = {
                         {
                             percentage: 50,
                         },
+                        {
+                            percentage: 50,
+                        },
                     ],
                 },
             },
@@ -48,6 +51,8 @@ function StepRandomCohortBranchConfiguration({
 }): JSX.Element {
     const action = node.data
     const { cohorts } = action.config
+
+    const updateNodeInternals = useUpdateNodeInternals()
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
@@ -76,25 +81,16 @@ function StepRandomCohortBranchConfiguration({
             ...action,
             config: { ...action.config, cohorts },
         })
+
+        // HACK: We need to update the node internals after state updates (after resetFlowFromHogFlow runs)
+        // TODO: Update state / node handles more directly to avoid setTimeout
+        setTimeout(() => {
+            updateNodeInternals(action.id)
+        }, 100)
     }
 
     const addCohort = (): void => {
-        const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
-        if (!continueEdge) {
-            throw new Error('Continue edge not found')
-        }
-
         setCohorts([...cohorts, { percentage: 25 }])
-        setCampaignActionEdges(action.id, [
-            ...branchEdges,
-            {
-                from: action.id,
-                to: continueEdge.to,
-                type: 'branch',
-                index: cohorts.length,
-            },
-            ...nonBranchEdges,
-        ])
     }
 
     const removeCohort = (index: number): void => {
