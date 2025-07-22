@@ -12,6 +12,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
@@ -20,11 +21,10 @@ from typing import cast, Literal
 from .conversion_goal_processor import ConversionGoalProcessor
 
 from .constants import (
-    BASE_COLUMNS,
+    BASE_COLUMN_MAPPING,
     CAMPAIGN_COST_CTE_NAME,
     DEFAULT_LIMIT,
     PAGINATION_EXTRA,
-    DEFAULT_MARKETING_ANALYTICS_COLUMNS,
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
@@ -56,14 +56,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             team=self.team,
             interval=None,
             now=datetime.now(),
-        )
-
-    def select_input_raw(self) -> list[str]:
-        """Get the raw select input, using defaults if none specified"""
-        return (
-            DEFAULT_MARKETING_ANALYTICS_COLUMNS
-            if self.query.select is None or len(self.query.select) == 0
-            else self.query.select
         )
 
     @cached_property
@@ -219,18 +211,37 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Build the CTE SELECT query
         return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
 
+    def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
+        all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
+        for processor in processors:
+            conversion_goal_expr, cost_per_goal_expr = processor.generate_select_columns()
+            all_columns.update(
+                {conversion_goal_expr.alias: conversion_goal_expr, cost_per_goal_expr.alias: cost_per_goal_expr}
+            )
+
+        return all_columns
+
     def _build_select_query(self, processors: list) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
         # Get conversion goal components (processors already created and passed in)
+        conversion_columns_mapping = self._build_select_columns_mapping(processors)
         if processors:
             conversion_joins = self._generate_conversion_goal_joins_from_processors(processors)
-            conversion_columns = self._generate_conversion_goal_selects_from_processors(processors)
         else:
             conversion_joins = []
-            conversion_columns = []
 
         # Combine base and conversion goal columns
-        all_columns = BASE_COLUMNS + conversion_columns
+        all_columns = []
+        try:
+            if self.query.select is None or len(self.query.select) == 0:
+                all_columns = list(conversion_columns_mapping.values())
+            else:
+                for column in self.query.select:
+                    if column in conversion_columns_mapping:
+                        all_columns.append(conversion_columns_mapping[column])
+        except ValueError:
+            logger.exception("Error building select query, error=str(e)")
+            all_columns = list(conversion_columns_mapping.values())
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME]))
@@ -271,11 +282,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         if hasattr(self.query, "orderBy") and self.query.orderBy and len(self.query.orderBy) > 0:
             for order_expr_str in self.query.orderBy:
-                order_index_float, order_by = order_expr_str
-                order_index = int(order_index_float)
-                column_name = ast.Constant(value=order_index)
+                column_name, order_by = order_expr_str
                 order_by_exprs.append(
-                    ast.OrderExpr(expr=column_name, order=cast(Literal["ASC", "DESC"], str(order_by)))
+                    ast.OrderExpr(
+                        expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
+                    )
                 )
         else:
             # Build default order by: campaign_costs.total_cost DESC
@@ -290,8 +301,16 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Create conversion goal processors for reuse across different methods"""
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
-            processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
-            processors.append(processor)
+            # Optimization and only create a processor if the conversion goal and cost per goal are in the select clause
+            if (
+                self.query.select
+                and conversion_goal.conversion_goal_name in self.query.select
+                and f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
+                in self.query.select
+            ):
+                logger.info(f"Creating conversion goal processor for {conversion_goal.conversion_goal_name}")
+                processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
+                processors.append(processor)
         return processors
 
     def _generate_conversion_goal_joins_from_processors(self, processors: list) -> list[ast.JoinExpr]:
@@ -314,7 +333,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         if not processors:
             return []
 
-        all_selects = []
+        all_selects: list[ast.Expr] = []
         for processor in processors:
             # Let the processor generate its own SELECT columns
             select_columns = processor.generate_select_columns()

@@ -1,4 +1,12 @@
-import { DataWarehouseNode, ExternalDataSourceType } from '~/queries/schema/schema-general'
+import {
+    ConversionGoalFilter,
+    DataWarehouseNode,
+    ExternalDataSourceType,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsOrderBy,
+    MarketingAnalyticsTableQuery,
+} from '~/queries/schema/schema-general'
 import { ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
@@ -61,4 +69,54 @@ export function generateUniqueName(baseName: string, existingNames: string[]): s
     }
 
     return newName
+}
+
+/**
+ * Inyect the dynamic conversion goal into the select list after the base columns
+ * and before the conversion goal columns.
+ * @param selectList - The select list to inyect the dynamic conversion goal into
+ * @param dynamicConversionGoal - The dynamic conversion goal to inyect
+ * @returns The select list with the dynamic conversion goal inyected
+ */
+export const inyectDynamicConversionGoal = (
+    selectList: string[],
+    dynamicConversionGoal: ConversionGoalFilter | null
+): string[] => {
+    const select = selectList.filter((column) => column !== dynamicConversionGoal?.conversion_goal_name)
+    let lastIndex = select.length
+    const newSelect = []
+    for (const column of select) {
+        // if in the base column add the cost per goal
+        if (
+            Object.values(MarketingAnalyticsBaseColumns)
+                .map((column) => column.toString())
+                .includes(column)
+        ) {
+            lastIndex++
+        }
+    }
+    newSelect.push(
+        ...select.slice(0, lastIndex),
+        `${dynamicConversionGoal?.conversion_goal_name}`,
+        `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal?.conversion_goal_name}`,
+        ...select.slice(lastIndex)
+    )
+    return newSelect
+}
+
+/**
+ * Get the order by for the query and ensure that the order by is in the columns
+ * @param query - The query to get the order by for
+ * @param columns - The columns to include in the order by
+ * @returns The order by for the query
+ */
+export function getOrderBy(
+    query: MarketingAnalyticsTableQuery | undefined,
+    columns: string[]
+): MarketingAnalyticsOrderBy[] {
+    const orderBy = (query?.orderBy || []).filter((column) => {
+        const columnName = column[0]
+        return columns.includes(columnName)
+    })
+    return orderBy
 }

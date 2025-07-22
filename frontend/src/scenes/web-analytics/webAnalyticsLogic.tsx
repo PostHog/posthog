@@ -21,13 +21,11 @@ import {
     updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
@@ -86,6 +84,8 @@ import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import posthog from 'posthog-js'
+import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
+import { getOrderBy, inyectDynamicConversionGoal } from './tabs/marketing-analytics/frontend/logic/utils'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -442,12 +442,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
             ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
+            marketingAnalyticsTableLogic,
+            ['query', 'defaultColumns'],
         ],
     })),
     actions({
@@ -2466,24 +2464,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         campaignCostsBreakdown: [
             (s) => [
                 s.loading,
+                s.query,
                 s.dateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
                 s.dynamicConversionGoal,
-                s.conversion_goals,
+                s.defaultColumns,
             ],
             (
                 loading: boolean,
+                query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
                 dynamicConversionGoal: ConversionGoalFilter | null,
-                conversionGoals: ConversionGoalFilter[]
+                defaultColumns: string[]
             ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
 
+                const typedQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                const select = inyectDynamicConversionGoal(typedQuery?.select || defaultColumns, dynamicConversionGoal)
+                const orderBy = getOrderBy(typedQuery, select)
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -2493,15 +2496,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             date_to: dateFilter.dateTo,
                         },
                         properties: webAnalyticsFilters || [],
-                        filterTestAccounts: filterTestAccounts,
-                        dynamicConversionGoal: dynamicConversionGoal,
+                        filterTestAccounts,
+                        dynamicConversionGoal,
                         limit: 200,
+                        orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        select: [
-                            dynamicConversionGoal ? dynamicConversionGoal.conversion_goal_name : null,
-                            ...conversionGoals.map((goal) => goal.conversion_goal_name),
-                        ].filter(isNotNil),
-                    } as MarketingAnalyticsTableQuery,
+                        select,
+                    },
                     full: true,
                     embedded: false,
                     showOpenEditorButton: false,
