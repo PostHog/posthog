@@ -16,7 +16,6 @@ import posthog from 'posthog-js'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { format as formatSQL } from 'sql-formatter'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
@@ -1140,28 +1139,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
 
-            try {
-                const model = props.editor.getModel()
-                if (!model) {
-                    return
-                }
-
-                const currentValue = model.getValue()
-
-                const formattedSQL = formatSQL(currentValue, {
-                    language: 'sql',
-                    tabWidth: 4,
-                    useTabs: false,
-                    keywordCase: 'upper',
+            props.editor
+                .getAction('editor.action.formatDocument')
+                ?.run()
+                ?.catch((error) => {
+                    posthog.captureException(error)
+                    console.error(error)
+                    lemonToast.error('Failed to format SQL query')
                 })
-
-                if (formattedSQL !== currentValue) {
-                    model.setValue(formattedSQL)
-                }
-            } catch (error) {
-                posthog.captureException(error)
-                lemonToast.error('Failed to format SQL query')
-            }
         },
     })),
     subscriptions(({ props, actions, values }) => ({
