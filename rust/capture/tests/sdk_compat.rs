@@ -1,8 +1,7 @@
-use assert_json_diff::assert_json_matches_no_panic;
-use async_trait::async_trait;
-use axum::http::StatusCode;
-use axum::Router;
-use axum_test_helper::TestClient;
+use std::fs::read;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
@@ -10,55 +9,29 @@ use capture::{
     router::router,
     sinks::Event,
     time::TimeSource,
-    v0_request::{Compression, DataType, ProcessedEvent, ProcessingContext},
+    v0_request::{DataType, ProcessedEvent},
 };
 
-//use chrono::Utc;
+use async_trait::async_trait;
+use axum::http::StatusCode;
+use axum::Router;
+use axum_test_helper::TestClient;
+//use chrono::{Utc, Offset};
 use common_redis::MockRedisClient;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
-use serde::Deserialize;
-use serde_json::{from_slice, from_str, json, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
 use time::OffsetDateTime;
+use serde_json::{from_str, Value, Number};
 
-use std::fs::{read, File};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 
-#[derive(Debug, Deserialize)]
-struct RequestDump {
-    title: String,
-    path: String,
-    method: String,
-    content_encoding: String,
-    content_type: String,
-    ip: String,
-    now: String,
-    body: String,
-    output: Vec<serde_json::Value>,
-    #[serde(default)] // default = false
-    historical_migration: bool,
-}
+// we reuse the "raw" payload fixtures a lot, encoding/compressing them differently in different tests
+const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
+//const SINGLE_REPLAY_JSON: &str = "single_replay_payload.json";
+//const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 
-#[derive(Debug, Deserialize)]
-struct TestMetadata {
-    title: String,
-    path: String,
-    method: String,
-    content_encoding: Option<String>,
-    content_type: Option<String>,
-    ip: Option<String>,
-    lib_version: Option<String>,
-    now: Option<OffsetDateTime>,
-    sent_at: Option<OffsetDateTime>,
-    compression: Compression,
-    historical_migration: bool,
-}
-
-#[derive(Clone)]
 pub struct FixedTime {
     pub time: String,
 }
@@ -75,10 +48,6 @@ struct MemorySink {
 }
 
 impl MemorySink {
-    fn len(&self) -> usize {
-        self.events.lock().unwrap().len()
-    }
-
     fn events(&self) -> Vec<ProcessedEvent> {
         self.events.lock().unwrap().clone()
     }
@@ -109,30 +78,29 @@ impl Event for MemorySink {
 // in this case, we load a generic JSON event payload for each test,
 // and let that test case additionally compress/encode the data
 // according to the behavior we're exercising.
-fn load_request_payload(target_path: &Path) -> Vec<u8> {
-    let err_msg = format!("loading test payload: {:?}", target_path);
-    read(target_path).expect(&err_msg)
+fn load_request_payload(title: &str, target: &str) -> Vec<u8> {
+    let path = Path::new("tests/fixtures").join(target);
+    let err_msg = format!("loading req event payload for case: {}", title);
+    read(path).expect(&err_msg)
 }
 
-fn load_metadata(target_path: &Path) -> TestMetadata {
-    let read_err_msg = format!("loading test meta payload: {:?}", target_path);
-    let buf = read(target_path).expect(&read_err_msg);
-    let parse_err_msg = format!("parsing test meta payload: {:?}", target_path);
-    from_slice::<TestMetadata>(&buf).expect(&parse_err_msg)
-}
-
-fn setup_capture_router(fixed_time: String) -> Router {
+fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
+    let quota_resource_mode = match mode {
+        CaptureMode::Events => QuotaResource::Events,
+        CaptureMode::Recordings => QuotaResource::Recordings,
+    };
     let liveness = HealthRegistry::new("dummy");
     let sink = MemorySink::default();
-    let timesource = FixedTime { time: fixed_time };
-
+    let timesource = FixedTime {
+        time: fixed_time.to_string(),
+    };
     let redis = Arc::new(MockRedisClient::new());
     let billing_limiter = RedisLimiter::new(
         Duration::from_secs(60 * 60 * 24 * 7),
         redis.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::Events,
+        quota_resource_mode,
         ServiceName::Capture,
     )
     .expect("failed to create test billing limiter");
@@ -143,23 +111,223 @@ fn setup_capture_router(fixed_time: String) -> Router {
     let historical_rerouting_threshold_days = 1_i64;
     let historical_tokens_keys = None;
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
-    let base64_detect_percent = 0.0_f32;
+    let verbose_sample_percent = 0.0_f32;
 
-    router(
-        timesource,
-        liveness.clone(),
-        sink.clone(),
-        redis,
-        billing_limiter,
-        TokenDropper::default(),
-        false,
-        CaptureMode::Events,
-        None,
-        25 * 1024 * 1024,
-        enable_historical_rerouting,
-        historical_rerouting_threshold_days,
-        historical_tokens_keys,
-        is_mirror_deploy,
-        base64_detect_percent,
+    (
+        router(
+            timesource,
+            liveness.clone(),
+            sink.clone(),
+            redis,
+            billing_limiter,
+            TokenDropper::default(),
+            false,
+            CaptureMode::Events,
+            None,
+            25 * 1024 * 1024,
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys,
+            is_mirror_deploy,
+            verbose_sample_percent,
+        ),
+        sink,
     )
+}
+
+fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
+    let err_msg = format!("failed to parse ISO8601 time into UNIX millis in case: {}", title);
+    OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
+        .expect(&err_msg)
+        .unix_timestamp() * 1000_i64
+}
+
+fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+    let expected_event_count = 1;
+    let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
+
+    assert_eq!(
+        expected_event_count,
+        got_events.len(),
+        "event count: expected {}, got {}",
+        expected_event_count,
+        got_events.len(),
+    );
+
+    // should only be one event in this batch
+    let got = got_events[0].to_owned();
+
+    // introspect on extracted event parsing metadata
+    let meta = &got.metadata;
+    assert_eq!(
+        DataType::AnalyticsMain,
+        meta.data_type,
+        "mismatched Kafka topic assignment in case: {}",
+        title,
+    );
+    assert_eq!(
+        // in CaptureMode::Recording, this is: Some("019833a9-eaf4-753e-adaf-6c21075e4fd4".to_string()),
+        None,
+        meta.session_id,
+        "wrong session_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event attributes
+    let event = &got.event;
+    assert_eq!(
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        &event.token,
+        "mismatched token in case: {}",
+        title,
+    );
+    assert_eq!(
+        "019833ae-4913-7179-b6bc-019570abb1c9",
+        &event.distinct_id,
+        "mismatched distinct_id in case: {}",
+        title,
+    );
+    assert_eq!(
+        DEFAULT_TEST_TIME,
+        &event.now,
+        "mismatched 'now' timestamp in case: {}",
+        title,
+    );
+    assert_eq!(
+        36_usize,
+        event.uuid.to_string().len(),
+        "invalid UUID in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        Some(expected_timestamp),
+        event.sent_at,
+        "mismatched sent_at in case: {}",
+        title,
+    );
+    assert_eq!(
+        false,
+        event.is_cookieless_mode,
+        "mismatched cookieless flag in case: {}",
+        title,
+    );
+
+    // introspect on event data to be processed by plugin-server
+    let event_data_err_msg = format!("failed to hydrate test event.data in case: {}", title);
+    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+
+    assert_eq!(
+        "$autocapture",
+        event["event"].as_str().unwrap(),
+        "mismatched event.event in case: {}",
+        title,
+    );
+    assert_eq!(
+        "2025-07-01T00:00:00Z",
+        event["timestamp"].as_str().unwrap(),
+        "mismatched event.timestamp in case: {}",
+        title,
+    );
+    assert_eq!(
+        "019833ae-4913-7179-b6bc-019570abb1c9",
+        event["distinct_id"],
+        "mismatched event.distinct_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties map
+    let err_msg = format!("failed to extract event.properties in case: {}", title);
+    let props = event["properties"].as_object().expect(&err_msg);
+
+    assert_eq!(
+        68_usize,
+        props.len(),
+        "mismatched event.properties length in case: {}",
+        title,
+    );
+    assert_eq!(
+        "web",
+        props["$lib"],
+        "mismatched event.properties.$lib in case: {}",
+        title,
+    );
+    assert_eq!(
+        "1.2.3",
+        props["$lib_version"],
+        "mismatched event.properties.$lib_version in case: {}",
+        title,
+    );
+    assert_eq!(
+        "https://posthog.example.com/testing",
+        props["$current_url"],
+        "mismatched event.properties.$current_url in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(&Number::from(138)),
+        props["$browser_version"].as_number(),
+        "mismatched event.properties.$browser_version in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(&Number::from(1157858)),
+        props["$sdk_debug_current_session_duration"].as_number(),
+        "mismatched event.properties.$sdk_debug_current_session_duration in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(false),
+        props["$is_identified"].as_bool(),
+        "mismatched event.properties.$is_identified in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(true),
+        props["$console_log_recording_enabled_server_side"].as_bool(),
+        "mismatched event.properties.$console_log_recording_enabled_server_side in case: {}",
+        title,
+    );
+}
+
+#[tokio::test]
+async fn simple_single_event_payload() {
+    let title = "simple-single-event-payload";
+    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
+
+    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/e/?_={}", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(raw_payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "test {}: non-2xx response: {}",
+        title,
+        res.text().await
+    );
+
+    let cap_resp_details = res.json().await;
+    assert_eq!(
+        Some(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        }),
+        cap_resp_details,
+        "test {}: non-OK CaptureResponse: {:?}",
+        title,
+        cap_resp_details,
+    );
+
+    // extract the processed events from the in-mem sink and validate contents
+    let got = sink.events();
+    validate_single_event_payload(title, got);
 }
