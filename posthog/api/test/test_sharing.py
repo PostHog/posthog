@@ -14,6 +14,7 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
+from django.utils import timezone
 
 
 @parameterized.expand(
@@ -515,34 +516,28 @@ class TestSharing(APIBaseTest):
         with self.assertRaises(IntegrityError):
             config2.save()
 
-    def test_token_rotation_handles_race_conditions(self):
-        """Test that token rotation retries on collisions"""
+    def test_token_rotation_creates_new_config(self):
+        """Test that token rotation creates a new configuration and expires the old one"""
         from posthog.models.sharing_configuration import SharingConfiguration
-        from unittest.mock import patch
 
         # Enable sharing
         self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             {"enabled": True},
         )
-        config = SharingConfiguration.objects.get(dashboard=self.dashboard)
+        original_config = SharingConfiguration.objects.get(dashboard=self.dashboard, expires_at__isnull=True)
 
-        # Mock get_default_access_token to return predictable tokens
-        token_sequence = ["collision_token", "collision_token", "unique_token"]
-        token_iter = iter(token_sequence)
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        new_token = response.json()["access_token"]
 
-        def mock_token_gen():
-            return next(token_iter)
+        # Should have created a new config
+        new_config = SharingConfiguration.objects.get(dashboard=self.dashboard, expires_at__isnull=True)
+        assert new_config.access_token == new_token
+        assert new_config.pk != original_config.pk
 
-        with patch("posthog.models.sharing_configuration.get_default_access_token", side_effect=mock_token_gen):
-            # Create another config with the collision token to simulate race condition
-            SharingConfiguration.objects.create(
-                team=self.team, insight=self.insight, enabled=True, access_token="collision_token"
-            )
-
-            # Now rotate the original config's token - should retry and get "unique_token"
-            new_token = config.rotate_access_token()
-
-            # Should have skipped the collision tokens and gotten the unique one
-            assert new_token == "unique_token"
-            assert config.access_token == "unique_token"
+        # Old config should be expired
+        original_config.refresh_from_db()
+        assert original_config.expires_at is not None
+        assert original_config.expires_at > timezone.now()  # Should be in the future

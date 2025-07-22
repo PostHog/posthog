@@ -220,27 +220,26 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         if not instance.enabled:
             raise ValidationError("Cannot refresh access token for disabled sharing configuration.")
 
-        # Use the new rotation method that implements grace period
-        instance.rotate_access_token()
-        instance.save()
+        # Create new sharing configuration and expire the old one
+        new_instance = instance.rotate_access_token()
 
         if context.get("insight"):
-            name = instance.insight.name or instance.insight.derived_name
+            name = new_instance.insight.name or new_instance.insight.derived_name
             log_activity(
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
                 was_impersonated=is_impersonated_session(self.request),
-                item_id=instance.insight.pk,
+                item_id=new_instance.insight.pk,
                 scope="Insight",
                 activity="access token refreshed",
                 detail=Detail(
                     name=str(name) if name else None,
-                    short_id=str(instance.insight.short_id),
+                    short_id=str(new_instance.insight.short_id),
                 ),
             )
 
-        serializer = self.get_serializer(instance)
+        serializer = self.get_serializer(new_instance)
         return response.Response(serializer.data)
 
 
@@ -272,24 +271,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
-            sharing_configuration = None
-            try:
-                # First try to find by current token
-                sharing_configuration = SharingConfiguration.objects.select_related(
-                    "dashboard", "insight", "recording"
-                ).get(access_token=access_token)
-            except SharingConfiguration.DoesNotExist:
-                # If not found, try to find by previous token (grace period)
-                try:
-                    sharing_configuration = SharingConfiguration.objects.select_related(
-                        "dashboard", "insight", "recording"
-                    ).get(previous_access_token=access_token)
-
-                    # Verify the token is still within grace period
-                    if not sharing_configuration.is_token_valid(access_token):
-                        sharing_configuration = None
-                except SharingConfiguration.DoesNotExist:
-                    pass
+            # Try to find active configuration first, then fall back to recently expired
+            sharing_configuration = SharingConfiguration.get_active_config_by_token(access_token)
+            if not sharing_configuration:
+                sharing_configuration = SharingConfiguration.get_config_by_token_including_expired(access_token)
 
             if sharing_configuration and sharing_configuration.enabled:
                 return sharing_configuration

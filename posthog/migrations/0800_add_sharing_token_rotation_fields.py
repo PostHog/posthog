@@ -1,4 +1,4 @@
-# Generated manually for sharing token rotation fields
+# Generated manually for sharing token rotation with expiry
 
 from django.db import migrations, models
 
@@ -9,25 +9,13 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Add the previous_access_token field
+        # Add the expires_at field for token rotation
         migrations.AddField(
             model_name="sharingconfiguration",
-            name="previous_access_token",
-            field=models.CharField(
-                blank=True,
-                db_index=True,
-                help_text="Previous access token, valid during grace period",
-                max_length=400,
-                null=True,
-            ),
-        ),
-        # Add the token_rotated_at field
-        migrations.AddField(
-            model_name="sharingconfiguration",
-            name="token_rotated_at",
+            name="expires_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="When the current token was rotated",
+                help_text="When this sharing configuration expires (null = active)",
                 null=True,
             ),
         ),
@@ -41,5 +29,10 @@ class Migration(migrations.Migration):
                 null=True,
                 unique=True,
             ),
+        ),
+        # Add index for fast token+expiry lookups
+        migrations.AddIndex(
+            model_name="sharingconfiguration",
+            index=models.Index(fields=["access_token", "expires_at"], name="sharing_token_expiry_idx"),
         ),
     ]
