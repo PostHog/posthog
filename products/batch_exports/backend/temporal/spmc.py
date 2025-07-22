@@ -13,8 +13,6 @@ from django.conf import settings
 
 from posthog.batch_exports.service import (
     BackfillDetails,
-    BatchExportModel,
-    BatchExportSchema,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -28,7 +26,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_external_logger, get_logger
-from products.batch_exports.backend.temporal import sql
 from products.batch_exports.backend.temporal.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
@@ -37,6 +34,7 @@ from products.batch_exports.backend.temporal.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
@@ -491,154 +489,6 @@ async def run_consumer(
     consumer.complete_heartbeat()
 
     return records_completed
-
-
-Query = str
-QueryParameters = dict[str, typing.Any]
-BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
-
-
-class RecordBatchModel(abc.ABC):
-    """Base class for models that can be produced as record batches."""
-
-    def __init__(self, team_id: int):
-        self.team_id = team_id
-
-    async def get_hogql_context(self, team_id: int) -> HogQLContext:
-        """Return a HogQLContext to generate a ClickHouse query."""
-        team = await Team.objects.aget(id=team_id)
-        context = HogQLContext(
-            team=team,
-            team_id=team.id,
-            enable_select_queries=True,
-            limit_top_select=False,
-        )
-        context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
-
-        return context
-
-    @abc.abstractmethod
-    async def as_query_with_parameters(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
-    ) -> tuple[Query, QueryParameters]:
-        """Produce a printed query and any necessary ClickHouse query parameters."""
-        raise NotImplementedError
-
-
-class SessionsRecordBatchModel(RecordBatchModel):
-    """A model to produce record batches from the sessions table.
-
-    Attributes:
-       team_id: The ID of the team we are producing records for.
-    """
-
-    def __init__(self, team_id: int):
-        super().__init__(team_id)
-
-    def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
-    ) -> ast.SelectQuery:
-        """Return the HogQLQuery used for the sessions model."""
-        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
-
-        where_and = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["sessions", "team_id"]),
-                    right=ast.Constant(value=self.team_id),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["_inserted_at"]),
-                    right=ast.Constant(value=data_interval_end),
-                ),
-                # include $end_timestamp because hogql uses this to add a where clause to the inner query
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["$end_timestamp"]),
-                    right=ast.Constant(value=data_interval_end),
-                ),
-            ]
-        )
-        if data_interval_start is not None:
-            where_and.exprs.extend(
-                [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["_inserted_at"]),
-                        right=ast.Constant(value=data_interval_start),
-                    ),
-                    # include $end_timestamp because hogql uses this to add a where clause to the inner query
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["$end_timestamp"]),
-                        right=ast.Constant(value=data_interval_start),
-                    ),
-                ]
-            )
-
-        hogql_query.where = where_and
-
-        return hogql_query
-
-    async def as_query_with_parameters(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
-    ) -> tuple[Query, QueryParameters]:
-        """Produce a printed query and any necessary ClickHouse query parameters."""
-        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
-        context = await self.get_hogql_context(self.team_id)
-
-        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-            hogql_query, context=context, dialect="clickhouse", stack=[]
-        )
-        assert prepared_hogql_query is not None
-        context.output_format = "ArrowStream"
-        printed = print_prepared_ast(
-            prepared_hogql_query,
-            context=context,
-            dialect="clickhouse",
-            stack=[],
-        )
-        return printed, context.values
-
-
-def resolve_batch_exports_model(
-    team_id: int,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
-):
-    """Resolve which model and model parameters to use for a batch export.
-
-    This function exists to isolate a lot of repetitive checks that deal with deprecated
-    and new parameters. Eventually, once everything is a `RecordBatchModel`, this could
-    be removed.
-    """
-    model: BatchExportModel | BatchExportSchema | None = None
-    record_batch_model = None
-    if batch_export_schema is None:
-        model = batch_export_model
-        if model is not None:
-            model_name = model.name
-            extra_query_parameters = model.schema["values"] if model.schema is not None else None
-            fields = model.schema["fields"] if model.schema is not None else None
-            filters = model.filters
-
-            if model_name == "sessions":
-                record_batch_model = SessionsRecordBatchModel(team_id)
-        else:
-            model_name = "events"
-            extra_query_parameters = None
-            fields = None
-            filters = None
-    else:
-        model = batch_export_schema
-        model_name = "custom"
-        extra_query_parameters = model["values"] if model is not None else {}
-        fields = model["fields"] if model is not None else None
-        filters = None
-
-    return model, record_batch_model, model_name, fields, filters, extra_query_parameters
 
 
 class BatchExportField(typing.TypedDict):

@@ -80,9 +80,9 @@ runs:
           id: emit
           shell: bash
           run: |
-              TAGS="posthog/posthog:${{ github.sha }},${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
-              if [[ "${{ inputs.push-image }}" == "true" ]]; then
-                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-commit-${{ github.sha }}"
+              TAGS="posthog/posthog:${{ github.sha }}"
+              if [[ -n "${{ steps.aws-ecr.outputs.registry }}" ]]; then
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
               fi
               if [[ "${{ inputs.pr-number }}" != "" ]]; then
                 TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-${{ inputs.pr-number }}"

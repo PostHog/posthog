@@ -32,6 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
@@ -310,6 +311,8 @@ export function Surveys(): JSX.Element {
                                                                                             start_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_LAUNCHED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -347,6 +350,8 @@ export function Surveys(): JSX.Element {
                                                                                             end_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_COMPLETED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -383,6 +388,8 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             end_date: null,
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_RESUMED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -402,12 +409,14 @@ export function Surveys(): JSX.Element {
                                                             {survey.end_date && survey.archived && (
                                                                 <LemonButton
                                                                     fullWidth
-                                                                    onClick={() =>
+                                                                    onClick={() => {
                                                                         updateSurvey({
                                                                             id: survey.id,
                                                                             updatePayload: { archived: false },
+                                                                            intentContext:
+                                                                                ProductIntentContext.SURVEY_UNARCHIVED,
                                                                         })
-                                                                    }
+                                                                    }}
                                                                 >
                                                                     Unarchive
                                                                 </LemonButton>
@@ -434,6 +443,8 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             archived: true,
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_ARCHIVED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',

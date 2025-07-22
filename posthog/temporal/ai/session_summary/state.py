@@ -12,10 +12,10 @@ T = TypeVar("T")
 
 
 class StateActivitiesEnum(Enum):
-    SESSION_DB_DATA = "session_db_data"
-    SESSION_SUMMARY = "session_summary"
-    SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"
-    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"
+    SESSION_DB_DATA = "session_db_data"  # Events from DB
+    SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
+    SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patterns from all the summaries
+    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
 
 
 def get_redis_state_client(
@@ -80,7 +80,7 @@ def _compress_redis_data(input_data: str) -> bytes:
     return gzip.compress(input_data.encode("utf-8"))
 
 
-def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
+def decompress_redis_data(raw_redis_data: bytes | str) -> str:
     """Decode data retrieved from Redis. If data is `bytes` it is assumed to be
     gzip-compressed and will be decompressed. `str` values are returned unchanged."""
     if isinstance(raw_redis_data, bytes):
@@ -91,11 +91,15 @@ def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
 
 
 async def store_data_in_redis(
-    redis_client: aioredis.Redis, redis_key: str | None, data: str, ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+    redis_client: aioredis.Redis,
+    redis_key: str | None,
+    data: str,
+    label: StateActivitiesEnum,
+    ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
 ) -> None:
     """Compress and store data in Redis with an expiry time."""
     if not redis_key:
-        raise ValueError(f"Redis key is required to store data in Redis ({data})")
+        raise ValueError(f"Redis key is required for {label.value} to store data in Redis ({data})")
     compressed_data = _compress_redis_data(data)
     await redis_client.setex(redis_key, ttl, compressed_data)
     return None
@@ -143,7 +147,7 @@ async def get_data_str_from_redis(
     if not raw_redis_data:
         raise ValueError(f"Output data not found in Redis for key {redis_key} ({label.value})")
     try:
-        redis_data_str = _decompress_redis_data(raw_redis_data)
+        redis_data_str = decompress_redis_data(raw_redis_data)
         return redis_data_str
     except Exception as err:
         raise ValueError(

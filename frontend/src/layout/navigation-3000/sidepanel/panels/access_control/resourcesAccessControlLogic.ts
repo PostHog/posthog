@@ -9,6 +9,7 @@ import {
     AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
+    AccessControlLevel,
     AccessControlTypeRole,
     AccessControlUpdateType,
     APIScopeObject,
@@ -72,7 +73,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
     selectors({
         availableLevels: [
             (s) => [s.resourceAccessControls],
-            (resourceAccessControls): string[] => {
+            (resourceAccessControls): AccessControlLevel[] => {
                 return resourceAccessControls?.available_access_levels ?? []
             },
         ],

@@ -26,7 +26,7 @@ from .api.rbac import organization_resource_access, role
 
 
 def extend_api_router() -> None:
-    from ee.api import max_tools
+    from ee.api import max_tools, session_summaries
     from posthog.api import (
         environment_dashboards_router,
         environments_router,
@@ -100,6 +100,10 @@ def extend_api_router() -> None:
     )
 
     environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
+
+    environments_router.register(
+        r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
+    )
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe

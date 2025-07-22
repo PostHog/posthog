@@ -600,6 +600,7 @@ export function filterToMetricConfig(
                 math: data_warehouse[0].math || ExperimentMetricMathType.TotalCount,
                 math_property: data_warehouse[0].math_property,
                 math_hogql: data_warehouse[0].math_hogql,
+                properties: data_warehouse[0].properties,
             },
         }
     }
@@ -635,6 +636,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
                 ExperimentMetricMathType.Min,
                 ExperimentMetricMathType.Max,
                 ExperimentMetricMathType.UniqueSessions,
+                ExperimentMetricMathType.HogQL,
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
