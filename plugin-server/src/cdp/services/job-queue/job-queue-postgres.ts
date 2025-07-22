@@ -14,15 +14,12 @@ import {
 import { chunk } from 'lodash'
 import { DateTime } from 'luxon'
 
+import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
+
 import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import {
-    CyclotronInvocationQueueParameters,
-    CyclotronJobInvocation,
-    CyclotronJobInvocationResult,
-    CyclotronJobQueueKind,
-} from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 
 export class CyclotronJobQueuePostgres {
     private cyclotronWorker?: CyclotronWorker
@@ -200,9 +197,14 @@ function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): Cy
 
     // TODO: Ditch this queue params stuff
     if (queueParameters) {
-        const { body, ...rest } = queueParameters
-        parameters = rest
-        blob = body ? Buffer.from(body) : null
+        if (queueParameters.type === 'fetch') {
+            const { body, ...rest } = queueParameters
+            parameters = rest
+            blob = body ? Buffer.from(body) : null
+        } else if (queueParameters.type === 'email') {
+            parameters = queueParameters
+            blob = null
+        }
     }
 
     const job: CyclotronJobInit = {
@@ -226,9 +228,9 @@ function invocationToCyclotronJobUpdate(invocation: CyclotronJobInvocation): Cyc
 }
 
 function cyclotronJobToInvocation(job: CyclotronJob): CyclotronJobInvocation {
-    const params = job.parameters as CyclotronInvocationQueueParameters | undefined
+    const params = job.parameters as CyclotronInvocationQueueParametersType | undefined
 
-    if (job.blob && params) {
+    if (job.blob && params && params.type === 'fetch') {
         // Deserialize the blob into the params
         try {
             params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined

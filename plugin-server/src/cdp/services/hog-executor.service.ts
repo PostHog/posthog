@@ -2,6 +2,11 @@ import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersFetchSchema,
+    CyclotronInvocationQueueParametersFetchType,
+} from '~/schema/cyclotron'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
@@ -16,8 +21,6 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionQueueParametersEmailRequest,
-    HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
     LogEntry,
     MinimalAppMetric,
@@ -443,10 +446,6 @@ export class HogExecutorService {
                             // Sanitize the args
                             const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
 
-                            if (typeof url !== 'string') {
-                                throw new Error('fetch: Invalid URL')
-                            }
-
                             const method = fetchOptions?.method || 'POST'
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
@@ -458,37 +457,22 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            const fetchQueueParameters: HogFunctionQueueParametersFetchRequest = {
+                            const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers,
-                            }
+                            })
 
                             result.invocation.queueParameters = fetchQueueParameters
                             break
                         }
 
                         case 'sendEmail': {
-                            // TODO: Use Zod to validate the args
-                            const emailQueueParameters: HogFunctionQueueParametersEmailRequest = {
-                                integrationId: 1,
-                                html: 'Test',
-                                type: 'email',
-                                from: {
-                                    email: 'test@test.com',
-                                    name: 'Test',
-                                },
-                                to: {
-                                    email: 'test@test.com',
-                                    name: 'Test',
-                                },
-                                subject: 'Test',
-                                text: 'Test',
-                            }
-
-                            result.invocation.queueParameters = emailQueueParameters
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
+                                args[0]
+                            )
                             break
                         }
                         default:
@@ -670,18 +654,5 @@ export class HogExecutorService {
 
         // We don't want to add "REDACTED" for empty strings
         return values.filter((v) => v.trim())
-    }
-
-    public enrichFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        // TRICKY: Some 3rd parties require developer tokens to be passed in the headers
-        // We don't want to expose these to the user so we add them here out of the custom code loop
-
-        request.headers = request.headers ?? {}
-
-        if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
-            request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
-        }
-
-        return request
     }
 }
