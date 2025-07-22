@@ -5,6 +5,14 @@ import typing
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter
+from temporalio.worker import (
+    ActivityInboundInterceptor,
+    ExecuteActivityInput,
+    ExecuteWorkflowInput,
+    Interceptor,
+    WorkflowInboundInterceptor,
+    WorkflowInterceptorClassInput,
+)
 
 from posthog.temporal.common.logger import get_logger
 
@@ -31,6 +39,88 @@ def get_export_finished_metric(status: str) -> MetricCounter:
             "batch_export_finished", "Number of batch exports finished, for any reason (including failure)."
         )
     )
+
+
+MAIN_ACTIVITY_EXECUTION_LATENCY_HISTOGRAM_NAME = "batch_exports_main_activity_execution_latency"
+STAGE_ACTIVITY_EXECUTION_LATENCY_HISTOGRAM_NAME = "batch_exports_stage_activity_execution_latency"
+BATCH_EXPORT_ACTIVITY_TYPES = {
+    "insert_into_s3_activity_from_stage",
+    "insert_into_snowflake_activity",
+    "insert_into_bigquery_activity",
+    "insert_into_redshift_activity",
+    "insert_into_postgres_activity",
+    "insert_into_internal_stage_activity",
+}
+BATCH_EXPORT_WORKFLOW_TYPES = {
+    "s3-export",
+    "bigquery-export",
+    "snowflake-export",
+    "redshift-export",
+    "postgres-export",
+}
+
+
+def get_interval_from_datetime(data_interval_start: dt.datetime | None, data_interval_end: dt.datetime):
+    if data_interval_start is None:
+        interval = "beginning_of_time"
+    else:
+        match (data_interval_end - data_interval_start).total_seconds():
+            case 3600.0:
+                interval = "hour"
+            case 86400.0:
+                interval = "day"
+            case 604800.0:
+                interval = "week"
+            case s:
+                interval = f"every_{int(s) / 60}_minutes"
+
+    return interval
+
+
+class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
+    async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
+        activity_info = activity.info()
+        activity_type = activity_info.activity_type
+
+        if activity_type not in BATCH_EXPORT_ACTIVITY_TYPES:
+            return await super().execute_activity(input)
+
+        histogram_attributes = {
+            "interval": get_interval_from_datetime(input.args[0].data_interval_start, input.args[0].data_interval_end),
+        }
+
+        with ExecutionTimeRecorder(
+            "batch_exports_activity_interval_execution_latency", histogram_attributes=histogram_attributes, log=False
+        ):
+            return await super().execute_activity(input)
+
+
+class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
+    async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
+        workflow_info = workflow.info()
+        workflow_type = workflow_info.workflow_type
+
+        if workflow_type not in BATCH_EXPORT_WORKFLOW_TYPES:
+            return await super().execute_workflow(input)
+
+        histogram_attributes = {"interval": input.args[0].interval}
+
+        with ExecutionTimeRecorder(
+            "batch_exports_workflow_interval_execution_latency", histogram_attributes=histogram_attributes, log=False
+        ):
+            return await super().execute_workflow(input)
+
+
+class BatchExportsMetricsInterceptor(Interceptor):
+    """Interceptor to emit Prometheus metrics for batch exports."""
+
+    def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
+        return _BatchExportsMetricsActivityInboundInterceptor(super().intercept_activity(next))
+
+    def workflow_interceptor_class(
+        self, input: WorkflowInterceptorClassInput
+    ) -> type[WorkflowInboundInterceptor] | None:
+        return _BatchExportsMetricsWorkflowInterceptor
 
 
 Attributes = dict[str, str | int | float | bool]
