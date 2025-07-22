@@ -64,6 +64,7 @@ async def create_worker(
                 histogram_bucket_overrides={
                     "batch_exports_activity_execution_latency": [
                         1_000.0,
+                        30_000.0,  # 30 seconds
                         60_000.0,  # 1 minute
                         300_000.0,  # 5 minutes
                         900_000.0,  # 15 minutes
