@@ -99,7 +99,14 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
         const textBeforeCursor = text.slice(0, cursorIndex)
         const textAfterCursor = text.slice(cursorIndex)
 
-        div.innerHTML = textBeforeCursor + '<span id="cursor-position"></span>' + textAfterCursor
+        div.textContent = textBeforeCursor
+        const cursorSpan = document.createElement('span')
+        cursorSpan.id = 'cursor-position'
+        div.appendChild(cursorSpan)
+
+        if (textAfterCursor) {
+            div.appendChild(document.createTextNode(textAfterCursor))
+        }
 
         // Position the div at the same location as the textarea
         const textareaRect = textarea.getBoundingClientRect()
@@ -108,12 +115,11 @@ export function useMentions({ textAreaRef, value, onChange }: UseMentionsProps):
 
         document.body.appendChild(div)
 
-        const cursorSpan = div.querySelector('#cursor-position')
-        const cursorRect = cursorSpan?.getBoundingClientRect()
+        const cursorRect = cursorSpan.getBoundingClientRect()
 
         const position = {
-            top: (cursorRect?.top || 0) + window.scrollY,
-            left: (cursorRect?.left || 0) + window.scrollX,
+            top: cursorRect.top + window.scrollY,
+            left: cursorRect.left + window.scrollX,
         }
 
         document.body.removeChild(div)
