@@ -108,6 +108,7 @@ export function SlashCommandAutocomplete({
             placement="top-start"
             fallbackPlacements={['bottom-start']}
             middleware={[
+                // Offset against the textarea's padding, to align the popover with the "/" character
                 offset({
                     mainAxis: -8,
                     crossAxis: 8,
