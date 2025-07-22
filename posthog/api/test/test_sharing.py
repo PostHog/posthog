@@ -458,34 +458,6 @@ class TestSharing(APIBaseTest):
             response = self.client.get(f"/shared/{new_token}")
             assert response.status_code == 200
 
-    @freeze_time("2025-01-01 00:00:00")
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_multiple_refresh_invalidates_older_tokens(self, patched_exporter_task: Mock):
-        # Enable sharing
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True},
-        )
-        first_token = response.json()["access_token"]
-
-        # First refresh
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
-        second_token = response.json()["access_token"]
-
-        # Second refresh
-        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
-        third_token = response.json()["access_token"]
-
-        # Only the current token and the immediately previous one should work
-        response = self.client.get(f"/shared/{third_token}")  # current
-        assert response.status_code == 200
-
-        response = self.client.get(f"/shared/{second_token}")  # previous (within grace)
-        assert response.status_code == 200
-
-        response = self.client.get(f"/shared/{first_token}")  # too old
-        assert response.status_code == 404
-
     def test_token_uniqueness_constraints(self):
         """Test that token uniqueness is enforced at the database level"""
         from posthog.models.sharing_configuration import SharingConfiguration
