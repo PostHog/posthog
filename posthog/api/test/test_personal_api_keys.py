@@ -414,6 +414,29 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
 
+    def test_allows_legacy_feature_flag_local_evaluation_with_personal_api_key(self):
+        response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert "flags" in response_data
+        assert "group_type_mapping" in response_data
+        assert "cohorts" in response_data
+
+    def test_legacy_feature_flag_evaluation_with_no_current_team(self):
+        original_team = self.user.current_team
+
+        try:
+            self.user.current_team = None
+            self.user.save()
+
+            # Use team token to provide team context when user.current_team is None
+            response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            assert response.status_code == status.HTTP_200_OK
+        finally:
+            self.user.current_team = original_team
+            self.user.save()
+
     def test_allows_action_with_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
         assert response.status_code == status.HTTP_200_OK
