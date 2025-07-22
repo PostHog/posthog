@@ -22,7 +22,6 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { Query } from '~/queries/Query/Query'
 import {
     ActivityScope,
-    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -34,15 +33,12 @@ import {
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveysDisabledBanner } from './SurveySettings'
-import { ProductIntentContext } from 'lib/utils/product-intents'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
-    const { addProductIntent } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -262,14 +258,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         markdown
                                         value={survey.description || ''}
                                         placeholder="Description (optional)"
-                                        onSave={(value) => {
-                                            updateSurvey({ id: id, description: value })
-                                            addProductIntent({
-                                                product_type: ProductKey.SURVEYS,
-                                                intent_context: ProductIntentContext.SURVEY_EDITED,
-                                                metadata: { survey_id: id },
-                                            })
-                                        }}
+                                        onSave={(value) => updateSurvey({ id: id, description: value })}
                                         saveOnBlur={true}
                                         compactButtons
                                     />

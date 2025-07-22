@@ -51,6 +51,7 @@ import {
     SurveyStats,
 } from '~/types'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import {
     defaultSurveyAppearance,
@@ -74,7 +75,6 @@ import {
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
 } from './utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
@@ -624,8 +624,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 return response
             },
-            updateSurvey: async (surveyPayload: Partial<Survey>) => {
+            updateSurvey: async (surveyPayload: Partial<Survey> & { intentContext?: ProductIntentContext }) => {
                 const response = await api.surveys.update(props.id, surveyPayload)
+                if (surveyPayload.intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: surveyPayload.intentContext,
+                        metadata: {
+                            survey_id: values.survey.id,
+                        },
+                    })
+                }
                 refreshTreeItem('survey', props.id)
                 return response
             },

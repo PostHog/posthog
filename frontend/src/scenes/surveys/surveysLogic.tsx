@@ -14,8 +14,8 @@ import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepa
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import type { surveysLogicType } from './surveysLogicType'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import type { surveysLogicType } from './surveysLogicType'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -111,7 +111,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         data: {
             __default: {
                 surveys: [] as Survey[],
@@ -170,8 +170,23 @@ export const surveysLogic = kea<surveysLogicType>([
                     searchSurveys: deleteSurvey(values.data.searchSurveys, id),
                 }
             },
-            updateSurvey: async ({ id, updatePayload }: { id: string; updatePayload: any }) => {
+            updateSurvey: async ({
+                id,
+                updatePayload,
+                intentContext,
+            }: {
+                id: string
+                updatePayload: any
+                intentContext?: ProductIntentContext
+            }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
+                if (intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: intentContext,
+                        metadata: { survey_id: id },
+                    })
+                }
                 return {
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
