@@ -41,7 +41,8 @@ class TestTrendsGeneratorNode(BaseTest):
                             query="question", answer=self.schema, plan="Plan", id=new_state.messages[0].id
                         )
                     ],
-                    intermediate_steps=[],
-                    plan="",
+                    intermediate_steps=None,
+                    plan=None,
+                    rag_context=None,
                 ),
             )

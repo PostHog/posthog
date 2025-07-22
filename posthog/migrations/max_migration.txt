@@ -1,1 +1,1 @@
-0798_alter_integration_kind
+0800_add_sharing_token_rotation_fields

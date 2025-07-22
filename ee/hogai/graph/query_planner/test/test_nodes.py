@@ -1,6 +1,8 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 from langchain_core.agents import AgentAction
-from langchain_core.prompts import HumanMessagePromptTemplate, AIMessagePromptTemplate
+from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
 
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
@@ -10,13 +12,12 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    MaxEventContext,
     FailureMessage,
     HumanMessage,
+    MaxEventContext,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -379,7 +380,9 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             node.router(
                 AssistantState(
-                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
+                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")],
+                    root_tool_call_id=None,
+                    plan=None,
                 ),
             ),
             "end",
@@ -410,7 +413,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should reset state and return message about reaching limit
-        self.assertEqual(len(state_update.intermediate_steps or []), 0)
+        self.assertIsNone(state_update.intermediate_steps)
         self.assertEqual(len(state_update.messages or []), 1)
         messages = state_update.messages or []
         if messages and hasattr(messages[0], "content") and messages[0].content:
@@ -452,7 +455,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should accept the final answer even at max iterations
-        self.assertEqual(len(state_update.intermediate_steps or []), 0)
+        self.assertIsNone(state_update.intermediate_steps)
         self.assertEqual(state_update.plan, "This is the final plan")
 
     def test_node_allows_help_request_at_max_iterations(self):
@@ -493,7 +496,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should accept the help request even at max iterations
-        self.assertEqual(len(state_update.intermediate_steps or []), 0)
+        self.assertIsNone(state_update.intermediate_steps)
         self.assertEqual(len(state_update.messages or []), 1)
         messages = state_update.messages or []
         if messages and hasattr(messages[0], "content") and messages[0].content:
@@ -517,7 +520,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
 
         # Should return max iterations message instead of validation error
-        self.assertEqual(len(state_update.intermediate_steps or []), 0)
+        self.assertIsNone(state_update.intermediate_steps)
         self.assertEqual(len(state_update.messages or []), 1)
         messages = state_update.messages or []
         if messages and hasattr(messages[0], "content") and messages[0].content:
