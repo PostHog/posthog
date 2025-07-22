@@ -106,7 +106,7 @@ class TestFetchSessionDataActivity:
             # Mock DB calls
             patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
             patch(
-                "ee.hogai.session_summaries.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch(
@@ -146,7 +146,7 @@ class TestFetchSessionDataActivity:
             # Mock DB calls - return columns but no events (empty list)
             patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
             patch(
-                "ee.hogai.session_summaries.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch(
@@ -245,7 +245,7 @@ class TestSummarizeSingleSessionWorkflow:
                     # Mock DB calls
                     patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
                     patch(
-                        "ee.hogai.session_summaries.summarize_session.get_session_metadata",
+                        "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,
                     ),
                     patch(

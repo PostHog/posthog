@@ -353,7 +353,7 @@ def _track_session_summary_generation(
         f.write(raw_session_summary)
     with open(current_experiment_dir / f"enriched_response_{datetime_marker}.yml", "w") as f:
         f.write(session_summary)
-    template_dir = Path(__file__).parent.parent / "templates" / "identify-objectives"
+    template_dir = Path(__file__).parent / "summarize_session" / "templates" / "identify-objectives"
     with open(template_dir / "prompt.djt") as fr:
         with open(current_experiment_dir / f"prompt_template_{datetime_marker}.txt", "w") as fw:
             fw.write(fr.read())

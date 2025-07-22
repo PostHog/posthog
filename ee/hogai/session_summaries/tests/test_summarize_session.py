@@ -75,7 +75,7 @@ class TestSummarizeSession:
         """Test that we get proper error data when no events are found (for example, for fresh real-time replays)."""
         with (
             patch(
-                "ee.hogai.session_summaries.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch("ee.hogai.session_summaries.summarize_session.input_data.SessionReplayEvents") as mock_replay_events,

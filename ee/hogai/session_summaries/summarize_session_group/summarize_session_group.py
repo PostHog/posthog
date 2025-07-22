@@ -59,7 +59,7 @@ def generate_session_group_patterns_extraction_prompt(
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries_str)
-    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_extraction"
+    template_dir = Path(__file__).parent / "templates" / "patterns_extraction"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
     patterns_example = load_custom_template(template_dir, "example.yml")
     patterns_prompt = load_custom_template(
@@ -85,7 +85,7 @@ def generate_session_group_patterns_assignment_prompt(
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries_str)
-    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_assignment"
+    template_dir = Path(__file__).parent / "templates" / "patterns_assignment"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
     patterns_example = load_custom_template(template_dir, "example.yml")
     patterns_prompt = load_custom_template(
