@@ -136,15 +136,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // CDP functions
     z.object({
         ..._commonActionFields,
-        type: z.literal('function'),
-        config: z.object({
-            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
-            template_id: z.string(),
-            inputs: z.record(CyclotronInputSchema),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
             template_uuid: z.string().uuid().optional(),

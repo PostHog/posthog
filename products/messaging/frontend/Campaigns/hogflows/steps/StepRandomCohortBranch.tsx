@@ -1,5 +1,5 @@
 import { IconPercentage, IconPlus, IconX } from '@posthog/icons'
-import { Node, useUpdateNodeInternals } from '@xyflow/react'
+import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -52,8 +52,6 @@ function StepRandomCohortBranchConfiguration({
     const action = node.data
     const { cohorts } = action.config
 
-    const updateNodeInternals = useUpdateNodeInternals()
-
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setCampaignAction, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
@@ -81,12 +79,6 @@ function StepRandomCohortBranchConfiguration({
             ...action,
             config: { ...action.config, cohorts },
         })
-
-        // HACK: We need to update the node internals after state updates (after resetFlowFromHogFlow runs)
-        // TODO: Update state / node handles more directly to avoid setTimeout
-        setTimeout(() => {
-            updateNodeInternals(action.id)
-        }, 100)
     }
 
     const addCohort = (): void => {

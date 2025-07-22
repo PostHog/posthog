@@ -17,7 +17,6 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     edge_deletion_button: EdgeDeletionButtonNode, // Special node for edge deletion button
     // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
-    function: HogFlowActionNode,
     function_email: HogFlowActionNode,
     function_sms: HogFlowActionNode,
     function_webhook: HogFlowActionNode,
@@ -122,13 +121,16 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
 
     const { nodesById } = useValues(hogFlowEditorLogic)
 
-    useEffect(() => {
-        updateNodeInternals(props.id)
-    }, [props.id, updateNodeInternals])
-
     const Step = getHogFlowStep(props.data.type)
 
     const node = nodesById[props.id]
+
+    // When handle count changes, we need to update the node internals so that edges are re-rendered at
+    // the correct positions
+    useEffect(() => {
+        updateNodeInternals(props.id)
+        // oxlint-disable-next-line exhaustive-deps
+    }, [node.handles])
 
     return (
         <>

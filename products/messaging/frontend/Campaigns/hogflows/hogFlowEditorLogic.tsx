@@ -15,7 +15,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
-import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
+import { BOTTOM_HANDLE_POSITION, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
@@ -64,6 +64,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDragStart: true,
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event: DragEvent) => ({ event }),
+        onNodeDragStart: () => ({}),
         onNodeDragStop: (_event: React.MouseEvent, node: HogFlowActionNode) => ({ node }),
         onConnect: ({
             source,
@@ -321,7 +322,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
                     const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
 
-                    const [, labelX, labelY] = getSmoothStepPath({
+                    const [path] = getSmoothStepPath({
                         sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
                         sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                         targetX: targetNode.position.x + (targetHandle?.x || 0),
@@ -330,10 +331,22 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         targetPosition: targetHandle?.position || Position.Top,
                     })
 
+                    // Get point 10px down the path
+                    const point = new DOMParser()
+                        .parseFromString(
+                            `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 124 124"><path d="${path}" /></svg>`,
+                            'image/svg+xml'
+                        )
+                        .querySelector('path')
+                        ?.getPointAtLength(20)
+
+                    const labelX = point?.x || 0
+                    const labelY = point?.y || 0
+
                     dropzoneNodes.push({
                         id: `dropzone_edge_${edge.id}`,
                         type: 'dropzone',
-                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                        position: { x: labelX - NODE_WIDTH / 2, y: labelY },
                         data: {
                             edge,
                         },
@@ -344,6 +357,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             })
 
             actions.setDropzoneNodes(dropzoneNodes)
+            actions.setEdgeDeletionNodes([])
+            actions.setSelectedEdgeId(null)
         },
 
         onEdgesDelete: ({ deleted }) => {
@@ -465,6 +480,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setDropzoneNodes([])
         },
 
+        onNodeDragStart: () => {
+            actions.setSelectedEdgeId(null)
+            actions.setEdgeDeletionNodes([])
+        },
+
         onNodeDragStop: ({ node }) => {
             actions.setCampaignAction(node.id, { ...node.data, position: node.position })
         },
@@ -512,7 +532,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     {
                         id: `${selectedEdge.id}_deletion_button`,
                         type: 'edge_deletion_button',
-                        position: { x: labelX + 10, y: labelY - 10 },
+                        position: { x: labelX - 8, y: labelY - 8 },
+                        data: {
+                            edge: selectedEdge,
+                        },
                         draggable: false,
                         selectable: false,
                     },

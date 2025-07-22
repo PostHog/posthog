@@ -1,5 +1,5 @@
 import { IconDecisionTree, IconPlus, IconX } from '@posthog/icons'
-import { Node, useUpdateNodeInternals } from '@xyflow/react'
+import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -58,8 +58,6 @@ function StepConditionalBranchConfiguration({
     const action = node.data
     const { conditions } = action.config
 
-    const updateNodeInternals = useUpdateNodeInternals()
-
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setCampaignActionConfig, setCampaignActionEdges } = useActions(hogFlowEditorLogic)
 
@@ -91,12 +89,6 @@ function StepConditionalBranchConfiguration({
             ...action.config,
             conditions,
         })
-
-        // HACK: We need to update the node internals after state updates (after resetFlowFromHogFlow runs)
-        // TODO: Update state / node handles more directly to avoid setTimeout
-        setTimeout(() => {
-            updateNodeInternals(action.id)
-        }, 100)
     }
 
     const addCondition = (): void => {

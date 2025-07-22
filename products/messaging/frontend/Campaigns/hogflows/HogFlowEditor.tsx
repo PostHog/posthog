@@ -39,6 +39,7 @@ function HogFlowEditorContent(): JSX.Element {
         onDragStart,
         onDragOver,
         onDrop,
+        onNodeDragStart,
         onNodeDragStop,
         onConnect,
     } = useActions(hogFlowEditorLogic)
@@ -55,12 +56,13 @@ function HogFlowEditorContent(): JSX.Element {
         <div ref={reactFlowWrapper} className="w-full h-full">
             <ReactFlow<HogFlowActionNode, Edge>
                 fitView
-                nodes={[...nodes, ...dropzoneNodes, ...edgeDeletionNodes]}
+                nodes={[...nodes, ...(dropzoneNodes as any), ...(edgeDeletionNodes as any)]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodesDelete={onNodesDelete}
                 onEdgesDelete={onEdgesDelete}
+                onNodeDragStart={onNodeDragStart}
                 onNodeDragStop={onNodeDragStop}
                 onDragStart={onDragStart}
                 onDragOver={onDragOver}
