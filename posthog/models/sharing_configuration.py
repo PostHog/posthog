@@ -1,5 +1,7 @@
 import secrets
 from typing import cast
+from datetime import timedelta
+from django.utils import timezone
 
 from django.db import models
 
@@ -35,6 +37,12 @@ class SharingConfiguration(models.Model):
         unique=True,
     )
 
+    # Token rotation fields for grace period support
+    previous_access_token = models.CharField(
+        max_length=400, null=True, blank=True, help_text="Previous token that's still valid during grace period"
+    )
+    token_rotated_at = models.DateTimeField(null=True, blank=True, help_text="When the token was last rotated")
+
     def can_access_object(self, obj: models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
@@ -59,3 +67,26 @@ class SharingConfiguration(models.Model):
             # Check whether this sharing configuration's dashboard contains this insight
             return list(self.dashboard.tiles.exclude(insight__deleted=True).values_list("insight__id", flat=True))
         return []
+
+    def is_token_valid(self, token: str) -> bool:
+        """Check if a token is valid (current or within grace period)"""
+        if token == self.access_token:
+            return True
+
+        # Check if it's the previous token within grace period
+        if (
+            token == self.previous_access_token
+            and self.previous_access_token
+            and self.token_rotated_at
+            and timezone.now() - self.token_rotated_at < timedelta(minutes=5)
+        ):  # 5 minute grace period
+            return True
+
+        return False
+
+    def rotate_access_token(self) -> str:
+        """Rotate the access token and store the previous one for grace period"""
+        self.previous_access_token = self.access_token
+        self.access_token = get_default_access_token()
+        self.token_rotated_at = timezone.now()
+        return self.access_token

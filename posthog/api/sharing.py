@@ -225,10 +225,8 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             # Special case where we need to save the instance for recordings so that the actual record gets created
             recording.save()
 
-        # Generate new access token using the same method as the model default
-        from posthog.models.sharing_configuration import get_default_access_token
-
-        instance.access_token = get_default_access_token()
+        # Use the new rotation method that implements grace period
+        instance.rotate_access_token()
         instance.save()
 
         if context.get("insight"):
@@ -281,11 +279,22 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if access_token:
             sharing_configuration = None
             try:
+                # First try to find by current token
                 sharing_configuration = SharingConfiguration.objects.select_related(
                     "dashboard", "insight", "recording"
                 ).get(access_token=access_token)
             except SharingConfiguration.DoesNotExist:
-                raise NotFound()
+                # If not found, try to find by previous token (grace period)
+                try:
+                    sharing_configuration = SharingConfiguration.objects.select_related(
+                        "dashboard", "insight", "recording"
+                    ).get(previous_access_token=access_token)
+
+                    # Verify the token is still within grace period
+                    if not sharing_configuration.is_token_valid(access_token):
+                        sharing_configuration = None
+                except SharingConfiguration.DoesNotExist:
+                    pass
 
             if sharing_configuration and sharing_configuration.enabled:
                 return sharing_configuration
