@@ -44,7 +44,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange: resolveDateRange(dateRange).toDateRange(),
+            dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
             assignee,
             volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -72,6 +72,7 @@ export const errorTrackingIssueQuery = ({
     searchQuery,
     volumeResolution = 0,
     withFirstEvent = false,
+    withLastEvent = false,
     withAggregations = false,
 }: {
     issueId: string
@@ -81,18 +82,20 @@ export const errorTrackingIssueQuery = ({
     searchQuery?: string
     volumeResolution?: number
     withFirstEvent?: boolean
+    withLastEvent?: boolean
     withAggregations?: boolean
 }): ErrorTrackingQuery => {
     return setLatestVersionsOnQuery<ErrorTrackingQuery>({
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange: resolveDateRange(dateRange).toDateRange(),
+        dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         searchQuery,
         volumeResolution,
         withFirstEvent,
         withAggregations,
+        withLastEvent,
         tags: {
             productKey: ProductKey.ERROR_TRACKING,
         },

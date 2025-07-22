@@ -164,9 +164,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <div className="flex flex-col gap-[2px]">
                 <Link
                     className="flex-1 pr-12"
-                    to={urls.errorTrackingIssue(record.id)}
+                    to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
                     onClick={() => {
-                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
                         issueLogic.mount()
                         issueLogic.actions.setIssue(record)
                     }}
