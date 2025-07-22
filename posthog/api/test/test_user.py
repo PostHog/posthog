@@ -1323,6 +1323,24 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"]["project_pipeline_errors_disabled"], {"123": True, "456": True}
         )
 
+    def test_pipeline_errors_independent_of_weekly_digest(self):
+        """Pipeline error notifications should be independent of weekly digest settings"""
+        # Disable weekly digest globally but keep pipeline errors enabled
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "all_weekly_digest_disabled": True,  # Weekly digest disabled
+                    # Pipeline errors enabled by default (not in project_pipeline_errors_disabled)
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["notification_settings"]["all_weekly_digest_disabled"], True)
+        self.assertEqual(response_data["notification_settings"]["project_pipeline_errors_disabled"], {})
+
 
 class TestUserSlackWebhook(APIBaseTest):
     ENDPOINT: str = "/api/user/test_slack_webhook/"

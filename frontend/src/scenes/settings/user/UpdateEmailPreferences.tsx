@@ -46,7 +46,10 @@ export function UpdateEmailPreferences(): JSX.Element {
     return (
         <div className="deprecated-space-y-4">
             <h3>Email notifications</h3>
-            <p>Configure which email notifications you want to receive and for which projects.</p>
+            <p>
+                Configure which email notifications you want to receive and for which projects. Each notification type
+                can be enabled independently.
+            </p>
 
             <div className="deprecated-space-y-4">
                 <div className="deprecated-space-y-4">

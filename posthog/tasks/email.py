@@ -102,11 +102,8 @@ def should_send_notification(
         return True
 
     elif notification_type == NotificationSetting.PROJECT_PIPELINE_ERRORS.value:
-        # First check global digest setting (pipeline errors are disabled when all notifications are disabled)
-        if settings.get("all_weekly_digest_disabled", False):
-            return False
-
-        # Then check project-specific pipeline error setting if team_id provided
+        # Pipeline errors are independent of weekly digest settings
+        # Check project-specific pipeline error setting if team_id provided
         if team_id is not None:
             project_settings = settings.get("project_pipeline_errors_disabled", {})
             team_disabled = project_settings.get(str(team_id), False)

@@ -569,3 +569,23 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_hog_functions_daily_digest()
 
         assert len(mocked_email_messages) == 0
+
+    def test_pipeline_errors_independent_of_weekly_digest(self, MockEmailMessage: MagicMock) -> None:
+        """Pipeline error notifications should work independently of weekly digest settings"""
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+
+        # Disable weekly digest globally but keep pipeline errors enabled
+        self.user.partial_notification_settings = {
+            "all_weekly_digest_disabled": True,  # Weekly digest disabled
+            # Pipeline errors enabled by default (empty project_pipeline_errors_disabled)
+        }
+        self.user.save()
+
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+
+        # Should still send pipeline error notification even though weekly digest is disabled
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
