@@ -1,15 +1,15 @@
-export const NODE_WIDTH = 110
+export const DROPZONE_NODE_WIDTH = 110
 export const NODE_HEIGHT = 34
 
 export const NODE_GAP = 50
 
 export const TOP_HANDLE_POSITION = {
-    x: NODE_WIDTH / 2,
+    x: DROPZONE_NODE_WIDTH / 2,
     y: 0,
 }
 
 export const BOTTOM_HANDLE_POSITION = {
-    x: NODE_WIDTH / 2,
+    x: DROPZONE_NODE_WIDTH / 2,
     y: NODE_HEIGHT,
 }
 
@@ -19,6 +19,6 @@ export const LEFT_HANDLE_POSITION = {
 }
 
 export const RIGHT_HANDLE_POSITION = {
-    x: NODE_WIDTH,
+    x: DROPZONE_NODE_WIDTH,
     y: NODE_HEIGHT / 2,
 }

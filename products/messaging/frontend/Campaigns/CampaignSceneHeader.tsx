@@ -6,10 +6,34 @@ import { CampaignSceneLogicProps } from './campaignSceneLogic'
 
 export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.Element => {
     const logic = campaignLogic(props)
-    const { campaign, campaignChanged, isCampaignSubmitting, campaignLoading, isCampaignValid } = useValues(logic)
+    const {
+        campaign,
+        campaignChanged,
+        isCampaignSubmitting,
+        campaignLoading,
+        isCampaignValid,
+        doesCampaignContainCycles,
+        doesCampaignHaveOrphanedNodes,
+    } = useValues(logic)
     const { saveCampaign, submitCampaign, discardChanges } = useActions(logic)
 
     const isSavedCampaign = props.id && props.id !== 'new'
+
+    const getDisabledReason = (): string | undefined => {
+        if (!isCampaignValid) {
+            return 'Fill in all required fields'
+        }
+        if (campaignChanged) {
+            if (doesCampaignContainCycles) {
+                return 'Campaign contains infinite loop'
+            }
+            if (doesCampaignHaveOrphanedNodes) {
+                return 'Campaign contains orphaned nodes'
+            }
+            return undefined
+        }
+        return 'No changes to save'
+    }
 
     return (
         <PageHeader
@@ -51,13 +75,7 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                         form="campaign"
                         onClick={submitCampaign}
                         loading={isCampaignSubmitting}
-                        disabledReason={
-                            !isCampaignValid
-                                ? 'Fill in all required fields'
-                                : campaignChanged
-                                ? undefined
-                                : 'No changes to save'
-                        }
+                        disabledReason={getDisabledReason()}
                     >
                         {props.id === 'new' ? 'Create' : 'Save'}
                     </LemonButton>

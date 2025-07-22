@@ -8,7 +8,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { IconPlus, IconX } from '@posthog/icons'
-import { NODE_WIDTH, NODE_HEIGHT } from '../constants'
+import { DROPZONE_NODE_WIDTH, NODE_HEIGHT } from '../constants'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone' | 'edge_deletion_button'
 
@@ -48,7 +48,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: NODE_WIDTH,
+                width: DROPZONE_NODE_WIDTH,
                 height: NODE_HEIGHT,
             }}
         >

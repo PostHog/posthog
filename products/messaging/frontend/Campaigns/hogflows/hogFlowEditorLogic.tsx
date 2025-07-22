@@ -14,7 +14,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
-import { NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
+import { NODE_HEIGHT, DROPZONE_NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
@@ -259,7 +259,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         })
                         .forEach((handleId, index, sortedArray) => {
                             const numSourceHandles = sortedArray.length
-                            const x = ((index + 1) / (numSourceHandles + 1)) * NODE_WIDTH
+                            const x = ((index + 1) / (numSourceHandles + 1)) * DROPZONE_NODE_WIDTH
 
                             handles[handleId] = {
                                 id: handleId,
@@ -336,7 +336,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     dropzoneNodes.push({
                         id: `dropzone_edge_${edge.id}`,
                         type: 'dropzone',
-                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                        position: { x: labelX - DROPZONE_NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
                         data: {
                             edge,
                         },

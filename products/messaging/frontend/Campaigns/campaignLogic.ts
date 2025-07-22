@@ -148,6 +148,67 @@ export const campaignLogic = kea<campaignLogicType>([
                 }, {} as Record<string, HogFlowEdge[]>)
             },
         ],
+        doesCampaignHaveOrphanedNodes: [
+            (s) => [s.campaign, s.edgesByActionId],
+            (campaign, edgesByActionId): boolean => {
+                // An orphaned node is one that has no incoming edges, but isn't the trigger node
+                return campaign.actions.some((action: HogFlowAction) => {
+                    if (action.type === 'trigger') {
+                        return false
+                    }
+
+                    const edges = edgesByActionId[action.id] || []
+                    return edges.filter((edge: HogFlowEdge) => edge.to === action.id).length === 0
+                })
+            },
+        ],
+        doesCampaignContainCycles: [
+            (s) => [s.campaign],
+            (campaign): boolean => {
+                // DFS color states
+                const UNVISITED = 0
+                const VISITING = 1
+                const VISITED = 2
+
+                // Build adjacency list and initialize colors in one pass
+                const adjacencyList: Record<string, string[]> = Object.fromEntries(
+                    campaign.actions.map((action: HogFlowAction) => [action.id, []])
+                )
+                const colors: Record<string, number> = Object.fromEntries(
+                    campaign.actions.map((action: HogFlowAction) => [action.id, UNVISITED])
+                )
+
+                // Populate adjacency list with edges
+                campaign.edges.forEach((edge: HogFlowEdge) => {
+                    adjacencyList[edge.from]?.push(edge.to)
+                })
+
+                // DFS function to detect back edges (cycles)
+                const hasCycle = (nodeId: string): boolean => {
+                    colors[nodeId] = VISITING
+
+                    // Check all neighbors
+                    for (const neighbor of adjacencyList[nodeId]) {
+                        if (colors[neighbor] === VISITING) {
+                            // Found a back edge - cycle detected
+                            return true
+                        }
+                        if (colors[neighbor] === UNVISITED && hasCycle(neighbor)) {
+                            // Recursively check unvisited neighbors
+                            return true
+                        }
+                    }
+
+                    colors[nodeId] = VISITED
+                    return false
+                }
+
+                // Check for cycles starting from each unvisited node
+                return campaign.actions.some(
+                    (action: HogFlowAction) => colors[action.id] === UNVISITED && hasCycle(action.id)
+                )
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadCampaignSuccess: async ({ originalCampaign }) => {
