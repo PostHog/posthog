@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import pytest
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.errors import QueryError
+from posthog.models.team.team import Team
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.schema import (
     MarketingAnalyticsTableQuery,
@@ -29,6 +30,16 @@ TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"
 TEST_BUCKET_BASE = "test_storage_bucket-posthog.marketing_analytics"
 DEFAULT_LIMIT = 100
+
+
+def get_default_query_runner(query: MarketingAnalyticsTableQuery, team: Team) -> MarketingAnalyticsTableQueryRunner:
+    return MarketingAnalyticsTableQueryRunner(
+        query=query,
+        team=team,
+        timings=None,
+        modifiers=None,
+        limit_context=None,
+    )
 
 
 @dataclass
@@ -241,13 +252,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
     def test_basic_query_runner_initialization(self):
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         assert runner.query == query
         assert runner.team == self.team
@@ -256,13 +261,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
     def test_basic_query_execution_no_sources(self):
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -291,13 +290,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -344,13 +337,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -419,13 +406,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -528,13 +509,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query(orderBy=[[4, "DESC"]])
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -589,71 +564,6 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
             assert best_cpc_campaign["cpc"] <= worst_cpc_campaign["cpc"], f"{source} best CPC should be <= worst CPC"
 
-    def test_campaign_performance_ranking(self):
-        facebook_info = self._setup_csv_table("facebook_ads")
-
-        source_configs = [
-            {
-                "table_id": facebook_info.table.id,
-                "source_map": {
-                    "campaign": "campaign1",
-                    "source": "source1",
-                    "cost": "spend1",
-                    "date": "date1",
-                    "impressions": "impressions1",
-                    "clicks": "clicks1",
-                    "currency": "USD",
-                },
-            }
-        ]
-        self._setup_team_source_configs(source_configs)
-
-        ordering_tests = [
-            ("cost", [[3, "DESC"]], "highest cost campaigns first"),
-            ("clicks", [[4, "DESC"]], "highest clicks campaigns first"),
-            ("impressions", [[5, "DESC"]], "highest impressions campaigns first"),
-            ("campaign", [[1, "ASC"]], "alphabetical campaign order"),
-        ]
-
-        for test_name, order_by, _description in ordering_tests:
-            query = self._create_basic_query(orderBy=order_by)
-            runner = MarketingAnalyticsTableQueryRunner(
-                query=query,
-                team=self.team,
-                timings=None,
-                modifiers=None,
-                limit_context=None,
-            )
-
-            response = runner.calculate()
-
-            assert len(response.results) == 5, f"Should have 5 Facebook campaigns for {test_name} ordering"
-
-            if test_name == "cost":
-                costs = [float(row[2] or 0) for row in response.results]
-                expected_costs = sorted(costs, reverse=True)
-                assert (
-                    costs == expected_costs
-                ), f"Costs should be in descending order. Got {costs}, expected {expected_costs}"
-            elif test_name == "clicks":
-                clicks = [int(row[3] or 0) for row in response.results]
-                expected_clicks = sorted(clicks, reverse=True)
-                assert (
-                    clicks == expected_clicks
-                ), f"Clicks should be in descending order. Got {clicks}, expected {expected_clicks}"
-            elif test_name == "impressions":
-                impressions = [int(row[4] or 0) for row in response.results]
-                expected_impressions = sorted(impressions, reverse=True)
-                assert (
-                    impressions == expected_impressions
-                ), f"Impressions should be in descending order. Got {impressions}, expected {expected_impressions}"
-            elif test_name == "campaign":
-                campaigns = [row[0] for row in response.results]
-                expected_campaigns = sorted(campaigns)
-                assert (
-                    campaigns == expected_campaigns
-                ), f"Campaigns should be in alphabetical order. Got {campaigns}, expected {expected_campaigns}"
-
     def test_zero_cost_campaigns_handling(self):
         tiktok_info = self._setup_csv_table("tiktok_ads")
 
@@ -674,13 +584,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -721,13 +625,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query(limit=5, offset=0)
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -777,13 +675,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query(limit=1000, offset=0)
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -824,13 +716,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query(dateRange=DateRange(date_from="2024-12-01", date_to="2024-12-31"))
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -872,13 +758,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -906,13 +786,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         # This should raise a QueryError because the column doesn't exist
         with pytest.raises(QueryError, match="nonexistent_column"):
@@ -949,13 +823,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         )
 
         query = self._create_basic_query(dynamicConversionGoal=conversion_goal)
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -1018,13 +886,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         config.save()
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -1068,7 +930,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             properties=[],
         )
 
-        runner = MarketingAnalyticsTableQueryRunner(query=query, team=self.team)
+        runner = get_default_query_runner(query, self.team)
         response = runner.calculate()
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
@@ -1108,13 +970,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
@@ -1167,15 +1023,75 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self._setup_team_source_configs(source_configs)
 
         query = self._create_basic_query()
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=query,
-            team=self.team,
-            timings=None,
-            modifiers=None,
-            limit_context=None,
-        )
+        runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert len(response.results) == 23, "Should return exactly 23 total campaigns"
+
+
+# Standalone parametrized test that works with pytest
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "test_name,order_by,expected_sort_reverse",
+    [
+        ("cost", [[3, "DESC"]], True),
+        ("clicks", [[4, "DESC"]], True),
+        ("impressions", [[5, "DESC"]], True),
+        ("campaign", [[1, "ASC"]], False),
+    ],
+)
+def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse):
+    """Test campaign performance ranking with different ordering scenarios using pytest parametrize."""
+    # Create test instance to access helper methods
+    test_instance = TestMarketingAnalyticsTableQueryRunnerBusiness()
+    test_instance.setUpClass()
+    test_instance.setUp()
+
+    try:
+        facebook_info = test_instance._setup_csv_table("facebook_ads")
+
+        source_configs = [
+            {
+                "table_id": facebook_info.table.id,
+                "source_map": {
+                    "campaign": "campaign1",
+                    "source": "source1",
+                    "cost": "spend1",
+                    "date": "date1",
+                    "impressions": "impressions1",
+                    "clicks": "clicks1",
+                    "currency": "USD",
+                },
+            }
+        ]
+        test_instance._setup_team_source_configs(source_configs)
+
+        query = test_instance._create_basic_query(orderBy=order_by)
+        runner = get_default_query_runner(query, test_instance.team)
+
+        response = runner.calculate()
+
+        assert len(response.results) == 5, f"Should have 5 Facebook campaigns for {test_name} ordering"
+
+        # Extract values based on test_name
+        if test_name == "cost":
+            values = [float(row[2] or 0) for row in response.results]
+        elif test_name == "clicks":
+            values = [int(row[3] or 0) for row in response.results]
+        elif test_name == "impressions":
+            values = [int(row[4] or 0) for row in response.results]
+        elif test_name == "campaign":
+            values = [row[0] for row in response.results]
+        else:
+            raise ValueError(f"Unknown test_name: {test_name}")
+
+        # Verify ordering
+        expected_values = sorted(values, reverse=expected_sort_reverse)
+        assert (
+            values == expected_values
+        ), f"{test_name} should be in {'descending' if expected_sort_reverse else 'ascending'} order. Got {values}, expected {expected_values}"
+    finally:
+        test_instance.tearDown()
+        test_instance.tearDownClass()
