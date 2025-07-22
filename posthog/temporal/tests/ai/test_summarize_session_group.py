@@ -38,6 +38,12 @@ from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatComple
 from datetime import datetime, timedelta
 from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.ai import WORKFLOWS
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
+from posthog.temporal.ai.session_summary.activities.patterns import (
+    _split_session_summaries_into_chunks_for_patterns_extraction,
+)
+from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 pytestmark = pytest.mark.django_db
 
@@ -492,3 +498,98 @@ class TestSummarizeSessionGroupWorkflow:
             # - get cached single-session summaries for 2 sessions (2)
             # - get cached DB data for 2 sessions (2)
             assert spy_get.call_count == 15
+
+
+@pytest.mark.asyncio
+class TestPatternExtractionChunking:
+    async def test_empty_input_returns_empty_chunks(self):
+        """Test that empty input returns empty list of chunks."""
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[],
+            user_id=1,
+            extra_summary_context=None,
+            redis_key_base="test",
+        )
+
+        redis_client = AsyncMock()
+        chunks = await _split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
+
+        assert chunks == []
+        redis_client.get.assert_not_called()
+
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
+    @patch(
+        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
+    )
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
+    async def test_all_sessions_fit_in_single_chunk(
+        self, mock_get_summaries, mock_estimate_tokens, mock_remove_excessive, mock_json_dumps
+    ):
+        """Test when all sessions fit within token limit in a single chunk."""
+        # Setup inputs with 2 sessions
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[
+                SingleSessionSummaryInputs(session_id="session-1", user_id=1, team_id=1, redis_key_base="test"),
+                SingleSessionSummaryInputs(session_id="session-2", user_id=1, team_id=1, redis_key_base="test"),
+            ],
+            user_id=1,
+            extra_summary_context=ExtraSummaryContext(focus_area="test"),
+            redis_key_base="test",
+        )
+
+        # Mock Redis returning session summaries
+        mock_get_summaries.return_value = [
+            '{"summary": "Summary 1", "segments": []}',
+            '{"summary": "Summary 2", "segments": []}',
+        ]
+
+        # Mock json.dumps to return a simple string
+        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
+
+        # Mock token counts: base template=1000, each summary=500
+        mock_estimate_tokens.side_effect = [1000, 500, 500]  # Total: 2000 < 150000
+
+        redis_client = AsyncMock()
+        chunks = await _split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
+
+        assert len(chunks) == 1
+        assert chunks[0] == ["session-1", "session-2"]
+
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
+    @patch(
+        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
+    )
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
+    async def test_sessions_split_into_multiple_chunks(
+        self, mock_get_summaries, mock_estimate_tokens, mock_remove_excessive, mock_json_dumps
+    ):
+        """Test sessions are split when exceeding token limit."""
+        # Setup inputs with 3 sessions
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[
+                SingleSessionSummaryInputs(session_id=f"session-{i}", user_id=1, team_id=1, redis_key_base="test")
+                for i in range(3)
+            ],
+            user_id=1,
+            extra_summary_context=None,
+            redis_key_base="test",
+        )
+
+        # Mock Redis returning session summaries
+        mock_get_summaries.return_value = [f'{{"summary": "Summary {i}", "segments": []}}' for i in range(3)]
+
+        # Mock json.dumps to return a simple string
+        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
+
+        # Mock token counts: base=1000, session0=80000, session1=70000, session2=500
+        # session0 goes alone (80k + 1k base > 80k), session1 and session2 fit together (70k + 500 + 1k base < 150k)
+        mock_estimate_tokens.side_effect = [1000, 80000, 70000, 500]
+
+        redis_client = AsyncMock()
+        chunks = await _split_session_summaries_into_chunks_for_patterns_extraction(inputs, redis_client)
+
+        assert len(chunks) == 2
+        assert chunks[0] == ["session-0"]
+        assert chunks[1] == ["session-1", "session-2"]
