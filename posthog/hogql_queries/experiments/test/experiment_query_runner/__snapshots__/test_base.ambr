@@ -977,6 +977,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+<<<<<<< HEAD
 # name: TestExperimentQueryRunner.test_query_runner_with_hogql_aggregation_end_to_end
   '''
   SELECT metric_events.variant AS variant,
@@ -2634,3 +2635,5 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+=======
+>>>>>>> eff586a514 (WIP remove usage of old stats methods on new engine)
