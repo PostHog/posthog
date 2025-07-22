@@ -176,8 +176,6 @@ export interface SceneConfig {
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default if this scene is active  */
     defaultDocsPath?: string
-    /** The layout width at which point the info panel becomes an overlay  */
-    infoPanelOverlayBreakpoint?: number
     /** Component import, used only in manifests */
     import?: () => Promise<any>
 }
