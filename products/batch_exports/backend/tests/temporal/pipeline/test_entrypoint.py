@@ -64,16 +64,16 @@ async def batch_export(
 
 
 class DummyNonRetryableError(Exception):
-    def __init__(self, message: str = "This is a non-retryable error"):
+    def __init__(self, message: str = "This is a user error"):
         super().__init__(message)
 
 
 class DummyRetryableError(Exception):
-    def __init__(self, message: str = "This is a retryable error"):
+    def __init__(self, message: str = "This is an unexpected internal error"):
         super().__init__(message)
 
 
-NON_RETRYABLE_ERROR_TYPES = ["DummyNonRetryableError"]
+NON_RETRYABLE_ERROR_TYPES = (DummyNonRetryableError,)
 
 
 @dataclass(kw_only=True)
@@ -150,7 +150,6 @@ class DummyExportWorkflow(PostHogWorkflow):
             insert_into_dummy_activity_from_stage,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
         )
         return
 
@@ -158,15 +157,18 @@ class DummyExportWorkflow(PostHogWorkflow):
 @activity.defn(name="insert_into_dummy_activity_from_stage")
 async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> BatchExportResult:
     """A mock activity to test the batch export entrypoint."""
-    if inputs.exception_to_raise:
-        # get the exception class from the string
-        exception_cls = globals()[inputs.exception_to_raise]
-        raise exception_cls()
-    return BatchExportResult(records_completed=100, bytes_exported=100)
+    try:
+        if inputs.exception_to_raise:
+            # get the exception class from the string
+            exception_cls = globals()[inputs.exception_to_raise]
+            raise exception_cls()
+        return BatchExportResult(records_completed=100, bytes_exported=100)
+    except NON_RETRYABLE_ERROR_TYPES as e:
+        return BatchExportResult.from_exception(e)
 
 
 class TestErrorHandling:
-    async def _run_workflow(self, inputs: DummyExportInputs):
+    async def _run_workflow(self, inputs: DummyExportInputs, expect_workflow_failure: bool = True):
         workflow_id = str(uuid.uuid4())
 
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -183,7 +185,17 @@ class TestErrorHandling:
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 # we expect the workflow to fail because of the non-retryable error
-                with pytest.raises(WorkflowFailureError):
+                if expect_workflow_failure:
+                    with pytest.raises(WorkflowFailureError):
+                        await activity_environment.client.execute_workflow(
+                            DummyExportWorkflow.run,
+                            inputs,
+                            id=workflow_id,
+                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            execution_timeout=dt.timedelta(minutes=1),
+                        )
+                else:
                     await activity_environment.client.execute_workflow(
                         DummyExportWorkflow.run,
                         inputs,
@@ -201,7 +213,8 @@ class TestErrorHandling:
 
     async def test_handling_of_non_retryable_errors(self, batch_export):
         """A non-retryable error raised by an 'insert-into-destination' activity should result in a failed batch export
-        run and a failed Temporal activity.
+        run but a successful Temporal activity. This is because we treat this error as an 'expected' user error which
+        could be caused by things such as invalid credentials or permissions.
         """
         inputs = DummyExportInputs(
             team_id=batch_export.team_id,
@@ -211,13 +224,14 @@ class TestErrorHandling:
             batch_export_model=BatchExportModel(name="events", schema=None),
             exception_to_raise="DummyNonRetryableError",
         )
-        run = await self._run_workflow(inputs)
+        run = await self._run_workflow(inputs, expect_workflow_failure=False)
         assert run.status == "Failed"
-        assert run.latest_error == "DummyNonRetryableError: This is a non-retryable error"
+        assert run.latest_error == "DummyNonRetryableError: This is a user error"
 
     async def test_handling_of_retryable_errors(self, batch_export):
         """A retryable error raised by an 'insert-into-destination' activity should result in a failed batch export
-        run and a failed Temporal activity.
+        run and a failed Temporal activity. This is because we treat this error as an 'unexpected' internal error
+        which could be caused by things such as a temporary network issue or a bug in the code.
         """
         inputs = DummyExportInputs(
             team_id=batch_export.team_id,
@@ -227,6 +241,6 @@ class TestErrorHandling:
             batch_export_model=BatchExportModel(name="events", schema=None),
             exception_to_raise="DummyRetryableError",
         )
-        run = await self._run_workflow(inputs)
+        run = await self._run_workflow(inputs, expect_workflow_failure=True)
         assert run.status == "FailedRetryable"
-        assert run.latest_error == "DummyRetryableError: This is a retryable error"
+        assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
