@@ -13,8 +13,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from posthog.cloud_utils import is_cloud
-from ee.hogai.session_summaries.summary_notebooks import create_summary_notebook
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
+from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.models import User
@@ -29,8 +29,8 @@ class SessionSummariesSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
-        max_length=50,
-        help_text="List of session IDs to summarize (max 50)",
+        max_length=300,
+        help_text="List of session IDs to summarize (max 300)",
     )
     focus_area = serializers.CharField(
         required=False, allow_blank=True, max_length=500, help_text="Optional focus area for the summarization"

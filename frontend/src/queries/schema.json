@@ -9453,6 +9453,22 @@
                 "id": {
                     "type": "string"
                 },
+                "last_event": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "properties": {
+                            "type": "string"
+                        },
+                        "timestamp": {
+                            "type": "string"
+                        },
+                        "uuid": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["uuid", "timestamp", "properties"],
+                    "type": "object"
+                },
                 "last_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -9608,6 +9624,9 @@
                     "type": "boolean"
                 },
                 "withFirstEvent": {
+                    "type": "boolean"
+                },
+                "withLastEvent": {
                     "type": "boolean"
                 }
             },
@@ -10822,7 +10841,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "hogql"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
@@ -22180,6 +22199,7 @@
                 "replay",
                 "revenue_analytics_properties",
                 "resources",
+                "error_tracking_properties",
                 "max_ai_context"
             ],
             "type": "string"
@@ -23777,6 +23797,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
                     "$ref": "#/definitions/WebAnalyticsOrderBy"

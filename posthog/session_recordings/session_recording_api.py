@@ -33,8 +33,8 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
-from ee.session_recordings.session_summary.llm.call import get_openai_client
-from ee.session_recordings.session_summary.stream import stream_recording_summary
+from ee.hogai.session_summaries.llm.call import get_openai_client
+from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
@@ -1052,14 +1052,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     @staticmethod
     def _distinct_id_from_request(request):
         try:
-            if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            if isinstance(request.user, User):
+                return str(request.user.distinct_id)
+            elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
                 return cast(
                     PersonalAPIKeyAuthentication, request.successful_authenticator
                 ).personal_api_key.secure_value
-            if isinstance(request.user, AnonymousUser):
+            elif isinstance(request.user, AnonymousUser):
                 return request.GET.get("sharing_access_token") or "anonymous"
-            elif isinstance(request.user, User):
-                return str(request.user.distinct_id)
             else:
                 return "anonymous"
         except:
