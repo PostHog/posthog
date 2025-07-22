@@ -734,7 +734,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
-
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
