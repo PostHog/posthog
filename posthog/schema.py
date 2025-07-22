@@ -1003,6 +1003,15 @@ class FirstEvent(BaseModel):
     uuid: str
 
 
+class LastEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    properties: str
+    timestamp: str
+    uuid: str
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -7268,6 +7277,7 @@ class ErrorTrackingIssue(BaseModel):
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str
+    last_event: Optional[LastEvent] = None
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
@@ -11093,6 +11103,7 @@ class ErrorTrackingQuery(BaseModel):
     volumeResolution: int
     withAggregations: Optional[bool] = None
     withFirstEvent: Optional[bool] = None
+    withLastEvent: Optional[bool] = None
 
 
 class ExperimentFunnelMetric(BaseModel):
