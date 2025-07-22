@@ -5717,3 +5717,107 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             response.results[0]["days"],
         )
+
+    def test_cohort_breakdown_list_in_filters_override(self):
+        """
+        Test that cohort breakdown lists work correctly when applied via filters_override.
+        This tests the fix for the assertion error when breakdown is a list like [6] or [64489,65529].
+        """
+        # Create test data
+        self._create_test_events()
+
+        # Create cohorts
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p2",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p2",
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        # Test 1: Single-element cohort breakdown list [6]
+        single_cohort_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+        )
+
+        single_cohort_runner = TrendsQueryRunner(
+            team=self.team,
+            query=single_cohort_query,
+        )
+
+        # Apply filters_override with single-element cohort breakdown list
+        from posthog.api.services.query import apply_dashboard_filters
+        from posthog.schema import DashboardFilter
+
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk])
+        )
+
+        single_cohort_runner.query = apply_dashboard_filters(single_cohort_runner.query, filters_override, self.team)
+
+        # This should not raise an assertion error
+        single_response = single_cohort_runner.calculate()
+
+        self.assertEqual(len(single_response.results), 1)
+        self.assertEqual(single_response.results[0]["breakdown_value"], cohort1.pk)
+
+        # Test 2: Multi-element cohort breakdown list [64489,65529]
+        multi_cohort_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+        )
+
+        multi_cohort_runner = TrendsQueryRunner(
+            team=self.team,
+            query=multi_cohort_query,
+        )
+
+        # Apply filters_override with multi-element cohort breakdown list
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, cohort2.pk])
+        )
+
+        multi_cohort_runner.query = apply_dashboard_filters(multi_cohort_runner.query, filters_override, self.team)
+
+        # This should not raise an assertion error
+        multi_response = multi_cohort_runner.calculate()
+
+        # For multi-cohort breakdowns, we should get results for both cohorts
+        self.assertEqual(len(multi_response.results), 2)
+        breakdown_values = [result["breakdown_value"] for result in multi_response.results]
+        self.assertIn(cohort1.pk, breakdown_values)
+        self.assertIn(cohort2.pk, breakdown_values)
+
+        # Test 3: Verify that modifiers are updated correctly for multi-cohort case
+        # The modifiers should be set to LEFTJOIN_CONJOINED for multi-cohort breakdowns
+        breakdown = multi_cohort_runner._get_breakdown()
+        self.assertEqual(breakdown.modifiers.inCohortVia, InCohortVia.LEFTJOIN_CONJOINED)
