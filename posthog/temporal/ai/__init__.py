@@ -25,7 +25,17 @@ from .session_summary.summarize_session_group import (
     fetch_session_batch_events_activity,
 )
 
-WORKFLOWS = [SyncVectorsWorkflow, SummarizeSingleSessionWorkflow, SummarizeSessionGroupWorkflow]
+from posthog.temporal.ai.conversation import (
+    AssistantConversationRunnerWorkflow,
+    process_conversation_activity,
+)
+
+WORKFLOWS = [
+    SyncVectorsWorkflow,
+    SummarizeSingleSessionWorkflow,
+    SummarizeSessionGroupWorkflow,
+    AssistantConversationRunnerWorkflow,
+]
 
 ACTIVITIES = [
     get_approximate_actions_count,
@@ -37,6 +47,7 @@ ACTIVITIES = [
     extract_session_group_patterns_activity,
     assign_events_to_patterns_activity,
     fetch_session_data_activity,
+    process_conversation_activity,
 ]
 
 __all__ = [

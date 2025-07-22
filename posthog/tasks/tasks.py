@@ -848,3 +848,74 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
     from posthog.tasks.environments_rollback import environments_rollback_migration
 
     environments_rollback_migration(organization_id, environment_mappings, user_id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=300,
+    max_retries=3,
+)
+def background_delete_model_task(model_name: str, team_id: int, batch_size: int = 10000) -> None:
+    """
+    Background task to delete records from a model in batches.
+
+    Args:
+        model_name: Django model name in format 'app_label.model_name'
+        team_id: Team ID to filter records for deletion
+        batch_size: Number of records to delete per batch
+    """
+    from django.apps import apps
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+
+    try:
+        # Parse model name
+        app_label, model_label = model_name.split(".")
+        model = apps.get_model(app_label, model_label)
+
+        # Determine team field name
+        team_field = "team_id" if hasattr(model, "team_id") else "team"
+
+        # Get total count for logging
+        total_count = model.objects.filter(**{team_field: team_id}).count()
+        logger.info(f"Starting background deletion for {model_name}, team_id={team_id}, total={total_count}")
+
+        deleted_count = 0
+        batch_num = 0
+
+        while True:
+            # Get batch of IDs to delete
+            batch_ids = list(
+                model.objects.filter(**{team_field: team_id}).order_by("id").values_list("id", flat=True)[:batch_size]
+            )
+
+            if not batch_ids:
+                logger.info(f"No more records to delete for {model_name}, team_id={team_id}")
+                break
+
+            # Delete the batch
+            deleted_in_batch = model.objects.filter(id__in=batch_ids).delete()[0]
+            deleted_count += deleted_in_batch
+            batch_num += 1
+
+            logger.info(
+                f"Deleted batch {batch_num} for {model_name}, "
+                f"team_id={team_id}, batch_size={deleted_in_batch}, "
+                f"total_deleted={deleted_count}/{total_count}"
+            )
+
+            # If we got fewer records than batch_size, we're done
+            if len(batch_ids) < batch_size:
+                break
+
+        logger.info(
+            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
+        raise
