@@ -10,6 +10,7 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
 )
+from posthog.event_usage import report_user_action
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -85,7 +86,7 @@ class MemoryInitializerContextMixin:
 class MemoryOnboardingShouldRunMixin(AssistantNode):
     def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
-        Only trigger memory onboarding when explicitly requested with /init command .
+        Only trigger memory onboarding when explicitly requested with /init command.
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If no messages are to be found in the AssistantState, do not run onboarding.
         """
@@ -99,6 +100,10 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
             return "continue"
 
         last_message = state.messages[-1]
+        if isinstance(last_message, HumanMessage) and last_message.content.startswith("/"):
+            report_user_action(
+                self._user, "Max slash command used", {"slash_command": last_message.content}, team=self._team
+            )
         if isinstance(last_message, HumanMessage) and last_message.content == SLASH_COMMAND_INIT:
             return "memory_onboarding"
         return "continue"
