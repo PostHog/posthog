@@ -1,10 +1,12 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union, TypeVar
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage as LangchainBaseMessage
+from langchain_core.messages import (
+    BaseMessage as LangchainBaseMessage,
+)
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
@@ -20,7 +22,11 @@ from posthog.schema import (
 )
 
 AIMessageUnion = Union[
-    AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
+    AssistantMessage,
+    VisualizationMessage,
+    FailureMessage,
+    ReasoningMessage,
+    AssistantToolCallMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
@@ -88,7 +94,20 @@ def merge_retry_counts(left: int, right: int) -> int:
     return max(left, right)
 
 
-class _SharedAssistantState(BaseModel):
+StateType = TypeVar("StateType", bound=BaseModel)
+PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
+
+
+class BaseState(BaseModel):
+    """Base state class with reset functionality."""
+
+    @classmethod
+    def get_reset_state(cls: type[StateType]) -> StateType:
+        """Returns a new instance with all fields reset to their default values."""
+        return cls(**{k: v.default for k, v in cls.model_fields.items()})
+
+
+class _SharedAssistantState(BaseState):
     """
     The state of the root node.
     """
@@ -168,7 +187,7 @@ class AssistantState(_SharedAssistantState):
     Messages exposed to the user.
     """
 
-    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
 
 
 class PartialAssistantState(_SharedAssistantState):
@@ -177,24 +196,6 @@ class PartialAssistantState(_SharedAssistantState):
     """
 
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
-
-    @classmethod
-    def get_reset_state(cls) -> "PartialAssistantState":
-        return cls(
-            intermediate_steps=[],
-            plan="",
-            graph_status="",
-            memory_updated=False,
-            memory_collection_messages=[],
-            root_tool_call_id="",
-            root_tool_insight_plan="",
-            root_tool_insight_type="",
-            root_tool_calls_count=0,
-            root_conversation_start_id="",
-            rag_context="",
-            query_planner_previous_response_id="",
-            query_generation_retry_count=0,
-        )
 
 
 class AssistantNodeName(StrEnum):

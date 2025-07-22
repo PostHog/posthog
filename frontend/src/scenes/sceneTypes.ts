@@ -42,6 +42,7 @@ export enum Scene {
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
     Groups = 'Groups',
+    GroupsNew = 'GroupsNew',
     Group = 'Group',
     Action = 'Action',
     EarlyAccessFeatures = 'EarlyAccessFeatures',

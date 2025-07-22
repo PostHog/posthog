@@ -913,6 +913,29 @@ describe('Hog Executor', () => {
             `)
         })
 
+        it('handles ResponseContentLengthMismatchError', async () => {
+            jest.mocked(fetch).mockImplementationOnce(() => {
+                const error = new Error('Response body length does not match content-length header')
+                error.name = 'ResponseContentLengthMismatchError'
+                return Promise.reject(error)
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const result = await executor.executeFetch(invocation)
+
+            expect(result.invocation.queue).toBe('hog')
+            expect(result.invocation.queueScheduledAt).toBeUndefined() // Should not retry
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Response body length does not match content-length header.",
+                ]
+            `)
+        })
+
         it('completes fetch with headers', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 if (req.headers['x-test'] === 'test') {
