@@ -21,6 +21,7 @@ import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowActionNode } from './types'
 import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
+import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -71,6 +72,7 @@ function HogFlowEditorContent(): JSX.Element {
                 onEdgeClick={(_, edge) => edge.selectable && setSelectedEdgeId(edge.id)}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
+                edgeTypes={REACT_FLOW_EDGE_TYPES}
                 nodesDraggable={true}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => {

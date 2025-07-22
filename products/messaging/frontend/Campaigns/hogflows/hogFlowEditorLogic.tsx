@@ -4,7 +4,6 @@ import {
     applyNodeChanges,
     Edge,
     EdgeChange,
-    getSmoothStepPath,
     MarkerType,
     NodeChange,
     Position,
@@ -15,13 +14,14 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { uuid } from 'lib/utils'
 
 import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
-import { BOTTOM_HANDLE_POSITION, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
+import { NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 import type { DragEvent } from 'react'
 import { subscriptions } from 'kea-subscriptions'
+import { getSmartStepPath } from './steps/SmartEdge'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}_${edge.type}${edge.index === undefined ? '' : `_${edge.index}`}->${edge.to}`.trim()
@@ -172,39 +172,44 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         },
         resetFlowFromHogFlow: ({ hogFlow }) => {
             try {
-                const edges: Edge[] = hogFlow.edges.map((edge) => ({
-                    // Only these values are set by the user
-                    source: edge.from,
-                    target: edge.to,
+                const edges: Edge[] = []
+                const nodes: HogFlowActionNode[] = []
 
-                    // All other values are derived
-                    id: getEdgeId(edge),
-                    type: 'smoothstep',
-                    deletable: true,
-                    reconnectable: true,
-                    selectable: true,
-                    focusable: true,
-                    markerEnd: {
-                        type: MarkerType.ArrowClosed,
-                    },
-                    labelShowBg: false,
-                    targetHandle: 'target',
-                    sourceHandle: edge.type === 'continue' ? `continue` : `branch_${edge.index}`,
-                }))
+                // Convert all edges to React Flow edges first
+                hogFlow.edges.forEach((edge) => {
+                    const reactFlowEdge: Edge = {
+                        // Only these values are set by the user
+                        source: edge.from,
+                        target: edge.to,
+                        // All other values are derived
+                        id: getEdgeId(edge),
+                        type: 'smart',
+                        deletable: true,
+                        reconnectable: true,
+                        selectable: true,
+                        focusable: true,
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                        },
+                        labelShowBg: false,
+                        targetHandle: 'target',
+                        sourceHandle: edge.type === 'continue' ? `continue` : `branch_${edge.index}`,
+                    }
+                    edges.push(reactFlowEdge)
+                })
 
-                const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
-
+                // Single loop over actions, computing handles for each action independently
                 hogFlow.actions.forEach((action: HogFlowAction) => {
-                    const hasIncomingConnections = Object.values(handlesByIdByNodeId[action.id] ?? {}).some(
-                        (edge) => edge.type === 'target'
-                    )
+                    const handles: Record<string, StepViewNodeHandle> = {}
 
-                    if (!hasIncomingConnections && action.type !== 'trigger') {
-                        if (!handlesByIdByNodeId[action.id]) {
-                            handlesByIdByNodeId[action.id] = {}
-                        }
+                    // Find edges where this action is the target or source
+                    const incomingEdges = hogFlow.edges.filter((edge) => edge.to === action.id)
+                    const outgoingEdges = hogFlow.edges.filter((edge) => edge.from === action.id)
 
-                        handlesByIdByNodeId[action.id]['target'] = {
+                    // Add target handle if there are incoming connections or if it's not a trigger
+                    const hasIncomingConnections = incomingEdges.length > 0
+                    if (hasIncomingConnections || action.type !== 'trigger') {
+                        handles['target'] = {
                             id: 'target',
                             type: 'target',
                             position: Position.Top,
@@ -212,83 +217,78 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    if (!['random_cohort_branch', 'exit'].includes(action.type)) {
-                        if (!handlesByIdByNodeId[action.id]) {
-                            handlesByIdByNodeId[action.id] = {}
-                        }
+                    // Add source handles based on outgoing edges and action type
+                    const sourceHandleIds = new Set<string>()
 
-                        handlesByIdByNodeId[action.id]['continue'] = {
-                            id: 'continue',
-                            type: 'source',
-                            position: Position.Bottom,
-                            ...BOTTOM_HANDLE_POSITION,
-                        }
+                    // Collect source handle IDs from outgoing edges
+                    outgoingEdges.forEach((edge) => {
+                        const sourceHandle = edge.type === 'continue' ? 'continue' : `branch_${edge.index}`
+                        sourceHandleIds.add(sourceHandle)
+                    })
+
+                    // Add default source handles based on action type
+                    if (!['random_cohort_branch', 'exit'].includes(action.type)) {
+                        sourceHandleIds.add('continue')
                     }
+
                     // For conditional_branch, add a handle for each condition
                     if (action.type === 'conditional_branch' && Array.isArray(action.config?.conditions)) {
                         action.config.conditions.forEach((_, idx) => {
-                            handlesByIdByNodeId[action.id][`branch_${idx}`] = {
-                                id: `branch_${idx}`,
-                                type: 'source',
-                                position: Position.Bottom,
-                                ...BOTTOM_HANDLE_POSITION,
-                            }
+                            sourceHandleIds.add(`branch_${idx}`)
                         })
                     }
                     // For random_cohort, add a handle for each branch
                     if (action.type === 'random_cohort_branch' && Array.isArray(action.config?.cohorts)) {
                         action.config.cohorts.forEach((_, idx) => {
-                            handlesByIdByNodeId[action.id][`branch_${idx}`] = {
-                                id: `branch_${idx}`,
-                                type: 'source',
-                                position: Position.Bottom,
-                                ...BOTTOM_HANDLE_POSITION,
-                            }
+                            sourceHandleIds.add(`branch_${idx}`)
                         })
                     }
-                })
 
-                edges.forEach((edge) => {
-                    if (!handlesByIdByNodeId[edge.source]) {
-                        handlesByIdByNodeId[edge.source] = {}
-                    }
-                    if (!handlesByIdByNodeId[edge.target]) {
-                        handlesByIdByNodeId[edge.target] = {}
-                    }
+                    // Create source handles from collected IDs and calculate positions
+                    Array.from(sourceHandleIds)
+                        .sort((a, b) => {
+                            // "continue" handle should always come first
+                            if (a === 'continue') {
+                                return -1
+                            }
+                            if (b === 'continue') {
+                                return 1
+                            }
+                            // Sort other handles alphabetically by ID
+                            return a.localeCompare(b)
+                        })
+                        .forEach((handleId, index, sortedArray) => {
+                            const numSourceHandles = sortedArray.length
+                            const x = ((index + 1) / (numSourceHandles + 1)) * NODE_WIDTH
 
-                    handlesByIdByNodeId[edge.source][edge.sourceHandle ?? ''] = {
-                        id: edge.sourceHandle,
-                        type: 'source',
-                        position: Position.Bottom,
-                        ...BOTTOM_HANDLE_POSITION,
-                    }
+                            handles[handleId] = {
+                                id: handleId,
+                                type: 'source',
+                                position: Position.Bottom,
+                                x,
+                                y: NODE_HEIGHT,
+                            }
+                        })
 
-                    handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
-                        id: edge.targetHandle,
-                        type: 'target',
-                        position: Position.Top,
-                        ...TOP_HANDLE_POSITION,
-                    }
-                })
-
-                const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
+                    // Create the node for this action
                     const step = getHogFlowStep(action.type)
                     if (!step) {
                         console.error(`Step not found for action type: ${action.type}`)
                         throw new Error(`Step not found for action type: ${action.type}`)
                     }
 
-                    return {
+                    const node: HogFlowActionNode = {
                         id: action.id,
                         type: action.type,
                         data: action,
                         position: action.position ?? { x: 0, y: 0 },
-                        handles: Object.values(handlesByIdByNodeId[action.id] ?? {}),
+                        handles: Object.values(handles),
                         deletable: !['trigger', 'exit'].includes(action.type),
                         selectable: true,
                         draggable: true,
                         connectable: true,
                     }
+                    nodes.push(node)
                 })
 
                 actions.setEdges(edges)
@@ -322,31 +322,21 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
                     const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
 
-                    const [path] = getSmoothStepPath({
+                    const [, labelX, labelY] = getSmartStepPath({
                         sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
                         sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                         targetX: targetNode.position.x + (targetHandle?.x || 0),
                         targetY: targetNode.position.y + (targetHandle?.y || 0),
                         sourcePosition: sourceHandle?.position || Position.Bottom,
                         targetPosition: targetHandle?.position || Position.Top,
+                        edges: edges,
+                        currentEdgeId: edge.id,
                     })
-
-                    // Get point 10px down the path
-                    const point = new DOMParser()
-                        .parseFromString(
-                            `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 124 124"><path d="${path}" /></svg>`,
-                            'image/svg+xml'
-                        )
-                        .querySelector('path')
-                        ?.getPointAtLength(20)
-
-                    const labelX = point?.x || 0
-                    const labelY = point?.y || 0
 
                     dropzoneNodes.push({
                         id: `dropzone_edge_${edge.id}`,
                         type: 'dropzone',
-                        position: { x: labelX - NODE_WIDTH / 2, y: labelY },
+                        position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
                         data: {
                             edge,
                         },
@@ -386,7 +376,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     throw new Error(`Step not found for action type: ${values.newDraggingNode}`)
                 }
 
-                const { action: partialNewAction, branchEdges = 0 } = step.create()
+                const { action: partialNewAction } = step.create()
 
                 const newAction = {
                     id: `action_${step.type}_${uuid()}`,
@@ -405,8 +395,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     throw new Error('Edge to be replaced not found')
                 }
 
-                // We add the new action with two new edges - the continue edge and the target edge
-                // We also then check for any other missing edges based on the
+                // We add the new action with two new edges - the incoming edge and the outgoing continue edge
 
                 const newEdges: HogFlow['edges'] = [...values.campaign.edges]
 
@@ -415,27 +404,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 newEdges.splice(edgeToBeReplacedIndex, 1)
 
-                // Push the source edge first
+                // Add the incoming edge to the new node
                 newEdges.push({
                     ...edgeToBeReplaced,
                     to: newAction.id,
                 })
 
-                // Then any branch edges
-                for (let i = 0; i < branchEdges; i++) {
-                    // Add in branching edges
-                    newEdges.push({
-                        ...edgeToBeReplaced,
-                        index: i,
-                        type: 'branch',
-                        from: newAction.id,
-                    })
-                }
-
-                // Finally the continue edge
+                // Add only a continue edge as the outgoing connection from the new node
                 newEdges.push({
                     ...edgeToBeReplaced,
                     from: newAction.id,
+                    type: 'continue',
+                    index: undefined,
                 })
 
                 const oldActions = values.campaign.actions
@@ -519,18 +499,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const sourceHandle = sourceNode.handles?.find((h) => h.id === selectedEdge.sourceHandle)
                 const targetHandle = targetNode.handles?.find((h) => h.id === selectedEdge.targetHandle)
 
-                const [, labelX, labelY] = getSmoothStepPath({
+                const [, labelX, labelY] = getSmartStepPath({
                     sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
                     sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                     targetX: targetNode.position.x + (targetHandle?.x || 0),
                     targetY: targetNode.position.y + (targetHandle?.y || 0),
                     sourcePosition: sourceHandle?.position || Position.Bottom,
                     targetPosition: targetHandle?.position || Position.Top,
+                    edges: edges,
+                    currentEdgeId: selectedEdge.id,
                 })
 
                 actions.setEdgeDeletionNodes([
                     {
-                        id: `${selectedEdge.id}_deletion_button`,
+                        id: `deletion_button_${selectedEdge.id}`,
                         type: 'edge_deletion_button',
                         position: { x: labelX - 8, y: labelY - 8 },
                         data: {
