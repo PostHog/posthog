@@ -2,7 +2,6 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import timedelta
-import time
 from typing import Any, Optional
 from uuid import UUID
 
@@ -101,13 +100,4 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
     stream_key = get_conversation_stream_key(inputs.conversation_id)
     redis_stream = ConversationRedisStream(stream_key)
 
-    last_heartbeat_timestamp: float = 0
-
-    def send_heartbeat():
-        nonlocal last_heartbeat_timestamp
-        if time.time() - last_heartbeat_timestamp > 5:
-            # throttle to 5 seconds to avoid sending too many heartbeats
-            activity.heartbeat()
-            last_heartbeat_timestamp = time.time()
-
-    await redis_stream.write_to_stream(assistant.astream(), send_heartbeat)
+    await redis_stream.write_to_stream(assistant.astream(), activity.heartbeat)

@@ -120,7 +120,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 conversation?: string
                 contextual_tools?: Record<string, any>
                 ui_context?: any
-                trace_id?: string
             },
             generationAttempt: number
         ) => ({ streamData, generationAttempt }),
@@ -198,10 +197,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Clear the question
             actions.setQuestion('')
 
-            // Generate a new trace ID for this interaction
-            const traceId = uuid()
-            actions.setTraceId(traceId)
-
             // For a new conversations, set the frontend conversation ID
             if (!values.conversation) {
                 actions.setConversationId(values.conversationId)
@@ -223,7 +218,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
                     ui_context: values.compiledContext || undefined,
                     conversation: values.conversation?.id || values.conversationId,
-                    trace_id: traceId,
                 },
                 0
             )
@@ -253,8 +247,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     // Remove all other fields to ensure clean reconnection call
                     delete apiData.contextual_tools
                     delete apiData.ui_context
-                    delete apiData.trace_id
                 }
+
+                // Generate a new trace ID for this interaction
+                const traceId = uuid()
+                actions.setTraceId(traceId)
+                apiData.trace_id = traceId
 
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
@@ -457,9 +455,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            setTimeout(() => {
-                actions.reconnectToStream()
-            }, 0)
+            if (values.conversation?.status === ConversationStatus.InProgress) {
+                setTimeout(() => {
+                    actions.reconnectToStream()
+                }, 0)
+            }
         },
     })),
 

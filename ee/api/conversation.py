@@ -40,7 +40,7 @@ class MessageSerializer(serializers.Serializer):
         required=True
     )  # this either retrieves an existing conversation or creates a new one
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
-    trace_id = serializers.UUIDField(required=False)  # Only required for new messages
+    trace_id = serializers.UUIDField(required=True)
     ui_context = serializers.JSONField(required=False)
 
     def validate(self, data):
