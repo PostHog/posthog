@@ -5,24 +5,24 @@ from typing import Any
 import openai
 import structlog
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.session_recordings.session_summary.llm.call import call_llm, stream_llm
-from ee.session_recordings.session_summary.output_data import (
+from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
+from ee.hogai.session_summaries.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValidationError
+from ee.hogai.session_summaries import ExceptionToRetry, SummaryValidationError
 from prometheus_client import Histogram
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.patterns.output_data import (
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
-from ee.session_recordings.session_summary.summarize_session import PatternsPrompt
+from ee.hogai.session_summaries.summarize_session import PatternsPrompt
 
 logger = structlog.get_logger(__name__)
 

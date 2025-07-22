@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
-from ee.session_recordings.session_summary.output_data import IntermediateSessionSummarySerializer
-from ee.session_recordings.session_summary.patterns.output_data import RawSessionGroupSummaryPatternsList
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries.output_data import IntermediateSessionSummarySerializer
+from ee.hogai.session_summaries.patterns.output_data import RawSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.summarize_session import (
     ExtraSummaryContext,
     PatternsPrompt,
     SessionSummaryPrompt,
 )
-from ee.session_recordings.session_summary.utils import load_custom_template
+from ee.hogai.session_summaries.utils import load_custom_template
 
 
 def remove_excessive_content_from_session_summary_for_llm(session_summary_str: str) -> str:

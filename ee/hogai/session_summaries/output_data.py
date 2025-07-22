@@ -3,8 +3,8 @@ from typing import Any
 from rest_framework import serializers
 import yaml
 import structlog
-from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.utils import (
+from ee.hogai.session_summaries import SummaryValidationError
+from ee.hogai.session_summaries.utils import (
     get_column_index,
     prepare_datetime,
     strip_raw_llm_content,

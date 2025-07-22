@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from posthog.cloud_utils import is_cloud
 from ee.hogai.session_summaries.summary_notebooks import create_summary_notebook
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.hogai.session_summaries.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.models import User
