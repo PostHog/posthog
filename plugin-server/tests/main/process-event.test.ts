@@ -153,15 +153,15 @@ describe('process-event', () => {
 
         hub = await createHub({ ...TEST_CONFIG })
         console.log("aquiring redis")
-        const redis = await hub.redisPool.acquire()
-        // clear the webhook redis cache
+        // const redis = await hub.redisPool.acquire()
+        // // clear the webhook redis cache
     
-        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-        console.log("deleting redis")
-        await redis.del(hooksCacheKey)
-        console.log("releasing redis")
-        await hub.redisPool.release(redis)
-        console.log("redis released")
+        // const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+        // console.log("deleting redis")
+        // await redis.del(hooksCacheKey)
+        // console.log("releasing redis")
+        // await hub.redisPool.release(redis)
+        // console.log("redis released")
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
