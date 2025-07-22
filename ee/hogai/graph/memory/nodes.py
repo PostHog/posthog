@@ -393,6 +393,9 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        if self.should_run_onboarding_at_start(state) != "continue":
+            return None
+
         node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(

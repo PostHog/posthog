@@ -561,7 +561,7 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_1), "root")
 
-        # Test case 1: No tool call message or root tool call - should return "end"
+        # Test case 2: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
         self.assertEqual(node.router(state_3), "end")
 
