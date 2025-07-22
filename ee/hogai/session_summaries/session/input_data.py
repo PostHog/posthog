@@ -3,11 +3,11 @@ import json
 import re
 from typing import cast
 
-from ee.session_recordings.session_summary.local.input_data import (
+from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
 )
-from ee.session_recordings.session_summary.utils import (
+from ee.hogai.session_summaries.utils import (
     get_column_index,
 )
 from posthog.session_recordings.models.metadata import RecordingMetadata
