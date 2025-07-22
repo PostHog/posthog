@@ -305,13 +305,13 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Create conversion goal processors for reuse across different methods"""
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
-            # Optimization and only create a processor if the conversion goal and cost per goal are in the select clause
-            if (
-                self.query.select
-                and conversion_goal.conversion_goal_name in self.query.select
+            # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
+            should_create = self.query.select is None or (
+                conversion_goal.conversion_goal_name in self.query.select
                 and f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
                 in self.query.select
-            ):
+            )
+            if should_create:
                 logger.info(f"Creating conversion goal processor for {conversion_goal.conversion_goal_name}")
                 processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
                 processors.append(processor)

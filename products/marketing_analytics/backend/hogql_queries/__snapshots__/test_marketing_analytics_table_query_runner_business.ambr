@@ -39,7 +39,7 @@
           campaign,
           source) AS campaign_costs
   ORDER BY
-      2 DESC
+      `Total Cost` DESC
   
   LIMIT 101
   OFFSET 0
@@ -141,7 +141,7 @@
           campaign,
           source) AS cg_0 ON and(equals(campaign_costs.campaign, cg_0.campaign), equals(campaign_costs.source, cg_0.source))
   ORDER BY
-      campaign_costs.total_cost DESC
+      `Total Cost` DESC
   
   LIMIT 101
   OFFSET 0
@@ -187,7 +187,7 @@
           campaign,
           source) AS campaign_costs
   ORDER BY
-      campaign_costs.total_cost DESC
+      `Total Cost` DESC
   
   LIMIT 101
   OFFSET 0
@@ -233,7 +233,7 @@
           campaign,
           source) AS campaign_costs
   ORDER BY
-      campaign_costs.total_cost DESC
+      `Total Cost` DESC
   
   LIMIT 101
   OFFSET 0
@@ -308,7 +308,7 @@
               campaign,
               source) AS campaign_costs
       ORDER BY
-          campaign_costs.total_cost DESC
+          `Total Cost` DESC
       
       LIMIT 101
       OFFSET 0
