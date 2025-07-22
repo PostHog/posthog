@@ -347,7 +347,6 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 3
         assert len(result["results"]) == 3
 
         # Check first result
@@ -383,7 +382,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 2
+        assert len(result["results"]) == 2
         first_result = result["results"][0]
         assert first_result["breakdown_value"] == "/home"
         assert first_result["visitors"] == 200
@@ -406,7 +405,6 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 2
         assert result["results"][0]["breakdown_value"] == "Chrome"
         assert result["results"][1]["breakdown_value"] == EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE
 
@@ -422,10 +420,8 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         result = adapter.get_breakdown_data(serializer)
 
-        assert result["count"] == 0
         assert result["results"] == []
         assert result["next"] is None
-        assert result["previous"] is None
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
     def test_breakdown_missing_columns_raises_error(self, mock_runner_class):
@@ -712,13 +708,11 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
 
         # Verify the response structure
-        assert "count" in result
         assert "results" in result
         assert "next" in result
-        assert "previous" in result
 
         # Verify we actually got data from our test setup
-        assert result["count"] == 2  # Desktop and Mobile
+        assert len(result["results"]) == 2  # Desktop and Mobile
 
         # Sort results for consistent testing
         results = sorted(result["results"], key=lambda x: x["breakdown_value"])
@@ -748,7 +742,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
 
         # Verify we got results
-        assert result["count"] == 3  # /landing, /pricing, /features
+        assert len(result["results"]) == 3  # /landing, /pricing, /features
 
         # Check that results have bounce_rate
         for row in result["results"]:
@@ -771,7 +765,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_breakdown_data(serializer)
 
         # Should still get results since all our test data is from example.com
-        assert result["count"] == 2
+        assert len(result["results"]) == 2
 
         # Test with different host - should get no results
         serializer = WebAnalyticsBreakdownRequestSerializer(
@@ -785,7 +779,7 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         serializer.is_valid(raise_exception=True)
 
         result = adapter.get_breakdown_data(serializer)
-        assert result["count"] == 0
+        assert len(result["results"]) == 0
 
     def test_overview_data_with_host_filter_integration(self):
         adapter = ExternalWebAnalyticsQueryAdapter(self.team)
@@ -818,3 +812,67 @@ class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedT
         result = adapter.get_overview_data(serializer)
         assert result["visitors"] == 0
         assert result["views"] == 0
+
+    def test_breakdown_pagination_integration(self):
+        mock_request = MagicMock()
+        mock_request.build_absolute_uri.return_value = "http://testserver/api/external/web-analytics/breakdown"
+        adapter = ExternalWebAnalyticsQueryAdapter(self.team, request=mock_request)
+
+        # Test first page with limit of 2
+        serializer = WebAnalyticsBreakdownRequestSerializer(
+            data={
+                "breakdown_by": "Page",
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "limit": 2,
+                "offset": 0,
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result_page1 = adapter.get_breakdown_data(serializer)
+
+        assert len(result_page1["results"]) == 2
+
+        # Sort results by breakdown_value for consistent testing
+        sorted_results_page1 = sorted(result_page1["results"], key=lambda x: x["breakdown_value"])
+
+        assert result_page1["next"] is not None
+        assert "limit=2" in result_page1["next"]
+        assert "offset=2" in result_page1["next"]
+
+        for result in sorted_results_page1:
+            assert "breakdown_value" in result
+            assert "visitors" in result
+            assert "views" in result
+            assert "bounce_rate" in result  # Page breakdown supports bounce_rate
+
+        # Test second page
+        serializer_page2 = WebAnalyticsBreakdownRequestSerializer(
+            data={
+                "breakdown_by": "Page",
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "limit": 2,
+                "offset": 2,
+            }
+        )
+        serializer_page2.is_valid(raise_exception=True)
+
+        result_page2 = adapter.get_breakdown_data(serializer_page2)
+
+        assert len(result_page2["results"]) == 1  # 3 total pages, we already showed 2
+
+        sorted_results_page2 = sorted(result_page2["results"], key=lambda x: x["breakdown_value"])
+
+        # Verify the results are different pages
+        page1_values = {r["breakdown_value"] for r in sorted_results_page1}
+        page2_values = {r["breakdown_value"] for r in sorted_results_page2}
+        assert len(page1_values.intersection(page2_values)) == 0  # No overlap
+
+        assert result_page2["next"] is None
+
+        # Verify all pages together are the expected ones
+        all_values = page1_values.union(page2_values)
+        expected_pages = {"/features", "/landing", "/pricing"}
+        assert all_values == expected_pages
