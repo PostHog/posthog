@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
-from ee.session_recordings.session_summary.output_data import IntermediateSessionSummarySerializer
-from ee.session_recordings.session_summary.patterns.output_data import RawSessionGroupSummaryPatternsList
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries.session.output_data import IntermediateSessionSummarySerializer
+from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     PatternsPrompt,
     SessionSummaryPrompt,
 )
-from ee.session_recordings.session_summary.utils import load_custom_template
+from ee.hogai.session_summaries.utils import load_custom_template
 
 
 def remove_excessive_content_from_session_summary_for_llm(session_summary_str: str) -> str:
@@ -59,7 +59,7 @@ def generate_session_group_patterns_extraction_prompt(
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries_str)
-    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_extraction"
+    template_dir = Path(__file__).parent / "templates" / "patterns_extraction"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
     patterns_example = load_custom_template(template_dir, "example.yml")
     patterns_prompt = load_custom_template(
@@ -85,7 +85,7 @@ def generate_session_group_patterns_assignment_prompt(
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries_str)
-    template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_assignment"
+    template_dir = Path(__file__).parent / "templates" / "patterns_assignment"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
     patterns_example = load_custom_template(template_dir, "example.yml")
     patterns_prompt = load_custom_template(

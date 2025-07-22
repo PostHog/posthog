@@ -41,6 +41,7 @@ class AssistantConversationRunnerWorkflowInputs:
     contextual_tools: Optional[dict[str, Any]] = None
     is_new_conversation: bool = False
     trace_id: Optional[str] = None
+    session_id: Optional[str] = None
     mode: AssistantMode = AssistantMode.ASSISTANT
 
 
@@ -94,6 +95,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         contextual_tools=inputs.contextual_tools,
         is_new_conversation=inputs.is_new_conversation,
         trace_id=inputs.trace_id,
+        session_id=inputs.session_id,
         mode=inputs.mode,
     )
 

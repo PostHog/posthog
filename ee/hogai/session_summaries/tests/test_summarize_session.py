@@ -7,17 +7,17 @@ import pytest
 from temporalio.client import WorkflowExecutionStatus
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
-from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries.session.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     get_session_data_from_db,
     generate_single_session_summary_prompt,
 )
-from ee.session_recordings.session_summary.stream import stream_recording_summary
-from ee.session_recordings.session_summary.utils import serialize_to_sse_event
+from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
 pytestmark = pytest.mark.django_db
 
@@ -58,7 +58,7 @@ class TestSummarizeSession:
     @pytest.mark.asyncio
     async def test_prepare_data_no_metadata(self, mock_team: MagicMock, mock_session_id: str):
         with (
-            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
             patch.object(
                 SessionReplayEvents,
                 "get_metadata",
@@ -75,17 +75,17 @@ class TestSummarizeSession:
         """Test that we get proper error data when no events are found (for example, for fresh real-time replays)."""
         with (
             patch(
-                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
-            patch("ee.session_recordings.session_summary.input_data.SessionReplayEvents") as mock_replay_events,
+            patch("ee.hogai.session_summaries.session.input_data.SessionReplayEvents") as mock_replay_events,
         ):
             # Mock the SessionReplayEvents DB model to return different data for each page
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
             with pytest.raises(ValueError, match=f"No columns found for session_id {mock_session_id}"):
-                with patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team):
+                with patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team):
                     get_session_events(
                         session_id=mock_session_id,
                         session_metadata=mock_raw_metadata,  # type: ignore[arg-type]
@@ -114,9 +114,9 @@ class TestSummarizeSession:
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
-            patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch("ee.hogai.session_summaries.session.stream.SERVER_GATEWAY_INTERFACE", "ASGI"),
             patch(
-                "ee.session_recordings.session_summary.stream.execute_summarize_session_stream",
+                "ee.hogai.session_summaries.session.stream.execute_summarize_session_stream",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
@@ -145,9 +145,9 @@ class TestSummarizeSession:
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
-            patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "WSGI"),
+            patch("ee.hogai.session_summaries.session.stream.SERVER_GATEWAY_INTERFACE", "WSGI"),
             patch(
-                "ee.session_recordings.session_summary.stream.execute_summarize_session_stream",
+                "ee.hogai.session_summaries.session.stream.execute_summarize_session_stream",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):

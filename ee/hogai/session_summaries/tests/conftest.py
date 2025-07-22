@@ -4,10 +4,10 @@ from unittest.mock import MagicMock
 import pytest
 from datetime import datetime, UTC
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
-from ee.session_recordings.session_summary.utils import generate_full_event_id
+from ee.hogai.session_summaries.utils import generate_full_event_id
 from posthog.models import Team, User
-from ee.session_recordings.session_summary.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
+from ee.hogai.session_summaries.session.input_data import COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 from posthog.schema import SessionBatchEventsQueryResponse, CachedSessionBatchEventsQueryResponse, SessionEventsItem
 
 

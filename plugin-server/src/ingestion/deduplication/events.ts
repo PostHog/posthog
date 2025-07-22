@@ -7,7 +7,6 @@ import { duplicateBreakdownTotal } from './metrics'
 import { DeduplicationIdsResult, DeduplicationRedis } from './redis-client'
 
 interface KeyMetricData {
-    team_id: number
     source: string
 }
 
@@ -43,19 +42,19 @@ export async function deduplicateEvents(
 
 function duplicateReport(duplicates: Set<string>, keyToMetricDataMap: Map<string, KeyMetricData>): void {
     // Group duplicates by team_id and source to batch metric increments
-    const metricCounts = new Map<string, { labels: { team_id: number; source: string }; count: number }>()
+    const metricCounts = new Map<string, { labels: KeyMetricData; count: number }>()
 
     duplicates.forEach((duplicateKey) => {
         const metricData = keyToMetricDataMap.get(duplicateKey)
         if (metricData) {
-            const key = `${metricData.team_id}:${metricData.source}`
+            const key = metricData.source
             const existing = metricCounts.get(key)
 
             if (existing) {
                 existing.count++
             } else {
                 metricCounts.set(key, {
-                    labels: { team_id: metricData.team_id, source: metricData.source },
+                    labels: { source: metricData.source },
                     count: 1,
                 })
             }
@@ -77,7 +76,7 @@ function extractDeduplicationKeysWithMapping(messages: IncomingEvent[]): {
     messages.forEach(({ event }) => {
         // Create a robust deduplication key using (event_name, distinct_id, timestamp, uuid)
         // This prevents gaming the system when SDKs have bugs or apply naive retry strategies
-        const { token, event: eventName, distinct_id, timestamp, team_id, properties } = event
+        const { token, event: eventName, distinct_id, timestamp, properties } = event
         const source = properties?.$lib ?? 'unknown'
 
         // Only create a key if we have all required fields
@@ -91,7 +90,7 @@ function extractDeduplicationKeysWithMapping(messages: IncomingEvent[]): {
         // Hash the key to prevent it from being too long
         const hashedKey = crypto.createHash('sha256').update(key).digest('hex')
         keys.add(hashedKey)
-        keyToMetricDataMap.set(hashedKey, { team_id: team_id ?? 0, source })
+        keyToMetricDataMap.set(hashedKey, { source })
     })
 
     return {

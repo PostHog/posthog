@@ -40,8 +40,9 @@ class MessageSerializer(serializers.Serializer):
         required=True
     )  # this either retrieves an existing conversation or creates a new one
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
-    trace_id = serializers.UUIDField(required=True)
     ui_context = serializers.JSONField(required=False)
+    trace_id = serializers.UUIDField(required=True)
+    session_id = serializers.CharField(required=False)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -147,7 +148,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             message=serializer.validated_data["message"].model_dump() if has_message else None,
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=is_new_conversation,
-            trace_id=str(serializer.validated_data["trace_id"]),
+            trace_id=serializer.validated_data["trace_id"],
+            session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             mode=AssistantMode.ASSISTANT,
         )
 
