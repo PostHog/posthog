@@ -2,7 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { IconInfo, IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelect,
@@ -60,7 +60,6 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -963,78 +962,75 @@ export default function SurveyEdit(): JSX.Element {
                                                 </BindLogic>
                                             </LemonField.Pure>
                                             <LemonField.Pure
-                                                    label="User sends events"
-                                                    info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
-                                                >
-                                                    <>
-                                                        <EventSelect
-                                                            filterGroupTypes={[
-                                                                TaxonomicFilterGroupType.CustomEvents,
-                                                                TaxonomicFilterGroupType.Events,
-                                                            ]}
-                                                            allowNonCapturedEvents
-                                                            onChange={(includedEvents) => {
-                                                                setSurveyValue('conditions', {
-                                                                    ...survey.conditions,
-                                                                    events: {
-                                                                        values: includedEvents.map((e) => {
-                                                                            return { name: e }
-                                                                        }),
+                                                label="User sends events"
+                                                info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
+                                            >
+                                                <>
+                                                    <EventSelect
+                                                        filterGroupTypes={[
+                                                            TaxonomicFilterGroupType.CustomEvents,
+                                                            TaxonomicFilterGroupType.Events,
+                                                        ]}
+                                                        allowNonCapturedEvents
+                                                        onChange={(includedEvents) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                events: {
+                                                                    values: includedEvents.map((e) => {
+                                                                        return { name: e }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedEvents={
+                                                            survey.conditions?.events?.values?.length != undefined &&
+                                                            survey.conditions?.events?.values?.length > 0
+                                                                ? survey.conditions?.events?.values.map((v) => v.name)
+                                                                : []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add event
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                    {surveyRepeatedActivationAvailable && (
+                                                        <div className="flex flex-row gap-2 items-center">
+                                                            Survey display frequency
+                                                            <LemonSelect
+                                                                onChange={(value) => {
+                                                                    setSurveyValue('conditions', {
+                                                                        ...survey.conditions,
+                                                                        events: {
+                                                                            ...survey.conditions?.events,
+                                                                            repeatedActivation: value,
+                                                                        },
+                                                                    })
+                                                                }}
+                                                                value={
+                                                                    survey.conditions?.events?.repeatedActivation ||
+                                                                    false
+                                                                }
+                                                                options={[
+                                                                    {
+                                                                        label: 'Just once',
+                                                                        value: false,
                                                                     },
-                                                                })
-                                                            }}
-                                                            selectedEvents={
-                                                                survey.conditions?.events?.values?.length !=
-                                                                    undefined &&
-                                                                survey.conditions?.events?.values?.length > 0
-                                                                    ? survey.conditions?.events?.values.map(
-                                                                          (v) => v.name
-                                                                      )
-                                                                    : []
-                                                            }
-                                                            addElement={
-                                                                <LemonButton
-                                                                    size="small"
-                                                                    type="secondary"
-                                                                    icon={<IconPlus />}
-                                                                    sideIcon={null}
-                                                                >
-                                                                    Add event
-                                                                </LemonButton>
-                                                            }
-                                                        />
-                                                        {surveyRepeatedActivationAvailable && (
-                                                            <div className="flex flex-row gap-2 items-center">
-                                                                Survey display frequency
-                                                                <LemonSelect
-                                                                    onChange={(value) => {
-                                                                        setSurveyValue('conditions', {
-                                                                            ...survey.conditions,
-                                                                            events: {
-                                                                                ...survey.conditions?.events,
-                                                                                repeatedActivation: value,
-                                                                            },
-                                                                        })
-                                                                    }}
-                                                                    value={
-                                                                        survey.conditions?.events?.repeatedActivation ||
-                                                                        false
-                                                                    }
-                                                                    options={[
-                                                                        {
-                                                                            label: 'Just once',
-                                                                            value: false,
-                                                                        },
-                                                                        {
-                                                                            label: 'Every time any of the above events are captured',
-                                                                            value: true,
-                                                                        },
-                                                                    ]}
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </>
-                                                </LemonField.Pure>
+                                                                    {
+                                                                        label: 'Every time any of the above events are captured',
+                                                                        value: true,
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </>
+                                            </LemonField.Pure>
                                             {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
                                                 <LemonField.Pure
                                                     label="User performs actions"

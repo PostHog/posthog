@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useMemo, useRef } from 'react'
 import { sanitizeSurvey } from 'scenes/surveys/utils'
@@ -6,7 +5,6 @@ import { sanitizeSurvey } from 'scenes/surveys/utils'
 import { Survey } from '~/types'
 
 import { NewSurvey } from './constants'
-import { surveysLogic } from './surveysLogic'
 
 interface Props {
     survey: Survey | NewSurvey

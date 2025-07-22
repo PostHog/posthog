@@ -11,7 +11,6 @@ import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyF
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 function doesSurveyHaveDisplayConditions(survey: Pick<Survey, 'conditions'>): boolean {
     return !!(
