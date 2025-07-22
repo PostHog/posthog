@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
@@ -2063,7 +2064,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
-    @pytest.mark.flaky(max_runs=3)
+    @pytest.mark.flaky(max_runs=2)
     def test_cohort_filter_with_extra(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -2110,9 +2111,18 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         cohort.calculate_people_ch(pending_version=0)
-        res, q, params = execute(filter, self.team)
 
-        self.assertEqual([p2.uuid], [r[0] for r in res])
+        @retry(wait=wait_exponential(multiplier=1, min=1, max=3), stop=stop_after_attempt(5))
+        def assert_cohort_results(expected: list[str]):
+            """
+            we retry the cohort query with backoff
+            to give the cohort time to calculate
+            and hopefully to stop the test flaking in cI
+            """
+            res, q, params = execute(filter, self.team)
+            assert sorted(expected) == sorted([r[0] for r in res])
+
+        assert_cohort_results([p2.uuid])
 
         filter = Filter(
             data={
@@ -2135,9 +2145,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         cohort.calculate_people_ch(pending_version=0)
-        res, q, params = execute(filter, self.team)
-
-        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
+        assert_cohort_results([p1.uuid, p2.uuid])
 
     @snapshot_clickhouse_queries
     def test_cohort_filter_with_another_cohort_with_event_sequence(self):
