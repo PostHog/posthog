@@ -216,7 +216,7 @@ describe('process-event', () => {
         await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
     }
 
-    test.only('merge people', async () => {
+    test('merge people', async () => {
         const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
