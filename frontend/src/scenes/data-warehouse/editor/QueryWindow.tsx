@@ -9,6 +9,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -207,7 +209,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 size="xsmall"
                                 data-attr="sql-editor-format-button"
                                 id="sql-editor-query-window-format-sql"
-                                tooltip="⇧⌥F"
+                                tooltip={<KeyboardShortcut shift option f />}
                             >
                                 Format SQL
                             </LemonButton>
