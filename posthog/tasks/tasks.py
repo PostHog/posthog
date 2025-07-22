@@ -889,12 +889,15 @@ def background_delete_model_task(
         else:
             records_to_delete = total_count
 
+        # At this point, records_to_delete is guaranteed to be an int
+        records_to_delete_int: int = records_to_delete
+
         deleted_count = 0
         batch_num = 0
 
-        while deleted_count < records_to_delete:
+        while deleted_count < records_to_delete_int:
             # Calculate how many more records we can delete
-            remaining_to_delete = records_to_delete - deleted_count
+            remaining_to_delete = records_to_delete_int - deleted_count
             current_batch_size = min(batch_size, remaining_to_delete)
 
             # Get batch of IDs to delete
@@ -916,7 +919,7 @@ def background_delete_model_task(
             logger.info(
                 f"Deleted batch {batch_num} for {model_name}, "
                 f"team_id={team_id}, batch_size={deleted_in_batch}, "
-                f"total_deleted={deleted_count}/{records_to_delete}"
+                f"total_deleted={deleted_count}/{records_to_delete_int}"
             )
 
             # If we got fewer records than requested, we're done
