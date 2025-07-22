@@ -10,7 +10,7 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
 use tokio::time::{sleep, timeout};
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 // Add thread-local imports for test-specific counter
 #[cfg(test)]
@@ -67,6 +67,7 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
+#[instrument(skip_all, fields(team_id = %team_id, distinct_id = %distinct_id, person_query_ms, cohort_query_ms, group_query_ms, cohort_ids = ?static_cohort_ids, group_type_indexes = ?group_type_indexes, group_keys = ?group_keys))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -121,6 +122,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_query_timer.fin();
 
     let person_query_duration = person_query_start.elapsed();
+    tracing::Span::current().record("person_query_ms", person_query_duration.as_millis());
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -166,6 +168,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             cohort_timer.fin();
 
             let cohort_query_duration = cohort_query_start.elapsed();
+            tracing::Span::current().record("cohort_query_ms", cohort_query_duration.as_millis());
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -257,6 +260,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         group_query_timer.fin();
 
         let group_query_duration = group_query_start.elapsed();
+        tracing::Span::current().record("group_query_ms", group_query_duration.as_millis());
 
         if group_query_duration.as_millis() > 300 {
             warn!(
