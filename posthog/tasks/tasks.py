@@ -912,6 +912,8 @@ def background_delete_model_task(model_name: str, team_id: int, batch_size: int 
             if len(batch_ids) < batch_size:
                 break
 
+            time.sleep(0.2)  # Sleep to avoid overwhelming the database
+
         logger.info(
             f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
         )
