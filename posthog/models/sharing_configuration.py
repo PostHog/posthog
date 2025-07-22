@@ -1,5 +1,5 @@
 import secrets
-from typing import cast, Optional
+from typing import cast
 from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
@@ -72,40 +72,6 @@ class SharingConfiguration(models.Model):
                 )
 
         raise Exception(f"Could not generate unique token after {max_retries} attempts")
-
-    @classmethod
-    def get_active_config_by_token(cls, token: str) -> Optional["SharingConfiguration"]:
-        """Get non-expired sharing configuration by token"""
-        try:
-            return cls.objects.select_related("dashboard", "insight", "recording").get(
-                access_token=token,
-                enabled=True,
-                expires_at__isnull=True,  # Only active (non-expired) configs
-            )
-        except cls.DoesNotExist:
-            return None
-
-    @classmethod
-    def get_config_by_token_including_expired(cls, token: str) -> Optional["SharingConfiguration"]:
-        """Get sharing configuration by token, including recently expired ones within grace period"""
-        now = timezone.now()
-        grace_period = timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
-
-        try:
-            return (
-                cls.objects.select_related("dashboard", "insight", "recording")
-                .filter(
-                    access_token=token,
-                    enabled=True,
-                )
-                .filter(
-                    models.Q(expires_at__isnull=True)  # Active configs
-                    | models.Q(expires_at__gt=now - grace_period)  # Recently expired within grace
-                )
-                .first()
-            )
-        except cls.DoesNotExist:
-            return None
 
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""

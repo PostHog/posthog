@@ -271,10 +271,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
-            # Try to find active configuration first, then fall back to recently expired
-            sharing_configuration = SharingConfiguration.get_active_config_by_token(access_token)
-            if not sharing_configuration:
-                sharing_configuration = SharingConfiguration.get_config_by_token_including_expired(access_token)
+            # Find non-expired configuration (expires_at is NULL for active, or in the future for grace period)
+            sharing_configuration = (
+                SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
+                .filter(
+                    access_token=access_token,
+                    enabled=True,
+                )
+                .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                .first()
+            )
 
             if sharing_configuration and sharing_configuration.enabled:
                 return sharing_configuration
