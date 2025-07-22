@@ -150,8 +150,8 @@ export function ExperimentMetricForm({
                         />
                         {isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.HogQL && (
                             <div className="text-muted text-sm mt-2">
-                                SQL expressions allow you to write custom aggregations using HogQL. The expression
-                                should return a numeric value per user.{' '}
+                                SQL expressions allow you to write custom computations and aggregations. The expression
+                                should return a numeric value and will be evaluated for each user in the experiment.{' '}
                                 <Link
                                     to="https://posthog.com/docs/hogql/expressions"
                                     target="_blank"
