@@ -56,6 +56,8 @@ fn test_props(fingerprint: Fingerprint) -> FingerprintedErrProps {
     FingerprintedErrProps {
         exception_list: vec![],
         fingerprint,
+        proposed_issue_name: None,
+        proposed_issue_description: None,
         proposed_fingerprint: String::new(),
         other: HashMap::new(),
     }
