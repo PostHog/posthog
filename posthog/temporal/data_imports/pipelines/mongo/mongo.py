@@ -332,14 +332,13 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
 
 def mongo_source(
     connection_string: str,
-    collection_names: list[str],
+    collection_name: str,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> SourceResponse:
-    collection_name = collection_names[0]
     if not collection_name:
         raise ValueError("Collection name is missing")
 

@@ -44,6 +44,6 @@ class BaseSource(ABC, Generic[ConfigType]):
         return self.config_class.from_dict(job_inputs)
 
     @abstractmethod
-    def validate_credentials(self, config: ConfigType) -> bool:
-        """Check whether the provided credentials are valid for this source"""
-        return True
+    def validate_credentials(self, config: ConfigType) -> tuple[bool, str | None]:
+        """Check whether the provided credentials are valid for this source. Returns an optional error message"""
+        return True, None

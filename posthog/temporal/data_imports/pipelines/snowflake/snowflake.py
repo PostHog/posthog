@@ -33,6 +33,22 @@ class SnowflakeSourceConfig(config.Config):
     role: str | None = None
 
 
+def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "numeric":
+            results.append((column_name, IncrementalFieldType.Numeric))
+
+    return results
+
+
 def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]]]:
     auth_connect_args: dict[str, str | None] = {}
     file_name: str | None = None

@@ -1,41 +1,9 @@
-from typing import TYPE_CHECKING, Any
-
 import psycopg2
 from psycopg2 import sql
 
-from posthog.temporal.data_imports.pipelines.mssql import (
-    MSSQLSourceConfig,
-    get_schemas as get_mssql_schemas,
-)
-from posthog.temporal.data_imports.pipelines.mysql import (
-    MySQLSourceConfig,
-    get_schemas as get_mysql_schemas,
-)
 
-from posthog.temporal.data_imports.pipelines.postgres import (
-    get_schemas as get_postgres_schemas,
-)
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType
-
-if TYPE_CHECKING:
-    from .models.external_data_source import ExternalDataSource
-
-
-def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
-        type = type.lower()
-        if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
-        elif type == "datetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
-        elif type == "numeric":
-            results.append((column_name, IncrementalFieldType.Numeric))
-
-    return results
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -137,21 +105,3 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
             results.append((column_name, IncrementalFieldType.Integer))
 
     return results
-
-
-def get_sql_schemas_for_source_type(
-    source_type: "ExternalDataSource.Type", job_inputs: dict[str, Any]
-) -> dict[str, list[tuple[str, str]]]:
-    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-    from .models.external_data_source import ExternalDataSource
-
-    if source_type == ExternalDataSource.Type.POSTGRES:
-        schemas = get_postgres_schemas(PostgresSourceConfig.from_dict(job_inputs))
-    elif source_type == ExternalDataSource.Type.MYSQL:
-        schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(job_inputs))
-    elif source_type == ExternalDataSource.Type.MSSQL:
-        schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(job_inputs))
-    else:
-        raise Exception("Unsupported source_type")
-
-    return schemas
