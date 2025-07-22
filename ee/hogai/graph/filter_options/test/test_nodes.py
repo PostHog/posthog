@@ -249,6 +249,49 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(default_result.intermediate_steps), 1)
         self.assertEqual(len(custom_result.intermediate_steps), 1)
 
+    def test_intermediate_steps_and_tool_progress_messages_same_length(self):
+        """Test that intermediate_steps and tool_progress_messages have the same number of elements."""
+        tool_calls = [
+            {"name": "retrieve_entity_properties", "args": {"arguments": {"entity": "person"}}, "id": "call_123"}
+        ]
+
+        # Create a message with the expected tool calls
+        message = LangchainAIMessage(content="", tool_calls=tool_calls)
+        mock_model = FakeChatOpenAI(responses=[message])
+
+        node = FilterOptionsNode(self.team, self.user)
+
+        with patch.object(node, "_get_model", return_value=mock_model):
+            state = FilterOptionsState(
+                change="show me user properties",
+                current_filters={"property": "active"},
+                tool_progress_messages=[
+                    LangchainAIMessage(
+                        content="Tool 'retrieve_entity_properties' was called with arguments {'arguments': {'entity': 'person'}} and returned: All the properties",
+                        tool_call_id="call_123",
+                    )
+                ],
+                intermediate_steps=[
+                    (
+                        AgentAction(
+                            tool="retrieve_entity_properties",
+                            tool_input={"arguments": {"entity": "person"}},
+                            log="call_123",
+                        ),
+                        "All the properties",
+                    )
+                ],
+            )
+
+            result = node.run(state, {})
+
+            # Verify result structure
+            self.assertIsInstance(result, PartialFilterOptionsState)
+            assert result.intermediate_steps is not None
+
+            # Assert that intermediate_steps and tool_progress_messages have the same length
+            self.assertEqual(len(result.intermediate_steps), len(result.tool_progress_messages))
+
 
 class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_with_generated_filter_options(self):

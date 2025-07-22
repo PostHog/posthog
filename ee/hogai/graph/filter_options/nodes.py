@@ -144,7 +144,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         """Process the state and return filtering options."""
-        progress_messages = list(getattr(state, "tool_progress_messages", []))
+        progress_messages = getattr(state, "tool_progress_messages", [])
         full_conversation = self._construct_messages(state)
 
         chain = full_conversation | merge_message_runs() | self._get_model(state)
