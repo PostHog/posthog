@@ -243,25 +243,19 @@ class TestEventDefinitionAPI(APIBaseTest):
             {"name": "updated_event"},
         )
 
-        assert response.status_code == status.HTTP_200_OK
-
-        event_definition.refresh_from_db()
-        assert event_definition.name == "updated_event"
-        assert response.json()["name"] == "updated_event"
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
     @patch("posthog.models.Organization.is_feature_available", return_value=False)
     def test_update_event_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
-        """Test that enterprise-only fields are ignored for basic users"""
+        """Test that enterprise-only fields require license"""
         event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
 
         response = self.client.patch(
             f"/api/projects/@current/event_definitions/{event_definition.id}",
-            {"verified": True},  # This should be ignored since it's enterprise-only
+            {"verified": True},  # This should be blocked since it's enterprise-only
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        # Enterprise fields should not be in the response for basic users
-        assert "verified" not in response.json()
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)

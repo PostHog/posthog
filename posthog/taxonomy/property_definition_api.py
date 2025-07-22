@@ -17,6 +17,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
+from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -462,7 +463,10 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
             return super().update(property_definition, changed_fields)
         else:
-            # Delegate to TaggedItemSerializerMixin.update() which calls ModelSerializer.update()
+            # Any other fields require ingestion taxonomy feature
+            request = self.context.get("request")
+            if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
+                raise EnterpriseFeatureException()
             return super().update(property_definition, validated_data)
 
 
