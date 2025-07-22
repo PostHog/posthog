@@ -29,6 +29,7 @@ import {
     AccessControlTypeRole,
     AvailableFeature,
     OrganizationMemberType,
+    RoleMemberType,
     RoleType,
 } from '~/types'
 
@@ -286,7 +287,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 return (
                     <ProfileBubbles
                         people={
-                            rolesById[role]?.members?.map((member: OrganizationMemberType) => ({
+                            rolesById[role]?.members?.map((member: RoleMemberType) => ({
                                 email: member.user.email,
                                 name: fullName(member.user),
                                 title: `${fullName(member.user)} <${member.user.email}>`,
