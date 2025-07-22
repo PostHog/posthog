@@ -48,14 +48,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
-            {/* <PageHeader
-                buttons={
-                    <div className="flex gap-x-2">
-                        {hasIntegrations ? <ConnectIssueButton /> : null}
-                    </div>
-                }
-            /> */}
-
             <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
                 <div className="space-y-2 col-span-3">
                     <ExceptionCard

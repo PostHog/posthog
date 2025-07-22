@@ -19,8 +19,7 @@ import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { StatusIndicator } from './components/Indicator'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-
-// TODO: external references
+import { ExternalReferences } from './components/ExternalReferences'
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
@@ -130,7 +129,7 @@ const IssueAssigneeSelect = ({
 const IssueExternalReference = (): JSX.Element => {
     return (
         <ScenePanelLabel title="External references">
-            <div>References go here</div>
+            <ExternalReferences />
         </ScenePanelLabel>
     )
 }
