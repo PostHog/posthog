@@ -10,20 +10,37 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="messagecategory",
-            name="category_type",
-            field=models.CharField(
-                choices=[("marketing", "MARKETING"), ("transactional", "TRANSACTIONAL")],
-                default="marketing",
-                max_length=32,
-            ),
-        ),
-        migrations.AddField(
-            model_name="messagetemplate",
-            name="message_category",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.messagecategory"
-            ),
-        ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.AddField(
+                    model_name="messagecategory",
+                    name="category_type",
+                    field=models.CharField(
+                        choices=[("marketing", "MARKETING"), ("transactional", "TRANSACTIONAL")],
+                        default="marketing",
+                        max_length=32,
+                    ),
+                ),
+                migrations.AddField(
+                    model_name="messagetemplate",
+                    name="message_category",
+                    field=models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to="posthog.messagecategory",
+                    ),
+                ),
+            ],
+            state_operations=[
+                migrations.RunSQL(
+                    """
+                    CREATE INDEX CONCURRENTLY "posthog_messagetemplate_message_category_id_3a1fda4d" ON "posthog_messagetemplate" ("message_category_id");
+                    """,
+                    reverse_sql="""
+                        DROP INDEX IF EXISTS "posthog_messagetemplate_message_category_id_3a1fda4d";
+                    """,
+                ),
+            ],
+        )
     ]
