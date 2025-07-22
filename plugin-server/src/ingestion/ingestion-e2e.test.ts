@@ -153,17 +153,16 @@ export const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (even
     return events.map(createKafkaMessage)
 }
 
-const testWithTeamIngesterBase = (
+const testWithTeamIngester = (
     name: string,
-    testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
-    pluginServerConfig: Partial<PluginsServerConfig> = {},
-    teamOverrides: Partial<Team> = {}
+    config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
+    testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>
 ) => {
     test.concurrent(name, async () => {
         const hub = await createHub({
             PLUGINS_DEFAULT_LOG_LEVEL: 0,
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
-            ...pluginServerConfig,
+            ...config.pluginServerConfig,
         })
         const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
@@ -176,7 +175,7 @@ const testWithTeamIngesterBase = (
             organization_id: organizationId,
             uuid: v4(),
             name: teamId.toString(),
-            ...teamOverrides,
+            ...config.teamOverrides,
         }
         const userUuid = new UUIDT().toString()
         const organizationMembershipId = new UUIDT().toString()
@@ -188,7 +187,7 @@ const testWithTeamIngesterBase = (
             userUuid,
             newTeam.organization_id,
             organizationMembershipId,
-            teamOverrides
+            config.teamOverrides
         )
 
         // Fetch the team from the database to ensure we have the actual persisted data
@@ -217,45 +216,6 @@ const testWithTeamIngesterBase = (
     })
 }
 
-const testWithTeamIngester = (
-    name: string,
-    config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
-    testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>
-) => {
-    describe(name, () => {
-        testWithTeamIngesterBase(
-            `${name} (batch writing disabled)`,
-            testFn,
-            {
-                ...config.pluginServerConfig,
-                PERSON_BATCH_WRITING_MODE: 'NONE',
-            },
-            config.teamOverrides
-        )
-
-        testWithTeamIngesterBase(
-            `${name} (batch writing enabled)`,
-            testFn,
-            {
-                ...config.pluginServerConfig,
-                PERSON_BATCH_WRITING_MODE: 'BATCH',
-            },
-            config.teamOverrides
-        )
-
-        testWithTeamIngesterBase(
-            `${name} (batch writing shadow mode enabled)`,
-            testFn,
-            {
-                ...config.pluginServerConfig,
-                PERSON_BATCH_WRITING_MODE: 'SHADOW',
-                PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
-            },
-            config.teamOverrides
-        )
-    })
-}
-
 describe('Event Pipeline E2E tests', () => {
     beforeAll(async () => {
         await resetTestDatabase()
@@ -278,9 +238,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
-        await waitForKafkaMessages(hub)
-
         await waitForExpect(async () => {
+            await waitForKafkaMessages(hub)
             const warnings = await fetchIngestionWarnings(hub, team.id)
             expect(warnings).toEqual([
                 expect.objectContaining({
@@ -375,41 +334,37 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
-    testWithTeamIngester(
-        'can handle high amount of $groupidentify in same batch',
-        { pluginServerConfig: { GROUP_BATCH_WRITING_ENABLED: true } },
-        async (ingester, hub, team) => {
-            const n = 150
-            const distinctId = new UUIDT().toString()
-            const events = []
-            for (let i = 0; i < n; i++) {
-                const m: Record<string, number> = {}
-                m[i.toString()] = i
-                events.push(
-                    new EventBuilder(team, distinctId)
-                        .withEvent('$groupidentify')
-                        .withGroupProperties('organization', 'group_key', m)
-                        .build()
-                )
-            }
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            await waitForKafkaMessages(hub)
-
-            await waitForExpect(async () => {
-                const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(n)
-            })
-
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
-            // Create group once
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            // Update once
-            expect(hub.db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+    testWithTeamIngester('can handle high amount of $groupidentify in same batch', {}, async (ingester, hub, team) => {
+        const n = 150
+        const distinctId = new UUIDT().toString()
+        const events = []
+        for (let i = 0; i < n; i++) {
+            const m: Record<string, number> = {}
+            m[i.toString()] = i
+            events.push(
+                new EventBuilder(team, distinctId)
+                    .withEvent('$groupidentify')
+                    .withGroupProperties('organization', 'group_key', m)
+                    .build()
+            )
         }
-    )
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const events = await fetchEvents(hub, team.id)
+            expect(events.length).toEqual(n)
+        })
+
+        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
+        // Create group once
+        expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+        // Update once
+        expect(hub.db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+    })
 
     testWithTeamIngester('can handle multiple $groupidentify in same batch', {}, async (ingester, hub, team) => {
         const timestamp = DateTime.now().toMillis()
@@ -1170,7 +1125,7 @@ describe('Event Pipeline E2E tests', () => {
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *
-            FROM ingestion_warnings
+            FROM ingestion_warnings_mv
             WHERE team_id = ${teamId}
         `)) as unknown as ClickHouse.ObjectQueryResult<any>
         return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
@@ -2009,4 +1964,222 @@ describe('Event Pipeline E2E tests', () => {
             })
         }
     )
+
+    // testWithTeamIngester(
+    //     'we do not alias users if distinct id changes but we are already identified',
+    //     {},
+    //     async (ingester, hub, team) => {
+    //         // This test is in reference to
+    //         // https://github.com/PostHog/posthog/issues/5527 , where we were
+    //         // correctly identifying that an anonymous user before login should be
+    //         // aliased to the user they subsequently login as, but incorrectly
+    //         // aliasing on subsequent $identify events. The anonymous case is
+    //         // special as we want to alias to a known user, but otherwise we
+    //         // shouldn't be doing so.
+
+    //         const anonymousId = 'anonymous_id'
+    //         const initialDistinctId = 'initial_distinct_id'
+    //         const p2DistinctId = 'p2_distinct_id'
+    //         const p2NewDistinctId = 'new_distinct_id'
+
+    //         // Play out a sequence of events that should result in two users being
+    //         // identified, with the first to events associated with one user, and
+    //         // the third with another.
+    //         const events = [
+    //             new EventBuilder(team, anonymousId).withEvent('event 1').build(),
+    //             new EventBuilder(team, initialDistinctId)
+    //                 .withEvent('$identify')
+    //                 .withProperties({ $anon_distinct_id: anonymousId })
+    //                 .build(),
+    //             new EventBuilder(team, initialDistinctId).withEvent('event 2').build(),
+    //             new EventBuilder(team, p2DistinctId).withEvent('event 3').build(),
+    //             new EventBuilder(team, p2NewDistinctId)
+    //                 .withEvent('$identify')
+    //                 .withProperties({ $anon_distinct_id: p2DistinctId })
+    //                 .build(),
+    //             new EventBuilder(team, p2NewDistinctId).withEvent('event 4').build(),
+    //             // Let's also make sure that we do not alias when switching back to initialDistictId
+    //             new EventBuilder(team, initialDistinctId)
+    //                 .withEvent('$identify')
+    //                 .withProperties({ $anon_distinct_id: p2NewDistinctId })
+    //                 .build(),
+    //         ]
+
+    //         await ingester.handleKafkaBatch(createKafkaMessages(events))
+    //         await waitForKafkaMessages(hub)
+
+    //         await waitForExpect(async () => {
+    //             const persons = await fetchPostgresPersons(hub.db, team.id)
+    //             expect(persons.length).toBe(2)
+
+    //             // Both persons should be identified
+    //             expect(persons.map((person) => person.is_identified)).toEqual([true, true])
+
+    //             // Check that events are grouped correctly by person
+    //             const events = await fetchEvents(hub, team.id)
+    //             const eventsByPersonId = new Map<string, string[]>()
+
+    //             for (const event of events) {
+    //                 const personId = event.person_id!
+    //                 if (!eventsByPersonId.has(personId)) {
+    //                     eventsByPersonId.set(personId, [])
+    //                 }
+    //                 eventsByPersonId.get(personId)!.push(event.event)
+    //             }
+
+    //             expect(eventsByPersonId.size).toBe(2)
+    //             const eventGroups = Array.from(eventsByPersonId.values()).sort((a, b) => a.length - b.length)
+    //             expect(eventGroups).toEqual(
+    //                 expect.arrayContaining([
+    //                     expect.arrayContaining(['event 3', '$identify', 'event 4']),
+    //                     expect.arrayContaining(['event 1', '$identify', 'event 2', '$identify']),
+    //                 ])
+    //             )
+    //         })
+    //     }
+    // )
+
+    testWithTeamIngester(
+        'we do not alias users if distinct id changes but we are already identified, with no anonymous event',
+        {},
+        async (ingester, hub, team) => {
+            // This test is similar to the previous one, except it does not include an initial anonymous event.
+
+            const anonymousId = 'anonymous_id'
+            const initialDistinctId = 'initial_distinct_id'
+            const p2DistinctId = 'p2_distinct_id'
+            const p2NewDistinctId = 'new_distinct_id'
+
+            // Play out a sequence of events that should result in two users being
+            // identified, with the first to events associated with one user, and
+            // the third with another.
+            const events = [
+                new EventBuilder(team, initialDistinctId)
+                    .withEvent('$identify')
+                    .withProperties({ $anon_distinct_id: anonymousId })
+                    .build(),
+                new EventBuilder(team, initialDistinctId).withEvent('event 2').build(),
+                new EventBuilder(team, p2DistinctId).withEvent('event 3').build(),
+                new EventBuilder(team, p2NewDistinctId)
+                    .withEvent('$identify')
+                    .withProperties({ $anon_distinct_id: p2DistinctId })
+                    .build(),
+                new EventBuilder(team, p2NewDistinctId).withEvent('event 4').build(),
+                // Let's also make sure that we do not alias when switching back to initialDistictId
+                new EventBuilder(team, initialDistinctId)
+                    .withEvent('$identify')
+                    .withProperties({ $anon_distinct_id: p2NewDistinctId })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(2)
+
+                // Both persons should be identified
+                expect(persons.map((person) => person.is_identified)).toEqual([true, true])
+
+                // Check that events are grouped correctly by person
+                const events = await fetchEvents(hub, team.id)
+                const eventsByPersonId = new Map<string, string[]>()
+
+                for (const event of events) {
+                    const personId = event.person_id!
+                    if (!eventsByPersonId.has(personId)) {
+                        eventsByPersonId.set(personId, [])
+                    }
+                    eventsByPersonId.get(personId)!.push(event.event)
+                }
+
+                expect(eventsByPersonId.size).toBe(2)
+                const eventGroups = Array.from(eventsByPersonId.values()).sort((a, b) => a.length - b.length)
+                expect(eventGroups).toEqual(
+                    expect.arrayContaining([
+                        expect.arrayContaining(['event 3', '$identify', 'event 4']),
+                        expect.arrayContaining(['$identify', 'event 2', '$identify']),
+                    ])
+                )
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        'we do not leave things in inconsistent state if $identify is run concurrently',
+        {},
+        async (ingester, hub, team) => {
+            // There are a few places where we have the pattern of:
+            //
+            //  1. fetch from postgres
+            //  2. check rows match condition
+            //  3. perform update
+            //
+            // This test is designed to check the specific case where, in
+            // handling we are creating an unidentified user, then updating this
+            // user to have is_identified = true. Since we are using the
+            // is_identified to decide on if we will merge persons, we want to
+            // make sure we guard against this race condition.
+
+            const anonymousId = 'anonymous_id'
+            const initialDistinctId = 'initial-distinct-id'
+            const newDistinctId = 'new-distinct-id'
+
+            const events = [
+                new EventBuilder(team, newDistinctId).withEvent('some event').build(),
+                new EventBuilder(team, initialDistinctId)
+                    .withEvent('$identify')
+                    .withProperties({ $anon_distinct_id: anonymousId })
+                    .build(),
+                new EventBuilder(team, newDistinctId)
+                    .withEvent('$identify')
+                    .withProperties({ $anon_distinct_id: anonymousId })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(2)
+                expect(persons.map((person) => person.is_identified)).toEqual([true, true])
+            })
+        }
+    )
+
+    testWithTeamIngester('we can alias an anonymous person to an anonymous person', {}, async (ingester, hub, team) => {
+        const anonymous1 = 'anonymous-1'
+        const anonymous2 = 'anonymous-2'
+
+        const events = [
+            new EventBuilder(team, anonymous1).withEvent('anonymous event 1').build(),
+            new EventBuilder(team, anonymous2).withEvent('anonymous event 2').build(),
+            // Then try to alias them
+            new EventBuilder(team, anonymous2).withEvent('$create_alias').withProperties({ alias: anonymous1 }).build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+
+            // Make sure there is one identified person
+            expect(persons.map((person) => person.is_identified)).toEqual([true])
+
+            // Check that events are grouped correctly by person
+            const events = await fetchEvents(hub, team.id)
+            expect(events.length).toBe(3)
+
+            // All events should belong to the same person
+            const personIds = new Set(events.map((e) => e.person_id))
+            expect(personIds.size).toBe(1)
+
+            const eventNames = events.map((e) => e.event).sort()
+            expect(eventNames).toEqual(['$create_alias', 'anonymous event 1', 'anonymous event 2'])
+        })
+    })
 })

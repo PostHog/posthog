@@ -4,7 +4,7 @@ import { v4 } from 'uuid'
 
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
@@ -162,7 +162,7 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         runner = new TestEventPipelineRunner(
             hub,
@@ -347,7 +347,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
+                const personsStore = new BatchWritingPersonsStoreForBatch(hub.db)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
                 runner = new TestEventPipelineRunner(
                     hub,
@@ -393,7 +393,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new MeasuringPersonsStoreForBatch(hub.db)
+                const personsStore = new BatchWritingPersonsStoreForBatch(hub.db)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
 
                 runner = new TestEventPipelineRunner(

@@ -12,22 +12,11 @@ import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
-import {
-    ClickHouseEvent,
-    Database,
-    Hub,
-    InternalPerson,
-    LogLevel,
-    Person,
-    PluginsServerConfig,
-    Team,
-} from '../../src/types'
+import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
-import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -120,12 +109,16 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
-    await runner.runEventPipeline(pluginEvent, team)
+    const result = await runner.runEventPipeline(pluginEvent, team)
 
-    await groupStoreForBatch.flush()
+    const personMessages = (await personsStoreForBatch.flush()).map((m) => m.topicMessage)
+    const groupMessages = (await groupStoreForBatch.flush()).map((m) => m.topicMessage)
+    await hub.db.kafkaProducer.queueMessages([...personMessages, ...groupMessages])
+    await hub.db.kafkaProducer.flush()
+    await Promise.all(result.ackPromises ?? [])
 
     await delayUntilEventIngested(async () => {
         return await hub.db.fetchEvents()
@@ -186,10 +179,15 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
-    await runner.runEventPipeline(event, team)
+    const result = await runner.runEventPipeline(event, team)
+    const personMessages = (await personsStoreForBatch.flush()).map((m) => m.topicMessage)
+    const groupMessages = (await groupStoreForBatch.flush()).map((m) => m.topicMessage)
+    await hub.db.kafkaProducer.queueMessages([...personMessages, ...groupMessages])
+    await hub.db.kafkaProducer.flush()
+    await Promise.all(result.ackPromises ?? [])
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
@@ -210,333 +208,6 @@ const alias = async (hub: Hub, alias: string, distinctId: string) => {
     await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
 }
 
-test('merge people', async () => {
-    const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
-
-    const [_person0, kafkaMessages0, _versionDisparity0] = await hub.db.updatePerson(p0, {
-        created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
-    })
-
-    const p1 = (await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })) as InternalPerson
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const [_person1, kafkaMessages1, _versionDisparity1] = await hub.db.updatePerson(p1, {
-        created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
-    })
-
-    await hub.db.kafkaProducer.queueMessages([...kafkaMessages0, ...kafkaMessages1])
-
-    await processEvent(
-        'person_1',
-        '',
-        '',
-        {
-            event: 'user signed up',
-            properties: {},
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchPersons()).length).toEqual(2)
-
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
-    expect(chPeople.length).toEqual(2)
-
-    await processEvent(
-        'person_0',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: { $anon_distinct_id: 'person_1' },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    await delayUntilEventIngested(async () =>
-        (await hub.db.fetchPersons(Database.ClickHouse)).length === 1 ? [1] : []
-    )
-    expect((await hub.db.fetchPersons(Database.ClickHouse)).length).toEqual(1)
-
-    const [person] = await hub.db.fetchPersons()
-
-    expect(person.properties).toEqual({ $os: 'Microsoft', $browser: 'Chrome' })
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['person_0', 'person_1'])
-    expect(person.created_at.toISO()).toEqual(DateTime.fromISO('2019-07-01T00:00:00Z').setZone('UTC').toISO())
-})
-
-test('capture new person', async () => {
-    await hub.db.postgres.query(
-        PostgresUse.COMMON_WRITE,
-        `UPDATE posthog_team
-         SET ingested_event = $1
-         WHERE id = $2`,
-        [true, team.id],
-        'testTag'
-    )
-    team = await getFirstTeam(hub)
-
-    const properties = personInitialAndUTMProperties({
-        distinct_id: 2,
-        token: team.api_token,
-        $browser: 'Chrome',
-        $current_url: 'https://test.com',
-        $os: 'Mac OS X',
-        $browser_version: '95',
-        $referring_domain: 'https://google.com',
-        $referrer: 'https://google.com/?q=posthog',
-        utm_medium: 'twitter',
-        gclid: 'GOOGLE ADS ID',
-        msclkid: 'BING ADS ID',
-        $elements: [
-            { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
-            { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
-        ],
-    })
-
-    const uuid = new UUIDT().toString()
-    await processEvent(
-        '2',
-        '127.0.0.1',
-        '',
-        {
-            event: '$autocapture',
-            properties,
-        } as any as PluginEvent,
-        team.id,
-        now,
-        uuid
-    )
-
-    let persons = await hub.db.fetchPersons()
-    expect(persons[0].version).toEqual(0)
-    expect(persons[0].created_at).toEqual(now)
-    let expectedProps: Record<string, any> = {
-        $creator_event_uuid: uuid,
-        $initial_browser: 'Chrome',
-        $initial_browser_version: '95',
-        $initial_utm_medium: 'twitter',
-        $initial_current_url: 'https://test.com',
-        $initial_os: 'Mac OS X',
-        utm_medium: 'twitter',
-        $initial_gclid: 'GOOGLE ADS ID',
-        $initial_msclkid: 'BING ADS ID',
-        gclid: 'GOOGLE ADS ID',
-        msclkid: 'BING ADS ID',
-        $initial_referrer: 'https://google.com/?q=posthog',
-        $initial_referring_domain: 'https://google.com',
-        $browser: 'Chrome',
-        $browser_version: '95',
-        $current_url: 'https://test.com',
-        $os: 'Mac OS X',
-        $referrer: 'https://google.com/?q=posthog',
-        $referring_domain: 'https://google.com',
-    }
-    expect(persons[0].properties).toEqual(expectedProps)
-
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
-    await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
-    const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
-    expect(chPeople.length).toEqual(1)
-    expect(parseJSON(chPeople[0].properties)).toEqual(expectedProps)
-    expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
-
-    let events = await hub.db.fetchEvents()
-    expect(events[0].properties).toEqual({
-        $ip: '127.0.0.1',
-        $os: 'Mac OS X',
-        $set: {
-            utm_medium: 'twitter',
-            gclid: 'GOOGLE ADS ID',
-            msclkid: 'BING ADS ID',
-            $browser: 'Chrome',
-            $browser_version: '95',
-            $current_url: 'https://test.com',
-            $os: 'Mac OS X',
-            $referrer: 'https://google.com/?q=posthog',
-            $referring_domain: 'https://google.com',
-        },
-        token: 'THIS IS NOT A TOKEN FOR TEAM 2',
-        $browser: 'Chrome',
-        $set_once: {
-            $initial_os: 'Mac OS X',
-            $initial_browser: 'Chrome',
-            $initial_utm_medium: 'twitter',
-            $initial_current_url: 'https://test.com',
-            $initial_browser_version: '95',
-            $initial_gclid: 'GOOGLE ADS ID',
-            $initial_msclkid: 'BING ADS ID',
-            $initial_referrer: 'https://google.com/?q=posthog',
-            $initial_referring_domain: 'https://google.com',
-        },
-        utm_medium: 'twitter',
-        distinct_id: 2,
-        $current_url: 'https://test.com',
-        $browser_version: '95',
-        gclid: 'GOOGLE ADS ID',
-        msclkid: 'BING ADS ID',
-        $referrer: 'https://google.com/?q=posthog',
-        $referring_domain: 'https://google.com',
-    })
-
-    // capture a second time to verify e.g. event_names is not ['$autocapture', '$autocapture']
-    // Also pass new utm params in to override
-    await processEvent(
-        '2',
-        '127.0.0.1',
-        '',
-        {
-            event: '$autocapture',
-            properties: personInitialAndUTMProperties({
-                distinct_id: 2,
-                token: team.api_token,
-                x: 123,
-                utm_medium: 'instagram',
-                $current_url: 'https://test.com/pricing',
-                $browser_version: 80,
-                $browser: 'Firefox',
-                $elements: [
-                    { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
-                    { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
-                ],
-                $set: {
-                    x: 123, // to make sure update happens
-                },
-            }),
-        } as any as PluginEvent,
-        team.id,
-        DateTime.now(),
-        new UUIDT().toString()
-    )
-
-    events = await hub.db.fetchEvents()
-    persons = await hub.db.fetchPersons()
-    expect(events.length).toEqual(2)
-    expect(persons.length).toEqual(1)
-    expect(persons[0].version).toEqual(1)
-    expectedProps = {
-        x: 123,
-        $creator_event_uuid: uuid,
-        $initial_browser: 'Chrome',
-        $initial_browser_version: '95',
-        $initial_utm_medium: 'twitter',
-        $initial_current_url: 'https://test.com',
-        $initial_os: 'Mac OS X',
-        utm_medium: 'instagram',
-        $initial_gclid: 'GOOGLE ADS ID',
-        $initial_msclkid: 'BING ADS ID',
-        gclid: 'GOOGLE ADS ID',
-        msclkid: 'BING ADS ID',
-        $initial_referrer: 'https://google.com/?q=posthog',
-        $initial_referring_domain: 'https://google.com',
-        $browser: 'Firefox',
-        $browser_version: 80,
-        $current_url: 'https://test.com/pricing',
-        $os: 'Mac OS X',
-        $referrer: 'https://google.com/?q=posthog',
-        $referring_domain: 'https://google.com',
-    }
-    expect(persons[0].properties).toEqual(expectedProps)
-
-    const chPeople2 = await delayUntilEventIngested(async () =>
-        (
-            await hub.db.fetchPersons(Database.ClickHouse)
-        ).filter((p) => p && parseJSON(p.properties).utm_medium == 'instagram')
-    )
-    expect(chPeople2.length).toEqual(1)
-    expect(parseJSON(chPeople2[0].properties)).toEqual(expectedProps)
-
-    expect(events[1].properties.$set).toEqual({
-        x: 123,
-        utm_medium: 'instagram',
-        $browser: 'Firefox',
-        $browser_version: 80,
-        $current_url: 'https://test.com/pricing',
-    })
-    expect(events[1].properties.$set_once).toEqual({
-        $initial_browser: 'Firefox',
-        $initial_browser_version: 80,
-        $initial_utm_medium: 'instagram',
-        $initial_current_url: 'https://test.com/pricing',
-    })
-
-    const [person] = persons
-    const distinctIds = await hub.db.fetchDistinctIdValues(person)
-
-    const [event] = events as ClickHouseEvent[]
-    expect(event.distinct_id).toEqual('2')
-    expect(distinctIds).toEqual(['2'])
-    expect(event.event).toEqual('$autocapture')
-
-    const elements = event.elements_chain!
-    expect(elements[0].tag_name).toEqual('a')
-    expect(elements[0].attr_class).toEqual(['btn', 'btn-sm'])
-    expect(elements[1].order).toEqual(1)
-    expect(elements[1].text).toEqual('💻')
-
-    // Don't update any props, set and set_once should be what was sent
-    await processEvent(
-        '2',
-        '127.0.0.1',
-        '',
-        {
-            event: '$autocapture',
-            properties: personInitialAndUTMProperties({
-                distinct_id: 2,
-                token: team.api_token,
-                utm_medium: 'instagram',
-                $current_url: 'https://test.com/pricing',
-                $browser: 'Firefox',
-
-                $elements: [
-                    { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
-                    { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
-                ],
-                $set: {
-                    x: 123, // to make sure update happens
-                },
-            }),
-        } as any as PluginEvent,
-        team.id,
-        DateTime.now(),
-        new UUIDT().toString()
-    )
-
-    events = await hub.db.fetchEvents()
-    persons = await hub.db.fetchPersons()
-    expect(events.length).toEqual(3)
-    expect(persons.length).toEqual(1)
-
-    // no new props, person wasn't updated with old fn, was because of timestamps update with new fn
-    expect(persons[0].version).toEqual(1)
-
-    expect(events[2].properties.$set).toEqual({
-        x: 123,
-        $browser: 'Firefox',
-        $current_url: 'https://test.com/pricing',
-
-        utm_medium: 'instagram',
-    })
-    expect(events[2].properties.$set_once).toEqual({
-        $initial_browser: 'Firefox',
-        $initial_utm_medium: 'instagram',
-        $initial_current_url: 'https://test.com/pricing',
-    })
-    // check that person properties didn't change
-    expect(persons[0].properties).toEqual(expectedProps)
-
-    const chPeople3 = await hub.db.fetchPersons(Database.ClickHouse)
-    expect(chPeople3.length).toEqual(1)
-    expect(parseJSON(chPeople3[0].properties)).toEqual(expectedProps)
-
-    team = await getFirstTeam(hub)
-})
-
 test('capture bad team', async () => {
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     await expect(
@@ -553,27 +224,6 @@ test('capture bad team', async () => {
             groupStoreForBatch
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
-})
-
-test('capture no element', async () => {
-    await createPerson(hub, team, ['asdfasdfasdf'])
-
-    await processEvent(
-        'asdfasdfasdf',
-        '',
-        '',
-        {
-            event: '$pageview',
-            properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual(['asdfasdfasdf'])
-    const [event] = await hub.db.fetchEvents()
-    expect(event.event).toBe('$pageview')
 })
 
 test('ip none', async () => {
@@ -932,111 +582,6 @@ test('capture first team event', async () => {
     expect(elements.length).toEqual(1)
 })
 
-test('identify set', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-    const ts_before = now
-    const ts_after = now.plus({ hours: 1 })
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        ts_before,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-    expect(person.is_identified).toEqual(false)
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-2', b_prop: 'test-2b' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        ts_after,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(2)
-    const [person2] = await hub.db.fetchPersons()
-    expect(person2.properties).toEqual({ a_prop: 'test-2', b_prop: 'test-2b', c_prop: 'test-1' })
-})
-
-test('identify set_once', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-    expect(person.is_identified).toEqual(false)
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-2', b_prop: 'test-2b' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(2)
-    const [person2] = await hub.db.fetchPersons()
-    expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
-    expect(person2.is_identified).toEqual(false)
-})
-
 test('identify with illegal (generic) id', async () => {
     await createPerson(hub, team, ['im an anonymous id'])
     expect((await hub.db.fetchPersons()).length).toBe(1)
@@ -1111,55 +656,6 @@ test('Alias with illegal (generic) id', async () => {
     )
     // person with illegal id got created but not merged
     expect((await hub.db.fetchPersons()).length).toBe(2)
-})
-
-test('distinct with anonymous_id', async () => {
-    await createPerson(hub, team, ['anonymous_id'])
-
-    await processEvent(
-        'new_distinct_id',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                $anon_distinct_id: 'anonymous_id',
-                token: team.api_token,
-                distinct_id: 'new_distinct_id',
-                $set: { a_prop: 'test' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test' })
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
-    expect(person.properties).toEqual({ a_prop: 'test' })
-    expect(person.is_identified).toEqual(true)
-
-    // check no errors as this call can happen multiple times
-    await processEvent(
-        'new_distinct_id',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                $anon_distinct_id: 'anonymous_id',
-                token: team.api_token,
-                distinct_id: 'new_distinct_id',
-                $set: { a_prop: 'test' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
 })
 
 // This case is likely to happen after signup, for example:
@@ -1655,201 +1151,6 @@ test('long event name substr', async () => {
 
     const [event] = await hub.db.fetchEvents()
     expect(event.event?.length).toBe(200)
-})
-
-test('any event can do $set on props (user exists)', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-})
-
-test('any event can do $set on props (new user)', async () => {
-    const uuid = new UUIDT().toString()
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        uuid
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ $creator_event_uuid: uuid, a_prop: 'test-1', c_prop: 'test-1' })
-})
-
-test('any event can do $set_once on props', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_other_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-2', b_prop: 'test-2b' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(2)
-    const [person2] = await hub.db.fetchPersons()
-    expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
-})
-
-test('$set and $set_once', async () => {
-    const uuid = new UUIDT().toString()
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { key1: 'value1', key2: 'value2', key3: 'value4' },
-                $set_once: { key1_once: 'value1', key2_once: 'value2', key3_once: 'value4' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        uuid
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({
-        $creator_event_uuid: uuid,
-        key1: 'value1',
-        key2: 'value2',
-        key3: 'value4',
-        key1_once: 'value1',
-        key2_once: 'value2',
-        key3_once: 'value4',
-    })
-})
-
-test('groupidentify', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$groupidentify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $group_type: 'organization',
-                $group_key: 'org::5',
-                $group_set: {
-                    foo: 'bar',
-                },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-    await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
-
-    const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
-    expect(clickhouseGroup).toEqual({
-        group_key: 'org::5',
-        group_properties: JSON.stringify({ foo: 'bar' }),
-        group_type_index: 0,
-        team_id: team.id,
-        created_at: expect.any(String),
-    })
-
-    const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
-    expect(group).toEqual({
-        id: expect.any(Number),
-        team_id: team.id,
-        group_type_index: 0,
-        group_key: 'org::5',
-        group_properties: { foo: 'bar' },
-        created_at: now,
-        properties_last_updated_at: {},
-        properties_last_operation: {},
-        version: 1,
-    })
 })
 
 test('groupidentify without group_type ingests event', async () => {

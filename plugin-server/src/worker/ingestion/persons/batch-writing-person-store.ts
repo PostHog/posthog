@@ -462,7 +462,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
-        this.clearPersonCacheForPersonId(source.team_id, source.id)
+        this.clearAllCachesForPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
         // Check if we already have cached data for the target person that includes merged properties
@@ -475,6 +475,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         } else {
             // No existing cache, create fresh cache from target person
             this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        }
+        if (response.success) {
+            for (const distinctId of response.distinctIdsMoved) {
+                this.setDistinctIdToPersonId(target.team_id, distinctId, target.id)
+            }
         }
 
         return response
@@ -713,6 +718,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
         this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
+
         const [person, messages] = await this.db.createPerson(
             createdAt,
             properties,
@@ -731,13 +737,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             distinctIds?.[0]?.distinctId ?? '',
             fromInternalPerson(person, distinctIds?.[0]?.distinctId ?? '')
         )
+        if (distinctIds?.[1]) {
+            this.setDistinctIdToPersonId(teamId, distinctIds[1].distinctId, person.id)
+            this.setCachedPersonForUpdate(
+                teamId,
+                distinctIds[1].distinctId,
+                fromInternalPerson(person, distinctIds[1].distinctId)
+            )
+        }
         return [person, messages]
-    }
-
-    async populatePersonStore(teamId: Team['id'], distinctId: string): Promise<void> {
-        const person = await this.fetchForUpdate(teamId, distinctId)
-        this.setCheckCachedPerson(teamId, distinctId, person)
-        this.setCachedPersonForUpdate(teamId, distinctId, person ? fromInternalPerson(person, distinctId) : null)
     }
 
     private addPersonUpdateToBatch(

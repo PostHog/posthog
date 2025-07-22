@@ -237,7 +237,6 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
-        PERSON_PROPERTY_JSONB_UPDATE_OPTIMIZATION: 0.0, // defaults to off, value in [0,1] for percentage rollout
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
@@ -270,15 +269,10 @@ export function getDefaultConfig(): PluginsServerConfig {
             60,
 
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
-        PERSON_BATCH_WRITING_MODE: 'NONE',
-        PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 0,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
-        PERSON_CACHE_ENABLED_FOR_UPDATES: true,
-        PERSON_CACHE_ENABLED_FOR_CHECKS: true,
-        GROUP_BATCH_WRITING_ENABLED: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,

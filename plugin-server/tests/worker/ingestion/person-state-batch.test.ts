@@ -69,8 +69,8 @@ async function createPerson(
     return person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>) {
-    const kafkaMessages = await (personStore as BatchWritingPersonsStoreForBatch).flush()
+async function flushPersonStoreToKafka(hub: Hub, personStore: BatchWritingPersonsStoreForBatch, kafkaAcks: Promise<void>) {
+    const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
     await kafkaAcks

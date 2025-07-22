@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -51,7 +51,7 @@ describe('Event Pipeline integration test', () => {
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const runner = new EventPipelineRunner(
             hub,
