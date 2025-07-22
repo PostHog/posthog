@@ -11,6 +11,34 @@ export interface MentionsPopoverProps {
     onSelect: (member: OrganizationMemberType) => void
 }
 
+function MemberRow({
+    member,
+    index,
+    selectedIndex,
+    onSelect,
+}: { member: OrganizationMemberType; index: number } & Pick<
+    MentionsPopoverProps,
+    'onSelect' | 'selectedIndex'
+>): JSX.Element {
+    return (
+        <div
+            key={member.user.uuid}
+            className={cn(
+                'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-highlight-100',
+                index === selectedIndex && 'bg-fill-highlight-100'
+            )}
+            onClick={() => onSelect(member)}
+        >
+            <ProfilePicture user={member.user} size="sm" />
+            <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-3000 truncate">
+                    {member.user.first_name} &lt;{member.user.email}&gt;
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function MentionsPopover({
     isOpen,
     position,
@@ -33,25 +61,9 @@ export function MentionsPopover({
                 }}
             >
                 {members.length > 0 ? (
-                    members.map((member, index) => {
-                        return (
-                            <div
-                                key={member.user.uuid}
-                                className={cn(
-                                    'flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-fill-highlight-100',
-                                    index === selectedIndex && 'bg-fill-highlight-100'
-                                )}
-                                onClick={() => onSelect(member)}
-                            >
-                                <ProfilePicture user={member.user} size="sm" />
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-3000 truncate">
-                                        {member.user.first_name} &lt;{member.user.email}&gt;
-                                    </div>
-                                </div>
-                            </div>
-                        )
-                    })
+                    members.map((member, index) => (
+                        <MemberRow member={member} index={index} selectedIndex={selectedIndex} onSelect={onSelect} />
+                    ))
                 ) : (
                     <div className="px-3 py-2 text-sm text-3000">No members found</div>
                 )}
