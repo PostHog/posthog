@@ -13,7 +13,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.llm.consume import stream_llm_single_session_summary
-from ee.hogai.session_summaries.summarize_session.summarize_session import (
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
     get_session_data_from_db,

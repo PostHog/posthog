@@ -9,10 +9,10 @@ import pytest
 import dataclasses
 from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.hogai.session_summaries.summarize_session.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
-from ee.hogai.session_summaries.summarize_session_group.patterns import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,
     EnrichedSessionGroupSummaryPatternsList,

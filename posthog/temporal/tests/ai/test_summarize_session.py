@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 from pytest_mock import MockerFixture
 
 from ee.hogai.session_summaries import ExceptionToRetry
-from ee.hogai.session_summaries.summarize_session.prompt_data import SessionSummaryPromptData
-from ee.hogai.session_summaries.summarize_session.summarize_session import (
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.session.summarize_session import (
     SingleSessionSummaryData,
     SingleSessionSummaryLlmInputs,
 )
@@ -104,13 +104,13 @@ class TestFetchSessionDataActivity:
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
             # Mock DB calls
-            patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_events",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_events",
                 return_value=(mock_raw_events_columns, mock_raw_events),
             ),
         ):
@@ -144,13 +144,13 @@ class TestFetchSessionDataActivity:
         input_data = mock_single_session_summary_inputs(mock_session_id, "test-no-events-key-base")
         with (
             # Mock DB calls - return columns but no events (empty list)
-            patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
+            patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                 return_value=mock_raw_metadata,
             ),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_events",
+                "ee.hogai.session_summaries.session.summarize_session.get_session_events",
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
@@ -243,13 +243,13 @@ class TestSummarizeSingleSessionWorkflow:
                     # Mock LLM call
                     patch("ee.hogai.session_summaries.llm.consume.stream_llm", return_value=mock_stream_llm()),
                     # Mock DB calls
-                    patch("ee.hogai.session_summaries.summarize_session.input_data.get_team", return_value=mock_team),
+                    patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
                     patch(
-                        "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_metadata",
+                        "ee.hogai.session_summaries.session.summarize_session.get_session_metadata",
                         return_value=mock_raw_metadata,
                     ),
                     patch(
-                        "ee.hogai.session_summaries.summarize_session.summarize_session.get_session_events",
+                        "ee.hogai.session_summaries.session.summarize_session.get_session_events",
                         return_value=(mock_raw_events_columns, mock_raw_events),
                     ),
                     # Mock deterministic hex generation
@@ -361,11 +361,11 @@ class TestSummarizeSingleSessionWorkflow:
         mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
         with (
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.prepare_data_for_single_session_summary",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_data_for_single_session_summary",
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.prepare_single_session_summary_input",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(
@@ -439,11 +439,11 @@ class TestSummarizeSingleSessionWorkflow:
         mock_workflow_handle.describe = AsyncMock(return_value=MagicMock(status=WorkflowExecutionStatus.RUNNING))
         with (
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.prepare_data_for_single_session_summary",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_data_for_single_session_summary",
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.prepare_single_session_summary_input",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(
@@ -528,11 +528,11 @@ class TestSummarizeSingleSessionWorkflow:
         mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
         with (
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.prepare_data_for_single_session_summary",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_data_for_single_session_summary",
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "ee.hogai.session_summaries.summarize_session.summarize_session.prepare_single_session_summary_input",
+                "ee.hogai.session_summaries.session.summarize_session.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(
