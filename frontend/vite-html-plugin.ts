@@ -37,10 +37,6 @@ function generateHtmlFiles(): void {
 export function htmlGenerationPlugin(): Plugin {
     return {
         name: 'html-generation',
-        buildStart() {
-            // Copy HTML files during build start for both dev and build
-            generateHtmlFiles()
-        },
         generateBundle() {
             // Also copy during bundle generation to ensure they're in dist for production
             generateHtmlFiles()
