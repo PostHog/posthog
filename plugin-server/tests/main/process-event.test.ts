@@ -34,6 +34,7 @@ import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
+import { logger } from '~/utils/logger'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
@@ -140,7 +141,9 @@ let state = { currentDistinctId: 'anonymous_id' }
 
 describe('process-event', () => {
     beforeAll(async () => {
-        await resetKafka(TEST_CONFIG)
+        await resetKafka(TEST_CONFIG).catch((error) => {
+            logger.error('Resetting kafka failed. Continuing...', { error })
+        })
     })
 
     beforeEach(async () => {
@@ -156,16 +159,11 @@ describe('process-event', () => {
         hub = await createHub({ ...TEST_CONFIG })
         team = await getFirstTeam(hub)
 
-        console.log("aquiring redis")
-        const redis = await hub.redisPool.acquire()
         // clear the webhook redis cache
-    
+        const redis = await hub.redisPool.acquire()
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-        console.log("deleting redis")
         await redis.del(hooksCacheKey)
-        console.log("releasing redis")
         await hub.redisPool.release(redis)
-        console.log("redis released")
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
