@@ -164,28 +164,14 @@ export const surveysLogic = kea<surveysLogicType>([
                 const surveyId = String(id)
                 await api.surveys.delete(surveyId)
                 deleteFromTree('survey', surveyId)
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_DELETED,
-                    metadata: {
-                        survey_id: surveyId,
-                    },
-                })
                 return {
                     ...values.data,
                     surveys: deleteSurvey(values.data.surveys, id),
                     searchSurveys: deleteSurvey(values.data.searchSurveys, id),
                 }
             },
-            updateSurvey: async ({ id, updatePayload }, intentContext?: ProductIntentContext) => {
+            updateSurvey: async ({ id, updatePayload }: { id: string; updatePayload: any }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
-                if (intentContext) {
-                    actions.addProductIntent({
-                        product_type: ProductKey.SURVEYS,
-                        intent_context: intentContext,
-                        metadata: { survey_id: id },
-                    })
-                }
                 return {
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
@@ -245,9 +231,16 @@ export const surveysLogic = kea<surveysLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteSurveySuccess: () => {
+        deleteSurveySuccess: (_, __, action) => {
             lemonToast.success('Survey deleted')
             router.actions.push(urls.surveys())
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_DELETED,
+                metadata: {
+                    survey_id: String(action.payload),
+                },
+            })
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')

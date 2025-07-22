@@ -624,17 +624,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
                 return response
             },
-            updateSurvey: async (surveyPayload: Partial<Survey>, intentContext?: ProductIntentContext) => {
+            updateSurvey: async (surveyPayload: Partial<Survey>) => {
                 const response = await api.surveys.update(props.id, surveyPayload)
-                if (intentContext) {
-                    actions.addProductIntent({
-                        product_type: ProductKey.SURVEYS,
-                        intent_context: intentContext,
-                        metadata: {
-                            survey_id: response.id,
-                        },
-                    })
-                }
                 refreshTreeItem('survey', props.id)
                 return response
             },
@@ -918,7 +909,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
             },
             archiveSurvey: () => {
-                actions.updateSurvey({ archived: true }, ProductIntentContext.SURVEY_ARCHIVED)
+                actions.updateSurvey({ archived: true })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_ARCHIVED,
+                    metadata: {
+                        survey_id: values.survey.id,
+                    },
+                })
             },
             loadSurveySuccess: () => {
                 // Trigger stats loading after survey loads
@@ -1860,7 +1858,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
-                    actions.updateSurvey(payload, ProductIntentContext.SURVEY_EDITED)
+                    actions.updateSurvey(payload)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_EDITED,
+                        metadata: {
+                            survey_id: values.survey.id,
+                        },
+                    })
                 } else {
                     actions.createSurvey({ ...payload, _create_in_folder: 'Unfiled/Surveys' })
                 }
