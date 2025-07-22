@@ -100,8 +100,9 @@ def _convert_llm_content_to_session_summary_json_str(
         session_duration=session_duration,
         session_id=session_id,
     )
-    # Track generation for history of experiments
-    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR"):
+
+    # Track generation for history of experiments. Don't run in tests.
+    if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
         _track_session_summary_generation(
             summary_prompt=summary_prompt,
             raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
@@ -353,7 +354,7 @@ def _track_session_summary_generation(
         f.write(raw_session_summary)
     with open(current_experiment_dir / f"enriched_response_{datetime_marker}.yml", "w") as f:
         f.write(session_summary)
-    template_dir = Path(__file__).parent / "summarize_session" / "templates" / "identify-objectives"
+    template_dir = Path(__file__).parent.parent / "summarize_session" / "templates" / "identify-objectives"
     with open(template_dir / "prompt.djt") as fr:
         with open(current_experiment_dir / f"prompt_template_{datetime_marker}.txt", "w") as fw:
             fw.write(fr.read())
