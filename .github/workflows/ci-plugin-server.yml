@@ -116,6 +116,7 @@ jobs:
         name: Plugin Server Tests (${{matrix.shard}}/3)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
             fail-fast: false
