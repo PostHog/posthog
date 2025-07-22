@@ -17,7 +17,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isDataTableNode, isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { RequiredExcept } from '~/types'
 
 import type { dataTableLogicType } from './dataTableLogicType'
@@ -216,6 +216,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             (query.showTimings ?? flagQueryTimingsEnabled) ||
                             (query.showElapsedTime ??
                                 ((flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery) && showIfFull)),
+                        showGroupsSummary: isGroupsQuery(source) && showIfFull,
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,

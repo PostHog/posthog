@@ -5,8 +5,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { hogql } from '~/queries/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
@@ -39,6 +40,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     })),
     actions(() => ({
         setQuery: (query: DataTableNode) => ({ query }),
+        setGroupsSummaryQuery: (query: HogQLQuery) => ({ query }),
         setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
         setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
     })),
@@ -58,6 +60,36 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     propertiesViaUrl: true,
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },
+        ],
+        groupsSummaryQuery: [
+            (_: any, props: GroupsListLogicProps) => ({
+                kind: NodeKind.HogQLQuery,
+                query: getGroupsSummaryQuery(props.groupTypeIndex, INITIAL_GROUPS_FILTER),
+            }),
+            {
+                setGroupsSummaryQuery: (state, { query }) => ({
+                    ...state,
+                    query: query.query,
+                }),
+                setGroupFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        query: getGroupsSummaryQuery(props.groupTypeIndex, filters),
+                    }
+                },
+                setQuery: (state, { query }) => {
+                    if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
+                        return {
+                            ...state,
+                            query: getGroupsSummaryQuery(
+                                props.groupTypeIndex,
+                                query.source.properties as GroupPropertyFilter[]
+                            ),
+                        }
+                    }
+                    return state
+                },
+            },
         ],
         groupFilters: [
             INITIAL_GROUPS_FILTER,
@@ -167,3 +199,47 @@ export const groupsListLogic = kea<groupsListLogicType>([
         }
     }),
 ])
+
+function getGroupsSummaryQuery(groupTypeIndex: GroupTypeIndex, filters: GroupPropertyFilter[]): string {
+    if (filters && filters.length > 0) {
+        const propertyConditions = filters
+            .map((filter) => {
+                if ('key' in filter && 'value' in filter) {
+                    const { key, value } = filter
+                    const operator = 'operator' in filter ? filter.operator : 'exact'
+
+                    if (operator === 'exact' || !operator) {
+                        if (Array.isArray(value)) {
+                            // Handle array values with IN operator
+                            return hogql`JSONExtractString(properties, ${key}) IN ${value}`
+                        }
+                        // Handle single values
+                        return hogql`JSONExtractString(properties, ${key}) = ${value}`
+                    } else if (operator === 'icontains') {
+                        if (Array.isArray(value)) {
+                            // For array with icontains, check if any value matches
+                            const conditions = value.map(
+                                (v) => hogql`positionCaseInsensitive(JSONExtractString(properties, ${key}), ${v}) > 0`
+                            )
+                            return `(${conditions.join(' OR ')})`
+                        }
+                        return hogql`positionCaseInsensitive(JSONExtractString(properties, ${key}), ${value}) > 0`
+                    } else if (operator === 'is_set') {
+                        return hogql`JSONHas(properties, ${key})`
+                    } else if (operator === 'is_not_set') {
+                        return hogql`NOT JSONHas(properties, ${key})`
+                    }
+                }
+                return null
+            })
+            .filter(Boolean)
+
+        if (propertyConditions.length > 0) {
+            return hogql`SELECT count() as group_count, sum(toFloatOrDefault(JSONExtractString(properties, 'mrr'), 0.0)) as mrr_sum FROM groups WHERE index = ${groupTypeIndex} AND ${hogql.raw(
+                propertyConditions.join(' AND ')
+            )}`
+        }
+    }
+
+    return hogql`SELECT count() as group_count, sum(toFloatOrDefault(JSONExtractString(properties, 'mrr'), 0.0)) as mrr_sum FROM groups WHERE index = ${groupTypeIndex}`
+}

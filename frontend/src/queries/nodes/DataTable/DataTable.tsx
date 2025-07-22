@@ -71,6 +71,7 @@ import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
+import { GroupsSummary } from 'scenes/groups/GroupsSummary'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 
 interface DataTableProps {
@@ -167,6 +168,7 @@ export function DataTable({
         showReload,
         showExport,
         showElapsedTime,
+        showGroupsSummary,
         showColumnConfigurator,
         showPersistentColumnConfigurator,
         showSavedQueries,
@@ -514,6 +516,7 @@ export function DataTable({
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
+        showGroupsSummary ? <GroupsSummary key="groups-summary" query={query.source as GroupsQuery} /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
