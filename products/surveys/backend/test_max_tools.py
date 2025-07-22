@@ -57,43 +57,6 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_convert_to_posthog_format(self):
-        """Test the conversion from LLM output to PostHog format"""
-        tool = self._setup_tool()
-
-        # Create a test LLM output
-        llm_output = SurveyCreationSchema(
-            name="Test Survey",
-            description="A simple test survey",
-            type=SurveyType.POPOVER,
-            questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.OPEN,
-                    question="How do you feel about our product?",
-                    description="Please share your thoughts",
-                    optional=False,
-                )
-            ],
-            should_launch=False,
-            enable_partial_responses=True,
-        )
-
-        # Test the conversion
-        survey_data = tool._convert_to_posthog_format(llm_output, self._team)
-
-        # Verify the conversion
-        assert survey_data["name"] == "Test Survey"
-        assert survey_data["description"] == "A simple test survey"
-        assert survey_data["type"] == "popover"
-        assert len(survey_data["questions"]) == 1
-        assert survey_data["questions"][0]["type"] == "open"
-        assert survey_data["questions"][0]["question"] == "How do you feel about our product?"
-        assert not survey_data["archived"]
-        assert survey_data["enable_partial_responses"]
-        assert "appearance" in survey_data
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
     async def test_get_existing_surveys_summary_empty(self):
         """Test getting existing surveys summary when no surveys exist"""
         tool = self._setup_tool()

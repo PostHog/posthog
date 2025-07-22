@@ -9911,7 +9911,8 @@ class SurveyCreationSchema(BaseModel):
     appearance: Optional[SurveyAppearanceSchema] = None
     archived: Optional[bool] = None
     conditions: Optional[SurveyDisplayConditionsSchema] = None
-    description: Optional[str] = None
+    description: str
+    enable_partial_responses: Optional[bool] = None
     end_date: Optional[str] = None
     iteration_count: Optional[float] = None
     iteration_frequency_days: Optional[float] = None

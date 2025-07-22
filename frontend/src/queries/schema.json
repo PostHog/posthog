@@ -22219,6 +22219,9 @@
                 "description": {
                     "type": "string"
                 },
+                "enable_partial_responses": {
+                    "type": "boolean"
+                },
                 "end_date": {
                     "type": "string"
                 },
@@ -22250,7 +22253,7 @@
                     "$ref": "#/definitions/SurveyType"
                 }
             },
-            "required": ["name", "type", "questions"],
+            "required": ["name", "description", "type", "questions"],
             "type": "object"
         },
         "SurveyDisplayConditionsSchema": {

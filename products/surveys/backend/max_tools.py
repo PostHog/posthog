@@ -3,11 +3,10 @@ MaxTool for AI-powered survey creation.
 """
 
 from typing import Any
-from datetime import datetime
+import django.utils.timezone
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from asgiref.sync import sync_to_async
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, Survey
 
@@ -81,10 +80,10 @@ class CreateSurveyTool(MaxTool):
 
                 # Set launch date if requested
                 if result.should_launch:
-                    survey_data["start_date"] = datetime.now()
+                    survey_data["start_date"] = django.utils.timezone.now()
 
                 # Create the survey directly using Django ORM
-                survey = await sync_to_async(Survey.objects.create)(team=team, created_by=user, **survey_data)
+                survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
 
                 launch_msg = " and launched" if result.should_launch else ""
                 return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
@@ -114,13 +113,7 @@ class CreateSurveyTool(MaxTool):
     async def _get_existing_surveys_summary(self) -> str:
         """Get summary of existing surveys for context."""
         try:
-            # Use sync_to_async to convert the Django QuerySet to async
-            surveys = await sync_to_async(list)(
-                Survey.objects.filter(
-                    team_id=self._team.id,
-                    archived=False,
-                )[:5]
-            )
+            surveys = [survey async for survey in Survey.objects.filter(team_id=self._team.id, archived=False)[:5]]
 
             if not surveys:
                 return "No existing surveys"
@@ -147,6 +140,7 @@ class CreateSurveyTool(MaxTool):
         # Ensure required fields have defaults
         survey_data.setdefault("archived", False)
         survey_data.setdefault("description", "")
+        survey_data.setdefault("enable_partial_responses", True)
 
         # Apply appearance defaults
         appearance = DEFAULT_SURVEY_APPEARANCE.copy()

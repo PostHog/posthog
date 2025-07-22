@@ -15,7 +15,7 @@ export type { SurveyQuestionDescriptionContentType }
 // Survey creation schema matching PostHog Survey model format
 export interface SurveyCreationSchema {
     name: string
-    description?: string
+    description: string
     type: SurveyType
     questions: SurveyQuestionSchema[]
     should_launch?: boolean
@@ -27,6 +27,7 @@ export interface SurveyCreationSchema {
     iteration_count?: number
     iteration_frequency_days?: number
     archived?: boolean
+    enable_partial_responses?: boolean
 }
 
 // Question schema matching PostHog Survey model format
