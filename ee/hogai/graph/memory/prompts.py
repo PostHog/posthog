@@ -64,12 +64,10 @@ The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{
 
 
 SCRAPING_INITIAL_MESSAGE = (
-    "Hey, my name is Max! Before we begin, let me find and verify information about your product…"
+    "Let me now find and verify information about your product, to help me understand your project better…"
 )
 
-ENQUIRY_INITIAL_MESSAGE = (
-    "Hey, my name is Max! Before we begin, let me ask you a few questions to help me understand your project better…"
-)
+ENQUIRY_INITIAL_MESSAGE = "Let me now ask you a few questions to help me understand your project better…"
 
 SCRAPING_SUCCESS_MESSAGE = "This is what I found about your project:\n\n"
 
