@@ -154,9 +154,11 @@ describe('process-event', () => {
         await resetTestDatabaseClickhouse(TEST_CONFIG)
 
         hub = await createHub({ ...TEST_CONFIG })
+        team = await getFirstTeam(hub)
+
         console.log("aquiring redis")
-        // const redis = await hub.redisPool.acquire()
-        // // clear the webhook redis cache
+        const redis = await hub.redisPool.acquire()
+        // clear the webhook redis cache
     
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         console.log("deleting redis")
@@ -168,7 +170,6 @@ describe('process-event', () => {
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
         mockClientEventCounter = 0
-        team = await getFirstTeam(hub)
         now = DateTime.utc()
 
         // Always start with an anonymous state
