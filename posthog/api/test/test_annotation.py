@@ -714,75 +714,49 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
 
-        user_json = {
-            "distinct_id": self.user.distinct_id,
-            "email": self.user.email,
-            "first_name": "",
-            "hedgehog_config": None,
-            "id": self.user.id,
-            "is_email_verified": None,
-            "last_name": "",
-            "role_at_organization": None,
-            "uuid": str(self.user.uuid),
-        }
-
-        def with_changes(changes: list[dict]) -> dict:
+        def with_changes(name: str, changes: list[dict]) -> dict:
             return {
                 "activity": "tagged_user",
                 "created_at": mock.ANY,
                 "detail": {
                     "changes": changes,
-                    "name": None,
+                    "name": name,
                     "short_id": None,
                     "trigger": None,
                     "type": None,
                 },
                 "id": mock.ANY,
                 "is_system": False,
-                "item_id": None,
+                "item_id": str(response.json()["id"]),
                 "organization_id": str(self.team.organization_id),
-                "scope": None,
+                "scope": "annotation",
                 "unread": False,
-                "user": user_json,
+                "user": self._user_json_for_activity_log(),
                 "was_impersonated": False,
             }
 
+        def change_for_tab(user_id: str) -> dict:
+            return {
+                "action": "tagged_user",
+                "after": {
+                    "annotation_dashboard_id": None,
+                    "annotation_insight_id": None,
+                    "annotation_recording_id": None,
+                    "annotation_scope": "project",
+                    "annotation_date_marker": "2020-01-01T00:00:00+00:00",
+                    "annotation_content": content,
+                    "tagged_user": user_id,
+                },
+                "before": None,
+                "field": None,
+                "type": "Project",
+            }
+
+        # two almost identical activities, one for each user tagged
         self._assert_activity_log(
             [
-                with_changes(
-                    [
-                        {
-                            "action": "tagged_user",
-                            "after": {
-                                "annotation_dashboard_id": None,
-                                "annotation_insight_id": None,
-                                "annotation_recording_id": None,
-                                "annotation_scope": None,
-                                "tagged_user": None,
-                            },
-                            "before": None,
-                            "field": None,
-                            "type": None,
-                        }
-                    ]
-                ),
-                with_changes(
-                    [
-                        {
-                            "action": "tagged_user",
-                            "after": {
-                                "annotation_dashboard_id": None,
-                                "annotation_insight_id": None,
-                                "annotation_recording_id": None,
-                                "annotation_scope": None,
-                                "tagged_user": None,
-                            },
-                            "before": None,
-                            "field": None,
-                            "type": None,
-                        }
-                    ]
-                ),
+                with_changes(str(self.other_user.uuid), [change_for_tab(str(self.other_user.uuid))]),
+                with_changes(str(self.user.uuid), [change_for_tab(str(self.user.uuid))]),
             ]
         )
 
@@ -818,6 +792,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 "annotation_recording_id": recording_id,
                 "annotation_content": content,
                 "annotation_scope": "recording",
+                "annotation_date_marker": "2020-01-01T00:00:00+00:00",
                 "tagged_user": str(self.user.uuid),
             },
         )
@@ -853,7 +828,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 "name": str(self.user.uuid),
             },
             changes_override={
-                "type": "organization",
+                "type": "Organization",
             },
             changes_after_override={
                 "annotation_content": "Updated content with @old_user and @new_user",
@@ -861,6 +836,19 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 "tagged_user": str(self.user.uuid),
             },
         )
+
+    def _user_json_for_activity_log(self) -> dict:
+        return {
+            "distinct_id": self.user.distinct_id,
+            "email": self.user.email,
+            "first_name": "",
+            "hedgehog_config": None,
+            "id": self.user.id,
+            "is_email_verified": None,
+            "last_name": "",
+            "role_at_organization": None,
+            "uuid": str(self.user.uuid),
+        }
 
     def _assert_activity_log(self, expected: list[dict]) -> None:
         annotations_response = self.client.get(f"/api/projects/{self.team.id}/activity_log/")
@@ -883,6 +871,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                                     "annotation_dashboard_id": None,
                                     "annotation_insight_id": None,
                                     "annotation_recording_id": None,
+                                    "annotation_date_marker": None,
                                     "annotation_scope": None,
                                     "tagged_user": None,
                                     **changes_after_override,
@@ -905,17 +894,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                     "organization_id": str(self.team.organization_id),
                     "scope": None,
                     "unread": False,
-                    "user": {
-                        "distinct_id": self.user.distinct_id,
-                        "email": self.user.email,
-                        "first_name": "",
-                        "hedgehog_config": None,
-                        "id": self.user.id,
-                        "is_email_verified": None,
-                        "last_name": "",
-                        "role_at_organization": None,
-                        "uuid": str(self.user.uuid),
-                    },
+                    "user": self._user_json_for_activity_log(),
                     "was_impersonated": False,
                     **log_override,
                 }

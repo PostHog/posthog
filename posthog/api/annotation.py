@@ -13,7 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation, User
-from posthog.models.activity_logging.activity_log import Detail, Change, log_activity
+from posthog.models.activity_logging.activity_log import Detail, Change, log_activity, ActivityScope
 from posthog.models.utils import UUIDT
 
 
@@ -125,20 +125,31 @@ class AnnotationSerializer(serializers.ModelSerializer):
         """Log activity when users are tagged in annotations."""
         request = self.context["request"]
 
+        scope_mapping: dict[str, ActivityScope] = {
+            "recording": "Replay",
+            "project": "Project",
+            "organization": "Organization",
+            "dashboard": "Dashboard",
+            "insight": "Insight",
+            "dashboard_item": "Insight",
+        }
+
         for tagged_user in tagged_users:
+            change_type: ActivityScope = scope_mapping[annotation.scope]
+            scope = "Replay" if annotation.scope == Annotation.Scope.RECORDING.value else "annotation"
             log_activity(
                 organization_id=cast(UUIDT, annotation.organization_id),
                 team_id=annotation.team_id,
                 user=request.user,
                 was_impersonated=is_impersonated_session(request),
-                scope="Replay" if annotation.scope == Annotation.Scope.RECORDING.value else "annotation",
+                scope=scope,
                 item_id=annotation.id,
                 activity="tagged_user",
                 detail=Detail(
                     name=tagged_user,
                     changes=[
                         Change(
-                            type="Replay" if annotation.scope == Annotation.Scope.RECORDING else annotation.scope,
+                            type=change_type,
                             action="tagged_user",
                             after={
                                 "tagged_user": tagged_user,
@@ -149,6 +160,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
                                 "annotation_insight_id": annotation.insight_short_id,
                                 "annotation_dashboard_id": annotation.dashboard_id,
                                 "annotation_content": annotation.content,
+                                "annotation_date_marker": annotation.date_marker,
                             },
                         )
                     ],
