@@ -5,7 +5,6 @@ import { Counter, Histogram } from 'prom-client'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
-    CyclotronInvocationQueueParametersFetchType,
 } from '~/schema/cyclotron'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
