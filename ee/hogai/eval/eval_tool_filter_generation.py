@@ -148,10 +148,10 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
         data=[
             # Test basic filter generation for mobile devices
             EvalCase(
-                input="Show me recordings from mobile devices",
+                input="show me the last 3 days for users that were using a mobile device",
                 expected=MaxRecordingUniversalFilters(
                     **{
-                        "date_from": "-7d",
+                        "date_from": "-3d",
                         "date_to": None,
                         "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
                         "filter_group": {
@@ -177,8 +177,8 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             ),
             # Test date range filtering
             EvalCase(
-                input="Show recordings from the last 24 hours",
-                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-1d"}),
+                input="Show recordings from the last 2 hours",
+                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-2h"}),
             ),
             # Test location filtering
             EvalCase(
@@ -207,7 +207,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             ),
             # Test browser-specific filtering
             EvalCase(
-                input="Show recordings from Chrome users",
+                input="Show recordings from users that were using a browser in English",
                 expected=MaxRecordingUniversalFilters(
                     **{
                         **DUMMY_CURRENT_FILTERS,
@@ -217,7 +217,12 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                                 {
                                     "type": "AND",
                                     "values": [
-                                        {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}
+                                        {
+                                            "key": "$browser_language",
+                                            "type": "person",
+                                            "value": ["EN-en"],
+                                            "operator": "exact",
+                                        }
                                     ],
                                 }
                             ],

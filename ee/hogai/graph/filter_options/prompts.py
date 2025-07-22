@@ -1,6 +1,4 @@
 from datetime import datetime
-import json
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
 
 RESPONSE_FORMATS_PROMPT = """
 <response_formats>
@@ -382,21 +380,15 @@ FILTER_INITIAL_PROMPT = """
 
 {{{product_description_prompt}}}
 
-
 {{{group_property_filter_types_prompt}}}
-
 
 {{{multiple_filters_prompt}}}
 
-
 {{{response_formats_prompt}}}
-
 
 {{{date_fields_prompt}}}
 
-
 {{{filter_logical_operators_prompt}}}
-
 
 {{{examples_prompt}}}
 
@@ -408,7 +400,7 @@ day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
 FILTER_INITIAL_PROMPT += f"\nToday is {today_date}."
 
-FILTER_FIELDS_TAXONOMY_PROMPT = f"""
+FILTER_FIELDS_TAXONOMY_PROMPT = """
 <taxonomy_info>
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -469,27 +461,16 @@ Supported operators for the Boolean type are:
 All operators take a single value except for `equals` and `doesn't equal` which can take one or more values.
 </supported_operators>
 
-
-<list_of_property_and_event_names>
-The following is a list of property names, event names and their definitions.
-If you find the property name the user is asking for in the list, use it without calling a tool.
-If you cannot find the property name in the list, call the tool to get the list of properties for the entity or event.
-
-
-SOME OF THE AVAILABLE PROPERTIES, EVENTS and their definitions:
-```json
-{json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP, indent=2)}
-```
-#### SOME OF THE AVAILABLE CAMPAIGN PROPERTIES and their definitions:
-
-```json
-{json.dumps(CAMPAIGN_PROPERTIES, indent=2)}
-```
-
-</list_of_property_and_event_names>
-
 </taxonomy_info>
 
+""".strip()
+
+EVENT_DEFINITIONS_PROMPT = """
+Here is a non-exhaustive list of known event names:
+{{{events}}}
+
+If you find the event name the user is asking for in the list, use it without calling the tool.
+If you cannot find the event name in the list, call the tool to get the list of events.
 """.strip()
 
 HUMAN_IN_THE_LOOP_PROMPT = """
