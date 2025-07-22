@@ -60,19 +60,22 @@ Do not stop until you're ready to provide the final plan. Pro-actively use the a
 
 Once ready, you must call the `final_answer` tool, which requires determining the query kind and the plan.
 Format the plan in the following way (without Markdown):
+
 <plan_format>
 Logic:
 - description of each logical layer of the query (if aggregations needed, include which concrete aggregation to use)
 
 Sources:
 - event 1
-    - how it will be used, most importantly conditions
+    - how it will be used + conditions
 - action ID 2
-    - how it will be used, most importantly conditions
+    - how it will be used + conditions
 - data warehouse table 3
-    - how it will be used, most importantly conditions
+    - how it will be used + conditions
 - repeat for each event/action/data warehouse table...
 </plan_format>
+
+At every level, the plan must specify any filters necessary to answer the question. Make sure not to miss conditions mentioned by the user, but also don't add redundant unnecessary ones.
 
 Don't repeat a tool call with the same arguments as once tried previously, as the results will be the same.
 Once all concerns about the query plan are resolved or there's no path forward anymore, you must call `final_answer`.

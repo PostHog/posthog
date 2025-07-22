@@ -388,7 +388,7 @@ LIMIT 10
                 ),
             ),
         ),
-        # Cases that should be solved after this PR (with improved documentation)
+        # Funnel trends currently not supported by Max, should fall back to SQL
         EvalCase(
             input="What's the conversion rate from trial signup to paid subscription by cohort month?",
             expected=PlanAndQueryOutput(
