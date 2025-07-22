@@ -62,7 +62,6 @@ Do NOT make speculative or assumptive statements, just output that sentence when
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
 """.strip()
 
-ONBOARDING_INITIAL_MESSAGE = "Ready, steady, go!"
 
 SCRAPING_INITIAL_MESSAGE = (
     "Hey, my name is Max! Before we begin, let me find and verify information about your product…"

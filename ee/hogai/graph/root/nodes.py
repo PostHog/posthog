@@ -61,6 +61,8 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "HogQLQuery": HogQLQuery,
 }
 
+SLASH_COMMAND_INIT = "/init"
+
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
 
@@ -579,15 +581,10 @@ class RootNodeTools(AssistantNode):
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
 
-        # Check if the user sent a /init command to trigger memory onboarding
-        if isinstance(last_message, HumanMessage) and last_message.content == "/init":
-            return "memory_onboarding"
-
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
             if state.root_tool_insight_plan:
-                # No longer automatically trigger memory onboarding before insights
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"

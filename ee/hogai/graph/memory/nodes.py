@@ -14,10 +14,11 @@ from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_perplexity import ChatPerplexity
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
+from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -48,7 +49,6 @@ from .prompts import (
     MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
     MEMORY_ONBOARDING_ENQUIRY_PROMPT,
     ONBOARDING_COMPRESSION_PROMPT,
-    ONBOARDING_INITIAL_MESSAGE,
     SCRAPING_CONFIRMATION_MESSAGE,
     SCRAPING_INITIAL_MESSAGE,
     SCRAPING_MEMORY_SAVED_MESSAGE,
@@ -85,7 +85,7 @@ class MemoryInitializerContextMixin:
 class MemoryOnboardingShouldRunMixin(AssistantNode):
     def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
-        Only trigger memory onboarding when explicitly requested with /init command or legacy trigger message.
+        Only trigger memory onboarding when explicitly requested with /init command .
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If no messages are to be found in the AssistantState, do not run onboarding.
         """
@@ -99,9 +99,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
             return "continue"
 
         last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage) and (
-            last_message.content == ONBOARDING_INITIAL_MESSAGE or last_message.content == "/init"
-        ):
+        if isinstance(last_message, HumanMessage) and last_message.content == SLASH_COMMAND_INIT:
             return "memory_onboarding"
         return "continue"
 
@@ -259,12 +257,11 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             raise ValueError("No human message found.")
 
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        if human_message.content not in [
-            SCRAPING_CONFIRMATION_MESSAGE,
-            SCRAPING_REJECTION_MESSAGE,
-            ONBOARDING_INITIAL_MESSAGE,
-            "/init",
-        ] and core_memory.initial_text.endswith("Answer:"):
+        if (
+            human_message.content not in [SCRAPING_CONFIRMATION_MESSAGE, SCRAPING_REJECTION_MESSAGE]
+            and not human_message.content.startswith("/")  # Ignore slash commands
+            and core_memory.initial_text.endswith("Answer:")
+        ):
             # The user is answering to a question
             core_memory.append_answer_to_initial_text(human_message.content)
 
@@ -396,9 +393,6 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        if self.should_run_onboarding_at_start(state) != "continue":
-            return None
-
         node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(

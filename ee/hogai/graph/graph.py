@@ -230,7 +230,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
-            "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
         }
@@ -274,8 +273,14 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT, memory_onboarding_enquiry_interrupt)
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_FINALIZE, memory_onboarding_finalize)
 
-        # Memory onboarding is now only triggered via /init command through ROOT node routing
-        # No automatic START → MEMORY_ONBOARDING routing
+        builder.add_conditional_edges(
+            AssistantNodeName.START,
+            memory_onboarding.should_run_onboarding_at_start,
+            {
+                "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
+                "continue": next_node,
+            },
+        )
 
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_ONBOARDING,
