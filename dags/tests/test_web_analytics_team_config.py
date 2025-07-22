@@ -4,26 +4,8 @@ from dags.web_analytics_team_config import get_team_ids_from_sources
 
 from posthog.models.web_preaggregated.team_config import (
     DEFAULT_ENABLED_TEAM_IDS,
-    format_team_ids_for_sql,
     WEB_ANALYTICS_TEAM_CONFIG_DATA_SQL,
 )
-
-
-def test_format_team_ids_for_sql_with_teams():
-    team_ids = [1, 2, 3]
-    result = format_team_ids_for_sql(team_ids)
-    assert result == "team_id IN(1, 2, 3)"
-
-
-def test_format_team_ids_for_sql_empty():
-    team_ids = []
-    result = format_team_ids_for_sql(team_ids)
-    assert result == "1=1"
-
-
-def test_format_team_ids_for_sql_none():
-    result = format_team_ids_for_sql(None)
-    assert result == "1=1"
 
 
 def test_web_analytics_team_config_data_sql_with_default():
@@ -40,14 +22,16 @@ def test_web_analytics_team_config_data_sql_with_custom_teams():
     for team_id in custom_teams:
         assert str(team_id) in sql
 
+    # Check that default team IDs are not in the VALUES section
+    values_section = sql.split("VALUES")[1] if "VALUES" in sql else sql
     for team_id in DEFAULT_ENABLED_TEAM_IDS:
-        assert str(team_id) not in sql
+        assert f"({team_id}," not in values_section
 
 
 def test_get_team_ids_from_sources_default():
     with patch.dict(os.environ, {}, clear=True):
         result = get_team_ids_from_sources()
-        assert result == DEFAULT_ENABLED_TEAM_IDS
+        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
 
 
 def test_get_team_ids_from_sources_with_env_var():

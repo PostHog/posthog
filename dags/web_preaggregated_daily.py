@@ -5,11 +5,9 @@ import os
 import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
-import chdb
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     HISTORICAL_DAILY_CRON_SCHEDULE,
-    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
@@ -25,7 +23,6 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
     DROP_PARTITION_SQL,
-    get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (
@@ -101,7 +98,7 @@ def pre_aggregate_web_analytics_data(
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
-            team_ids=team_ids if team_ids else TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
+            team_ids=team_ids,
             settings=ch_settings,
             table_name=table_name,
         )
@@ -220,68 +217,6 @@ def export_web_analytics_data_by_team(
         metadata={
             "team_count": len(successfully_exported_paths),
             "exported_paths": successfully_exported_paths,
-            "failed_team_ids": failed_team_ids,
-        },
-    )
-
-
-def partition_web_analytics_data_by_team(
-    context: dagster.AssetExecutionContext,
-    source_s3_path: str,
-    structure: str,
-) -> dagster.Output[list]:
-    config = context.op_config
-    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
-
-    successfully_team_ids = []
-    failed_team_ids = []
-
-    session = chdb.session.Session()
-    try:
-        temp_db = f"temp_analytics_{context.run_id.replace('-', '_')}"
-        session.query(f"CREATE DATABASE IF NOT EXISTS {temp_db} ENGINE = Atomic")
-
-        temp_table = f"{temp_db}.source_data"
-
-        session.query(
-            f"""
-            CREATE TABLE {temp_table} ENGINE = Memory AS
-            SELECT * FROM s3({get_s3_function_args(source_s3_path)})
-        """
-        )
-
-        context.log.info(f"Loaded source data into temporary table {temp_table}")
-
-        for team_id in team_ids:
-            team_s3_path = f"{source_s3_path.replace('.native', '')}/{team_id}/data.native"
-
-            partition_query = f"""
-            INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)}, '{structure}')
-            SELECT *
-            FROM {temp_table}
-            WHERE team_id = {team_id}
-            SETTINGS s3_truncate_on_insert=true
-            """
-
-            try:
-                context.log.info(f"Partitioning data for team {team_id}")
-                session.query(partition_query)
-
-                successfully_team_ids.append(team_s3_path)
-                context.log.info(f"Successfully partitioned data for team {team_id} to: {team_s3_path}")
-
-            except Exception as e:
-                context.log.exception(f"Failed to partition data for team {team_id}: {str(e)}")
-                failed_team_ids.append(team_id)
-
-    finally:
-        session.cleanup()
-
-    return dagster.Output(
-        value=successfully_team_ids,
-        metadata={
-            "team_count": len(successfully_team_ids),
-            "team_ids": successfully_team_ids,
             "failed_team_ids": failed_team_ids,
         },
     )

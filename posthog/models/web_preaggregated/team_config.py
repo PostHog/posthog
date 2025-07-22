@@ -2,9 +2,8 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
-# Table and dictionary names
-WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME = "web_analytics_team_config"
-WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME = "web_analytics_team_config_dict"
+WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME = "web_preaggregated_teams_config"
+WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME = "web_preaggregated_teams_dict"
 
 # Default team IDs (fallback)
 DEFAULT_ENABLED_TEAM_IDS = [1, 2, 55348, 47074, 12669, 1589, 117126]
@@ -12,7 +11,7 @@ DEFAULT_ENABLED_TEAM_IDS = [1, 2, 55348, 47074, 12669, 1589, 117126]
 
 def WEB_ANALYTICS_TEAM_CONFIG_TABLE_SQL(on_cluster=True):
     return """
-CREATE TABLE IF NOT EXISTS {table_name} (
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     team_id UInt64,
     enabled_at DateTime,
     enabled_by String DEFAULT 'system',
@@ -20,22 +19,9 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 ) ENGINE = {engine}
 ORDER BY (team_id);
 """.format(
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}`",
         engine=ReplacingMergeTree("web_analytics_team_config", ver="version"),
-    )
-
-
-def DROP_WEB_ANALYTICS_TEAM_CONFIG_TABLE_SQL(on_cluster=True):
-    return "DROP TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
-        table_name=f"`{CLICKHOUSE_DATABASE}`.`{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    )
-
-
-def TRUNCATE_WEB_ANALYTICS_TEAM_CONFIG_TABLE_SQL(on_cluster=True):
-    return "TRUNCATE TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
-        table_name=f"`{CLICKHOUSE_DATABASE}`.`{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
@@ -76,16 +62,3 @@ LAYOUT(HASHED())""".format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         query=WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_QUERY(),
     )
-
-
-def DROP_WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_SQL(on_cluster=True):
-    return "DROP DICTIONARY IF EXISTS {dictionary_name} {on_cluster_clause}".format(
-        dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    ).strip()
-
-
-def format_team_ids_for_sql(team_ids: list[int] | None = None) -> str:
-    if not team_ids:
-        return "1=1"
-    return f"team_id IN({', '.join(str(team_id) for team_id in team_ids)})"

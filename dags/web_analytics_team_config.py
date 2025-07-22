@@ -12,10 +12,6 @@ from posthog.models.web_preaggregated.team_config import (
 from dags.common import JobOwners, settings_with_log_comment
 
 
-class WebAnalyticsTeamConfig(dagster.Config):
-    enabled_team_ids: list[int] = DEFAULT_ENABLED_TEAM_IDS
-
-
 def get_team_ids_from_sources() -> list[int]:
     team_ids = set()
 
@@ -31,6 +27,9 @@ def get_team_ids_from_sources() -> list[int]:
 
     # Fallback to default teams if no other sources provided data
     if not team_ids:
+        team_ids.update(DEFAULT_ENABLED_TEAM_IDS)
+    else:
+        # If we have env teams, also include default teams
         team_ids.update(DEFAULT_ENABLED_TEAM_IDS)
 
     return sorted(team_ids)
@@ -87,7 +86,6 @@ def store_team_config_in_clickhouse(
 @dagster.asset(
     name="web_analytics_team_config",
     group_name="web_analytics",
-    config_schema=WebAnalyticsTeamConfig,
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_team_config(
@@ -100,12 +98,8 @@ def web_analytics_team_config(
     This asset manages which teams have access to web analytics pre-aggregated tables.
     The configuration is then stored in a ClickHouse dictionary for fast lookups.
     """
-    config = context.op_config
-
-    context.log.info(f"Getting team IDs from sources: {config}")
-    team_ids = (
-        config.enabled_team_ids if config.enabled_team_ids != DEFAULT_ENABLED_TEAM_IDS else get_team_ids_from_sources()
-    )
+    context.log.info(f"Getting team IDs from sources")
+    team_ids = get_team_ids_from_sources()
 
     context.log.info(f"Materializing team configuration for {len(team_ids)} teams")
     stored_team_ids = store_team_config_in_clickhouse(context, team_ids, cluster)

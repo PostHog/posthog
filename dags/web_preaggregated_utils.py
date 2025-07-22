@@ -63,7 +63,7 @@ def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Opt
 WEB_ANALYTICS_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
-        default_value=None,
+        is_required=False,
         description="List of team IDs to process - if not provided, uses ClickHouse dictionary configuration",
     ),
     "extra_clickhouse_settings": Field(
