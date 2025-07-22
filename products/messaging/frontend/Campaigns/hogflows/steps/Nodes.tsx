@@ -128,9 +128,11 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     // When handle count changes, we need to update the node internals so that edges are re-rendered at
     // the correct positions
     useEffect(() => {
-        updateNodeInternals(props.id)
+        setTimeout(() => {
+            updateNodeInternals(props.id)
+        }, 100)
         // oxlint-disable-next-line exhaustive-deps
-    }, [node?.handles])
+    }, [node.handles?.length, updateNodeInternals, props.id])
 
     return (
         <>
