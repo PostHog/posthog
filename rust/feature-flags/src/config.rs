@@ -184,13 +184,13 @@ pub struct Config {
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT", default = "")]
     pub otel_url: String,
 
-    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "1.0")]
+    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.01")]
     pub otel_sampling_rate: f64,
 
     #[envconfig(from = "OTEL_SERVICE_NAME", default = "posthog-feature-flags")]
     pub otel_service_name: String,
 
-    #[envconfig(from = "RUST_LOG", default = "error")]
+    #[envconfig(from = "RUST_LOG", default = "info")]
     pub log_level: Level,
 }
 
