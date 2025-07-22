@@ -163,6 +163,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
             node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])), "continue"
         )
 
+    def test_should_run_with_empty_messages(self):
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
+        self.assertEqual(node.should_run_onboarding_at_start(AssistantState(messages=[])), "continue")
+
     def test_router(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "initialize_memory")
@@ -596,6 +600,36 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE)
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
+
+    def test_handles_json_content_in_memory(self):
+        """Test that memory compression works when memory contains JSON with curly braces."""
+        json_memory_content = """Question: What kind of data structure do we use for events?
+Answer: We use JSON like this:
+{
+  "event": "user_signup",
+  "properties": {
+    "plan": "enterprise",
+    "source": "organic"
+  },
+  "timestamp": "2024-01-01T12:00:00Z"
+}
+
+Additional context: Our system also handles nested configurations like {"feature_flags": {"experiment_1": true, "experiment_2": false}}"""
+
+        with patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock:
+            model_mock.return_value = RunnableLambda(lambda _: "Company uses structured JSON for event tracking")
+
+            # This content contains JSON with curly braces that could be misinterpreted as template variables
+            self.core_memory.initial_text = json_memory_content
+            self.core_memory.save()
+
+            # This should not raise a KeyError about missing template variables
+            new_state = self.node.run(AssistantState(messages=[]), {})
+
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE)
+            self.core_memory.refresh_from_db()
+            self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
 
 
 @override_settings(IN_UNIT_TESTING=True)

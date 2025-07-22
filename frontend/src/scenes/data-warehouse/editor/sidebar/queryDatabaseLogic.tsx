@@ -112,23 +112,17 @@ const createTableNode = (
 }
 
 const createViewNode = (
-    view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
+    view: DataWarehouseSavedQuery,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
+    const isMaterializedView = 'sync_frequency' in view && view.sync_frequency !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
-    // Add columns/fields
-    if ('columns' in view && view.columns) {
-        Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
-            viewChildren.push(createColumnNode(view.name, column, isSearch))
-        })
-    } else if ('fields' in view) {
-        Object.values(view.fields).forEach((field: DatabaseSchemaField) => {
-            viewChildren.push(createColumnNode(view.name, field, isSearch))
-        })
-    }
+    Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
+        viewChildren.push(createColumnNode(view.name, column, isSearch))
+    })
 
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
 
@@ -136,11 +130,38 @@ const createViewNode = (
         id: viewId,
         name: view.name,
         type: 'node',
-        icon: isManagedView ? <IconDatabase /> : <IconDocument />,
+        icon: isManagedView || isMaterializedView ? <IconDatabase /> : <IconDocument />,
         record: {
             type: 'view',
             view: view,
             isSavedQuery: !isManagedView,
+            ...(matches && { searchMatches: matches }),
+        },
+        children: viewChildren,
+    }
+}
+
+const createManagedViewNode = (
+    managedView: DatabaseSchemaManagedViewTable,
+    matches: FuseSearchMatch[] | null = null,
+    isSearch = false
+): TreeDataItem => {
+    const viewChildren: TreeDataItem[] = []
+
+    Object.values(managedView.fields).forEach((field: DatabaseSchemaField) => {
+        viewChildren.push(createColumnNode(managedView.name, field, isSearch))
+    })
+
+    const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
+
+    return {
+        id: managedViewId,
+        name: managedView.name,
+        type: 'node',
+        icon: <IconDatabase />,
+        record: {
+            type: 'managed-view',
+            view: managedView,
             ...(matches && { searchMatches: matches }),
         },
         children: viewChildren,
@@ -197,7 +218,7 @@ const createSourceFolderNode = (
 }
 
 const createTopLevelFolderNode = (
-    type: 'sources' | 'views',
+    type: 'sources' | 'views' | 'managed-views',
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
@@ -218,9 +239,22 @@ const createTopLevelFolderNode = (
         ]
     }
 
+    if (type === 'managed-views' && children.length === 0) {
+        finalChildren = [
+            {
+                id: `${isSearch ? 'search-' : ''}managed-views-folder-empty/`,
+                name: 'Empty folder',
+                type: 'empty-folder',
+                record: {
+                    type: 'empty-folder',
+                },
+            },
+        ]
+    }
+
     return {
         id: isSearch ? `search-${type}` : type,
-        name: type === 'sources' ? 'Sources' : 'Views',
+        name: type === 'sources' ? 'Sources' : type === 'views' ? 'Views' : 'Managed Views',
         type: 'node',
         icon: icon,
         record: {
@@ -279,13 +313,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         expandedFolders: [
-            ['sources', 'views'] as string[], // Default expanded folders
+            ['sources', 'views', 'managed-views'] as string[], // Default expanded folders
             {
                 setExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
         expandedSearchFolders: [
-            ['sources', 'views', 'search-posthog', 'search-datawarehouse', 'search-views'] as string[],
+            [
+                'sources',
+                'views',
+                'managed-views',
+                'search-posthog',
+                'search-datawarehouse',
+                'search-views',
+                'search-managed-views',
+            ] as string[],
             {
                 setExpandedSearchFolders: (_, { folderIds }) => folderIds,
             },
@@ -426,6 +468,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Create views children
                 const viewsChildren: TreeDataItem[] = []
+                const managedViewsChildren: TreeDataItem[] = []
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
@@ -434,7 +477,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add managed views
                 relevantManagedViews.forEach(([view, matches]) => {
-                    viewsChildren.push(createViewNode(view, matches, true))
+                    managedViewsChildren.push(createManagedViewNode(view, matches, true))
                 })
 
                 const searchResults: TreeDataItem[] = []
@@ -447,6 +490,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 if (viewsChildren.length > 0) {
                     expandedIds.push('search-views')
                     searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
+                }
+
+                if (managedViewsChildren.length > 0) {
+                    expandedIds.push('search-managed-views')
+                    searchResults.push(createTopLevelFolderNode('managed-views', managedViewsChildren, true))
                 }
 
                 // Auto-expand only parent folders, not the matching nodes themselves
@@ -521,6 +569,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Create views children
                 const viewsChildren: TreeDataItem[] = []
+                const managedViewsChildren: TreeDataItem[] = []
 
                 // Add loading indicator for views if still loading
                 if (
@@ -536,6 +585,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         disableSelect: true,
                         type: 'loading-indicator',
                     })
+                    managedViewsChildren.push({
+                        id: 'managed-views-loading/',
+                        name: 'Loading...',
+                        displayName: <>Loading...</>,
+                        icon: <Spinner />,
+                        disableSelect: true,
+                        type: 'loading-indicator',
+                    })
                 } else {
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
@@ -544,13 +601,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     // Add managed views
                     managedViews.forEach((view) => {
-                        viewsChildren.push(createViewNode(view))
+                        managedViewsChildren.push(createManagedViewNode(view))
                     })
                 }
 
                 return [
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     createTopLevelFolderNode('views', viewsChildren),
+                    createTopLevelFolderNode('managed-views', managedViewsChildren),
                 ]
             },
         ],

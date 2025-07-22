@@ -5,8 +5,9 @@
 // (even though our actual app's esbuild setup compiles perfectly well.)
 
 /* eslint-disable simple-import-sort/exports */
-export * from './schema-general'
-export * from './schema-assistant-queries'
 export * from './schema-assistant-messages'
+export * from './schema-assistant-queries'
 export * from './schema-assistant-replay'
+export * from './schema-general'
+export * from './schema-surveys'
 /* eslint-enable simple-import-sort/exports */

@@ -24,6 +24,7 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { getExceptionAttributes } from 'lib/components/Errors/utils'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -61,6 +62,21 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     )
 }
 
+function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Element {
+    const errorProps = getExceptionAttributes(event.properties)
+    let connector = ''
+    if (!!errorProps.type && !!errorProps.value) {
+        connector = ':'
+    }
+    return (
+        <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-danger-highlight">
+            <span>{errorProps.type}</span>
+            <span>{connector}</span>
+            <span>{errorProps.value}</span>
+        </div>
+    )
+}
+
 export function ItemEvent({ item }: ItemEventProps): JSX.Element {
     const subValue =
         item.data.event === '$pageview' ? (
@@ -75,6 +91,8 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
           item.data.event === '$ai_span' ||
           item.data.event === '$ai_trace' ? (
             <AIEventSummary event={item.data} />
+        ) : item.data.event === '$exception' ? (
+            <ExceptionTitlePill event={item.data} />
         ) : null
 
     return (
@@ -106,6 +124,8 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     const isAIEvent =
         item.data.event === '$ai_generation' || item.data.event === '$ai_span' || item.data.event === '$ai_trace'
 
+    const isErrorEvent = item.data.event === '$exception'
+
     const [activeTab, setActiveTab] = useState<
         | 'properties'
         | 'flags'
@@ -115,7 +135,9 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         | '$set_once_properties'
         | 'raw'
         | 'conversation'
-    >(isAIEvent ? 'conversation' : 'properties')
+        | 'exception_properties'
+        | 'error_display'
+    >(isAIEvent ? 'conversation' : isErrorEvent ? 'error_display' : 'properties')
 
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
@@ -124,6 +146,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
 
     const properties = {}
     const featureFlagProperties = {}
+    const errorProperties = {}
     let setProperties = {}
     let setOnceProperties = {}
 
@@ -135,6 +158,8 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                 setProperties = item.data.properties[key]
             } else if (key === '$set_once') {
                 setOnceProperties = item.data.properties[key]
+            } else if (key.startsWith('$exception')) {
+                errorProperties[key] = item.data.properties[key]
             } else {
                 properties[key] = item.data.properties[key]
             }
@@ -162,6 +187,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                 item.data.properties.$exception_issue_id,
                                 item.data.properties.$exception_fingerprint
                             )}
+                            size="xsmall"
                         >
                             View issue
                         </LemonButton>
@@ -228,120 +254,138 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                 <LemonDivider dashed />
 
                 {item.data.fullyLoaded ? (
-                    item.data.event === '$exception' ? (
-                        <ErrorDisplay eventProperties={item.data.properties} eventId={item.data.id} />
-                    ) : (
-                        <LemonTabs
-                            size="small"
-                            activeKey={activeTab}
-                            onChange={(newKey) => setActiveTab(newKey)}
-                            tabs={[
-                                {
-                                    key: 'properties',
-                                    label: 'Properties',
-                                    content: (
-                                        <SimpleKeyValueList
-                                            item={filterProperties(properties)}
-                                            promotedKeys={promotedKeys}
-                                        />
-                                    ),
-                                },
-                                {
-                                    key: 'flags',
-                                    label: 'Flags',
-                                    content: (
-                                        <SimpleKeyValueList item={featureFlagProperties} promotedKeys={promotedKeys} />
-                                    ),
-                                },
-                                item.data.elements && item.data.elements.length > 0
-                                    ? {
-                                          key: 'elements',
-                                          label: 'Elements',
-                                          content: (
-                                              <HTMLElementsDisplay
-                                                  size="xsmall"
-                                                  elements={item.data.elements}
-                                                  selectedText={item.data.properties['$selected_content']}
-                                              />
-                                          ),
-                                      }
-                                    : null,
-                                autocaptureToImage(item.data.elements)
-                                    ? {
-                                          key: 'image',
-                                          label: 'Image',
-                                          content: (
-                                              <AutocaptureImageTab
-                                                  elements={item.data.elements}
-                                                  properties={item.data.properties}
-                                              />
-                                          ),
-                                      }
-                                    : null,
-                                // Add conversation tab for $ai_generation events
-                                isAIEvent
-                                    ? {
-                                          key: 'conversation',
-                                          label: 'Conversation',
-                                          content: <AIEventExpanded event={item.data} />,
-                                      }
-                                    : null,
-                                Object.keys(setProperties).length > 0
-                                    ? {
-                                          key: '$set_properties',
-                                          label: 'Person properties',
-                                          content: (
-                                              <SimpleKeyValueList
-                                                  item={setProperties}
-                                                  promotedKeys={promotedKeys}
-                                                  header={
-                                                      <p>
-                                                          Person properties sent with this event. Will replace any
-                                                          property value that may have been set on this person profile
-                                                          before now.{' '}
-                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                                              Learn more
-                                                          </Link>
-                                                      </p>
-                                                  }
-                                              />
-                                          ),
-                                      }
-                                    : null,
-                                Object.keys(setOnceProperties).length > 0
-                                    ? {
-                                          key: '$set_once_properties',
-                                          label: 'Set once person properties',
-                                          content: (
-                                              <SimpleKeyValueList
-                                                  item={setOnceProperties}
-                                                  promotedKeys={promotedKeys}
-                                                  header={
-                                                      <p>
-                                                          "Set once" person properties sent with this event. Will
-                                                          replace any property value that have never been set on this
-                                                          person profile before now.{' '}
-                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                                              Learn more
-                                                          </Link>
-                                                      </p>
-                                                  }
-                                              />
-                                          ),
-                                      }
-                                    : null,
-                                {
-                                    key: 'raw',
-                                    label: 'Raw',
-                                    content: (
-                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
-                                            {JSON.stringify(item.data.properties, null, 2)}
-                                        </pre>
-                                    ),
-                                },
-                            ]}
-                        />
-                    )
+                    <LemonTabs
+                        size="small"
+                        activeKey={activeTab}
+                        onChange={(newKey) => setActiveTab(newKey)}
+                        tabs={[
+                            item.data.event === '$exception' && {
+                                key: 'error_display',
+                                label: 'Exception',
+                                content: <ErrorDisplay eventProperties={item.data.properties} eventId={item.data.id} />,
+                            },
+                            {
+                                key: 'properties',
+                                label: 'Properties',
+                                content: (
+                                    <SimpleKeyValueList
+                                        item={filterProperties(properties)}
+                                        promotedKeys={promotedKeys}
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'flags',
+                                label: 'Flags',
+                                content: (
+                                    <SimpleKeyValueList item={featureFlagProperties} promotedKeys={promotedKeys} />
+                                ),
+                            },
+                            item.data.elements && item.data.elements.length > 0
+                                ? {
+                                      key: 'elements',
+                                      label: 'Elements',
+                                      content: (
+                                          <HTMLElementsDisplay
+                                              size="xsmall"
+                                              elements={item.data.elements}
+                                              selectedText={item.data.properties['$selected_content']}
+                                          />
+                                      ),
+                                  }
+                                : null,
+                            autocaptureToImage(item.data.elements)
+                                ? {
+                                      key: 'image',
+                                      label: 'Image',
+                                      content: (
+                                          <AutocaptureImageTab
+                                              elements={item.data.elements}
+                                              properties={item.data.properties}
+                                          />
+                                      ),
+                                  }
+                                : null,
+                            // Add conversation tab for $ai_generation events
+                            isAIEvent
+                                ? {
+                                      key: 'conversation',
+                                      label: 'Conversation',
+                                      content: <AIEventExpanded event={item.data} />,
+                                  }
+                                : null,
+                            Object.keys(setProperties).length > 0
+                                ? {
+                                      key: '$set_properties',
+                                      label: 'Person properties',
+                                      content: (
+                                          <SimpleKeyValueList
+                                              item={setProperties}
+                                              promotedKeys={promotedKeys}
+                                              header={
+                                                  <p>
+                                                      Person properties sent with this event. Will replace any property
+                                                      value that may have been set on this person profile before now.{' '}
+                                                      <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                          Learn more
+                                                      </Link>
+                                                  </p>
+                                              }
+                                          />
+                                      ),
+                                  }
+                                : null,
+                            Object.keys(setOnceProperties).length > 0
+                                ? {
+                                      key: '$set_once_properties',
+                                      label: 'Set once person properties',
+                                      content: (
+                                          <SimpleKeyValueList
+                                              item={setOnceProperties}
+                                              promotedKeys={promotedKeys}
+                                              header={
+                                                  <p>
+                                                      "Set once" person properties sent with this event. Will replace
+                                                      any property value that have never been set on this person profile
+                                                      before now.{' '}
+                                                      <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                          Learn more
+                                                      </Link>
+                                                  </p>
+                                              }
+                                          />
+                                      ),
+                                  }
+                                : null,
+                            Object.keys(errorProperties).length > 0
+                                ? {
+                                      key: 'exception_properties',
+                                      label: 'Exception properties',
+                                      content: (
+                                          <SimpleKeyValueList
+                                              item={errorProperties}
+                                              promotedKeys={promotedKeys}
+                                              header={
+                                                  <p>
+                                                      PostHog uses properties that start with $exception to carry
+                                                      information about errors.
+                                                  </p>
+                                              }
+                                          />
+                                      ),
+                                  }
+                                : null,
+                            {
+                                key: 'raw',
+                                label: 'Raw',
+                                content: (
+                                    <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                        {JSON.stringify(item.data.properties, null, 2)}
+                                    </pre>
+                                ),
+                            },
+                        ]}
+                    />
                 ) : (
                     <div className="text-secondary flex gap-1 items-center">
                         <Spinner textColored />
