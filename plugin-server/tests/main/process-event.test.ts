@@ -136,7 +136,7 @@ async function processEvent(
 // the reference implementation.
 let state = { currentDistinctId: 'anonymous_id' }
 
-describe.skip('process-event', () => {
+describe('process-event', () => {
     beforeAll(async () => {
         await resetKafka(TEST_CONFIG)
     })
@@ -152,11 +152,16 @@ describe.skip('process-event', () => {
         await resetTestDatabaseClickhouse(TEST_CONFIG)
 
         hub = await createHub({ ...TEST_CONFIG })
+        console.log("aquiring redis")
         const redis = await hub.redisPool.acquire()
         // clear the webhook redis cache
+    
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+        console.log("deleting redis")
         await redis.del(hooksCacheKey)
+        console.log("releasing redis")
         await hub.redisPool.release(redis)
+        console.log("redis released")
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
@@ -208,7 +213,7 @@ describe.skip('process-event', () => {
         await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
     }
 
-    test('merge people', async () => {
+    test.only('merge people', async () => {
         const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
