@@ -141,6 +141,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "insight": insight,
             "dashboard": dashboard,
             "recording": recording,
+            "expires_at": None,
         }
 
         try:
