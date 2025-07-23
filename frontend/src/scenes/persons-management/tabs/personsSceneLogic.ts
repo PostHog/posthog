@@ -4,6 +4,7 @@ import api from 'lib/api'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind, ActorsQuery } from '~/queries/schema/schema-general'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 import { actionToUrl, urlToAction, router } from 'kea-router'
@@ -96,6 +97,8 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             })
         },
     })),
+
+    permanentlyMount(),
 
     // NOTE: Temp disabled as it triggers a loop bug
 
