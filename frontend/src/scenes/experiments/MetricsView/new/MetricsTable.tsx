@@ -72,7 +72,11 @@ export function MetricsTable({
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
                         const error = errors[metricIndex]
-                        const isLoading = !result && !error
+
+                        const hasResult = !!result
+                        const hasError = !!error
+                        const hasExperimentStarted = !!experiment.start_date
+                        const isLoading = !hasResult && !hasError && hasExperimentStarted
 
                         return (
                             <MetricRowGroup

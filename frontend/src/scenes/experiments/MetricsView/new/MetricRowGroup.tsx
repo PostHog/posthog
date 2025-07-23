@@ -105,7 +105,7 @@ export function MetricRowGroup({
                     }`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    {isLoading && experiment.start_date ? (
+                    {isLoading ? (
                         <ChartLoadingState height={CELL_HEIGHT} />
                     ) : (
                         <ChartEmptyState
