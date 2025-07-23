@@ -215,7 +215,7 @@ def is_clickhouse_connected() -> bool:
     """
     ping_url = urljoin(settings.CLICKHOUSE_HTTP_URL, "ping")
     try:
-        response = (requests.get(ping_url, timeout=3, verify=False),)
+        response = requests.get(ping_url, timeout=3, verify=False)
         response.raise_for_status()
     except Exception:
         logger.debug("clickhouse_connection_failure", exc_info=True)
