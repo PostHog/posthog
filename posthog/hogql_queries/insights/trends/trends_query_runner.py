@@ -40,7 +40,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
-from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
+from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series, format_label_date
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -72,8 +72,9 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
     TrendsFormulaNode,
+    ResolvedDateRangeResponse,
 )
-from posthog.utils import format_label_date, multisort
+from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
@@ -142,11 +143,18 @@ class TrendsQueryRunner(QueryRunner):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
+            # If user requests 'all' time, determine the true earliest timestamp
+            earliest_timestamp = None
+            if self.query.dateRange and self.query.dateRange.date_from == "all":
+                earliest_timestamp = self._earliest_timestamp
+
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
                 else:
                     query_date_range = self.query_previous_date_range
+
+                query_date_range._earliest_timestamp_fallback = earliest_timestamp
 
                 query_builder = TrendsQueryBuilder(
                     trends_query=series.overriden_query or self.query,
@@ -223,7 +231,7 @@ class TrendsQueryRunner(QueryRunner):
             if self._trends_display.is_total_value()
             else [
                 DayItem(
-                    label=format_label_date(value, self.query_date_range.interval_name),
+                    label=format_label_date(value, self.query_date_range, self.team.week_start_day),
                     value=value,
                 )
                 for value in self.query_date_range.all_values()
@@ -486,6 +494,10 @@ class TrendsQueryRunner(QueryRunner):
             hogql=response_hogql,
             modifiers=self.modifiers,
             error=". ".join(debug_errors),
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
@@ -553,7 +565,8 @@ class TrendsQueryRunner(QueryRunner):
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
-                        format_label_date(item, self.query_date_range.interval_name) for item in get_value("date", val)
+                        format_label_date(item, self.query_date_range, self.team.week_start_day)
+                        for item in get_value("date", val)
                     ],
                     "days": [
                         item.strftime(
@@ -656,15 +669,15 @@ class TrendsQueryRunner(QueryRunner):
         return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
 
     @cached_property
+    def _earliest_timestamp(self) -> datetime:
+        return get_earliest_timestamp_from_series(
+            team=self.team,
+            series=[series.series for series in self.series],
+        )
+
+    @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
-
-        # If user requests 'all' time, determine the true earliest timestamp
-        earliest_timestamp = None
-        if self.query.dateRange and self.query.dateRange.date_from == "all":
-            earliest_timestamp = get_earliest_timestamp_from_series(
-                self.team, [series.series for series in self.series]
-            )
 
         return QueryDateRange(
             date_range=self.query.dateRange,
@@ -672,7 +685,6 @@ class TrendsQueryRunner(QueryRunner):
             interval=interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
-            earliest_timestamp_fallback=earliest_timestamp,
         )
 
     @cached_property
@@ -888,6 +900,7 @@ class TrendsQueryRunner(QueryRunner):
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
                                 "days": any_result.get("days"),
+                                "labels": any_result.get("labels"),
                             }
                         )
                 new_result = self.apply_formula_to_results_group(

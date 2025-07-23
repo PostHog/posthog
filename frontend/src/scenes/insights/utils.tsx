@@ -289,7 +289,8 @@ export function formatBreakdownLabel(
     breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
-    multipleBreakdownIndex?: number
+    multipleBreakdownIndex?: number,
+    itemLabel?: string
 ): string {
     if (Array.isArray(breakdown_value)) {
         return breakdown_value
@@ -322,6 +323,14 @@ export function formatBreakdownLabel(
     }
 
     if (breakdownFilter?.breakdown_type === 'cohort') {
+        if (breakdown_value === 'all' || breakdown_value === 0) {
+            return 'All Users'
+        }
+        if (cohorts == null || cohorts.length === 0) {
+            if (itemLabel != null) {
+                return itemLabel
+            }
+        }
         return getCohortNameFromId(breakdown_value, cohorts)
     }
 

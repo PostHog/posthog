@@ -515,32 +515,31 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {showPlaygroundButton ||
-                                (hasSessionID(event) && (
-                                    <div className="flex flex-row items-center gap-2">
-                                        {showPlaygroundButton && (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="small"
-                                                icon={<IconChat />}
-                                                onClick={handleTryInPlayground}
-                                                tooltip="Try this prompt in the playground"
-                                            >
-                                                Try in Playground
-                                            </LemonButton>
-                                        )}
-                                        {hasSessionID(event) && (
-                                            <ViewRecordingButton
-                                                inModal
-                                                type="secondary"
-                                                size="xsmall"
-                                                data-attr="llm-observability"
-                                                sessionId={getSessionID(event) || undefined}
-                                                timestamp={removeMilliseconds(event.createdAt)}
-                                            />
-                                        )}
-                                    </div>
-                                ))}
+                            {(showPlaygroundButton || hasSessionID(event)) && (
+                                <div className="flex flex-row items-center gap-2">
+                                    {showPlaygroundButton && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            icon={<IconChat />}
+                                            onClick={handleTryInPlayground}
+                                            tooltip="Try this prompt in the playground"
+                                        >
+                                            Try in Playground
+                                        </LemonButton>
+                                    )}
+                                    {hasSessionID(event) && (
+                                        <ViewRecordingButton
+                                            inModal
+                                            type="secondary"
+                                            size="xsmall"
+                                            data-attr="llm-observability"
+                                            sessionId={getSessionID(event) || undefined}
+                                            timestamp={removeMilliseconds(event.createdAt)}
+                                        />
+                                    )}
+                                </div>
+                            )}
                         </header>
                         <LemonTabs
                             activeKey={viewMode}

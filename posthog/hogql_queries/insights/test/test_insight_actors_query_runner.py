@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import WeekStartDay
@@ -18,6 +19,8 @@ from posthog.schema import (
     TrendsQuery,
     DateRange,
     EventsNode,
+    MathGroupTypeIndex,
+    BaseMathType,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -428,3 +431,81 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             response.results,
         )
+
+    def test_insight_actors_trends_weekly_active_groups(self):
+        self._create_test_groups()
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
+            """
+            select * from (
+                <ActorsQuery select={['properties.name']}>
+                    <InsightActorsQuery day='2020-01-09'>
+                        <TrendsQuery
+                            dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' math='weekly_active' math_group_type_index={0} />]}
+                        />
+                    </InsightActorsQuery>
+                </ActorsQuery>
+            )
+            """
+        )
+
+        self.assertEqual([("org1",)], response.results)
+
+    def test_insight_actors_trends_monthly_active_groups(self):
+        self._create_test_groups()
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
+            """
+            select * from (
+                <ActorsQuery select={['properties.name']}>
+                    <InsightActorsQuery day='2020-01-09'>
+                        <TrendsQuery
+                            dateRange={<DateRange date_from='2020-01-01' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' math='monthly_active' math_group_type_index={0} />]}
+                        />
+                    </InsightActorsQuery>
+                </ActorsQuery>
+            )
+            """
+        )
+
+        self.assertEqual([("org1",)], response.results)
+
+    def test_group_type_index_property_weekly_active(self):
+        query = InsightActorsQuery(
+            source=TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.WEEKLY_ACTIVE,
+                        math_group_type_index=MathGroupTypeIndex.NUMBER_1,
+                    )
+                ]
+            )
+        )
+
+        runner = InsightActorsQueryRunner(query=query, team=self.team)
+        self.assertEqual(runner.group_type_index, 1)
+
+    def test_group_type_index_property_monthly_active(self):
+        query = InsightActorsQuery(
+            source=TrendsQuery(
+                series=[
+                    EventsNode(
+                        event="$pageview",
+                        math=BaseMathType.MONTHLY_ACTIVE,
+                        math_group_type_index=MathGroupTypeIndex.NUMBER_2,
+                    )
+                ]
+            )
+        )
+
+        runner = InsightActorsQueryRunner(query=query, team=self.team)
+        self.assertEqual(runner.group_type_index, 2)

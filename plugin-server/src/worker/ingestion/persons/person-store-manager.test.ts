@@ -87,7 +87,7 @@ describe('PersonStoreManager', () => {
                 return Promise.resolve([])
             }),
             moveDistinctIds: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
+                return Promise.resolve({ success: true, messages: [] })
             }),
             addDistinctId: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
@@ -228,7 +228,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 return Promise.resolve([])
             }),
             moveDistinctIds: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
+                return Promise.resolve({ success: true, messages: [] })
             }),
             addDistinctId: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
@@ -1085,7 +1085,6 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             // Step 4: Flush and check final states
             await shadowManager.flush()
 
-            const metrics = shadowManager.getShadowMetrics()
             const finalStates = shadowManager.getFinalStates()
 
             // Verify final state tracking
@@ -1114,29 +1113,6 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     }),
                 ])
             )
-
-            // Check for any logic errors - this is where the bug might manifest
-            // The bug would be that properties from the merge are missing in the measuring store
-            if (metrics.logicErrors.length > 0) {
-                const logicError = metrics.logicErrors[0]
-                console.log('Detected target person logic error:', logicError.differences)
-
-                // Check if we're missing properties that should have been merged
-                const missingProperties = logicError.differences.filter(
-                    (diff) =>
-                        diff.includes('missing in measuring store') &&
-                        (diff.includes('source_prop') ||
-                            diff.includes('rich_property') ||
-                            diff.includes('merged_from_source'))
-                )
-
-                if (missingProperties.length > 0) {
-                    console.log(
-                        'Bug reproduced! Properties lost in target person after moveDistinctIds:',
-                        missingProperties
-                    )
-                }
-            }
         })
     })
 

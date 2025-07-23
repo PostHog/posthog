@@ -1,9 +1,7 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
@@ -18,10 +16,10 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
 
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingAnnotation } = useActions(theBuiltOverlayLogic)
+    const { submitRecordingAnnotation, resetRecordingAnnotation } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
-        <div className="absolute bottom-4 left-4 z-20 w-60">
+        <div className="absolute bottom-4 left-4 z-20 w-90">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerCommentOverlayLogic}
@@ -34,31 +32,30 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                         <LemonField name="annotationId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
-                        <LemonField name="timeInRecording" label={<span>Comment at</span>} inline={true}>
+                        <LemonField
+                            name="timeInRecording"
+                            label={<span>Comment at</span>}
+                            inline={true}
+                            className="justify-end"
+                        >
                             <LemonInput disabled={true} />
                         </LemonField>
                     </div>
                     <div>
                         <LemonField name="content">
-                            <LemonTextArea
+                            <LemonTextAreaMarkdown
                                 placeholder="Comment on this recording?"
                                 data-attr="create-annotation-input"
                                 maxLength={400}
                             />
                         </LemonField>
                     </div>
-                    <div
-                        className={cn('flex flex-row gap-2 justify-end items-center text-text-3000 text-sm', {
-                            'text-danger': (recordingAnnotation.content?.length ?? 0) > 400,
-                        })}
-                    >
-                        {recordingAnnotation.content?.length ?? 0} / 400
-                    </div>
                     <div className="flex gap-2 mt-2 justify-between">
                         <LemonButton
                             data-attr="cancel-recording-annotation"
                             type="secondary"
                             onClick={() => {
+                                resetRecordingAnnotation()
                                 setIsCommenting(false)
                             }}
                         >

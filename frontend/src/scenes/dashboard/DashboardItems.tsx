@@ -8,7 +8,6 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -30,7 +29,6 @@ export function DashboardItems(): JSX.Element {
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
-        canEditDashboard,
         itemsLoading,
         temporaryVariables,
         temporaryBreakdownColors,
@@ -45,7 +43,6 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         triggerDashboardItemRefresh,
         moveToDashboard,
-        setDashboardMode,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
@@ -127,16 +124,6 @@ export function DashboardItems(): JSX.Element {
                                 DashboardPlacement.Dashboard,
                                 DashboardPlacement.ProjectHomepage,
                             ].includes(placement),
-                            moreButtons: canEditDashboard ? (
-                                <LemonButton
-                                    onClick={() =>
-                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)
-                                    }
-                                    fullWidth
-                                >
-                                    Edit layout (E)
-                                </LemonButton>
-                            ) : null,
                             moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                 if (!dashboard) {
                                     throw new Error('must be on a dashboard to move this tile')
@@ -153,7 +140,8 @@ export function DashboardItems(): JSX.Element {
                                     insight={insight}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
-                                    apiErrored={refreshStatus[insight.short_id]?.error || false}
+                                    apiErrored={refreshStatus[insight.short_id]?.errored || false}
+                                    apiError={refreshStatus[insight.short_id]?.error}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}

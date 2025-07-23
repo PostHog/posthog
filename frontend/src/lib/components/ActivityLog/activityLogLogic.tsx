@@ -15,6 +15,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { dataWarehouseSavedQueryActivityDescriber } from 'scenes/data-warehouse/saved_queries/activityDescriptions'
+import { experimentActivityDescriber } from 'scenes/experiments/experimentActivityDescriber'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
@@ -22,6 +23,7 @@ import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookAct
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -65,6 +67,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return errorTrackingActivityDescriber
         case ActivityScope.DATA_WAREHOUSE_SAVED_QUERY:
             return dataWarehouseSavedQueryActivityDescriber
+        case ActivityScope.REPLAY:
+            return replayActivityDescriber
+        case ActivityScope.EXPERIMENT:
+            return experimentActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

@@ -2,7 +2,8 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { PersonStoreManager } from '~/worker/ingestion/persons/person-store-manager'
+import { MessageSizeTooLarge } from '~/utils/db/error'
+import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -36,8 +37,9 @@ import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/ev
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
-import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { deduplicateEvents } from './deduplication/events'
+import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -48,6 +50,12 @@ const ingestionEventOverflowed = new Counter({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
+})
+
+const headerEventMismatchCounter = new Counter({
+    name: 'ingestion_header_event_mismatch_total',
+    help: 'Number of events where headers do not match the parsed event data',
+    labelNames: ['token', 'distinct_id'],
 })
 
 type EventsForDistinctId = {
@@ -95,9 +103,10 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStoreManager: PersonStoreManager
+    private personStore: BatchWritingPersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
     constructor(
@@ -141,17 +150,12 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const batchWritingPersonStore = new BatchWritingPersonsStore(this.hub.db, {
+        this.personStore = new BatchWritingPersonsStore(this.hub.db, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
-        const measuringPersonStore = new MeasuringPersonsStore(this.hub.db, {
-            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
-            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
-        })
-        this.personStoreManager = new PersonStoreManager(this.hub, measuringPersonStore, batchWritingPersonStore)
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -159,6 +163,7 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
+        this.deduplicationRedis = createDeduplicationRedis(this.hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
@@ -204,6 +209,8 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        logger.info('🔁', `${this.name} - stopping deduplication redis`)
+        await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -263,8 +270,43 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
+    private logBatchStart(messages: Message[]): void {
+        // Log earliest message from each partition to detect duplicate processing across pods
+        const podName = process.env.HOSTNAME || 'unknown'
+        const partitionEarliestMessages = new Map<number, Message>()
+        const partitionBatchSizes = new Map<number, number>()
+
+        messages.forEach((message) => {
+            const existing = partitionEarliestMessages.get(message.partition)
+            if (!existing || message.offset < existing.offset) {
+                partitionEarliestMessages.set(message.partition, message)
+            }
+            partitionBatchSizes.set(message.partition, (partitionBatchSizes.get(message.partition) || 0) + 1)
+        })
+
+        // Create partition data array for single log entry
+        const partitionData = Array.from(partitionEarliestMessages.entries()).map(([partition, message]) => ({
+            partition,
+            offset: message.offset,
+            batchSize: partitionBatchSizes.get(partition) || 0,
+        }))
+
+        logger.info('📖', `KAFKA_BATCH_START: ${this.name}`, {
+            pod: podName,
+            totalMessages: messages.length,
+            partitions: partitionData,
+        })
+    }
+
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
+        if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
+            this.logBatchStart(messages)
+        }
+
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        // Fire-and-forget deduplication call
+        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, parsedMessages))
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(parsedMessages)
@@ -282,7 +324,7 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(groupedMessages)
         }
 
-        const personsStoreForBatch = this.personStoreManager.forBatch()
+        const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
@@ -298,15 +340,8 @@ export class IngestionConsumer {
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
-        logger.info('🔁', `${this.name} - flushing persons store messages`, {
-            count: personsStoreMessages.length,
-        })
-        if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            logger.info('🔁', `${this.name} - queueing persons store messages`, {
-                count: personsStoreMessages.length,
-            })
-            await this.kafkaProducer.queueMessages(personsStoreMessages)
-            await this.kafkaProducer.flush()
+        if (this.kafkaProducer) {
+            await this.producePersonsStoreMessages(personsStoreMessages)
         }
 
         personsStoreForBatch.reportBatch()
@@ -325,6 +360,45 @@ export class IngestionConsumer {
                 await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
             }),
         }
+    }
+
+    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
+        await Promise.all(
+            personsStoreMessages.map((record) => {
+                return Promise.all(
+                    record.topicMessage.messages.map(async (message) => {
+                        try {
+                            return await this.kafkaProducer!.produce({
+                                topic: record.topicMessage.topic,
+                                key: message.key ? Buffer.from(message.key) : null,
+                                value: message.value ? Buffer.from(message.value) : null,
+                                headers: message.headers,
+                            })
+                        } catch (error) {
+                            if (error instanceof MessageSizeTooLarge) {
+                                await captureIngestionWarning(
+                                    this.kafkaProducer!,
+                                    record.teamId,
+                                    'message_size_too_large',
+                                    {
+                                        eventUuid: record.uuid,
+                                        distinctId: record.distinctId,
+                                    }
+                                )
+                                logger.warn('🪣', `Message size too large`, {
+                                    topic: record.topicMessage.topic,
+                                    key: message.key,
+                                    headers: message.headers,
+                                })
+                            } else {
+                                throw error
+                            }
+                        }
+                    })
+                )
+            })
+        )
+        await this.kafkaProducer!.flush()
     }
 
     /**
@@ -553,11 +627,11 @@ export class IngestionConsumer {
 
             // Parse the headers so we can early exit if found and should be dropped
             message.headers?.forEach((header) => {
-                if (header.key === 'distinct_id') {
-                    distinctId = header.value.toString()
+                if ('distinct_id' in header) {
+                    distinctId = header['distinct_id'].toString()
                 }
-                if (header.key === 'token') {
-                    token = header.value.toString()
+                if ('token' in header) {
+                    token = header['token'].toString()
                 }
             })
 
@@ -572,6 +646,9 @@ export class IngestionConsumer {
             const event: PipelineEvent = normalizeEvent({
                 ...combinedEvent,
             })
+
+            // Validate that headers match the parsed event data
+            this.validateHeadersMatchEvent(event, token, distinctId)
 
             // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
@@ -662,6 +739,44 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    }
+
+    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
+        let tokenStatus = 'ok'
+        if (!headerToken && event.token) {
+            tokenStatus = 'missing_in_header'
+        } else if (headerToken && !event.token) {
+            tokenStatus = 'missing_in_event'
+        } else if (!headerToken && !event.token) {
+            tokenStatus = 'missing'
+        } else if (headerToken && event.token && headerToken !== event.token) {
+            tokenStatus = 'different'
+        }
+
+        let distinctIdStatus = 'ok'
+        if (!headerDistinctId && event.distinct_id) {
+            distinctIdStatus = 'missing_in_header'
+        } else if (headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing_in_event'
+        } else if (!headerDistinctId && !event.distinct_id) {
+            distinctIdStatus = 'missing'
+        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
+            distinctIdStatus = 'different'
+        }
+
+        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
+            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
+
+            logger.warn('🔍', `Header/event validation issue detected`, {
+                eventUuid: event.uuid,
+                headerToken,
+                eventToken: event.token,
+                headerDistinctId,
+                eventDistinctId: event.distinct_id,
+                tokenStatus,
+                distinctIdStatus,
+            })
+        }
     }
 
     private overflowEnabled() {

@@ -1,4 +1,4 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ReactNode, useEffect } from 'react'
@@ -12,6 +12,7 @@ import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export default function ViewRecordingTrigger({
     sessionId,
+    recordingStatus,
     timestamp,
     inModal = false,
     checkIfViewed = false,
@@ -19,6 +20,7 @@ export default function ViewRecordingTrigger({
     children,
 }: {
     sessionId: string | undefined
+    recordingStatus: string | undefined
     timestamp?: string | Dayjs
     // whether to open in a modal or navigate to the replay page
     inModal?: boolean
@@ -28,7 +30,7 @@ export default function ViewRecordingTrigger({
     children: (
         onClick: () => void,
         link: string | undefined,
-        disabledReason: string | undefined,
+        disabledReason: JSX.Element | string | null,
         maybeUnwatchedIndicator?: JSX.Element | null
     ) => JSX.Element
 }): JSX.Element {
@@ -64,8 +66,35 @@ export default function ViewRecordingTrigger({
             )
         }
     }
-    const disabledReason = sessionId ? undefined : 'No session ID provided'
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
     const link = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
     return children(onClick, link, disabledReason, maybeUnwatchedIndicator)
+}
+
+const recordingDisabledReason = (
+    sessionId: string | undefined,
+    recordingStatus: string | undefined
+): JSX.Element | string | null => {
+    if (!sessionId) {
+        return (
+            <>
+                No session ID associated with this event.{' '}
+                <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids">Learn how</Link> to
+                set it on all events.
+            </>
+        )
+    } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
+        return (
+            <>
+                Replay was not active when capturing this event.{' '}
+                <Link to="https://posthog.com/docs/session-replay/troubleshooting#recordings-are-not-being-captured">
+                    Learn why
+                </Link>{' '}
+                not all recordings are captured.
+            </>
+        )
+    }
+
+    return null
 }

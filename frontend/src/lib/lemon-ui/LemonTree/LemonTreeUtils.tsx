@@ -86,15 +86,13 @@ export const TreeNodeDisplayIcon = ({
     size = 'default',
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
-    const isFolder =
-        (item.record?.type === 'folder' || (item.children && item.children.length > 0)) &&
-        item.record?.type !== 'sources'
+    const isFolder = item.record?.type === 'folder' || (item.children && item.children.length > 0)
     const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
-    // use provided icon as the default icon for folder nodes
-    if (isFolder) {
+    // use provided icon as the default icon for source folder nodes
+    if (isFolder && !['sources', 'source-folder', 'table', 'view', 'managed-view'].includes(item.record?.type)) {
         iconElement = defaultFolderIcon ? defaultFolderIcon : isOpen ? <IconFolderOpenFilled /> : <IconFolder />
     }
 

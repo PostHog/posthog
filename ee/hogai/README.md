@@ -24,8 +24,8 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
     ```python
     from ee.hogai.tool import MaxTool
     from pydantic import BaseModel, Field
-    from langchain_openai import ChatOpenAI
     from langchain_core.prompts import ChatPromptTemplate
+    from ee.hogai.llm import MaxChatOpenAI
 
     # Define your tool's arguments schema
     class YourToolArgs(BaseModel):
@@ -45,7 +45,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             
             # Optional: Use LLM to process inputs or generate structured outputs
             model = (
-                ChatOpenAI(model="gpt-4o", temperature=0.2)
+                MaxChatOpenAI(model="gpt-4o", temperature=0.2)
                 .with_structured_output(OutputType)
                 .with_retry()
             )

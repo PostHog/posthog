@@ -1,6 +1,6 @@
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,10 +12,7 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
-import ViewRecordingTrigger from 'lib/components/ViewRecordingButton/ViewRecordingTrigger'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { match, P } from 'ts-pattern'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { SessionTab } from './Tabs/SessionTab'
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
@@ -29,7 +26,7 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
     eventLoading: boolean
 }
 
-export function ExceptionCard({ issue, issueLoading, event, eventLoading }: ExceptionCardProps): JSX.Element {
+export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
     const { setLoading } = useActions(exceptionCardLogic)
 
     useEffect(() => {
@@ -46,14 +43,17 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading }: Exce
                 } as ErrorPropertiesLogicProps
             }
         >
-            <ExceptionCardContent issue={issue} timestamp={event?.timestamp} issueLoading={issueLoading} />
+            <ExceptionCardContent
+                issue={issue}
+                timestamp={event?.timestamp}
+                issueLoading={issueLoading}
+                label={label}
+            />
         </BindLogic>
     )
 }
 
-function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardContentProps): JSX.Element {
-    const { sessionId, mightHaveRecording } = useValues(errorPropertiesLogic)
-
+function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive defaultValue="stacktrace">
@@ -72,33 +72,19 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
                             <TabsPrimitiveTrigger className="px-2" value="properties">
                                 Properties
                             </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2" value="session">
+                                Session
+                            </TabsPrimitiveTrigger>
                         </div>
-                        <div className="w-full flex gap-1 justify-end items-center">
+                        <div className="w-full flex gap-2 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
-                            <ViewRecordingTrigger sessionId={sessionId} inModal={true} timestamp={timestamp}>
-                                {(onClick, _, disabledReason, maybeSpinner) => {
-                                    return (
-                                        <ButtonPrimitive
-                                            disabled={disabledReason != null || !mightHaveRecording}
-                                            onClick={onClick}
-                                            className="px-2 h-[1.4rem] whitespace-nowrap"
-                                            tooltip={match([disabledReason != null, mightHaveRecording])
-                                                .with([true, P.any], () => 'No recording available')
-                                                .with([false, false], () => 'Recording not ready')
-                                                .otherwise(() => 'View Recording')}
-                                        >
-                                            <IconPlayCircle />
-                                            Recording
-                                            {maybeSpinner}
-                                        </ButtonPrimitive>
-                                    )
-                                }}
-                            </ViewRecordingTrigger>
+                            {label}
                         </div>
                     </TabsPrimitiveList>
                 </div>
                 <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
                 <PropertiesTab value="properties" />
+                <SessionTab value="session" timestamp={timestamp} />
             </TabsPrimitive>
         </LemonCard>
     )

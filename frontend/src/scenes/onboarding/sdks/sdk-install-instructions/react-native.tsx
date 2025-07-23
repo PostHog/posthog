@@ -1,8 +1,10 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import SetupWizardBanner from './components/SetupWizardBanner'
 
 export interface RNSetupProps {
     includeReplay?: boolean
@@ -76,8 +78,8 @@ export function MyApp() {
                 // No data is captured from the request or response body.
                 // iOS only
                 captureNetworkTelemetry: true,
-                // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 500ms
-                androidDebouncerDelayMs: 500,
+                // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 1000ms
+                androidDebouncerDelayMs: 1000,
                 // Deboucer delay used to reduce the number of snapshots captured and reduce performance impact. Default is 1000ms
                 iOSdebouncerDelayMs: 1000,
             },`
@@ -93,13 +95,29 @@ export function MyApp() {
     )
 }
 
-export function SDKInstallRNInstructions(props: RNSetupProps): JSX.Element {
+export function SDKInstallRNInstructions({
+    hideWizard,
+    includeReplay,
+}: {
+    hideWizard?: boolean
+    includeReplay?: boolean
+}): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = !hideWizard && isCloudOrDev
     return (
         <>
+            {showSetupWizard && (
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="React Native" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
+            )}
             <h3>Install</h3>
-            <RNInstallSnippet {...props} />
+            <RNInstallSnippet includeReplay={includeReplay} />
             <h3>Configure</h3>
-            <RNSetupSnippet {...props} />
+            <RNSetupSnippet includeReplay={includeReplay} />
         </>
     )
 }

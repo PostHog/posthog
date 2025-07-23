@@ -23,12 +23,10 @@ import { parseJSON } from '../../../../src/utils/json-parse'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
@@ -70,6 +68,7 @@ const team = {
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    drop_events_older_than_seconds: null,
 } as Team
 
 const pipelineEvent: PipelineEvent = {
@@ -174,8 +173,6 @@ describe('EventPipelineRunner', () => {
             groupStoreForBatch
         )
 
-        jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
-
         // @ts-expect-error this is just a mock
         jest.mocked(processPersonsStep).mockResolvedValue([
             pluginEvent,
@@ -191,11 +188,11 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('runEventPipeline()', () => {
-        it('runs steps starting from pluginsProcessEventStep', async () => {
+        it('runs steps', async () => {
             await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -224,7 +221,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -261,30 +258,6 @@ describe('EventPipelineRunner', () => {
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
-        describe('early exits from pipeline', () => {
-            beforeEach(() => {
-                jest.mocked(pluginsProcessEventStep).mockResolvedValue(null)
-            })
-
-            it('stops processing after step', async () => {
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(runner.steps).toEqual(['pluginsProcessEventStep'])
-            })
-
-            it('reports metrics and last step correctly', async () => {
-                const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
-                const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
-                const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(1)
-                expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
-                expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
-            })
-        })
-
         describe('errors during processing', () => {
             const error = new Error('testError')
 
@@ -297,7 +270,6 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pluginEvent, team)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
                 expect(pipelineStepErrorCounterSpy).toHaveBeenCalledWith('prepareEventStep')
@@ -447,7 +419,7 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(exceptionEvent, team)
 
                 expect(runner.steps).toEqual([
-                    'pluginsProcessEventStep',
+                    'dropOldEventsStep',
                     'transformEventStep',
                     'normalizeEventStep',
                     'processPersonsStep',
@@ -488,7 +460,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -513,7 +485,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',

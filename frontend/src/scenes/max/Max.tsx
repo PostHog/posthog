@@ -2,30 +2,30 @@ import {
     IconArrowLeft,
     IconChevronLeft,
     IconClockRewind,
-    IconExternal,
     IconCornerDownRight,
+    IconExternal,
     IconMinus,
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import clsx from 'clsx'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
@@ -37,8 +37,6 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
-import clsx from 'clsx'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: Max,
@@ -106,16 +104,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
 
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
-    const { currentLocation } = useValues(router)
-
-    const [wasUserAutoEnrolled, setWasUserAutoEnrolled] = useState(false)
-    useEffect(() => {
-        if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-            updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.ARTIFICIAL_HOG, true)
-            setWasUserAutoEnrolled(true)
-        }
-    }, [featureFlags, updateEarlyAccessFeatureEnrollment])
 
     const headerButtons = (
         <>
@@ -173,7 +161,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             </AnimatedBackButton>
                             {chatTitle ? (
                                 <h3
-                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
                                     title={chatTitle !== 'Max AI' ? chatTitle : undefined}
                                 >
                                     {chatTitle !== 'Max AI' ? (
@@ -231,27 +219,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
-                        {wasUserAutoEnrolled && (
-                            <LemonBanner
-                                type="info"
-                                className="mt-3"
-                                hideIcon={false}
-                                onClose={() => setWasUserAutoEnrolled(false)}
-                            >
-                                PostHog AI feature preview{' '}
-                                <Link
-                                    to={
-                                        combineUrl(currentLocation.pathname, currentLocation.search, {
-                                            ...currentLocation.hashParams,
-                                            panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
-                                        }).url
-                                    }
-                                >
-                                    activated
-                                </Link>
-                                !
-                            </LemonBanner>
-                        )}
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />

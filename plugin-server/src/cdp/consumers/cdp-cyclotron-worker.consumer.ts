@@ -3,11 +3,13 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
+    CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
 } from '../types'
+import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 /**
@@ -16,26 +18,35 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
-    private queue: CyclotronJobQueueKind
+    protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
+    constructor(hub: Hub) {
         super(hub)
-        this.queue = queue
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
-    }
+        this.queue = hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
-    /**
-     * Processes a single invocation. This is the core of the worker and is responsible for executing the hog code and any fetch requests.
-     */
-    private async processInvocation(
-        invocation: CyclotronJobInvocationHogFunction
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        return await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
+            throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
+        }
+
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
-        return await Promise.all(loadedInvocations.map((item) => this.processInvocation(item)))
+
+        return await Promise.all(
+            loadedInvocations.map((item) => {
+                if (isNativeHogFunction(item.hogFunction)) {
+                    return this.nativeDestinationExecutorService.execute(item)
+                } else if (isLegacyPluginHogFunction(item.hogFunction)) {
+                    return this.pluginDestinationExecutorService.execute(item)
+                } else if (isSegmentPluginHogFunction(item.hogFunction)) {
+                    return this.segmentDestinationExecutorService.execute(item)
+                } else {
+                    return this.hogExecutor.executeWithAsyncFunctions(item)
+                }
+            })
+        )
     }
 
     protected async loadHogFunctions(

@@ -321,3 +321,32 @@ TEST_TASK_QUEUE = "test-task-queue"
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+# Sync with frontend/src/scenes/surveys/constants.tsx
+DEFAULT_SURVEY_APPEARANCE = {
+    "fontFamily": "inherit",
+    "backgroundColor": "#eeeded",
+    "submitButtonColor": "black",
+    "submitButtonTextColor": "white",
+    "ratingButtonColor": "white",
+    "ratingButtonActiveColor": "black",
+    "borderColor": "#c9c6c6",
+    "placeholder": "Start typing...",
+    "whiteLabel": False,
+    "displayThankYouMessage": True,
+    "thankYouMessageHeader": "Thank you for your feedback!",
+    "position": "bottom-right",
+    "widgetType": "tab",
+    "widgetLabel": "Feedback",
+    "widgetColor": "black",
+    "zIndex": "2147482647",
+    "disabledButtonOpacity": "0.6",
+    "maxWidth": "300px",
+    "textSubtleColor": "#939393",
+    "inputBackground": "white",
+    "boxPadding": "20px 24px",
+    "boxShadow": "0 4px 12px rgba(0, 0, 0, 0.15)",
+    "borderRadius": "10px",
+    "shuffleQuestions": False,
+    "surveyPopupDelaySeconds": None,
+}

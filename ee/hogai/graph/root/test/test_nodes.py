@@ -1,17 +1,19 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
+    AIMessage,
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
+    SystemMessage,
     ToolMessage as LangchainToolMessage,
 )
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -24,10 +26,10 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
-    MaxUIContext,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxUIContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -269,7 +271,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         mock_with_tokens.get_num_tokens_from_messages = MagicMock(return_value=1)
 
         with patch(
-            "ee.hogai.graph.root.nodes.ChatOpenAI",
+            "ee.hogai.graph.root.nodes.MaxChatOpenAI",
             return_value=mock_with_tokens,
         ):
             node = RootNode(self.team, self.user)
@@ -433,7 +435,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
 
     def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -465,7 +467,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ),
             patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
             patch(
-                "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
                 return_value=("Success", {}),
             ),
         ):
@@ -518,44 +520,32 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_includes_project_org_user_context_in_prompt_template(self):
         with (
-            # This test mocks deeper than ideal, and really it should be spying on the actual LLM call, rather than
-            # prompt template construction. However, LangChain's chaining mechanics make it even more painful to
-            # mock the "right" thing, so going for a kludge here.
-            patch("ee.hogai.graph.root.nodes.ChatPromptTemplate.from_messages") as mock_chat_prompt_template,
-            patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai,
+            patch("os.environ", {"OPENAI_API_KEY": "foo"}),
+            patch("langchain_openai.chat_models.base.ChatOpenAI._generate") as mock_generate,
             patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
-            mock_model = MagicMock()
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
+            mock_generate.return_value = ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content="Test response"))],
+                llm_output={},
+            )
 
             node = RootNode(self.team, self.user)
 
             node.run(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
 
-            mock_chat_prompt_template.assert_called_once()
-            system_content = "\n\n".join(
-                content for role, content in mock_chat_prompt_template.call_args[0][0] if role == "system"
-            )
+            # Verify _generate was called
+            mock_generate.assert_called_once()
+
+            # Get the messages passed to _generate
+            call_args = mock_generate.call_args
+            messages = call_args[0][0]  # First argument is messages
+
+            # Check that the system messages contain the project/org/user context
+            system_messages = [msg for msg in messages if isinstance(msg, SystemMessage)]
+            system_content = "\n\n".join(msg.content for msg in system_messages)
+
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
-
-    def test_model_has_correct_max_retries(self):
-        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.get_num_tokens_from_messages.return_value = 100
-            mock_model.bind_tools.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = RootNode(self.team, self.user)
-            state = AssistantState(messages=[HumanMessage(content="test")])
-
-            node._get_model(state, {})
-
-            # Verify ChatOpenAI was called with max_retries=3
-            mock_chat_openai.assert_called_once()
-            call_args = mock_chat_openai.call_args
-            self.assertEqual(call_args.kwargs["max_retries"], 3)
 
 
 class TestRootNodeTools(BaseTest):
@@ -571,24 +561,11 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_1), "root")
 
-        # Test case 2: Has root tool call with query_kind - should return that query_kind
-        # If the user has not completed the onboarding, it should return memory_onboarding instead
-        state_2 = AssistantState(
-            messages=[AssistantMessage(content="Hello")],
-            root_tool_call_id="xyz",
-            root_tool_insight_plan="Foobar",
-            root_tool_insight_type="trends",
-        )
-        self.assertEqual(node.router(state_2), "memory_onboarding")
-        core_memory = CoreMemory.objects.create(team=self.team)
-        core_memory.change_status_to_skipped()
-        self.assertEqual(node.router(state_2), "insights")
-
-        # Test case 3: No tool call message or root tool call - should return "end"
+        # Test case 2: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
         self.assertEqual(node.router(state_3), "end")
 
-        # Test case 4: Has contextual tool call result - should go back to root
+        # Test case 3: Has contextual tool call result - should go back to root
         state_4 = AssistantState(
             messages=[
                 AssistantMessage(content="Hello"),
@@ -624,7 +601,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
-        self.assertEqual(result.root_tool_insight_type, "trends")
+        self.assertEqual(result.root_tool_insight_type, None)  # Insight type is determined by query planner node
 
     async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
@@ -645,7 +622,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with patch(
-            "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+            "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
             return_value=("Success", {}),
         ):
             result = await node.arun(
@@ -745,7 +722,7 @@ class TestRootNodeTools(BaseTest):
             mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
-            mock_tools.return_value = lambda _: mock_navigate_tool
+            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
@@ -784,7 +761,7 @@ class TestRootNodeTools(BaseTest):
             mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
                 content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
             )
-            mock_tools.return_value = lambda _: mock_search_session_recordings
+            mock_tools.return_value = lambda *args, **kwargs: mock_search_session_recordings
 
             # This should not raise NodeInterrupt
             result = await node.arun(

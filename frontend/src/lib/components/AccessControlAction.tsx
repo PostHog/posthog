@@ -2,7 +2,7 @@ import { AccessControlResourceType } from '~/types'
 
 type AccessControlLevelNone = 'none'
 type AccessControlLevelMember = AccessControlLevelNone | 'member' | 'admin'
-type AccessControlLevelResource = AccessControlLevelNone | 'viewer' | 'editor'
+type AccessControlLevelResource = AccessControlLevelNone | 'viewer' | 'editor' | 'manager'
 type AccessControlLevel = AccessControlLevelMember | AccessControlLevelResource
 
 interface AccessControlActionProps {
@@ -16,7 +16,7 @@ const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessCon
     if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return ['none', 'member', 'admin']
     }
-    return ['none', 'viewer', 'editor']
+    return ['none', 'viewer', 'editor', 'manager']
 }
 
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {

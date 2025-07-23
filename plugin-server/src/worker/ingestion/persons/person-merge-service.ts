@@ -9,9 +9,24 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
+import { BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+
+export class SourcePersonNotFoundError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SourcePersonNotFoundError'
+    }
+}
+
+export class TargetPersonNotFoundError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'TargetPersonNotFoundError'
+    }
+}
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -43,6 +58,13 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'true',
     'false',
 ]
+
+export class MergeRaceConditionError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'MergeRaceConditionError'
+    }
+}
 
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 
@@ -78,8 +100,10 @@ export const isDistinctIdIllegal = (id: string): boolean => {
  */
 export class PersonMergeService {
     private personCreateService: PersonCreateService
+    private usingBatchWritingStore: boolean
     constructor(private context: PersonContext) {
         this.personCreateService = new PersonCreateService(context)
+        this.usingBatchWritingStore = context.personStore instanceof BatchWritingPersonsStoreForBatch
     }
 
     async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
@@ -128,7 +152,13 @@ export class PersonMergeService {
                 },
             })
             mergeFinalFailuresCounter.inc()
-            console.error('handleIdentifyOrAlias failed', e, this.context.event)
+            logger.error('handleIdentifyOrAlias failed', {
+                error: e,
+                distinctId: this.context.distinctId,
+                event_name: this.context.event.event,
+                anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
+                alias: String(this.context.eventProperties['alias']),
+            })
         } finally {
             clearTimeout(timeout)
         }
@@ -187,10 +217,10 @@ export class PersonMergeService {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.context.updateIsIdentified = true
 
-        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_other')
+        await this.capturePersonPropertiesSizeEstimate()
         const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
 
-        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_into')
+        await this.capturePersonPropertiesSizeEstimate()
         const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
@@ -384,14 +414,34 @@ export class PersonMergeService {
         const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
         const properties = updatedTempPerson.properties
 
-        const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
-            mergeInto,
-            otherPerson,
-            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
-            properties
-        )
-
-        return [mergedPerson, kafkaAcks]
+        try {
+            const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
+                mergeInto,
+                mergeIntoDistinctId,
+                otherPerson,
+                otherPersonDistinctId,
+                olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
+                properties
+            )
+            return [mergedPerson, kafkaAcks]
+        } catch (error) {
+            if (error instanceof MergeRaceConditionError) {
+                await captureIngestionWarning(
+                    this.context.kafkaProducer,
+                    this.context.team.id,
+                    'merge_race_condition',
+                    {
+                        sourcePersonDistinctId: otherPersonDistinctId,
+                        targetPersonDistinctId: mergeIntoDistinctId,
+                        eventUuid: this.context.event.uuid,
+                    },
+                    { alwaysSend: true }
+                )
+                logger.warn('🤔', 'merge race condition detected, too many concurrent merges')
+                return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
+            }
+            throw error
+        }
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
@@ -401,88 +451,146 @@ export class PersonMergeService {
     }
 
     private async handleMergeTransaction(
-        mergeInto: InternalPerson,
-        otherPerson: InternalPerson,
+        targetPerson: InternalPerson,
+        targetDistinctId: string,
+        sourcePerson: InternalPerson,
+        sourceDistinctId: string,
         createdAt: DateTime,
-        properties: Properties
+        properties: Properties,
+        maxRetries: number = 5
     ): Promise<[InternalPerson, Promise<void>]> {
-        mergeTxnAttemptCounter
-            .labels({
-                call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
-                oldPersonIdentified: String(otherPerson.is_identified),
-                newPersonIdentified: String(mergeInto.is_identified),
-            })
-            .inc()
+        let currentTargetPerson = targetPerson
+        let currentSourcePerson = sourcePerson
 
-        const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
-            'mergePeople',
-            async (tx) => {
-                const [person, updatePersonMessages] = await this.context.personStore.updatePersonForMerge(
-                    mergeInto,
-                    {
-                        created_at: createdAt,
-                        properties: properties,
-                        is_identified: true,
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                mergeTxnAttemptCounter
+                    .labels({
+                        call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
+                        oldPersonIdentified: String(currentSourcePerson.is_identified),
+                        newPersonIdentified: String(currentTargetPerson.is_identified),
+                    })
+                    .inc()
 
-                        // By using the max version between the two Persons, we ensure that if
-                        // this Person is later split, we can use `this_person.version + 1` for
-                        // any split-off Persons and know that *that* version will be higher than
-                        // any previously deleted Person, and so the new Person row will "win" and
-                        // "undelete" the Person.
-                        //
-                        // For example:
-                        //  - Merge Person_1(version:7) into Person_2(version:2)
-                        //      - Person_1 is deleted
-                        //      - Person_2 attains version 8 via this code below
-                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
-                        //    its `distinct_id` to generate the deterministic Person UUID.
-                        //    That new Person_1 will have a version _at least_ as high as 8, and
-                        //    so any previously existing rows in CH or otherwise from
-                        //    Person_1(version:7) will "lose" to this new Person_1.
-                        version: Math.max(mergeInto.version, otherPerson.version) + 1,
-                    },
-                    this.context.distinctId,
-                    tx
+                const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
+                    'mergePeople',
+                    async (tx) => {
+                        const [person, updatePersonMessages] = await this.context.personStore.updatePersonForMerge(
+                            currentTargetPerson,
+                            {
+                                created_at: createdAt,
+                                properties: properties,
+                                is_identified: true,
+
+                                // By using the max version between the two Persons, we ensure that if
+                                // this Person is later split, we can use `this_person.version + 1` for
+                                // any split-off Persons and know that *that* version will be higher than
+                                // any previously deleted Person, and so the new Person row will "win" and
+                                // "undelete" the Person.
+                                //
+                                // For example:
+                                //  - Merge Person_1(version:7) into Person_2(version:2)
+                                //      - Person_1 is deleted
+                                //      - Person_2 attains version 8 via this code below
+                                //  - Person_2 is later split, which attempts to re-create Person_1 by using
+                                //    its `distinct_id` to generate the deterministic Person UUID.
+                                //    That new Person_1 will have a version _at least_ as high as 8, and
+                                //    so any previously existing rows in CH or otherwise from
+                                //    Person_1(version:7) will "lose" to this new Person_1.
+                                version: Math.max(currentTargetPerson.version, currentSourcePerson.version) + 1,
+                            },
+                            this.context.distinctId,
+                            tx
+                        )
+
+                        // Merge the distinct IDs
+                        // TODO: Doesn't this table need to add updates to CH too?
+                        await this.context.personStore.updateCohortsAndFeatureFlagsForMerge(
+                            currentSourcePerson.team_id,
+                            currentSourcePerson.id,
+                            currentTargetPerson.id,
+                            this.context.distinctId,
+                            tx
+                        )
+
+                        const distinctIdResult = await this.context.personStore.moveDistinctIds(
+                            currentSourcePerson,
+                            currentTargetPerson,
+                            this.context.distinctId,
+                            tx
+                        )
+
+                        if (!distinctIdResult.success) {
+                            if (distinctIdResult.error === 'SourceNotFound') {
+                                throw new SourcePersonNotFoundError('Source person no longer exists')
+                            } else if (distinctIdResult.error === 'TargetNotFound') {
+                                throw new TargetPersonNotFoundError('Target person no longer exists')
+                            }
+                        }
+
+                        const deletePersonMessages = await this.context.personStore.deletePerson(
+                            currentSourcePerson,
+                            this.context.distinctId,
+                            tx
+                        )
+
+                        const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+                        return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
+                    }
                 )
 
-                // Merge the distinct IDs
-                // TODO: Doesn't this table need to add updates to CH too?
-                await this.context.personStore.updateCohortsAndFeatureFlagsForMerge(
-                    otherPerson.team_id,
-                    otherPerson.id,
-                    mergeInto.id,
-                    this.context.distinctId,
-                    tx
-                )
+                mergeTxnSuccessCounter
+                    .labels({
+                        call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
+                        oldPersonIdentified: String(currentSourcePerson.is_identified),
+                        newPersonIdentified: String(currentTargetPerson.is_identified),
+                    })
+                    .inc()
 
-                const distinctIdMessages = await this.context.personStore.moveDistinctIds(
-                    otherPerson,
-                    mergeInto,
-                    this.context.distinctId,
-                    tx
-                )
+                const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
 
-                const deletePersonMessages = await this.context.personStore.deletePerson(
-                    otherPerson,
-                    this.context.distinctId,
-                    tx
-                )
+                return [mergedPerson, kafkaAck]
+            } catch (error) {
+                if (attempt < maxRetries) {
+                    if (error instanceof SourcePersonNotFoundError) {
+                        const refreshedPerson = await this.refreshPersonData(
+                            sourceDistinctId,
+                            currentSourcePerson.id,
+                            attempt,
+                            'source'
+                        )
 
-                return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
+                        if (!refreshedPerson) {
+                            return [currentTargetPerson, Promise.resolve()]
+                        }
+
+                        currentSourcePerson = refreshedPerson
+                        continue
+                    } else if (error instanceof TargetPersonNotFoundError) {
+                        const refreshedPerson = await this.refreshPersonData(
+                            targetDistinctId,
+                            currentTargetPerson.id,
+                            attempt,
+                            'target'
+                        )
+
+                        if (!refreshedPerson) {
+                            return [currentTargetPerson, Promise.resolve()]
+                        }
+
+                        currentTargetPerson = refreshedPerson
+                        continue
+                    } else {
+                        throw error
+                    }
+                }
             }
+        }
+        throw new MergeRaceConditionError(
+            `Failed to merge persons due to concurrent merges, ` +
+                `source person: ${sourcePerson.id}, target person: ${targetPerson.id}, team: ${this.context.team.id} ` +
+                `source distinct id: ${sourceDistinctId}, target distinct id: ${targetDistinctId}`
         )
-
-        mergeTxnSuccessCounter
-            .labels({
-                call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
-                oldPersonIdentified: String(otherPerson.is_identified),
-                newPersonIdentified: String(mergeInto.is_identified),
-            })
-            .inc()
-
-        const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-
-        return [mergedPerson, kafkaAck]
     }
 
     public async addDistinctId(
@@ -495,7 +603,7 @@ export class PersonMergeService {
         await this.context.kafkaProducer.queueMessages(kafkaMessages)
     }
 
-    private async capturePersonPropertiesSizeEstimate(_at: string): Promise<void> {
+    private async capturePersonPropertiesSizeEstimate(): Promise<void> {
         if (Math.random() >= this.context.measurePersonJsonbSize) {
             // no-op if env flag is set to 0 (default) otherwise rate-limit
             // ramp up of expensive size checking while we test it
@@ -508,7 +616,48 @@ export class PersonMergeService {
         return
     }
 
+    private async refreshPersonData(
+        distinctId: string,
+        currentPersonId: string,
+        attempt: number,
+        personType: 'source' | 'target'
+    ): Promise<InternalPerson | null> {
+        logger.info(`${personType} person not found, retrying with fresh data`, {
+            [`${personType}PersonId`]: currentPersonId,
+            teamId: this.context.team.id,
+            attempt,
+            distinctId,
+        })
+
+        // Remove the distinct ID from the cache so that we don't try to use it again, if the store is the batch writing store
+        // TODO: this should be removed once we clean up the person store code
+        if (this.usingBatchWritingStore) {
+            ;(this.context.personStore as BatchWritingPersonsStoreForBatch).removeDistinctIdFromCache(
+                this.context.team.id,
+                distinctId
+            )
+        }
+
+        // Fetch the refreshed person data using the new distinct ID
+        const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)
+
+        if (!refreshedPerson) {
+            logger.info(`${personType} person no longer exists after refresh, skipping merge`, {
+                [`${personType}PersonId`]: currentPersonId,
+                teamId: this.context.team.id,
+                attempt,
+            })
+            return null
+        }
+
+        return refreshedPerson
+    }
+
     public getUpdateIsIdentified(): boolean {
         return this.context.updateIsIdentified
+    }
+
+    getContext(): PersonContext {
+        return this.context
     }
 }

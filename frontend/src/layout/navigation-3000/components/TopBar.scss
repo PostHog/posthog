@@ -5,7 +5,7 @@
     top: 0;
     z-index: var(--z-top-navigation);
     display: flex;
-    align-items: start;
+    align-items: flex-start;
     height: var(--breadcrumbs-height-full);
     white-space: nowrap;
     pointer-events: none;
@@ -25,6 +25,7 @@
     );
     --content-padding: calc(var(--total-height) * 0.1);
     --content-height: calc(var(--total-height) - 2 * var(--content-padding));
+    --content-font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
 
     display: flex;
     gap: 0.5rem;
@@ -32,7 +33,7 @@
     width: 100%;
     height: var(--total-height);
     padding: 0 1rem;
-    font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
+    font-size: var(--content-font-size);
     font-weight: 600;
     line-height: 1rem;
     pointer-events: auto;

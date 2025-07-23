@@ -89,6 +89,7 @@ import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -343,25 +344,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
-                id: 'replay-network',
-                title: 'Network capture',
-                component: <NetworkCaptureSettings />,
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-masking',
-                title: 'Masking',
+                title: 'Privacy and masking',
                 component: <ReplayMaskingSettings />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
-            },
-            {
-                id: 'replay-triggers',
-                title: 'Replay triggers',
-                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ai-config',
@@ -738,6 +739,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'personal-api-keys',
                 title: 'Personal API keys',
                 component: <PersonalAPIKeys />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-feature-previews',
+        title: 'Feature previews',
+        settings: [
+            {
+                id: 'feature-previews',
+                title: 'Feature previews',
+                component: <FeaturePreviewsSettings />,
             },
         ],
     },

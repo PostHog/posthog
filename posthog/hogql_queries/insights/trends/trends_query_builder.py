@@ -17,7 +17,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import series_event_name
+from posthog.hogql_queries.insights.trends.utils import series_event_name, is_groups_math
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -736,11 +736,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     filters.append(breakdown_filter)
 
         # Ignore empty groups
-        if series.math == "unique_group" and series.math_group_type_index is not None:
+        if is_groups_math(series=series):
             filters.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.series.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )

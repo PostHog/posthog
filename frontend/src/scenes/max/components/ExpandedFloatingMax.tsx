@@ -63,7 +63,7 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
         >
             <QuestionInput
                 isFloating
-                placeholder="Ask Max AI"
+                placeholder="Ask Max AI (/ for commands)"
                 contextDisplaySize="small"
                 isThreadVisible={threadVisible}
                 topActions={

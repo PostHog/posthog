@@ -2,6 +2,8 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { NoRowsUpdatedError } from '~/utils/utils'
+
 import { TopicMessage } from '../../../kafka/producer'
 import {
     InternalPerson,
@@ -10,11 +12,10 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
-import { promiseRetry } from '../../../utils/retries'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 import { captureIngestionWarning } from '../utils'
 import {
@@ -34,7 +35,7 @@ import {
 } from './metrics'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 
 type MethodName =
     | 'fetchForChecking'
@@ -42,7 +43,6 @@ type MethodName =
     | 'fetchPerson'
     | 'updatePersonAssertVersion'
     | 'updatePersonNoAssert'
-    | 'updatePersonWithTransaction'
     | 'createPerson'
     | 'updatePersonWithPropertiesDiffForUpdate'
     | 'updatePersonForMerge'
@@ -54,7 +54,22 @@ type MethodName =
     | 'addPersonlessDistinctIdForMerge'
     | 'addPersonUpdateToBatch'
 
-type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert' | 'updatePersonWithTransaction'
+type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
+
+interface PersonUpdateResult {
+    success: boolean
+    messages: TopicMessage[]
+    // If there's a updated person update, it will be returned here.
+    // This is useful for the optimistic update case, where we need to update the cache with the latest version.
+    personUpdate?: PersonUpdate
+}
+
+class MaxRetriesError extends Error {
+    constructor(message: string, public latestPersonUpdate: PersonUpdate) {
+        super(message)
+        this.name = 'MaxRetriesError'
+    }
+}
 
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
@@ -125,7 +140,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    async flush(): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
@@ -148,7 +163,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         try {
             const results = await Promise.all(
                 updateEntries.map(([cacheKey, update]) =>
-                    limit(async (): Promise<TopicMessage[]> => {
+                    limit(async (): Promise<FlushResult[]> => {
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
@@ -156,42 +171,38 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 outcome: 'attempt',
                             })
 
-                            let kafkaMessages: TopicMessage[] = []
+                            let kafkaMessages: FlushResult[] = []
                             switch (this.options.dbWriteMode) {
                                 case 'NO_ASSERT': {
-                                    const [_, messages] = await promiseRetry(
-                                        () => this.updatePersonNoAssert(update, 'batch'),
+                                    const result = await this.withMergeRetry(
+                                        update,
+                                        this.updatePersonNoAssert.bind(this),
                                         'updatePersonNoAssert',
                                         this.options.maxOptimisticUpdateRetries,
-                                        this.options.optimisticUpdateRetryInterval,
-                                        undefined,
-                                        [MessageSizeTooLarge]
+                                        this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = messages
+                                    kafkaMessages = result.messages.map((message) => ({
+                                        topicMessage: message,
+                                        teamId: update.team_id,
+                                        uuid: update.uuid,
+                                        distinctId: update.distinct_id,
+                                    }))
                                     break
                                 }
                                 case 'ASSERT_VERSION': {
-                                    const messages = await promiseRetry(
-                                        () => this.updatePersonAssertVersion(update),
+                                    const result = await this.withMergeRetry(
+                                        update,
+                                        this.updatePersonAssertVersion.bind(this),
                                         'updatePersonAssertVersion',
                                         this.options.maxOptimisticUpdateRetries,
-                                        this.options.optimisticUpdateRetryInterval,
-                                        undefined,
-                                        [MessageSizeTooLarge]
+                                        this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = messages
-                                    break
-                                }
-                                case 'WITH_TRANSACTION': {
-                                    const messages = await promiseRetry(
-                                        () => this.updatePersonWithTransaction(update, 'batch'),
-                                        'updatePersonWithTransaction',
-                                        this.options.maxOptimisticUpdateRetries,
-                                        this.options.optimisticUpdateRetryInterval,
-                                        undefined,
-                                        [MessageSizeTooLarge]
-                                    )
-                                    kafkaMessages = messages
+                                    kafkaMessages = result.messages.map((message) => ({
+                                        topicMessage: message,
+                                        teamId: update.team_id,
+                                        uuid: update.uuid,
+                                        distinctId: update.distinct_id,
+                                    }))
                                     break
                                 }
                             }
@@ -223,26 +234,38 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 return []
                             }
 
-                            logger.warn('⚠️', 'Falling back to direct update after max retries', {
-                                teamId: update.team_id,
-                                personId: update.id,
-                                distinctId: update.distinct_id,
-                            })
+                            // Handle max retries error with the latest person update
+                            if (error instanceof MaxRetriesError) {
+                                logger.warn('⚠️', 'Falling back to direct update after max retries', {
+                                    teamId: error.latestPersonUpdate.team_id,
+                                    personId: error.latestPersonUpdate.id,
+                                    distinctId: error.latestPersonUpdate.distinct_id,
+                                })
 
-                            personFallbackOperationsCounter.inc({
-                                db_write_mode: this.options.dbWriteMode,
-                                fallback_reason: 'max_retries',
-                            })
+                                personFallbackOperationsCounter.inc({
+                                    db_write_mode: this.options.dbWriteMode,
+                                    fallback_reason: 'max_retries',
+                                })
 
-                            const [_, fallbackMessages] = await this.updatePersonNoAssert(update, 'conflictRetry')
+                                const fallbackResult = await this.updatePersonNoAssert(error.latestPersonUpdate)
+                                const fallbackMessages = fallbackResult.success ? fallbackResult.messages : []
 
-                            personWriteMethodAttemptCounter.inc({
-                                db_write_mode: this.options.dbWriteMode,
-                                method: 'fallback',
-                                outcome: 'success',
-                            })
+                                personWriteMethodAttemptCounter.inc({
+                                    db_write_mode: this.options.dbWriteMode,
+                                    method: 'fallback',
+                                    outcome: 'success',
+                                })
 
-                            return fallbackMessages
+                                return fallbackMessages.map((message) => ({
+                                    topicMessage: message,
+                                    teamId: error.latestPersonUpdate.team_id,
+                                    uuid: error.latestPersonUpdate.uuid,
+                                    distinctId: error.latestPersonUpdate.distinct_id,
+                                }))
+                            }
+
+                            // Re-throw any other errors
+                            throw error
                         }
                     }).catch((error) => {
                         logger.error('Failed to update person after max retries and direct update fallback', {
@@ -431,7 +454,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
@@ -552,6 +575,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
+    removeDistinctIdFromCache(teamId: number, distinctId: string): void {
+        this.distinctIdToPersonId.delete(this.getDistinctCacheKey(teamId, distinctId))
+    }
+
     clearAllCachesForDistinctId(teamId: number, distinctId: string): void {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
         const personId = this.distinctIdToPersonId.get(cacheKey)
@@ -579,10 +606,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
-                      properties_last_updated_at: { ...result.properties_last_updated_at },
-                      properties_last_operation: result.properties_last_operation
-                          ? { ...result.properties_last_operation }
-                          : {},
                       created_at: result.created_at,
                   }
         } else {
@@ -606,10 +629,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
-                      properties_last_updated_at: { ...result.properties_last_updated_at },
-                      properties_last_operation: result.properties_last_operation
-                          ? { ...result.properties_last_operation }
-                          : {},
                       properties_to_set: { ...result.properties_to_set },
                       properties_to_unset: [...result.properties_to_unset],
                   }
@@ -660,6 +679,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             mergedPersonUpdate.properties_to_unset = [
                 ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
             ]
+
+            mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -731,10 +752,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             // Create new PersonUpdate from the person and apply the update
             personUpdate = fromInternalPerson(person, distinctId)
             personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update, true)
+            personUpdate.id = person.id
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         } else {
             // Merge updates into existing cached PersonUpdate
             personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
+            personUpdate.id = person.id
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
@@ -772,6 +795,17 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const otherUpdates = Object.fromEntries(
             Object.entries(update).filter(([key]) => !fieldsToExclude.includes(key))
         )
+        if (allowCreatedAtUpdate) {
+            // Get minimum of existing and new created_at
+            if (update.created_at) {
+                if (personUpdate.created_at) {
+                    otherUpdates.created_at =
+                        personUpdate.created_at < update.created_at ? personUpdate.created_at : update.created_at
+                } else {
+                    otherUpdates.created_at = update.created_at
+                }
+            }
+        }
         Object.assign(personUpdate, otherUpdates)
 
         // Handle is_identified specially with || operator
@@ -832,11 +866,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return [toInternalPerson(personUpdate), []]
     }
 
-    private async updatePersonNoAssert(
-        personUpdate: PersonUpdate,
-        source: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const operation = 'updatePersonNoAssert' + (source ? `-${source}` : '')
+    private async updatePersonNoAssert(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
+        const operation = 'updatePersonNoAssert'
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
         // Convert PersonUpdate back to InternalPerson for database call
         const person = toInternalPerson(personUpdate)
@@ -846,10 +877,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
-        const response = await this.db.updatePerson(person, updateFields, undefined, 'updatePersonNoAssert')
+
+        const [_, messages] = await this.db.updatePerson(person, updateFields, undefined, 'updatePersonNoAssert')
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')
-        return response
+
+        // updatePersonNoAssert always succeeds (no version conflicts)
+        return { success: true, messages }
     }
 
     /**
@@ -859,10 +893,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * @param personUpdate the personUpdate to write
      * @returns the actual version of the person after the write
      */
-    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<TopicMessage[]> {
+    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
         this.incrementDatabaseOperation('updatePersonAssertVersion', personUpdate.distinct_id)
 
         const start = performance.now()
+
         const [actualVersion, kafkaMessages] = await this.db.updatePersonAssertVersion(personUpdate)
         this.recordUpdateLatency(
             'updatePersonAssertVersion',
@@ -872,9 +907,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
 
         if (actualVersion !== undefined) {
-            // Success - optimistic update worked, update version in cache
-            personUpdate.version = actualVersion
-            return kafkaMessages
+            // Success - optimistic update worked, create updated PersonUpdate with new version
+            const updatedPersonUpdate: PersonUpdate = {
+                ...personUpdate,
+                version: actualVersion,
+            }
+            return { success: true, messages: kafkaMessages, personUpdate: updatedPersonUpdate }
         }
 
         // Optimistic update failed due to version mismatch
@@ -898,47 +936,21 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 delete mergedProperties[key]
             })
 
-            // Update the PersonUpdate with latest data and merged properties
-            personUpdate.properties = mergedProperties
-            personUpdate.properties_last_updated_at = latestPerson.properties_last_updated_at || {}
-            personUpdate.properties_last_operation = latestPerson.properties_last_operation || {}
-            personUpdate.version = latestPerson.version
-        }
-
-        throw new Error('Assert version update failed, will retry')
-    }
-
-    private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<TopicMessage[]> {
-        const operation = 'updatePersonTransaction' + (source ? `-${source}` : '')
-        this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
-
-        // Convert PersonUpdate back to InternalPerson for database call
-        const internalPerson = toInternalPerson(personUpdate)
-        const start = performance.now()
-
-        // Use a transaction to ensure we get the latest version with FOR UPDATE
-        const kafkaMessages = await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
-            // First fetch the person with FOR UPDATE to lock the row
-            const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
-                forUpdate: true,
-            })
-
-            if (!latestPerson) {
-                throw new Error('Person not found during direct update')
+            // Create updated PersonUpdate with latest data and merged properties (without mutating input)
+            const updatedPersonUpdate: PersonUpdate = {
+                ...personUpdate,
+                properties: mergedProperties,
+                version: latestPerson.version,
+                uuid: latestPerson.uuid,
+                created_at: latestPerson.created_at,
+                is_identified: latestPerson.is_identified || personUpdate.is_identified,
             }
 
-            // Create update object without version field (updatePerson handles version internally)
-            const { version, ...updateFields } = internalPerson
-            const [_, kafkaMessages] = await this.db.updatePerson(latestPerson, updateFields, tx, 'forUpdate')
-            return kafkaMessages
-        })
-        this.recordUpdateLatency(
-            'updatePersonWithTransaction',
-            (performance.now() - start) / 1000,
-            personUpdate.distinct_id
-        )
-        observeLatencyByVersion(internalPerson, start, operation)
-        return kafkaMessages
+            return { success: false, messages: [], personUpdate: updatedPersonUpdate }
+        }
+
+        // If we couldn't fetch the latest person, return failure without a person update
+        return { success: false, messages: [] }
     }
 
     private incrementCount(method: MethodName, distinctId: string): void {
@@ -960,5 +972,126 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             (updateLatencyPerDistinctIdSeconds.get(updateType) || 0) + latencySeconds
         )
         this.updateLatencyPerDistinctIdSeconds.set(distinctId, updateLatencyPerDistinctIdSeconds)
+    }
+
+    /**
+     * Retry wrapper that handles both update conflicts and person merges.
+     */
+    private async withMergeRetry(
+        personUpdate: PersonUpdate,
+        updateFn: (personUpdate: PersonUpdate) => Promise<PersonUpdateResult>,
+        operation: string,
+        maxRetries: number,
+        retryInterval: number
+    ): Promise<PersonUpdateResult> {
+        let attempt = 0
+        let currentPersonUpdate = personUpdate
+
+        while (attempt <= maxRetries) {
+            try {
+                const result = await updateFn(currentPersonUpdate)
+
+                if (result.success) {
+                    return result
+                }
+
+                // Update failed, handle retry logic
+                attempt++
+                // If there's a person update, we need to update the cache with the latest version
+                if (result.personUpdate) {
+                    currentPersonUpdate = result.personUpdate
+                }
+
+                if (attempt <= maxRetries) {
+                    logger.debug(`Optimistic update conflict for ${operation}, retrying...`, {
+                        attempt,
+                        maxRetries,
+                        teamId: currentPersonUpdate.team_id,
+                        personId: currentPersonUpdate.id,
+                        distinctId: currentPersonUpdate.distinct_id,
+                    })
+
+                    await new Promise((resolve) => setTimeout(resolve, retryInterval))
+                    continue
+                }
+
+                // Max retries reached, throw error to trigger fallback
+                throw new MaxRetriesError(`Max retries reached for ${operation}`, currentPersonUpdate)
+            } catch (error) {
+                attempt++
+
+                if (attempt <= maxRetries) {
+                    // Handle person merge scenarios with special logic
+                    if (error instanceof NoRowsUpdatedError) {
+                        const refreshedPersonUpdate = await this.refreshPersonIdAfterMerge(currentPersonUpdate)
+                        if (refreshedPersonUpdate) {
+                            currentPersonUpdate = refreshedPersonUpdate
+                            continue
+                        }
+                        // If we can't refresh the person ID, we can't retry, fail gracefully
+                        return { success: true, messages: [] }
+                    }
+
+                    // For any other error type, still retry but with generic logging
+                    logger.warn(`Database error for ${operation}, retrying...`, {
+                        attempt,
+                        maxRetries,
+                        teamId: currentPersonUpdate.team_id,
+                        personId: currentPersonUpdate.id,
+                        distinctId: currentPersonUpdate.distinct_id,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+
+                    await new Promise((resolve) => setTimeout(resolve, retryInterval))
+                    continue
+                }
+
+                throw error
+            }
+        }
+
+        // This should never be reached, but TypeScript requires it
+        throw new Error('Unexpected end of retry loop')
+    }
+
+    /**
+     * Refreshes the person ID for a given distinct ID by fetching from the database.
+     * This handles cases where the person was merged and the ID changed.
+     * @param personUpdate the PersonUpdate that failed to update
+     * @returns updated PersonUpdate with new person ID if found, null if person no longer exists
+     */
+    private async refreshPersonIdAfterMerge(personUpdate: PersonUpdate): Promise<PersonUpdate | null> {
+        const currentPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
+
+        if (!currentPerson) {
+            // Person truly doesn't exist anymore
+            return null
+        }
+
+        // Clear the old person ID from cache since it's been merged
+        this.clearPersonCacheForPersonId(personUpdate.team_id, personUpdate.id)
+
+        // Update our cache mapping to reflect the new person ID
+        this.setDistinctIdToPersonId(personUpdate.team_id, personUpdate.distinct_id, currentPerson.id)
+
+        // Create updated PersonUpdate with the new person ID and version
+        const updatedPersonUpdate: PersonUpdate = {
+            id: currentPerson.id,
+            team_id: personUpdate.team_id,
+            uuid: currentPerson.uuid,
+            distinct_id: personUpdate.distinct_id,
+            properties: currentPerson.properties,
+            properties_last_updated_at: personUpdate.properties_last_updated_at,
+            properties_last_operation: personUpdate.properties_last_operation,
+            created_at: currentPerson.created_at,
+            version: currentPerson.version,
+            is_identified: currentPerson.is_identified || personUpdate.is_identified,
+            is_user_id: personUpdate.is_user_id,
+            needs_write: personUpdate.needs_write,
+            properties_to_set: personUpdate.properties_to_set,
+            properties_to_unset: personUpdate.properties_to_unset,
+        }
+
+        return updatedPersonUpdate
     }
 }

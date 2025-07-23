@@ -656,6 +656,8 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    feature_flag_confirmation_enabled: boolean
+    feature_flag_confirmation_message: string
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
 }
@@ -814,6 +816,7 @@ export enum ExperimentsTabs {
     Archived = 'archived',
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
+    History = 'history',
 }
 
 export enum ActivityTab {
@@ -1353,6 +1356,12 @@ export type SearchResponse = {
 }
 
 export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
+
+export type CreateGroupParams = {
+    group_type_index: GroupTypeIndex
+    group_key: string
+    group_properties?: Record<string, any>
+}
 
 export interface MatchedRecordingEvent {
     uuid: string
@@ -2160,6 +2169,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+    private_project_access?: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
 }
 
 export enum PluginInstallationType {
@@ -2980,7 +2990,7 @@ export enum SurveyPartialResponses {
 }
 
 export interface SurveyDisplayConditions {
-    url: string
+    url?: string
     selector?: string
     seenSurveyWaitPeriodInDays?: number
     urlMatchType?: SurveyMatchType
@@ -3768,6 +3778,7 @@ export interface CohortCriteriaGroupFilter {
     id?: string
     type: FilterLogicalOperator
     values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
+    sort_key?: string // Client-side only stable id for sorting.
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -3861,6 +3872,8 @@ interface BreadcrumbBase {
     key: string | number | [scene: Scene | string, key: string | number]
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
+    /** Whether to show a custom popover for the project */
+    isPopoverProject?: boolean
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
@@ -4040,6 +4053,7 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    HogQL = 'hogql',
 }
 
 export enum ActorGroupType {
@@ -4146,8 +4160,10 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'twilio'
     | 'linear'
     | 'github'
+    | 'meta-ads'
 
 export interface IntegrationType {
     id: number
@@ -4325,6 +4341,7 @@ export enum AccessControlLevel {
     Admin = 'admin',
     Viewer = 'viewer',
     Editor = 'editor',
+    Manager = 'manager',
 }
 
 export interface AccessControlTypeBase {
@@ -4528,7 +4545,7 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
-    sync_frequency: string
+    sync_frequency?: string
     status?: string
     latest_error: string | null
     latest_history_id?: string
@@ -4588,6 +4605,7 @@ export interface DataModelingJob {
     saved_query_id: string
     status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
+    rows_expected: number | null
     error: string | null
     created_at: string
     last_run_at: string
@@ -5014,7 +5032,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
-    FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',
     Status = 'status',
@@ -5225,6 +5242,7 @@ export type HogFunctionTemplateType = Pick<
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {

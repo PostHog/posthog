@@ -193,6 +193,13 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
     ],
+    "Experiment": [
+        "feature_flag",
+        "exposure_cohort",
+        "holdout",
+        "saved_metrics",
+        "experimenttosavedmetric_set",
+    ],
     "Person": [
         "distinct_ids",
         "name",

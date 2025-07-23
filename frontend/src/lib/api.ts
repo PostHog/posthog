@@ -60,6 +60,7 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CreateGroupParams,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
@@ -211,6 +212,8 @@ export class ApiError extends Error {
     code: string | null
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
+    /** Django REST Framework `attr` - used in downstream error handling. */
+    attr: string | null
 
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
@@ -222,6 +225,7 @@ export class ApiError extends Error {
         this.detail = data?.detail || null
         this.code = data?.code || null
         this.link = data?.link || null
+        this.attr = data?.attr || null
     }
 
     /**
@@ -940,12 +944,16 @@ export class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
-    public errorTrackingRules(rule: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(rule)
+    public errorTrackingRules(ruleType: ErrorTrackingRuleType, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(ruleType)
     }
 
-    public errorTrackingRule(rule: string, id: ErrorTrackingRule['id']): ApiRequest {
-        return this.errorTrackingRules(rule).addPathComponent(id)
+    public errorTrackingRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): ApiRequest {
+        return this.errorTrackingRules(ruleType).addPathComponent(id)
+    }
+
+    public errorTrackingReorderRules(rule: ErrorTrackingRuleType): ApiRequest {
+        return this.errorTrackingRules(rule).addPathComponent('reorder')
     }
 
     // # Warehouse
@@ -1046,6 +1054,10 @@ export class ApiRequest {
 
     public integrationLinearTeams(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
+    }
+
+    public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
     }
 
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1289,7 +1301,7 @@ export class ApiRequest {
     }
 
     public authenticateWizard(): ApiRequest {
-        return this.environments().current().addPathComponent('authenticate_wizard')
+        return this.wizard().addPathComponent('authenticate')
     }
 
     public messagingTemplates(): ApiRequest {
@@ -1310,6 +1322,10 @@ export class ApiRequest {
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
         return this.hogFlows().addPathComponent(hogFlowId)
+    }
+
+    public wizard(): ApiRequest {
+        return this.addPathComponent('wizard')
     }
 }
 
@@ -1414,6 +1430,9 @@ const api = {
     featureFlags: {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
+        },
+        async bulkKeys(ids: FeatureFlagType['id'][]): Promise<{ keys: Record<string, string> }> {
+            return await new ApiRequest().featureFlags().withAction('bulk_keys').create({ data: { ids } })
         },
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
@@ -1630,7 +1649,10 @@ const api = {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
 
             // Opt into the new /activity_log API
-            if ([ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION].includes(scopes[0]) || scopes.length > 1) {
+            if (
+                [ActivityScope.PLUGIN, ActivityScope.HOG_FUNCTION, ActivityScope.EXPERIMENT].includes(scopes[0]) ||
+                scopes.length > 1
+            ) {
                 return api.activity
                     .listRequest({
                         scopes,
@@ -2212,6 +2234,9 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
+        async create(data: CreateGroupParams): Promise<Group> {
+            return await new ApiRequest().groups().create({ data })
+        },
         async updateProperty(index: number, key: string, property: string, value: any): Promise<void> {
             return new ApiRequest()
                 .group(index, key)
@@ -2576,6 +2601,10 @@ const api = {
             return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
         },
 
+        async reorderRules(ruleType: ErrorTrackingRuleType, orders: Record<string, number>): Promise<void> {
+            return await new ApiRequest().errorTrackingReorderRules(ruleType).update({ data: { orders } })
+        },
+
         async createExternalReference(
             issueId: string,
             integrationId: number,
@@ -2705,6 +2734,28 @@ const api = {
                 .create()
         },
 
+        async bulkAddRecordingsToPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_ids: SessionRecordingType['id'][]
+        ): Promise<{ success: boolean; added_count: number; total_requested: number }> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction('bulk_add')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkDeleteRecordingsFromPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_ids: SessionRecordingType['id'][]
+        ): Promise<{ success: boolean; added_count: number; total_requested: number }> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction('bulk_delete')
+                .create({ data: { session_recording_ids } })
+        },
+
         async removeRecordingFromPlaylist(
             playlistId: SessionRecordingPlaylistType['short_id'],
             session_recording_id: SessionRecordingType['id']
@@ -2724,6 +2775,17 @@ const api = {
             session_recording_id: SessionRecordingType['id']
         ): Promise<{ count: number; results: string[] }> {
             return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
+        },
+
+        async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            deleted_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_delete')
+                .create({ data: { session_recording_ids } })
         },
     },
 
@@ -2932,8 +2994,8 @@ const api = {
         async get(surveyId: Survey['id']): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).get()
         },
-        async create(data: Partial<Survey>): Promise<Survey> {
-            return await new ApiRequest().surveys().create({ data })
+        async create(data: Partial<Survey>, teamId?: TeamType['id']): Promise<Survey> {
+            return await new ApiRequest().surveys(teamId).create({ data })
         },
         async delete(surveyId: Survey['id']): Promise<void> {
             await new ApiRequest().survey(surveyId).delete()
@@ -3307,6 +3369,9 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
+        async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
+            return await new ApiRequest().integrationGitHubRepositories(id).get()
+        },
         async googleAdsAccounts(
             id: IntegrationType['id']
         ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
@@ -3426,7 +3491,7 @@ const api = {
         },
     },
     wizard: {
-        async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
+        async authenticateWizard(data: { hash: string; projectId: number }): Promise<{ success: boolean }> {
             return await new ApiRequest().authenticateWizard().create({ data })
         },
     },
@@ -3551,7 +3616,7 @@ const api = {
     conversations: {
         async stream(
             data: {
-                /** The user message. Null content means we're continuing previous generation. */
+                /** The user message. Null content means we're resuming streaming or continuing previous generation. */
                 content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxUIContext

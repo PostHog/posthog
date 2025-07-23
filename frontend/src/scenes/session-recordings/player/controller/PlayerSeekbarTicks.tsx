@@ -15,6 +15,8 @@ import {
 
 import { UserActivity } from './UserActivity'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { IconComment } from '@posthog/icons'
 
 function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
     return 'data' in x && !!x.data && 'event' in x.data
@@ -26,6 +28,10 @@ function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebook
 
 function isAnnotationComment(x: InspectorListItem): x is InspectorListItemAnnotationComment {
     return x.type === 'comment' && x.source === 'annotation'
+}
+
+function isComment(x: InspectorListItem): x is InspectorListItemComment {
+    return isAnnotationComment(x) || isNotebookComment(x)
 }
 
 function isAnnotationEmojiComment(x: InspectorListItem): x is InspectorListItemAnnotationComment {
@@ -88,7 +94,7 @@ function PlayerSeekbarTick({
                         item.data.comment
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
-                            <div>{item.data.content}</div>
+                            <TextContent text={item.data.content ?? ''} data-attr="PlayerSeekbarTicks--text-content" />
                             <ProfilePicture
                                 user={
                                     item.data.creation_type === 'GIT'
@@ -105,6 +111,10 @@ function PlayerSeekbarTick({
             >
                 {isAnnotationEmojiComment(item) ? (
                     <div className="PlayerSeekbarTick__emoji">{item.data.content}</div>
+                ) : isComment(item) ? (
+                    <div className="PlayerSeekbarTick__comment">
+                        <IconComment />
+                    </div>
                 ) : (
                     <div className="PlayerSeekbarTick__line" />
                 )}

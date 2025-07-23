@@ -61,7 +61,7 @@ export type LazyLoaderOptions<T> = {
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
 
 export class LazyLoader<T> {
-    public readonly cache: LazyLoaderMap<T>
+    private cache: LazyLoaderMap<T>
     private lastUsed: Record<string, number | undefined>
     private cacheUntil: Record<string, number | undefined>
     private pendingLoads: Record<string, Promise<T | null> | undefined>
@@ -80,6 +80,10 @@ export class LazyLoader<T> {
         this.pendingLoads = {}
     }
 
+    public getCache(): LazyLoaderMap<T> {
+        return this.cache
+    }
+
     public async get(key: string): Promise<T | null> {
         const loaded = await this.loadViaCache([key])
         return loaded[key] ?? null
@@ -93,6 +97,13 @@ export class LazyLoader<T> {
         for (const k of Array.isArray(key) ? key : [key]) {
             delete this.cacheUntil[k]
         }
+    }
+
+    public clear(): void {
+        this.cache = {}
+        this.lastUsed = {}
+        this.cacheUntil = {}
+        // this.pendingLoads = {} // NOTE: We don't clear this
     }
 
     private setValues(map: LazyLoaderMap<T>): void {

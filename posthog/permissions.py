@@ -62,14 +62,14 @@ def get_organization_from_view(view) -> Organization:
         organization = view.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError, AssertionError):
         pass
 
     try:
         organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError, AssertionError):
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
@@ -504,8 +504,15 @@ class AccessControlPermission(ScopeBasePermission):
         if resource == "INTERNAL":
             return None
 
-        READ_LEVEL = ordered_access_levels(resource)[-2]
-        WRITE_LEVEL = ordered_access_levels(resource)[-1]
+        ordered_access_levels_list = ordered_access_levels(resource)
+        # For project and organization, the last two levels are the read and write levels
+        # For other resources, since we have the manager level, the last three levels are the read, write, and manager levels
+        if resource in ["project", "organization"]:
+            READ_LEVEL = ordered_access_levels_list[-2]
+            WRITE_LEVEL = ordered_access_levels_list[-1]
+        else:
+            READ_LEVEL = ordered_access_levels_list[-3]
+            WRITE_LEVEL = ordered_access_levels_list[-2]
 
         if not required_scopes:
             return READ_LEVEL if request.method in SAFE_METHODS else WRITE_LEVEL

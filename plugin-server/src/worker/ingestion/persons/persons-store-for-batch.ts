@@ -3,8 +3,16 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { BatchWritingStore } from '../stores/batch-writing-store'
+
+export type FlushResult = {
+    topicMessage: TopicMessage
+    teamId: number
+    distinctId?: string
+    uuid?: string
+}
 
 export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
@@ -87,7 +95,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]>
+    ): Promise<MoveDistinctIdsResult>
 
     /**
      * Updates cohorts and feature flags for merged persons
@@ -123,5 +131,5 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Flushes the batch
      */
-    flush(): Promise<TopicMessage[]>
+    flush(): Promise<FlushResult[]>
 }

@@ -2,7 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import { router } from 'kea-router'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DatabaseSearchField } from 'scenes/data-warehouse/editor/sidebar/DatabaseSearchField'
-import { QueryDatabaseTreeView } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
+import { QueryDatabase } from 'scenes/data-warehouse/editor/sidebar/QueryDatabase'
 import { urls } from 'scenes/urls'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
@@ -30,7 +30,7 @@ export function DatabaseTree(): JSX.Element {
                 ) : undefined
             }
         >
-            <QueryDatabaseTreeView />
+            <QueryDatabase />
             <SyncMoreNotice />
             <ViewLinkModal />
         </PanelLayoutPanel>

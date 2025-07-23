@@ -134,42 +134,6 @@
      HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 99999
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 99999
-            AND cohort_id = 99999
-            AND version = 0 )
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 99999
-            AND cohort_id = 99999
-            AND version = 0 )
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 99999
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
-  '''
-# ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
   '''
   
@@ -260,39 +224,6 @@
      HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
-  '''
-  /* cohort_calculation: */
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 0
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     WHERE team_id = 99999
-       AND id in
-         (SELECT person_id as id
-          FROM person_static_cohort
-          WHERE cohort_id = 99999
-            AND team_id = 99999)
-       AND id in
-         (SELECT DISTINCT person_id
-          FROM cohortpeople
-          WHERE team_id = 99999
-            AND cohort_id = 99999
-            AND version = 0 )
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
-  '''
-# ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
   '''
   /* user_id:0 request:_snapshot_ */
@@ -336,25 +267,6 @@
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT count(1)
-  FROM
-    (SELECT id
-     FROM person
-     INNER JOIN
-       (SELECT DISTINCT person_id
-        FROM cohortpeople
-        WHERE team_id = 99999
-          AND cohort_id = 99999
-          AND version = 0
-        ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
-     WHERE team_id = 99999
-     GROUP BY id
-     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -634,6 +546,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -875,6 +789,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1363,6 +1279,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1592,6 +1510,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1754,6 +1674,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2081,6 +2003,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2321,6 +2245,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2458,6 +2384,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2539,26 +2467,6 @@
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.24
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  INNER JOIN
-    (SELECT person_id
-     FROM person_static_cohort
-     WHERE team_id = 99999
-       AND cohort_id = 99999
-     GROUP BY person_id,
-              cohort_id,
-              team_id) cohort_persons ON cohort_persons.person_id = person.id
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.25
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -2898,6 +2806,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",

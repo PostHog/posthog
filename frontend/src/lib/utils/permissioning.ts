@@ -65,7 +65,8 @@ export function hasMembershipLevelOrHigher(org: OrganizationBasicType, role: Org
 }
 
 export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBasicType): boolean {
-    return !!org.members_can_use_personal_api_keys
+    // undefined means the value is missing from the API response, so we treat it as true as a fallback
+    return [true, undefined].includes(org.members_can_use_personal_api_keys)
 }
 
 export const organizationMembershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(

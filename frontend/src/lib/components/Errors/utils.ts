@@ -67,10 +67,16 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     const url: string | undefined = properties.$current_url
     const exceptionList: ErrorTrackingException[] | undefined = getExceptionList(properties)
     if (!type) {
-        type = exceptionList?.[0]?.type
+        // we have seen in production that we managed to get `value = {}`
+        // so even though this is typed as a string
+        // it might not be!
+        type = exceptionList?.[0]?.type ? String(exceptionList?.[0]?.type) : undefined
     }
     if (!value) {
-        value = exceptionList?.[0]?.value
+        // we have seen in production that we managed to get `value = {}`
+        // so even though this is typed as a string
+        // it might not be!
+        value = exceptionList?.[0]?.value ? String(exceptionList?.[0]?.value) : undefined
     }
     if (synthetic == undefined) {
         synthetic = exceptionList?.[0]?.mechanism?.synthetic
@@ -129,4 +135,8 @@ export function getAdditionalProperties(
 
 export function getSessionId(properties: ErrorEventProperties): string | undefined {
     return properties['$session_id'] as string | undefined
+}
+
+export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
+    return properties['$recording_status'] as string | undefined
 }

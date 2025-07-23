@@ -16,10 +16,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
-
+    cancel-in-progress: true
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -74,7 +71,10 @@ jobs:
                         - 'ee/**/*'
                         - 'common/hogvm/**/*'
                         - 'posthog/**/*'
+                        - 'products/**/backend/**/*'
                         - 'bin/*.py'
+                        - pyproject.toml
+                        - uv.lock
                         - requirements.txt
                         - requirements-dev.txt
                         - mypy.ini
@@ -181,10 +181,10 @@ jobs:
                       # For nested apps like products/user_interviews, we want user_interviews
                       app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       echo "Checking migration $migration_number for app $app_name"
-                      
+
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
-                      
+
                       # Add to comment body
                       COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
@@ -250,7 +250,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.11.9']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.6.56']
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -301,121 +301,121 @@ jobs:
                 include:
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 10
@@ -459,21 +459,21 @@ jobs:
 
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
-                          
+
                           if docker compose -f docker-compose.dev.yml down && \
                             docker compose -f docker-compose.dev.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
-                          
+
                           echo "Failed to start stack on attempt $attempt"
-                          
+
                           if [ $attempt -lt $max_attempts ]; then
                               sleep_time=$((delay * 2 ** (attempt - 1)))
                               echo "Waiting ${sleep_time} seconds before retry..."
                               sleep $sleep_time
                           fi
-                          
+
                           attempt=$((attempt + 1))
                       done
 
@@ -572,7 +572,7 @@ jobs:
                   sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
                   sudo ldconfig
                   cd ..
-                  uv pip install ./common/hogql_parser
+                  pip install ./common/hogql_parser
 
             - name: Set up needed files
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -686,7 +686,7 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:24.8.7.41' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.6.56' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -735,7 +735,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.6.56']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:

@@ -8,7 +8,7 @@ import { ExperimentsImplementationSnippet } from './ExperimentsImplementationSni
 export function ExperimentsAstroInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallAstroInstructions />
+            <SDKInstallAstroInstructions hideWizard />
             <LemonDivider thick dashed className="my-4" />
             <ExperimentsImplementationSnippet sdkKey={SDKKey.JS_WEB} />
         </>

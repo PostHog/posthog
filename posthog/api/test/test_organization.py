@@ -1,7 +1,6 @@
 from rest_framework import status
 from unittest.mock import patch, ANY
 from typing import cast
-
 from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal

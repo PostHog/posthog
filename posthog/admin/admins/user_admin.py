@@ -4,10 +4,13 @@ from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
+from django.http import HttpResponseRedirect
+from django.contrib import messages
 
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.email_verification import EmailVerifier
 from posthog.models import User
 
 
@@ -45,6 +48,7 @@ class UserAdmin(DjangoUserAdmin):
                     "password",
                     "current_organization",
                     "is_email_verified",
+                    "email_verification_status",
                     "pending_email",
                     "strapi_id",
                 )
@@ -69,7 +73,7 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["id", "current_team", "current_organization"]
+    readonly_fields = ["id", "current_team", "current_organization", "email_verification_status"]
     ordering = ("email",)
 
     @admin.display(description="Current Team")
@@ -93,3 +97,31 @@ class UserAdmin(DjangoUserAdmin):
             reverse("admin:posthog_organization_change", args=[user.organization.pk]),
             user.organization.name,
         )
+
+    @admin.display(description="Email Verification")
+    def email_verification_status(self, user: User):
+        if user.is_email_verified:
+            return format_html('<p style="color: green;">✓ Verified</p>')
+        else:
+            return format_html(
+                '<p style="color: red;">✗ Not verified</p><br>'
+                '<a href="?send_verification=1" class="button">Send verification email</a>'
+            )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        """Override change view to handle email verification button."""
+        if request.GET.get("send_verification") == "1":
+            try:
+                user = self.get_object(request, object_id)
+                if user and not user.is_email_verified:
+                    EmailVerifier.create_token_and_send_email_verification(user)
+                    messages.success(request, f"Verification email sent to {user.email}")
+                else:
+                    messages.warning(request, "User is already verified or not found.")
+            except Exception as e:
+                messages.error(request, f"Failed to send verification email: {str(e)}")
+
+            # Redirect back to the change form
+            return HttpResponseRedirect(request.path)
+
+        return super().change_view(request, object_id, form_url, extra_context)

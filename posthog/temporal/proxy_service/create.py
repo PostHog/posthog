@@ -1,28 +1,42 @@
 import datetime as dt
 import ipaddress
 import json
+import math
+import random
 import typing as t
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import dns.resolver
 import grpc.aio
 import requests
 import temporalio.common
-from asgiref.sync import sync_to_async
-from django.db import connection
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.client import (
+    Schedule,
+    ScheduleAlreadyRunningError,
+    ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
+    ScheduleSpec,
+)
 
+
+from posthog.temporal.common.schedule import a_create_schedule
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
+from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
     UpdateProxyRecordInputs,
     get_grpc_client,
-    update_proxy_record,
+    activity_update_proxy_record,
+    update_record,
+    record_exists,
 )
 from posthog.temporal.proxy_service.proto import (
     CertificateState_READY,
@@ -94,19 +108,6 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         inputs.target_cname,
     )
 
-    @sync_to_async
-    def record_exists(proxy_record_id) -> bool:
-        connection.connect()
-        pr = ProxyRecord.objects.filter(id=proxy_record_id)
-        return len(pr) > 0
-
-    @sync_to_async
-    def update_record_message(*, proxy_record_id, message):
-        connection.connect()
-        pr = ProxyRecord.objects.get(id=proxy_record_id)
-        pr.message = message
-        pr.save()
-
     if not await record_exists(inputs.proxy_record_id):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
@@ -114,9 +115,15 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         cnames = dns.resolver.query(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
-        if value == inputs.target_cname:
+        if cnames[0].target == dns.name.from_text(inputs.target_cname):
             return
         else:
+            logger.info(
+                "Got wrong DNS record for %s - expecting %s, got %s",
+                inputs.domain,
+                inputs.target_cname,
+                value,
+            )
             raise ApplicationError("target CNAME doesn't match", non_retryable=False)
     except dns.resolver.NoAnswer:
         # NoAnswer is not the same as NXDOMAIN
@@ -133,7 +140,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
             # the customer has set cloudflare proxying on
-            await update_record_message(
+            await update_record(
                 proxy_record_id=inputs.proxy_record_id,
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
             )
@@ -156,12 +163,6 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
         "Creating managed proxy resources for domain %s",
         inputs.domain,
     )
-
-    @sync_to_async
-    def record_exists(proxy_record_id) -> bool:
-        connection.connect()
-        pr = ProxyRecord.objects.filter(id=proxy_record_id)
-        return len(pr) > 0
 
     if not await record_exists(inputs.proxy_record_id):
         raise RecordDeletedException("proxy record was deleted while waiting for certificate to be provisioned")
@@ -218,6 +219,69 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
         raise NonRetriableException("unknown exception in wait_for_certificate") from e
 
 
+@dataclass
+class ScheduleMonitorJobInputs:
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+        }
+
+
+@activity.defn
+async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
+    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger.info(
+        "Scheduling daily monitoring job for proxy %s",
+        inputs.proxy_record_id,
+    )
+
+    try:
+        temporal = await async_connect()
+        schedule = Schedule(
+            action=ScheduleActionStartWorkflow(
+                "monitor-proxy",
+                asdict(
+                    MonitorManagedProxyInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                    )
+                ),
+                id=f"monitor-proxy-{inputs.proxy_record_id}",
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=30),
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=3,
+                    backoff_coefficient=2.0,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                ),
+            ),
+            spec=ScheduleSpec(
+                intervals=[
+                    ScheduleIntervalSpec(
+                        every=dt.timedelta(hours=24),
+                        offset=dt.timedelta(
+                            hours=math.floor(random.random() * 24), minutes=math.floor(random.random() * 60)
+                        ),
+                    )
+                ],
+                jitter=dt.timedelta(hours=1),
+            ),
+        )
+
+        await a_create_schedule(temporal, id=f"monitor-proxy-{inputs.proxy_record_id}", schedule=schedule)
+        logger.info("Successfully scheduled monitoring job for proxy %s", inputs.proxy_record_id)
+
+    except ScheduleAlreadyRunningError:
+        logger.info("Monitor schedule already exists for proxy %s", inputs.proxy_record_id)
+        # This is not an error - the schedule already exists
+
+
 @workflow.defn(name="create-proxy")
 class CreateManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to create a Managed reverse Proxy."""
@@ -269,7 +333,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
                 # Handle schedule-to-close timeout specifically
                 await temporalio.workflow.execute_activity(
-                    update_proxy_record,
+                    activity_update_proxy_record,
                     UpdateProxyRecordInputs(
                         organization_id=inputs.organization_id,
                         proxy_record_id=inputs.proxy_record_id,
@@ -285,7 +349,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
             # We've found the correct DNS record - update record to the ISSUING state
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
@@ -332,7 +396,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
             # Everything's created and ready to go, update to VALID
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
@@ -345,7 +409,30 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-        except RecordDeletedException:
+            schedule_inputs = ScheduleMonitorJobInputs(
+                organization_id=inputs.organization_id,
+                proxy_record_id=inputs.proxy_record_id,
+            )
+
+            await temporalio.workflow.execute_activity(
+                schedule_monitor_job,
+                schedule_inputs,
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=2,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                ),
+            )
+
+        except ActivityError as e:
+            if (
+                hasattr(e, "cause")
+                and e.cause
+                and hasattr(e.cause, "type")
+                and e.cause.type != "RecordDeletedException"
+            ):
+                raise
+
             logger.info(
                 "Record was deleted before completing provisioning for id %s (%s)",
                 inputs.proxy_record_id,
@@ -373,7 +460,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 return
             # Something went wrong - set the record to error state
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,

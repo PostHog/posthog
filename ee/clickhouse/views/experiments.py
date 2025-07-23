@@ -2,6 +2,7 @@ from enum import Enum
 from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
+from django.dispatch import receiver
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -25,7 +26,9 @@ from posthog.models.experiment import (
 )
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 from posthog.schema import ExperimentEventExposureConfig
 
 
@@ -233,9 +236,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = []
         aggregation_group_type_index = None
-        if validated_data["parameters"]:
-            variants = validated_data["parameters"].get("feature_flag_variants", [])
-            aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
+        if "parameters" in validated_data:
+            if validated_data["parameters"] is not None:
+                variants = validated_data["parameters"].get("feature_flag_variants", [])
+                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -626,3 +630,21 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+
+@receiver(model_activity_signal, sender=Experiment)
+def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.created_by
+        if activity == "created"
+        else getattr(after_update, "last_modified_by", after_update.created_by),
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )

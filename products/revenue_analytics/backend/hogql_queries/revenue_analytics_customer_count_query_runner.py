@@ -9,7 +9,7 @@ from posthog.schema import (
     RevenueAnalyticsCustomerCountQueryResponse,
     RevenueAnalyticsCustomerCountQuery,
 )
-from posthog.utils import format_label_date
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView, RevenueAnalyticsSubscriptionView
 
@@ -17,7 +17,16 @@ from .revenue_analytics_query_runner import (
     RevenueAnalyticsQueryRunner,
 )
 
-KINDS = ["Subscription Count", "New Subscription Count", "Churned Subscription Count", "Customer Count"]
+KINDS = [
+    "Subscription Count",
+    "New Subscription Count",
+    "Churned Subscription Count",
+    "Customer Count",
+    "New Customer Count",
+    "Churned Customer Count",
+    "ARPU",
+    "LTV",
+]
 
 
 class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
@@ -35,20 +44,155 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                     "new_subscription_count",
                     "churned_subscription_count",
                     "customer_count",
-                    # "new_customer_count",
-                    # "churned_customer_count",
+                    "new_customer_count",
+                    "churned_customer_count",
+                    "arpu",
+                    "ltv",
                 ]
             )
 
+        with self.timings.measure("get_subquery"):
+            subquery = self._get_subquery()
+
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["breakdown_by"]),
+                ast.Field(chain=["period_start"]),
+                # Aggregate subscriptions across all customers
+                ast.Alias(
+                    alias="subscription_count",
+                    expr=ast.Call(name="sum", args=[ast.Field(chain=["subquery", "subscription_count"])]),
+                ),
+                ast.Alias(
+                    alias="new_subscription_count",
+                    expr=ast.Call(name="sum", args=[ast.Field(chain=["subquery", "new_subscription_count"])]),
+                ),
+                ast.Alias(
+                    alias="churned_subscription_count",
+                    expr=ast.Call(name="sum", args=[ast.Field(chain=["subquery", "churned_subscription_count"])]),
+                ),
+                # For each customer, just check whether we have at least one subscription, and for new/churned we can use the grouped data
+                ast.Alias(
+                    alias="customer_count",
+                    expr=ast.Call(
+                        name="countIf",
+                        args=[
+                            ast.Field(chain=["subquery", "customer_id"]),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=["subquery", "subscription_count"]),
+                                right=ast.Constant(value=1),
+                            ),
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias="new_customer_count",
+                    expr=ast.Call(
+                        name="countIf",
+                        args=[
+                            ast.Field(chain=["subquery", "customer_id"]),
+                            ast.Field(chain=["subquery", "is_new_customer"]),
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias="churned_customer_count",
+                    expr=ast.Call(
+                        name="countIf",
+                        args=[
+                            ast.Field(chain=["subquery", "customer_id"]),
+                            ast.Field(chain=["subquery", "is_churned_customer"]),
+                        ],
+                    ),
+                ),
+                # ARPU calculation (revenue / customer_count)
+                ast.Alias(
+                    alias="arpu",
+                    expr=ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Or(
+                                        exprs=[
+                                            ast.Call(name="isNull", args=[ast.Field(chain=["customer_count"])]),
+                                            ast.CompareOperation(
+                                                op=ast.CompareOperationOp.Eq,
+                                                left=ast.Field(chain=["customer_count"]),
+                                                right=ast.Constant(value=0),
+                                            ),
+                                        ],
+                                    ),
+                                    ast.Constant(value=0),
+                                    ast.Call(
+                                        name="divide",
+                                        args=[
+                                            ast.Call(name="sum", args=[ast.Field(chain=["revenue"])]),
+                                            ast.Field(chain=["customer_count"]),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                # LTV calculation (ARPU / churn_rate)
+                # where churn_rate is the number of churned customers / number of customers
+                ast.Alias(
+                    alias="ltv",
+                    expr=ast.Call(
+                        name="multiIf",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["customer_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Constant(value=0),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["churned_customer_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Constant(value=float("nan")),
+                            ast.Call(
+                                name="divide",
+                                args=[
+                                    ast.Field(chain=["arpu"]),
+                                    ast.Call(
+                                        name="divide",
+                                        args=[
+                                            ast.Field(chain=["churned_customer_count"]),
+                                            ast.Field(chain=["customer_count"]),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(alias="subquery", table=subquery),
+            group_by=[
+                ast.Field(chain=["breakdown_by"]),
+                ast.Field(chain=["period_start"]),
+            ],
+            order_by=[
+                ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["period_start"]), order="ASC"),
+                ast.OrderExpr(expr=ast.Field(chain=["subscription_count"]), order="DESC"),
+                ast.OrderExpr(expr=ast.Field(chain=["customer_count"]), order="DESC"),
+            ],
+            # Need a huge limit because we need (dates x breakdown)-many rows to be returned
+            limit=ast.Constant(value=10000),
+        )
+
+    def _get_subquery(self) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             dates_expr = self._dates_expr()
-
-        timestamp_expr = ast.And(
-            exprs=[
-                self._created_before_expr(),
-                self._ended_after_expr(),
-            ]
-        )
 
         query = ast.SelectQuery(
             select=[
@@ -56,6 +200,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                     alias="breakdown_by",
                     expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "source_label"]),
                 ),
+                ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
                 ast.Alias(alias="period_start", expr=dates_expr),
                 ast.Alias(
                     alias="subscription_count",
@@ -64,7 +209,40 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            timestamp_expr,
+                            ast.And(
+                                exprs=[
+                                    self._period_lteq_expr(
+                                        ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])
+                                    ),
+                                    self._period_gteq_expr(
+                                        ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])
+                                    ),
+                                ]
+                            ),
+                        ],
+                    ),
+                ),
+                ast.Alias(
+                    alias="prev_subscription_count",
+                    # Count how many active had on the previous period by subtracting 1 "period" on the calculation
+                    # Useful to know whether a customer is new or not
+                    expr=ast.Call(
+                        name="countIf",
+                        distinct=True,
+                        args=[
+                            ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                            ast.And(
+                                exprs=[
+                                    self._period_lteq_expr(
+                                        ast.Field(chain=["started_at"]),
+                                        self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                                    ),
+                                    self._period_gteq_expr(
+                                        ast.Field(chain=["ended_at"]),
+                                        self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                                    ),
+                                ]
+                            ),
                         ],
                     ),
                 ),
@@ -75,7 +253,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._created_on_expr(),
+                            self._period_eq_expr(ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])),
                         ],
                     ),
                 ),
@@ -86,56 +264,98 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._ended_on_expr(),
+                            self._period_eq_expr(ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])),
                         ],
+                    ),
+                ),
+                # Simple boolean flags to check whether a customer is new/churned
+                ast.Alias(
+                    alias="is_new_customer",
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["prev_subscription_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["subscription_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                        ]
                     ),
                 ),
                 ast.Alias(
-                    alias="customer_count",
+                    alias="is_churned_customer",
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Field(chain=["churned_subscription_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["churned_subscription_count"]),
+                                right=ast.Field(chain=["subscription_count"]),
+                            ),
+                        ]
+                    ),
+                ),
+                # Revenue data for ARPU/LTV calculation
+                ast.Alias(
+                    alias="revenue",
                     expr=ast.Call(
-                        name="countIf",
-                        distinct=True,
+                        name="sumIf",
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
-                            timestamp_expr,
+                            ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "amount"]),
+                            self._period_eq_expr(
+                                ast.Field(
+                                    chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
+                                ),
+                                ast.Field(chain=["period_start"]),
+                            ),
                         ],
                     ),
                 ),
-                # TODO: These can't be implemented like this because this is calculating whether
-                # a customer had any subscription end on the period, but we actually need to calculate
-                # whether all subscriptions for a customer started/ended on the period which is slightly more complex
-                # and can't be implemented in a single query
-                # ast.Alias(alias="new_customer_count", expr=ast.Call(
-                #     name="countIf",
-                #     distinct=True,
-                #     args=[ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]), self._created_on_expr()],
-                # )),
-                # ast.Alias(alias="churned_customer_count", expr=ast.Call(
-                #     name="countIf",
-                #     distinct=True,
-                #     args=[ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]), self._ended_on_expr()],
-                # )),
             ],
             select_from=self._append_joins(
                 ast.JoinExpr(
                     alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
                     table=self.revenue_subqueries.subscription,
+                    next_join=ast.JoinExpr(
+                        alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                        table=self.revenue_subqueries.invoice_item,
+                        join_type="LEFT JOIN",
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                                right=ast.Field(
+                                    chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "subscription_id"]
+                                ),
+                            ),
+                        ),
+                    ),
                 ),
                 self.joins_for_properties(RevenueAnalyticsSubscriptionView),
             ),
             group_by=[
+                ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
                 ast.Field(chain=["breakdown_by"]),
                 ast.Field(chain=["period_start"]),
             ],
             where=ast.And(exprs=self._parsed_where_property_exprs) if self._parsed_where_property_exprs else None,
             order_by=[
+                ast.OrderExpr(
+                    expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
+                    order="ASC",
+                ),
                 ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),
                 ast.OrderExpr(expr=ast.Field(chain=["period_start"]), order="ASC"),
-                ast.OrderExpr(expr=ast.Field(chain=["subscription_count"]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["customer_count"]), order="DESC"),
             ],
-            # Need a huge limit because we need (dates x breakdown)-many rows to be returned
-            limit=ast.Constant(value=10000),
         )
 
         # Limit to 2 group bys at most for performance reasons
@@ -176,49 +396,16 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
             ],
         )
 
-    def _created_before_expr(self) -> ast.Expr:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                args=[ast.Field(chain=["started_at"])],
-            ),
-            right=ast.Field(chain=["period_start"]),
-        )
-
-    def _created_on_expr(self) -> ast.Expr:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                args=[ast.Field(chain=["started_at"])],
-            ),
-            right=ast.Field(chain=["period_start"]),
-        )
-
-    def _ended_after_expr(self) -> ast.Expr:
-        return ast.Or(
-            exprs=[
-                ast.Call(name="isNull", args=[ast.Field(chain=["ended_at"])]),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Call(
-                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=["ended_at"])],
-                    ),
-                    right=ast.Field(chain=["period_start"]),
+    def _add_period_expr(self, date: ast.Expr, offset: int) -> ast.Expr:
+        return ast.Call(
+            name="date_add",
+            args=[
+                date,
+                ast.Call(
+                    name=f"toInterval{self.query_date_range.interval_name.title()}",
+                    args=[ast.Constant(value=offset)],
                 ),
             ],
-        )
-
-    def _ended_on_expr(self) -> ast.Expr:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                args=[ast.Field(chain=["ended_at"])],
-            ),
-            right=ast.Field(chain=["period_start"]),
         )
 
     def _build_results(self, response: HogQLQueryResponse) -> list[dict]:
@@ -226,7 +413,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         # First, let's generate all of the dates/labels because they'll be exactly the same for all of the results
         all_dates = self.query_date_range.all_values()
         days = [date.strftime("%Y-%m-%d") for date in all_dates]
-        labels = [format_label_date(item, self.query_date_range.interval_name) for item in all_dates]
+        labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in all_dates]
 
         # We can also group the results we have by a tuple of (breakdown_by, period_start)
         # This will allow us to easily query the results by breakdown_by and period_start

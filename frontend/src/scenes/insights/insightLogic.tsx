@@ -9,7 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -429,7 +429,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // we need to trigger dashboard reload to pick up results for updated insight
             savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
                 dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
-                    action: 'update',
+                    action: DashboardLoadAction.Update,
                     manualDashboardRefresh: false,
                 })
             )

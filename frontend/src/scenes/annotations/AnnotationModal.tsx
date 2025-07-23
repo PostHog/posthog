@@ -5,7 +5,7 @@ import {
     LemonModalProps,
     LemonSelect,
     LemonSelectOptions,
-    LemonTextArea,
+    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -141,7 +141,7 @@ export function AnnotationModal({
                             loading={isAnnotationModalSubmitting}
                             data-attr="create-annotation-submit"
                         >
-                            {existingModalAnnotation ? 'Edit' : 'Create'}
+                            Save
                         </LemonButton>
                     </div>
                 </div>
@@ -176,7 +176,7 @@ export function AnnotationModal({
                     </LemonField>
                 </div>
                 <LemonField name="content" label="Content">
-                    <LemonTextArea
+                    <LemonTextAreaMarkdown
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"

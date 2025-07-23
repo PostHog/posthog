@@ -269,7 +269,7 @@ export function renderColumn(
             withIcon: true,
             person: { id: value.id },
             displayName: value.display_name,
-            noPopover: true,
+            noPopover: false,
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {

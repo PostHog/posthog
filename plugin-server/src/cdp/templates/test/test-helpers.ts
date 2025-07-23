@@ -1,23 +1,24 @@
 import merge from 'deepmerge'
 
 import { defaultConfig } from '~/config/config'
+import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
+import { HogExecutorService } from '../../services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionTemplate,
+    HogFunctionTemplateCompiled,
     HogFunctionType,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
-import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
@@ -64,8 +65,6 @@ export class TemplateTester {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
         }
-
-        this.mockHub = { mmdb: undefined } as any
 
         this.executor = new HogExecutorService(this.mockHub)
     }
@@ -116,13 +115,13 @@ export class TemplateTester {
         }
     }
 
-    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, HogFunctionInputType>> {
+    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, CyclotronInputType>> {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
                 acc[input.key] = input.default
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -143,7 +142,7 @@ export class TemplateTester {
                 bytecode: value,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
     }
 
     async invoke(
@@ -170,7 +169,7 @@ export class TemplateTester {
             deleted: false,
         }
 
-        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
@@ -225,15 +224,11 @@ export class TemplateTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(_globals), {
-            ...compiledInputs,
-            ...compiledMappingInputs.inputs,
-        })
-        const invocation = createInvocation(globalsWithInputs, {
+        const hogFunction: HogFunctionType = {
             ...this.template,
             team_id: 1,
             enabled: true,
@@ -243,7 +238,15 @@ export class TemplateTester {
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
             is_addon_required: false,
-        })
+        }
+
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(
+            hogFunction,
+            this.createGlobals(_globals),
+            compiledMappingInputs.inputs
+        )
+
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         return this.executor.execute(invocation)
     }

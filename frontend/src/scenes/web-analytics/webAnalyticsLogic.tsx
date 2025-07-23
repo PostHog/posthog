@@ -12,7 +12,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
+import {
+    getDefaultInterval,
+    isNotNil,
+    isValidRelativeOrAbsoluteDate,
+    objectsEqual,
+    UnexpectedNeverError,
+    updateDatesWithInterval,
+} from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -51,7 +58,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
@@ -680,11 +687,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval: getDefaultInterval(dateFrom, dateTo),
-                }),
+                setDates: (_, { dateTo, dateFrom }) => {
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
                 setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
                     return {
@@ -697,6 +712,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
                         dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
                     }
                     return {
                         dateTo,
@@ -2804,7 +2825,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
-            if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
+            if (
+                compare_filter &&
+                isCompareFilter(compare_filter) &&
+                !objectsEqual(compare_filter, values.compareFilter)
+            ) {
                 actions.setCompareFilter(compare_filter)
             }
             if (productTab && productTab !== values.productTab) {

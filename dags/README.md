@@ -15,7 +15,7 @@ Dagster is an open-source data orchestration tool designed to help you define an
 
 ## Project Structure
 
--   `definitions.py`: Main Dagster definition file that defines assets, jobs, schedules, sensors, and resources
+-   `locations/`: Main Dagster definition files (split by team) that defines assets, jobs, schedules, sensors, and resources
 -   `common.py`: Shared utilities and resources
 -   Individual DAG files (e.g., `exchange_rate.py`, `deletes.py`, `person_overrides.py`)
 -   `tests/`: Tests for the DAGs
@@ -24,14 +24,7 @@ Dagster is an open-source data orchestration tool designed to help you define an
 
 ### Environment Setup
 
-Dagster uses the `DAGSTER_HOME` environment variable to determine where to store instance configuration, logs, and other local artifacts. If not set, Dagster will use a temporary folder that's erased after you bring `dagster dev` down
-
-```bash
-# Set DAGSTER_HOME to a directory of your choice
-export DAGSTER_HOME=/path/to/your/dagster/home
-```
-
-For consistency with the PostHog development environment, you might want to set this to a subdirectory within your project:
+Dagster uses the `DAGSTER_HOME` environment variable to determine where to store instance configuration, logs, and other local artifacts. Set this to the .dagster_home file at the top of this repository:
 
 ```bash
 export DAGSTER_HOME=$(pwd)/.dagster_home
@@ -41,14 +34,19 @@ You can add this to your shell profile if you want to always store your assets, 
 
 ### Running the Development Server
 
-To run the Dagster development server locally:
+(Recommended) The Dagster development server starts automatically if you are using the top-level local development script:
 
 ```bash
-# Important: Set DEBUG=1 when running locally to use local resources
-DEBUG=1 dagster dev
+./bin/start.sh
 ```
 
-Setting `DEBUG=1` is critical to get it to run properly
+To run only the Dagster development server locally:
+
+```bash
+export DAGSTER_HOME=$(pwd)/.dagster_home
+export DEBUG=1 # Important: Set DEBUG=1 when running locally to use local resources
+dagster dev --workspace $DAGSTER_HOME/workspace.yaml
+```
 
 The Dagster UI will be available at http://localhost:3000 by default, where you can:
 
@@ -63,7 +61,7 @@ When adding a new DAG:
 
 1. Create a new Python file for your DAG
 2. Define your assets, ops, and jobs
-3. Import and register them in `definitions.py`
+3. Import and register them in the relevant file in `dags/locations/`
 4. Add appropriate tests in the `tests/` directory
 
 ## Running Tests

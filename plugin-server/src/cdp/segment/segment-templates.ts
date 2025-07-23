@@ -1,9 +1,8 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
 import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
-import { HogFunctionTemplate } from '../templates/types'
 
 export type SegmentDestination = {
     template: HogFunctionTemplate
@@ -510,6 +509,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         default: false,
                     },
                 ],
+                code_language: 'javascript',
                 hog: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)

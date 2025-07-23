@@ -371,7 +371,7 @@ export function Members(): JSX.Element | null {
                         <LemonSwitch
                             label={
                                 <span>
-                                    Members can use personal API keys
+                                    Members can use personal API keys{' '}
                                     <Tooltip title="Organization admins and owners can always use personal API keys regardless of this setting.">
                                         <IconInfo className="mr-1" />
                                     </Tooltip>
