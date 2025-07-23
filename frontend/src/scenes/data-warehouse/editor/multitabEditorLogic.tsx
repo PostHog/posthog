@@ -102,6 +102,13 @@ const getStorageItem = async (key: string, newKey?: string): Promise<string | nu
         return dbValue
     }
 
+    if (newKey) {
+        const dbValue = await get(newKey)
+        if (dbValue) {
+            return dbValue
+        }
+    }
+
     const lsValue = localStorage.getItem(key)
 
     if (lsValue) {
@@ -766,8 +773,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 inProgressViewEditStateKey(props.key)
             )
 
-            const allTabsParsed = allTabs ? JSON.parse(allTabs) : []
-            const inProgressViewEditParsed = inProgressViewEdit ? JSON.parse(inProgressViewEdit) : {}
+            const allTabsParsed = allTabs && allTabs !== 'undefined' ? JSON.parse(allTabs) : []
+            const inProgressViewEditParsed =
+                inProgressViewEdit && inProgressViewEdit !== 'undefined' ? JSON.parse(inProgressViewEdit) : {}
             actions.setInProgressViewEdits(inProgressViewEditParsed)
 
             const mountedCodeEditorLogic =
