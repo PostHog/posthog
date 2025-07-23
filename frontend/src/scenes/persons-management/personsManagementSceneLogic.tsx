@@ -165,9 +165,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             if (!tabUrl) {
                 return values.tabs[0].url
             }
-            const newSearchParams = new URLSearchParams(router.values.searchParams)
-            newSearchParams.delete('search')
-            return [tabUrl, newSearchParams, router.values.hashParams, { replace: false }]
+            return tabUrl
         },
     })),
     urlToAction(({ actions, values }) => {
