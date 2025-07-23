@@ -6,13 +6,13 @@ from posthog.models import MessageCategory
 
 class MessageCategorySerializer(serializers.ModelSerializer):
     def validate(self, data):
-        if self.instance is None and "key" in data:
+        if self.instance is None:
             # Ensure key is unique per team for new instances
             if MessageCategory.objects.filter(team_id=self.context["team_id"], key=data["key"], deleted=False).exists():
                 raise serializers.ValidationError({"key": "A message category with this key already exists."})
-        elif self.instance is not None and "key" in data and data["key"] != self.instance.key:
-            # Forbid updates to the key field
-            raise serializers.ValidationError({"key": "The key field cannot be updated after creation."})
+        else:
+            if "key" in data:
+                data["key"] = self.instance.key  # Preserve existing key on update
         return data
 
     class Meta:

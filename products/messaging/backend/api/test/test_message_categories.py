@@ -54,12 +54,48 @@ class TestMessageCategoryAPI(APIBaseTest):
         # PUT
         put_response = self.client.put(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
-            {"name": "Put Name", "key": "put_key", "category_type": "marketing"},
+            {"name": "Put Name", "key": "initial_key", "category_type": "marketing"},
         )
         self.assertEqual(put_response.status_code, status.HTTP_200_OK)
         category.refresh_from_db()
         self.assertEqual(category.name, "Put Name")
-        self.assertEqual(category.key, "put_key")
+
+        # Test PATCH without key field - should work
+        patch_no_key_response = self.client.patch(
+            f"/api/environments/{self.team.id}/messaging_categories/{category.id}/", {"name": "Patched Without Key"}
+        )
+        self.assertEqual(patch_no_key_response.status_code, status.HTTP_200_OK)
+        category.refresh_from_db()
+        self.assertEqual(category.name, "Patched Without Key")
+        self.assertEqual(category.key, "initial_key")  # Key should remain unchanged
+
+    def test_cannot_update_key_field(self):
+        """
+        Tests that attempting to update the key field via PUT or PATCH succeeds but the key remains unchanged.
+        """
+        category = MessageCategory.objects.create(team=self.team, name="Test Category", key="original_key")
+
+        # Attempt to change key via PATCH
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
+            {"name": "Updated Name", "key": "new_key"},
+        )
+        # The request should succeed but the key should not change
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        category.refresh_from_db()
+        self.assertEqual(category.name, "Updated Name")
+        self.assertEqual(category.key, "original_key")  # Key should remain unchanged
+
+        # Attempt to change key via PUT
+        put_response = self.client.put(
+            f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
+            {"name": "Put Updated Name", "key": "another_new_key", "category_type": "marketing"},
+        )
+        # The request should succeed but the key should not change
+        self.assertEqual(put_response.status_code, status.HTTP_200_OK)
+        category.refresh_from_db()
+        self.assertEqual(category.name, "Put Updated Name")
+        self.assertEqual(category.key, "original_key")  # Key should remain unchanged
 
     def test_create_message_category(self):
         """
