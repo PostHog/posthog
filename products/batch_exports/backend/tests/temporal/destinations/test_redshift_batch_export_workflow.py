@@ -832,10 +832,16 @@ def test_remove_escaped_whitespace_recursive(value, expected):
     assert remove_escaped_whitespace_recursive(value) == expected
 
 
-async def test_redshift_export_workflow_handles_insert_activity_errors(
+async def test_redshift_export_workflow_handles_unexpected_insert_activity_errors(
     event_loop, ateam, redshift_batch_export, interval
 ):
-    """Test that Redshift Export Workflow can gracefully handle errors when inserting Redshift data."""
+    """Test that Redshift Export Workflow can gracefully handle unexpected errors when inserting Redshift data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
+    treat this as an unexpected internal error).
+
+    To simulate an unexpected error, we mock the `Producer.start` activity.
+    """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
     workflow_id = str(uuid.uuid4())
@@ -847,10 +853,6 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
         **redshift_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_redshift_activity")
-    async def insert_into_redshift_activity_mocked(_: RedshiftInsertInputs) -> str:
-        raise ValueError("A useful error message")
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
@@ -858,20 +860,24 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_redshift_activity_mocked,
+                insert_into_redshift_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
-                await activity_environment.client.execute_workflow(
-                    RedshiftBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=20),
-                )
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.redshift_batch_export.Producer.start",
+                side_effect=ValueError("A useful error message"),
+            ):
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        RedshiftBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=20),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
     assert len(runs) == 1
@@ -885,7 +891,13 @@ async def test_redshift_export_workflow_handles_insert_activity_errors(
 async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
     ateam, redshift_batch_export, interval
 ):
-    """Test that Redshift Export Workflow can gracefully handle non-retryable errors when inserting Redshift data."""
+    """Test that Redshift Export Workflow can gracefully handle non-retryable errors when inserting Redshift data.
+
+    This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we
+    treat this as a user error).
+
+    To simulate a user error, we mock the `Producer.start` activity.
+    """
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
     workflow_id = str(uuid.uuid4())
@@ -897,12 +909,8 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
         **redshift_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_redshift_activity")
-    async def insert_into_redshift_activity_mocked(_: RedshiftInsertInputs) -> str:
-        class InsufficientPrivilege(Exception):
-            pass
-
-        raise InsufficientPrivilege("A useful error message")
+    class InsufficientPrivilege(Exception):
+        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -911,12 +919,15 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_redshift_activity_mocked,
+                insert_into_redshift_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.redshift_batch_export.Producer.start",
+                side_effect=InsufficientPrivilege("A useful error message"),
+            ):
                 await activity_environment.client.execute_workflow(
                     RedshiftBatchExportWorkflow.run,
                     inputs,

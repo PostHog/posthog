@@ -707,8 +707,6 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
         )
 
 
-# TODO - remove this
-RecordsCompleted = int
 BatchExportActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
 
 
