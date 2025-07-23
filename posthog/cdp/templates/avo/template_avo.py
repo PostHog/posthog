@@ -12,6 +12,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Avo",
     icon_url="/static/services/avo.png",
     category=["Analytics"],
+    code_language="hog",
     hog="""
 if (empty(inputs.apiKey) or empty(inputs.environment)) {
     print('API Key and environment has to be set. Skipping...')

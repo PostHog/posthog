@@ -12,6 +12,7 @@ import warnings
 import psycopg
 import pytest
 import pytest_asyncio
+import temporalio.common
 from django.conf import settings
 from django.test import override_settings
 from psycopg import sql
@@ -50,11 +51,11 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     insert_into_redshift_activity,
     redshift_default_fields,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
     RecordBatchTaskError,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.temporal.temporary_file import (
     remove_escaped_whitespace_recursive,
@@ -549,6 +550,7 @@ async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
         task_queue="test",
         task_token=b"test",
         workflow_namespace="default",
+        priority=temporalio.common.Priority(priority_key=None),
     )
 
     activity_environment.info = fake_info
@@ -642,6 +644,7 @@ async def test_insert_into_redshift_activity_completes_range(
         task_queue="test",
         task_token=b"test",
         workflow_namespace="default",
+        priority=temporalio.common.Priority(priority_key=None),
     )
 
     activity_environment.info = fake_info

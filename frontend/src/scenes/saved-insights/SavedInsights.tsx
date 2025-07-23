@@ -88,7 +88,7 @@ export interface InsightTypeMetadata {
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
-        name: 'Calendar Heatmap',
+        name: 'Calendar heatmap (BETA)',
         description: 'Visualize total or unique users broken down by day and hour.',
         icon: IconRetentionHeatmap,
         inMenu: true,
@@ -274,6 +274,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
         icon: IconHogQL,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsArpuQuery]: {
+        name: 'Revenue Analytics ARPU',
+        description: 'View revenue analytics ARPU data.',
+        icon: IconPiggyBank,
         inMenu: true,
     },
     [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
@@ -556,7 +562,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
-            New insight
+            New
         </AccessControlledLemonButton>
     )
 }

@@ -45,6 +45,8 @@ import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlay
 import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+
 export type PersonUUID = string
 
 interface Params {
@@ -88,6 +90,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const MAX_SELECTED_RECORDINGS = 20
+export const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -105,6 +108,22 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+}
+
+/**
+ * Loads the pinned recordings for a given shortId.
+ * @param shortId - The shortId of the playlist to load.
+ */
+const handleLoadCollectionRecordings = (shortId: string): void => {
+    let logic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: shortId })
+    let unmount = null
+    if (!logic) {
+        logic = sessionRecordingsPlaylistSceneLogic({ shortId: shortId })
+        unmount = logic.mount()
+    }
+    logic.actions.loadPinnedRecordings()
+    // Unmount the logic if it was mounted by us
+    unmount?.()
 }
 
 /**
@@ -369,6 +388,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         handleBulkAddToPlaylist: (short_id: string) => ({ short_id }),
         handleBulkDeleteFromPlaylist: (short_id: string) => ({ short_id }),
         handleSelectUnselectAll: (checked: boolean, type: 'filters' | 'collection') => ({ checked, type }),
+        setIsDeleteSelectedRecordingsDialogOpen: (isDeleteSelectedRecordingsDialogOpen: boolean) => ({
+            isDeleteSelectedRecordingsDialogOpen,
+        }),
+        setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
+        handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
+        setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
+        setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
+        handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -598,6 +625,31 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
             },
         ],
+        isDeleteSelectedRecordingsDialogOpen: [
+            false,
+            {
+                setIsDeleteSelectedRecordingsDialogOpen: (_, { isDeleteSelectedRecordingsDialogOpen }) =>
+                    isDeleteSelectedRecordingsDialogOpen,
+            },
+        ],
+        deleteConfirmationText: [
+            '',
+            {
+                setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
+        isNewCollectionDialogOpen: [
+            false,
+            {
+                setIsNewCollectionDialogOpen: (_, { isNewCollectionDialogOpen }) => isNewCollectionDialogOpen,
+            },
+        ],
+        newCollectionName: [
+            '',
+            {
+                setNewCollectionName: (_, { newCollectionName }) => newCollectionName,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -653,10 +705,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to show the new recordings
-                        const logic =
-                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
-                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
-                        logic.actions.loadPinnedRecordings()
+                        handleLoadCollectionRecordings(short_id)
                     } catch (e) {
                         posthog.captureException(e)
                     }
@@ -673,7 +722,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 {},
                 {
                     button: {
-                        label: 'View playlist',
+                        label: 'View collection',
                         action: () => router.actions.push(urls.replayPlaylist(short_id)),
                     },
                 }
@@ -687,10 +736,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to see the recordings without the deleted ones
-                        const logic =
-                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
-                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
-                        logic.actions.loadPinnedRecordings()
+                        handleLoadCollectionRecordings(short_id)
                     } catch (e) {
                         posthog.captureException(e)
                     }
@@ -712,6 +758,49 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.setSelectedRecordingsIds(recordings.map((s) => s.id))
             } else {
                 actions.setSelectedRecordingsIds([])
+            }
+        },
+        handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        actions.setDeleteConfirmationText('')
+                        actions.setIsDeleteSelectedRecordingsDialogOpen(false)
+                        await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } deleted!`,
+                    error: 'Failed to delete recordings!',
+                    pending: `Deleting ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
+        handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
+            const newPlaylist = await createPlaylist({
+                name: values.newCollectionName,
+                type: 'collection',
+            })
+
+            if (newPlaylist) {
+                actions.handleBulkAddToPlaylist(newPlaylist.short_id)
+                actions.setIsNewCollectionDialogOpen(false)
+                actions.setNewCollectionName('')
+                onSuccess()
             }
         },
     })),

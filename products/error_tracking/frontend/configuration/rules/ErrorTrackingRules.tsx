@@ -1,28 +1,43 @@
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
-import { useEffect } from 'react'
+import { PropsWithChildren, useEffect } from 'react'
 
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
 
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { DndContext } from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
+
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+
+function isRuleDisabled(rule: ErrorTrackingRule): boolean {
+    return 'disabled_data' in rule && !!rule.disabled_data
+}
+
 function ErrorTrackingRules<T extends ErrorTrackingRule>({
     ruleType,
     children,
+    disabledReason,
 }: {
     ruleType: ErrorTrackingRuleType
-    children: ({ rule, editable }: { rule: T; editable: boolean }) => JSX.Element
+    children: ({ rule, editing, disabled }: { rule: T; editing: boolean; disabled: boolean }) => JSX.Element
+    disabledReason?: string
 }): JSX.Element {
     const logicProps = { ruleType }
     const logic = errorTrackingRulesLogic(logicProps)
 
-    const { allRules, localRules, initialLoadComplete } = useValues(logic)
-    const { loadRules } = useActions(logic)
+    const { allRules, localRules, initialLoadComplete, isReorderingRules } = useValues(logic)
+    const { loadRules, reorderLocalRules } = useActions(logic)
 
     useEffect(() => {
         loadRules()
@@ -32,41 +47,138 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
         <Spinner />
     ) : (
         <BindLogic logic={errorTrackingRulesLogic} props={logicProps}>
-            <div className="flex flex-col gap-y-2 mt-2">
-                {allRules.map((persistedRule) => {
-                    const editingRule = localRules.find((r) => r.id === persistedRule.id) as T
-
-                    const editable = !!editingRule
-                    const rule = editingRule ?? persistedRule
-
-                    return children({ rule, editable })
-                })}
-
-                <AddRuleButton />
+            <div className="flex gap-x-2">
+                <AddRule disabledReason={disabledReason} />
+                {allRules.length > 1 && <ReorderRules />}
             </div>
+
+            <DndContext
+                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                onDragEnd={({ active, over }) => {
+                    if (over && active.id !== over.id) {
+                        const activeIndex = allRules.findIndex((r) => r.id === active.id)
+                        const overIndex = allRules.findIndex((r) => r.id === over.id)
+                        reorderLocalRules(arrayMove(allRules, activeIndex, overIndex))
+                    }
+                }}
+            >
+                <SortableContext items={allRules} strategy={verticalListSortingStrategy}>
+                    <div className="flex flex-col mt-2">
+                        {allRules.map((persistedRule) => {
+                            const editingRule = localRules.find((r) => r.id === persistedRule.id) as T
+
+                            const editing = !isReorderingRules && !!editingRule
+                            const rule = editingRule ?? persistedRule
+                            const disabled = isRuleDisabled(rule)
+
+                            return (
+                                <SortableRule key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
+                                    {disabled && <DisabledBanner />}
+                                    {children({ rule, editing, disabled })}
+                                </SortableRule>
+                            )
+                        })}
+                    </div>
+                </SortableContext>
+            </DndContext>
         </BindLogic>
     )
 }
 
-const AddRuleButton = (): JSX.Element | null => {
-    const { hasNewRule } = useValues(errorTrackingRulesLogic)
+const SortableRule = ({
+    ruleId,
+    reorderable,
+    children,
+}: PropsWithChildren<{ ruleId: ErrorTrackingRule['id']; reorderable: boolean }>): JSX.Element => {
+    const { setNodeRef, attributes, transform, transition, listeners, active, isDragging } = useSortable({ id: ruleId })
+
+    return (
+        <div
+            className={cn('flex space-y-2 mb-2', isDragging && 'z-[999999]')}
+            ref={setNodeRef}
+            style={{
+                transform: CSS.Translate.toString(transform),
+                transition,
+            }}
+            {...attributes}
+        >
+            {reorderable && (
+                <SortableDragIcon
+                    className={cn('rotate-90 w-5 h-5 mt-2', active ? 'cursor-grabbing' : 'cursor-grab')}
+                    {...listeners}
+                />
+            )}
+            <LemonCard hoverEffect={false} className="flex flex-col flex-1 p-0">
+                {children}
+            </LemonCard>
+        </div>
+    )
+}
+
+const ReorderRules = (): JSX.Element | null => {
+    const { localRules, isReorderingRules, rulesLoading } = useValues(errorTrackingRulesLogic)
+    const { startReorderingRules, finishReorderingRules, cancelReorderingRules } = useActions(errorTrackingRulesLogic)
+
+    return isReorderingRules ? (
+        <>
+            <LemonButton type="secondary" size="small" onClick={cancelReorderingRules}>
+                Cancel
+            </LemonButton>
+            <LemonButton type="primary" size="small" onClick={finishReorderingRules} loading={rulesLoading}>
+                Finish reordering
+            </LemonButton>
+        </>
+    ) : (
+        <div>
+            <LemonButton
+                size="small"
+                type="secondary"
+                onClick={startReorderingRules}
+                disabledReason={localRules.length > 0 ? 'Finish editing all rules before reordering' : undefined}
+            >
+                Reorder
+            </LemonButton>
+        </div>
+    )
+}
+
+const DisabledBanner = (): JSX.Element => {
+    const { openSidePanel } = useActions(sidePanelLogic)
+
+    return (
+        <LemonBanner
+            className="mx-2 mt-2"
+            type="error"
+            action={{
+                onClick: () => openSidePanel(SidePanelTab.Support, 'bug:error_tracking'),
+                children: 'Contact support',
+            }}
+        >
+            This rule has been disabled due to an error and is being investigated by our team
+        </LemonBanner>
+    )
+}
+
+export const AddRule = ({ disabledReason }: { disabledReason: string | undefined }): JSX.Element | null => {
+    const { hasNewRule, isReorderingRules } = useValues(errorTrackingRulesLogic)
     const { addRule } = useActions(errorTrackingRulesLogic)
 
-    return !hasNewRule ? (
+    return !hasNewRule && !isReorderingRules ? (
         <div>
-            <LemonButton type="primary" size="small" onClick={addRule}>
+            <LemonButton type="primary" size="small" onClick={addRule} disabledReason={disabledReason}>
                 Add rule
             </LemonButton>
         </div>
     ) : null
 }
 
-const Actions = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolean }): JSX.Element => {
+const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
+    const { isReorderingRules } = useValues(errorTrackingRulesLogic)
     const { saveRule, deleteRule, setRuleEditable, unsetRuleEditable } = useActions(errorTrackingRulesLogic)
 
     return (
         <div className="flex gap-1">
-            {editable ? (
+            {isReorderingRules ? null : editing ? (
                 <>
                     {rule.id === 'new' ? null : (
                         <LemonButton
@@ -106,12 +218,12 @@ const Actions = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolea
 
 const Filters = ({
     rule,
-    editable,
+    editing,
     taxonomicGroupTypes,
     ...props
 }: Pick<PropertyFiltersProps, 'taxonomicGroupTypes' | 'propertyAllowList'> & {
     rule: ErrorTrackingRule
-    editable: boolean
+    editing: boolean
     taxonomicGroupTypes: PropertyFiltersProps['taxonomicGroupTypes']
     excludedProperties?: PropertyFiltersProps['excludedProperties']
 }): JSX.Element => {
@@ -119,7 +231,7 @@ const Filters = ({
 
     return (
         <PropertyFilters
-            editable={editable}
+            editable={editing}
             propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(properties: AnyPropertyFilter[]) =>
@@ -135,10 +247,10 @@ const Filters = ({
     )
 }
 
-const Assignee = ({ rule, editable }: { rule: ErrorTrackingAssignmentRule; editable: boolean }): JSX.Element => {
+const Assignee = ({ rule, editing }: { rule: ErrorTrackingAssignmentRule; editing: boolean }): JSX.Element => {
     const { updateLocalRule } = useActions(errorTrackingRulesLogic)
 
-    return editable ? (
+    return editing ? (
         <AssigneeSelect assignee={rule.assignee} onChange={(assignee) => updateLocalRule({ ...rule, assignee })}>
             {(displayAssignee) => (
                 <LemonButton fullWidth type="secondary" size="small">
@@ -158,12 +270,12 @@ const Assignee = ({ rule, editable }: { rule: ErrorTrackingAssignmentRule; edita
     )
 }
 
-const Operator = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolean }): JSX.Element => {
+const Operator = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
     const { updateLocalRule } = useActions(errorTrackingRulesLogic)
 
     const operator = rule.filters.type
 
-    return editable ? (
+    return editing ? (
         <LemonSelect
             size="small"
             value={operator}

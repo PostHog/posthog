@@ -18,6 +18,14 @@ NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
     def helper_generate_bulk_invite_payload(self, count: int):
         payload = []
 
@@ -825,7 +833,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = False
         self.organization.save()
 
@@ -856,13 +867,15 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         member_user = self._create_user("member@posthog.com")
         self.client.force_login(member_user)
 
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = False
         self.organization.save()
 
         # Create an invite as an admin (so it exists)
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
         invite = OrganizationInvite.objects.create(organization=self.organization, created_by=admin_user)
 
         # Try to delete as member
@@ -877,7 +890,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to True
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = True
         self.organization.save()
 
@@ -980,7 +996,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create an admin user
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
 
         # Login as the admin
         self.client.force_login(admin_user)
@@ -1014,7 +1029,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
 
         # Login as the member
         self.client.force_login(member_user)
@@ -1049,13 +1063,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
 
         # Login as the member
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Try to invite a user to the private team
         response = self.client.post(
@@ -1091,12 +1104,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Give the member admin access to the team
         AccessControl.objects.create(
             team=team,
-            resource="team",
+            resource="project",
             resource_id=str(team.id),
             organization_member=member_membership,
             access_level="admin",
