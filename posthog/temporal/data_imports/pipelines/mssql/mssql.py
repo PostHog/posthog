@@ -33,6 +33,20 @@ if typing.TYPE_CHECKING:
     from pymssql import Cursor
 
 
+def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime" or type == "datetime2" or type == "smalldatetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "tinyint" or type == "smallint" or type == "int" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
 def get_schemas(
     host: str, user: str, password: str, database: str, schema: str, port: int
 ) -> dict[str, list[tuple[str, str]]]:

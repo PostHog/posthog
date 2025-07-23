@@ -26,26 +26,28 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )
-from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
-@config.config
-class MySQLSourceConfig(config.Config):
-    host: str
-    user: str
-    password: str
-    database: str
-    schema: str
-    port: int = config.value(converter=int)
-    using_ssl: bool = True
-    ssh_tunnel: SSHTunnelConfig | None = None
+def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "datetime":
+            results.append((column_name, IncrementalFieldType.DateTime))
+        elif type == "tinyint" or type == "smallint" or type == "mediumint" or type == "int" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
 
 
 def get_schemas(

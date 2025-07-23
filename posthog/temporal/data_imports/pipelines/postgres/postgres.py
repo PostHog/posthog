@@ -29,6 +29,20 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUN
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
+def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    for column_name, type in columns:
+        type = type.lower()
+        if type.startswith("timestamp"):
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "date":
+            results.append((column_name, IncrementalFieldType.Date))
+        elif type == "integer" or type == "smallint" or type == "bigint":
+            results.append((column_name, IncrementalFieldType.Integer))
+
+    return results
+
+
 def get_postgres_row_count(
     host: str, port: int, database: str, user: str, password: str, schema: str
 ) -> dict[str, int]:

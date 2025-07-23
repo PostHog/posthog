@@ -11,10 +11,10 @@ from posthog.temporal.data_imports.pipelines.postgres.postgres import (
     postgres_source,
     get_schemas as get_postgres_schemas,
     get_postgres_row_count,
+    filter_postgres_incremental_fields,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
-from posthog.warehouse.sql_schemas import filter_postgres_incremental_fields
 from posthog.warehouse.types import IncrementalField
 
 if TYPE_CHECKING:

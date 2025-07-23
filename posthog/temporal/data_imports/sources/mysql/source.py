@@ -6,9 +6,12 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.mysql.mysql import get_schemas as get_mysql_schemas, mysql_source
+from posthog.temporal.data_imports.pipelines.mysql.mysql import (
+    get_schemas as get_mysql_schemas,
+    mysql_source,
+    filter_mysql_incremental_fields,
+)
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.warehouse.sql_schemas import filter_mysql_incremental_fields
 from posthog.warehouse.types import IncrementalField
 
 if TYPE_CHECKING:
