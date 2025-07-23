@@ -639,6 +639,19 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             ),
             name="date",
         ),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Field(chain=["__date"])],
+                    )
+                ],
+            ),
+            name="date",
+        ),
         "description": StringDatabaseField(name="description"),
         "discountable": BooleanDatabaseField(name="discountable"),
         "discounts": StringJSONDatabaseField(name="discounts"),
