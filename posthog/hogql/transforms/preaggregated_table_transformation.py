@@ -134,7 +134,7 @@ def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
             return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
         if name in ["lessOrEquals"] and is_end_of_day_constant(arg1):
             return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
-    if is_simple_timestamp_field_expression(arg0, context):
+    if is_simple_timestamp_field_expression(arg1, context):
         if name in ["lessOrEquals", "greater"] and is_start_of_day_constant(arg0):
             return ast.Call(name=expr.name, args=[arg0, ast.Field(chain=["period_bucket"])])
     return None

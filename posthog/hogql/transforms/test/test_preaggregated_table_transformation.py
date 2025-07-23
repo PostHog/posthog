@@ -544,7 +544,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         # Should not transform due to IS NOT NULL comparison
         assert query == self._normalize(original_query)
 
-    def test_timestamp_condition(self):
+    def test_start_of_day_timestamp_with_condition(self):
         """Test that a timestamp in the comparison is supported."""
         original_query = """
             SELECT count()
@@ -555,7 +555,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE greaterOrEquals(period_bucket, '2024-11-24'))"""
         assert query == expected
 
-    def test_reversed_timestamp_condition(self):
+    def test_timestamp_with_start_of_day_condition(self):
         """This case is pretty tricky, it relies on assuming that toStartOfDay(timestamp) >= toStartOfDay('2024-11-24') is equivalent to timestamp >= toStartOfDay('2024-11-24')."""
         original_query = """
             SELECT
@@ -565,6 +565,20 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE greaterOrEquals(period_bucket, toStartOfDay('2024-11-24')))"""
+        assert query == expected
+
+    def test_timestamp_with_start_of_day_condition_reversed(self):
+        original_query = """
+            SELECT
+                count()
+            FROM events
+            WHERE event = '$pageview' AND toStartOfDay('2024-11-24') <= timestamp
+        """
+        query = self._parse_and_transform(original_query)
+        expected = (
+            "sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE "
+            "lessOrEquals(toStartOfDay('2024-11-24'), period_bucket))"
+        )
         assert query == expected
 
     def test_invalid_timestamp_condition(self):
