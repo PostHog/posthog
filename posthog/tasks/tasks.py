@@ -909,7 +909,6 @@ def background_delete_model_task(
                     f"""
                     SELECT id FROM {model._meta.db_table}
                     WHERE {team_field} = %s
-                    ORDER BY id
                     LIMIT %s
                     """,
                     [team_id, current_batch_size],
