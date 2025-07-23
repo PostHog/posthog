@@ -21,12 +21,12 @@ class TitleGeneratorNode(AssistantNode):
             return None
 
         runnable = (
-            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", human_message.content)])
+            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", "{user_input}")])
             | self._model
             | StrOutputParser()
         )
 
-        title = runnable.invoke({}, config=config)
+        title = runnable.invoke({"user_input": human_message.content}, config=config)
 
         conversation.title = title
         conversation.save()
