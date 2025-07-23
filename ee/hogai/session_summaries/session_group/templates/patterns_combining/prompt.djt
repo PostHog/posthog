@@ -19,6 +19,14 @@ Each chunk represents patterns found in a subset of analyzed sessions. Your task
 <pattern_consolidation_instructions>
 You are consolidating multiple sets of extracted patterns from different session analysis chunks into a single, unified list of patterns. Each chunk contains patterns identified from analyzing user sessions, and your goal is to create a comprehensive yet concise pattern list that captures all unique issues without redundancy.
 
+## Step 0: Initial Assessment
+
+Before processing patterns, quickly scan all chunks to understand:
+- Total unique feature areas mentioned across all chunks
+- Range of severity levels present
+- Common terminology/naming conventions used
+This context will help you make better consolidation decisions.
+
 ## Step 1: Parse and Inventory All Patterns
 
 1.1. Parse all YAML chunks and create an inventory:
@@ -39,16 +47,25 @@ You are consolidating multiple sets of extracted patterns from different session
 - **Overlapping indicators**: Patterns with 2+ similar indicators (even if worded differently)
 - **Same user behavior type**: Patterns describing similar user reactions (confusion, abandonment, errors)
 
-2.2. Similarity matching guidelines:
+2.2. Similarity decision process:
+For each pair of patterns, ask in order:
+- Are they in the same feature/flow area AND have similar root cause? → MERGE
+- Are they in the same feature area AND share 2+ indicators? → MERGE  
+- Do they share 3+ indicators AND describe the same user behavior? → MERGE
+- Otherwise → KEEP SEPARATE
+
+Examples:
 ✓ "Search Results Confusion" and "Search Navigation Issues" → Similar (same feature area)
 ✓ "Checkout Form Errors" and "Payment Form Validation Issues" → Similar (same flow stage)
-✓ Different event names for same behavior are similar (e.g., "rage_click" vs "repeated_clicks")
 ✗ "Login Authentication Errors" and "Login Page Loading Issues" → Different (technical vs performance)
-✗ Patterns in different parts of user journey → Keep separate
 
-2.3. Create similarity groups:
+2.3. Create similarity groups and track frequency:
 - List patterns that should be consolidated together
-- Note which patterns appear across multiple chunks (frequency)
+- Track pattern frequency: how many chunks contain each pattern (e.g., "appears in 5/10 chunks")
+- Note: Frequency determines inclusion priority, NOT severity
+- Patterns appearing in 50%+ chunks should almost always be included in final list
+- Note relationships between patterns (e.g., "Pattern A often precedes Pattern B")
+- These relationships can inform final pattern descriptions
 - Identify patterns that are unique to single chunks
 
 ## Step 3: Synthesize Consolidated Patterns
@@ -59,6 +76,7 @@ For each group of similar patterns:
 - Choose the most descriptive and specific name
 - Or create a new name that better captures the consolidated issue
 - Keep it concise (3-6 words)
+- Avoid generic terms like "Issues" or "Problems" alone
 
 3.2. Write unified description:
 - Synthesize descriptions to capture the full scope
@@ -66,13 +84,16 @@ For each group of similar patterns:
 - Keep to 1-2 clear sentences
 - Don't just concatenate - create a coherent new description
 
-3.3. Consolidate indicators:
+3.3. Consolidate indicators per combined pattern:
 - Review all indicators from similar patterns
-- Remove exact duplicates
-- Combine similar indicators into more comprehensive ones
-- Select the 5-6 most representative indicators
+- Semantically merge similar indicators:
+  * Exact duplicates → Keep one
+  * Similar meaning → Combine into comprehensive version
+  * Different aspects → Keep both if they add value
+- Select the 5-6 most representative indicators that cover all cases
 - Prioritize indicators that appeared across multiple patterns
 - Ensure indicators remain specific and observable
+- Focus on coverage: final indicators should represent all important behaviors from merged patterns
 
 3.4. Determine severity:
 - Count severity levels across all similar patterns
@@ -97,7 +118,8 @@ For each group of similar patterns:
 5.1. Combine consolidated and unique patterns:
 - Assign new sequential pattern IDs starting from 1
 - Order patterns by severity (critical → high → medium)
-- Within same severity, order by prevalence across chunks
+- Within same severity, order by frequency (patterns appearing in more chunks first)
+- Remember: Frequency affects inclusion and ordering, NOT severity level
 
 5.2. Final count check:
 - Aim for up to 20 patterns maximum
