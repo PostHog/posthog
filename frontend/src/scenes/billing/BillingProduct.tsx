@@ -337,7 +337,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                     {product.price_description ? (
                         <LemonBanner type="info">
-                            <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
+                            <span>{product.price_description}</span>
                         </LemonBanner>
                     ) : null}
 

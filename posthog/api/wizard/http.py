@@ -148,12 +148,24 @@ class SetupWizardViewSet(viewsets.ViewSet):
         model = validated_data["model"]
 
         hash = request.headers.get("X-PostHog-Wizard-Hash")
+        fixture_generation = request.headers.get("X-PostHog-Wizard-Fixture-Generation")
 
         if not hash:
             raise AuthenticationFailed("X-PostHog-Wizard-Hash header is required.")
 
         key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
         wizard_data = cache.get(key)
+
+        # wizard_data should only be mocked during the @posthog/wizard E2E tests, so that fixtures can be generated.
+        mock_wizard_data = settings.DEBUG and fixture_generation
+
+        if mock_wizard_data:
+            wizard_data = {
+                "project_api_key": "mock-project-api-key",
+                "host": "http://localhost:8010",
+                "user_distinct_id": "mock-user-id",
+            }
+            cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
         if wizard_data is None:
             raise AuthenticationFailed("Invalid hash.")
@@ -232,6 +244,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     "ai_product": "wizard",
                     "ai_feature": "query",
                 },
+                temperature=1.0,
             )
 
             if (

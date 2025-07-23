@@ -88,14 +88,18 @@ export const getExperimentDateRange = (experiment: Experiment): DateRange => {
 /**
  * returns the math properties for the source
  */
-export const getMathProperties = (source: ExperimentMetricSource): MathProperties =>
-    match(source)
-        .with({ math: ExperimentMetricMathType.Sum }, ({ math, math_property }) => ({
-            math,
-            math_property,
-        }))
-        .with({ math: ExperimentMetricMathType.UniqueSessions }, ({ math }) => ({ math }))
-        .otherwise(() => ({ math: ExperimentMetricMathType.TotalCount, math_property: undefined }))
+export const getMathProperties = (source: ExperimentMetricSource): MathProperties => {
+    if (!source.math || source.math === ExperimentMetricMathType.TotalCount) {
+        return { math: ExperimentMetricMathType.TotalCount, math_property: undefined }
+    }
+
+    if (source.math === ExperimentMetricMathType.UniqueSessions) {
+        return { math: source.math }
+    }
+
+    // For Sum, Avg, Min, Max - all require math_property
+    return { math: source.math, math_property: source.math_property }
+}
 
 type GetQueryOptions = {
     breakdownFilter: BreakdownFilter

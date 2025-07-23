@@ -11,10 +11,10 @@ from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
-from ee.session_recordings.session_summary.input_data import add_context_and_filter_events, get_team
-from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
-from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
+from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
     SessionSummaryDBData,

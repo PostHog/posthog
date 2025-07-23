@@ -31,7 +31,7 @@ export function ErrorDisplayContent(): JSX.Element {
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
-            {!hasStacktrace && <div className="text-secondary italic">{value}</div>}
+            {!hasStacktrace && !!value && <div className="text-secondary italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">
                 <TitledSnack
                     type="success"
