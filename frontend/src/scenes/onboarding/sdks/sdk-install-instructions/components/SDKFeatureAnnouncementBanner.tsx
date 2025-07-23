@@ -1,4 +1,3 @@
-import React from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
