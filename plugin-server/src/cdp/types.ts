@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { CyclotronInputType } from '~/schema/cyclotron'
+import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
 import { HogFlow } from '../schema/hogflow'
 import {
@@ -192,6 +192,9 @@ export type MinimalAppMetric = {
         | 'event_triggered_destination'
         | 'destination_invoked'
         | 'dropped'
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_delivered'
     count: number
 }
 
@@ -205,18 +208,7 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export type HogFunctionQueueParametersFetchRequest = {
-    type: 'fetch'
-    url: string
-    method: string
-    body?: string
-    max_tries?: number
-    headers?: Record<string, string>
-}
-
-export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
-
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'native', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -231,7 +223,7 @@ export type CyclotronJobInvocation = {
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
     // Optional parameters for that queue to use
-    queueParameters?: CyclotronInvocationQueueParameters | null
+    queueParameters?: CyclotronInvocationQueueParametersType | null
     // Priority of the invocation
     queuePriority: number
     // When the invocation is scheduled to run
@@ -361,6 +353,7 @@ export type HogFunctionTemplate = {
     mapping_templates?: HogFunctionMappingTemplate[]
     masking?: HogFunctionMasking
     icon_url?: string
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
@@ -381,14 +374,9 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack'
+    kind: 'slack' | 'email' | 'oauth'
     config: Record<string, any>
     sensitive_config: Record<string, any>
-
-    // Fields we don't load but need for seeding data
-    errors?: string
-    created_at?: string
-    created_by_id?: number
 }
 
 export type HogFunctionCapturedEvent = {
@@ -406,7 +394,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
     perform: (
         request: (
             url: string,

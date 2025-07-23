@@ -1,10 +1,9 @@
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
-from django.core.cache import cache
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, serializers, viewsets, response
+from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 import posthoganalytics
@@ -13,9 +12,8 @@ import json
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.cloud_utils import get_api_host, is_cloud
+from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted, groups
 from posthog.models import (
@@ -24,8 +22,6 @@ from posthog.models import (
     Organization,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.project import Project
-from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
@@ -36,7 +32,6 @@ from posthog.permissions import (
     APIScopePermission,
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
-    OrganizationInviteSettingsPermission,
     OrganizationMemberPermissions,
     extract_organization,
 )
@@ -219,8 +214,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
 
-            if "members_can_invite" in self.request.data:
-                create_permissions.append(OrganizationInviteSettingsPermission())
+            if any(key in self.request.data for key in ["members_can_invite", "members_can_use_personal_api_keys"]):
+                create_permissions.append(OrganizationAdminWritePermissions())
 
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())
@@ -328,52 +323,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
-
-    @action(
-        methods=["POST"],
-        detail=True,
-        required_scopes=["team:read"],
-        throttle_classes=[SetupWizardAuthenticationRateThrottle],
-    )
-    def authenticate_wizard(self, request, **kwargs):
-        hash = request.data.get("hash")
-        project_id = request.data.get("projectId")
-
-        if not hash:
-            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
-
-        if not project_id:
-            raise serializers.ValidationError({"projectId": ["This field is required."]}, code="required")
-
-        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-        wizard_data = cache.get(cache_key)
-
-        if wizard_data is None:
-            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
-
-        try:
-            project = Project.objects.get(id=project_id)
-
-            # Verify user has access to this project
-            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
-            if project.id not in visible_teams_ids:
-                raise serializers.ValidationError(
-                    {"projectId": ["You don't have access to this project."]}, code="permission_denied"
-                )
-
-            project_api_token = project.passthrough_team.api_token
-        except Project.DoesNotExist:
-            raise serializers.ValidationError({"projectId": ["This project does not exist."]}, code="not_found")
-
-        wizard_data = {
-            "project_api_key": project_api_token,
-            "host": get_api_host(),
-            "user_distinct_id": request.user.distinct_id,
-        }
-
-        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
-
-        return response.Response({"success": True}, status=200)
 
     @action(
         methods=["POST"],

@@ -10,6 +10,7 @@ export const template: HogFunctionTemplate = {
         'This transformation removes null properties from the event properties object. If the object nesting exceeds 3 levels, deeper levels will be returned unchanged.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // Check if the event has properties
 if (empty(event.properties)) {

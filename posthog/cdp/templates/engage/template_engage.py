@@ -11,6 +11,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Engage.so",
     icon_url="/static/services/engage.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 fetch('https://api.engage.so/posthog', {
     'method': 'POST',

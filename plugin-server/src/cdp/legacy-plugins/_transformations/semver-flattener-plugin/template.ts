@@ -12,6 +12,7 @@ export const semverFlattenerPlugin: LegacyTransformationPlugin = {
         description: 'This plugin will flatten semver versions in the specified properties.',
         icon_url: '/static/transformations/semver-flattener.png',
         category: ['Transformation'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

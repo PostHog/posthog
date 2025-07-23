@@ -13,6 +13,7 @@ export const posthogPluginGeoip: LegacyTransformationPlugin = {
         description: 'Enrich events with GeoIP data',
         icon_url: '/static/transformations/geoip.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [],
     },

@@ -10,6 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a Microsoft Teams channel",
     icon_url="/static/services/microsoft-teams.png",
     category=["Customer Success"],
+    code_language="hog",
     hog="""
 if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
     not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
