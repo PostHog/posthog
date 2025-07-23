@@ -348,6 +348,6 @@ def get_interval_from_bounds(
             case 604800.0:
                 interval = "week"
             case s:
-                interval = f"every_{int(s) / 60}_minutes"
+                interval = f"every_{int(s / 60)}_minutes"
 
     return interval
