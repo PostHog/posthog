@@ -69,10 +69,8 @@ const FoldableFilters = (): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
         preAggregatedEnabled,
-        productTab,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
-
     return (
         <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
             <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
@@ -84,7 +82,7 @@ const FoldableFilters = (): JSX.Element => {
             <WebVitalsPercentileToggle />
             <PathCleaningToggle />
 
-            {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
+            <WebPropertyFilters />
         </div>
     )
 }
@@ -246,7 +244,7 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
     const { compareFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
-    if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
+    if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(productTab)) {
         return null
     }
 
