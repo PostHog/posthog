@@ -11,15 +11,49 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { urls } from 'scenes/urls'
-import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 import { insightAlertsLogic } from '../../Alerts/insightAlertsLogic'
 import { SubscriptionBaseProps, urlForSubscriptions } from '../../Subscriptions/utils'
+import { SceneDataAttrKeyProps } from '../utils'
 
-interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps {
-    insight: Partial<QueryBasedInsightModel>
-    insightLogicProps: InsightLogicProps
+interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps, SceneDataAttrKeyProps {
+    insight?: Partial<QueryBasedInsightModel>
+    insightLogicProps?: InsightLogicProps
     dashboardId?: number
     buttonProps?: Omit<ButtonPrimitiveProps, 'children'>
+}
+
+interface AlertsDropdownMenuItemProps extends SceneDataAttrKeyProps {
+    insightId: number
+    insightShortId: InsightShortId
+    insightLogicProps: InsightLogicProps
+}
+
+function AlertsDropdownMenuItem({
+    insightId,
+    insightShortId,
+    insightLogicProps,
+    dataAttrKey,
+}: AlertsDropdownMenuItemProps): JSX.Element {
+    const { push } = useActions(router)
+
+    const logic = insightAlertsLogic({ insightId, insightLogicProps })
+    const { alerts } = useValues(logic)
+
+    return (
+        <DropdownMenuItem className="w-full">
+            <ButtonPrimitive
+                menuItem
+                onClick={() => push(urls.insightAlerts(insightShortId))}
+                data-attr={`${dataAttrKey}-alerts-dropdown-menu-item`}
+            >
+                <IconWithCount count={alerts?.length} showZero={false}>
+                    <IconWarning />
+                </IconWithCount>
+                Alerts
+            </ButtonPrimitive>
+        </DropdownMenuItem>
+    )
 }
 
 export function SceneNotificationDropdownMenu({
@@ -27,33 +61,33 @@ export function SceneNotificationDropdownMenu({
     insight,
     insightLogicProps,
     dashboardId,
+    dataAttrKey,
 }: SceneNotificationDropdownMenuProps): JSX.Element | null {
     const { push } = useActions(router)
-    const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
-    const { alerts } = useValues(logic)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive menuItem {...buttonProps}>
+                <ButtonPrimitive menuItem {...buttonProps} data-attr={`${dataAttrKey}-notifications-dropdown-menu`}>
                     <IconNotification />
                     Notifications
                     <DropdownMenuOpenIndicator className="ml-auto" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                <DropdownMenuItem className="w-full">
-                    <ButtonPrimitive menuItem onClick={() => push(urls.insightAlerts(insight.short_id!))}>
-                        <IconWithCount count={alerts?.length} showZero={false}>
-                            <IconWarning />
-                        </IconWithCount>
-                        Alerts
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
+                {insight && insight.id && insight.short_id && insightLogicProps && (
+                    <AlertsDropdownMenuItem
+                        insightId={insight.id}
+                        insightShortId={insight.short_id}
+                        insightLogicProps={insightLogicProps}
+                        dataAttrKey={dataAttrKey}
+                    />
+                )}
                 <DropdownMenuItem className="w-full">
                     <ButtonPrimitive
                         menuItem
-                        onClick={() => push(urlForSubscriptions({ insightShortId: insight.short_id, dashboardId }))}
+                        onClick={() => push(urlForSubscriptions({ insightShortId: insight?.short_id, dashboardId }))}
+                        data-attr={`${dataAttrKey}-subscribe-dropdown-menu-item`}
                     >
                         <IconBell />
                         Subscribe
