@@ -127,7 +127,7 @@ def stripe_source(
 
     # Get the incremental field name for partition keys
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
-    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
+    incremental_field_label = incremental_field_config[0]["label"] if incremental_field_config else "created"
 
     return SourceResponse(
         items=get_rows(),
@@ -140,7 +140,7 @@ def stripe_source(
         partition_size=1,  # this enables partitioning
         partition_mode="datetime",
         partition_format="month",
-        partition_keys=[incremental_field_name],
+        partition_keys=[incremental_field_label],
     )
 
 

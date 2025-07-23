@@ -62,7 +62,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
     BALANCE_TRANSACTION_RESOURCE_NAME: [
         {
-            "label": "created_at",
+            "label": "created",
             "type": IncrementalFieldType.DateTime,
             "field": "created",
             "field_type": IncrementalFieldType.Integer,

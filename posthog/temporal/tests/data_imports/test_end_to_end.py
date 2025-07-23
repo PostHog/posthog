@@ -2250,7 +2250,7 @@ async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_c
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
             mock_data_response=stripe_price["data"],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "integer"},
             ignore_assertions=True,
         )
 
