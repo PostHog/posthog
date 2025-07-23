@@ -16,7 +16,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
+import { SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,
@@ -44,7 +44,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
+            dateRange,
             assignee,
             volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -88,7 +88,7 @@ export const errorTrackingIssueQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingQuery>({
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
+        dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         searchQuery,

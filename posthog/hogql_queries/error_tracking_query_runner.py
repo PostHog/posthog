@@ -19,6 +19,9 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.property.util import property_to_django_filter
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
+from posthog.utils import relative_date_parse
+import datetime
+from zoneinfo import ZoneInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +37,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
+    date_from: datetime.datetime
+    date_to: datetime.datetime
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -42,6 +47,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
+        self.date_from = self.parse_relative_date(self.query.dateRange.date_from)
+        self.date_to = self.parse_relative_date(self.query.dateRange.date_to)
 
         if self.query.withAggregations is None:
             self.query.withAggregations = True
@@ -51,6 +58,18 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
+
+    def parse_relative_date(self, date: str | None) -> datetime.datetime:
+        """
+        Parses a relative date string into a datetime object.
+        This is used to convert the date range from the query into a datetime object.
+        """
+        if not date:
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) + datetime.timedelta(minutes=5)
+        if date == "all":
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52)  # 1 year ago
+
+        return relative_date_parse(date, ZoneInfo("UTC"))
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -74,7 +93,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
         ]
 
         if self.query.withAggregations:
-            volume_option = VolumeOptions(date_range=self.query.dateRange, resolution=self.query.volumeResolution)
             exprs.extend(
                 [
                     ast.Alias(
@@ -100,7 +118,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         alias="users",
                         expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])]),
                     ),
-                    ast.Alias(alias="volumeRange", expr=self.select_sparkline_array(volume_option)),
+                    ast.Alias(
+                        alias="volumeRange",
+                        expr=self.select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution),
+                    ),
                 ]
             )
 
@@ -155,7 +176,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return exprs
 
-    def select_sparkline_array(self, opts: VolumeOptions):
+    def select_sparkline_array(self, date_from: datetime.datetime, date_to: datetime.datetime, resolution: int):
         """
         This function partitions a given time range into segments (or "buckets") based on the specified resolution and then computes the number of events occurring in each segment.
         The resolution determines the total number of segments in the time range.
@@ -188,13 +209,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
         start_time = ast.Call(
             name="toDateTime",
             args=[
-                ast.Constant(value=opts.date_range.date_from),
+                ast.Constant(value=date_from),
             ],
         )
         end_time = ast.Call(
             name="toDateTime",
             args=[
-                ast.Constant(value=opts.date_range.date_to),
+                ast.Constant(value=date_to),
             ],
         )
         total_size = ast.Call(
@@ -208,7 +229,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         bin_size = ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Div,
             left=total_size,
-            right=ast.Constant(value=opts.resolution),
+            right=ast.Constant(value=resolution),
         )
         bin_timestamps = ast.Call(
             name="arrayMap",
@@ -234,7 +255,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     name="range",
                     args=[
                         ast.Constant(value=0),
-                        ast.Constant(value=opts.resolution),
+                        ast.Constant(value=resolution),
                     ],
                 ),
             ],
@@ -296,26 +317,26 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
-        if self.query.dateRange.date_from:
+        if self.date_from:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
                     right=ast.Call(
                         name="toDateTime",
-                        args=[ast.Constant(value=self.query.dateRange.date_from)],
+                        args=[ast.Constant(value=self.date_from)],
                     ),
                 )
             )
 
-        if self.query.dateRange.date_to:
+        if self.date_to:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["timestamp"]),
                     right=ast.Call(
                         name="toDateTime",
-                        args=[ast.Constant(value=self.query.dateRange.date_to)],
+                        args=[ast.Constant(value=self.date_to)],
                     ),
                 )
             )
