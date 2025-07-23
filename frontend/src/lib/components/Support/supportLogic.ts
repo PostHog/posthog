@@ -18,6 +18,7 @@ import {
     OrganizationBasicType,
     Region,
     SidePanelTab,
+    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
@@ -560,6 +561,13 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_free'
                         break
                 }
+            }
+
+            const startupProgramLabel = billing?.startup_program_label
+            if (startupProgramLabel === StartupProgramLabel.YC) {
+                planLevelTag = 'plan_yc'
+            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+                planLevelTag = 'plan_startup'
             }
 
             const { accountOwner } = billingLogic.values
