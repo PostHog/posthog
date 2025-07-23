@@ -1512,7 +1512,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": "blocking"})
 
         assert response_data["variables"] is not None
         assert isinstance(response_data["variables"], dict)
@@ -1527,9 +1527,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
             str(variable.id): {
                 "code_name": variable.code_name,
+                "value": "some override value",
                 "variableId": str(variable.id),
             }
         }
+        assert response_data["tiles"][0]["insight"]["result"][0][0] == "some override value"
 
         variable.delete()
 
@@ -1538,7 +1540,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
         )
 
-        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": "blocking"})
 
         assert response_data["variables"] is not None
         assert isinstance(response_data["variables"], dict)
@@ -1553,9 +1555,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
             str(variabl2.id): {
                 "code_name": variabl2.code_name,
+                "value": "some override value",
                 "variableId": str(variabl2.id),
             }
         }
+        assert response_data["tiles"][0]["insight"]["result"][0][0] == "some override value"
 
     def test_dashboard_access_control_filtering(self) -> None:
         """Test that dashboards are properly filtered based on access control."""
