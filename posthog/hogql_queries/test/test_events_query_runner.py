@@ -674,11 +674,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "$initial_utm_source": "facebook",
             },
         )
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["id_email_2", "id_anon_2"],
-            properties={"email": "user2@email.com", "name": "Test User 2"},
-        )
         _create_event(
             team=self.team,
             event="$pageview",
