@@ -205,7 +205,6 @@ class TestErrorHandling:
                         execution_timeout=dt.timedelta(minutes=1),
                     )
 
-        # Ensure the run is marked as failed
         runs = await afetch_batch_export_runs(batch_export_id=uuid.UUID(inputs.batch_export_id))
         assert len(runs) == 1
         run = runs[0]
