@@ -350,6 +350,20 @@ describe('maxBillingContextLogic', () => {
                 projected_amount_usd: '50.00',
                 projected_amount_usd_with_limit: '45.00',
                 docs_url: 'https://posthog.com/docs/product-analytics',
+                addons: [
+                    {
+                        type: 'addon_1',
+                        name: 'Addon 1',
+                        description: 'Test addon',
+                        is_used: true,
+                        has_exceeded_limit: false,
+                        current_usage: 500,
+                        usage_limit: 1000,
+                        percentage_usage: 0.5,
+                        docs_url: 'https://posthog.com/docs/addon',
+                        projected_amount_usd: '10.00',
+                    },
+                ],
             })
 
             expect(result?.products[1]).toMatchObject({
@@ -374,24 +388,6 @@ describe('maxBillingContextLogic', () => {
                 type: 'platform_and_support',
                 name: 'Platform & Support (Growth)',
                 description: 'For growing companies',
-            })
-        })
-
-        it('processes addons correctly', () => {
-            const result = billingToMaxContext(mockBilling, {}, mockTeam, [], null, null)
-
-            expect(result?.addons).toHaveLength(1)
-            expect(result?.addons[0]).toMatchObject({
-                type: 'addon_1',
-                name: 'Addon 1',
-                description: 'Test addon',
-                is_used: true,
-                has_exceeded_limit: false,
-                current_usage: 500,
-                usage_limit: 1000,
-                percentage_usage: 0.5,
-                docs_url: 'https://posthog.com/docs/addon',
-                projected_amount_usd: '10.00',
             })
         })
 
@@ -423,8 +419,8 @@ describe('maxBillingContextLogic', () => {
             // Test case 1: All addons visible
             isAddonVisibleSpy.mockReturnValue(true)
             const resultAllVisible = billingToMaxContext(mockBilling, {}, mockTeam, [], null, null)
-            expect(resultAllVisible?.addons).toHaveLength(1)
-            expect(resultAllVisible?.addons[0].type).toBe('addon_1')
+            expect(resultAllVisible?.products[0].addons).toHaveLength(1)
+            expect(resultAllVisible?.products[0].addons[0].type).toBe('addon_1')
 
             // Test case 2: No addons visible due to feature flags
             isAddonVisibleSpy.mockReturnValue(false)
@@ -436,7 +432,7 @@ describe('maxBillingContextLogic', () => {
                 null,
                 null
             )
-            expect(resultNoneVisible?.addons).toHaveLength(0)
+            expect(resultNoneVisible?.products[0].addons).toHaveLength(0)
 
             // Test case 3: Verify isAddonVisible is called with correct parameters
             isAddonVisibleSpy.mockReturnValue(true)
