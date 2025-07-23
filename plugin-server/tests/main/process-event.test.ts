@@ -7,7 +7,6 @@ unit tests to appropriate classes/functions.
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { logger } from '~/utils/logger'
@@ -97,7 +96,6 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let redis: Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
 
