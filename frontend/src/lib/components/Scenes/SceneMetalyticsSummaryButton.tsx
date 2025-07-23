@@ -8,8 +8,9 @@ import { SidePanelTab } from '~/types'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { FlaggedFeature } from '../FlaggedFeature'
 import { metalyticsLogic } from '../Metalytics/metalyticsLogic'
+import { SceneDataAttrKeyProps } from './utils'
 
-export function SceneMetalyticsSummaryButton(): JSX.Element | null {
+export function SceneMetalyticsSummaryButton({ dataAttrKey }: SceneDataAttrKeyProps): JSX.Element | null {
     const { instanceId, viewCount, viewCountLoading } = useValues(metalyticsLogic)
     const safeViewCount = viewCount?.views ?? 0
     const safeUniqueUsers = viewCount?.users ?? 0
@@ -26,6 +27,7 @@ export function SceneMetalyticsSummaryButton(): JSX.Element | null {
                 tooltip={`${safeUniqueUsers} PostHog members have viewed this a total of ${safeViewCount} times. Click to see more.`}
                 menuItem
                 disabled={viewCountLoading}
+                data-attr={`${dataAttrKey}-metalytics-summary-button`}
             >
                 {viewCountLoading ? <Spinner textColored /> : <IconPulse />}
                 Metalytics
