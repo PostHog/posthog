@@ -303,13 +303,14 @@ export function renderColumn(
     } else if (
         isGroupsQuery(query.source) &&
         key.startsWith('properties.') &&
-        context?.columns?.[key.split('.')[1].trim()]?.render
+        context?.columns?.[trimQuotes(key.substring(11))]?.render
     ) {
-        const Component = context?.columns?.[key.split('.')[1].trim()].render
+        const propertyName = trimQuotes(key.substring(11))
+        const Component = context?.columns?.[propertyName].render
         return Component ? (
             <Component
                 record={record}
-                columnName={key.split('.')[1].trim()}
+                columnName={propertyName}
                 value={value}
                 query={query}
                 recordIndex={recordIndex}

@@ -115,7 +115,7 @@ function renderLink({ value, columnName }: { value: unknown; columnName: string 
         case 'events':
             return (
                 <div className="min-w-30">
-                    <LemonTableLink to={urls.sqlEditor()} title={value as string} description="in the last 7d" />
+                    <LemonTableLink to={urls.activity()} title={value as string} description="in the last 7d" />
                 </div>
             )
         default:

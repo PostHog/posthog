@@ -42,14 +42,15 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
             title: groupTypeName,
         },
     } as QueryContext['columns']
+    let hiddenColumns = [] as string[]
     if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
         columns = getCRMColumns(groupTypeName, groupTypeIndex)
-        query['hiddenColumns'] = ['key']
+        hiddenColumns.push('key')
     }
 
     return (
         <Query
-            query={query}
+            query={{ ...query, hiddenColumns }}
             setQuery={setQuery}
             context={{
                 refresh: 'blocking',
