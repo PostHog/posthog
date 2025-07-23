@@ -14,15 +14,25 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="insight",
-            name="query_metadata",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.RunSQL(
-            sql=(
-                "CREATE INDEX CONCURRENTLY IF NOT EXISTS dashboarditem_query_metadata ON posthog_dashboarditem USING GIN (query_metadata jsonb_ops);"
-            ),
-            reverse_sql=("DROP INDEX CONCURRENTLY IF EXISTS dashboarditem_query_metadata;"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="insight",
+                    name="query_metadata",
+                    field=models.JSONField(blank=True, default=dict, null=True),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql=('ALTER TABLE "posthog_dashboarditem" ADD COLUMN "query_metadata" jsonb NULL;'),
+                    reverse_sql=('ALTER TABLE "posthog_dashboarditem" DROP COLUMN IF EXISTS "query_metadata";'),
+                ),
+                migrations.RunSQL(
+                    sql=(
+                        "CREATE INDEX CONCURRENTLY IF NOT EXISTS dashboarditem_query_metadata ON posthog_dashboarditem USING GIN (query_metadata jsonb_ops);"
+                    ),
+                    reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS dashboarditem_query_metadata;",
+                ),
+            ],
         ),
     ]
