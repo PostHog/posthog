@@ -276,23 +276,23 @@ describe('consumer', () => {
 
     describe('rebalancing', () => {
         it('should set rebalancing state during partition revocation', () => {
-            expect(consumer['isRebalancing']).toBe(false)
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
             ])
 
-            expect(consumer['isRebalancing']).toBe(true)
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
         })
 
         it('should clear rebalancing state during partition assignment', () => {
-            consumer['isRebalancing'] = true
+            consumer['rebalanceCoordination'].isRebalancing = true
 
             consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, [
                 { topic: 'test-topic', partition: 1 },
             ])
 
-            expect(consumer['isRebalancing']).toBe(false)
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
         })
 
         it('should call incrementalUnassign when no background tasks exist', async () => {
@@ -320,7 +320,7 @@ describe('consumer', () => {
                 { topic: 'test-topic', partition: 1 },
             ])
 
-            expect(consumer['isRebalancing']).toBe(true)
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
 
             // Should not have called incrementalUnassign yet (still waiting for tasks)
             await delay(10)
