@@ -2510,7 +2510,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name' | 'description'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
