@@ -264,7 +264,7 @@ export class KafkaConsumer {
         if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             // Mark rebalancing as complete when partitions are assigned
             if (this.config.waitForBackgroundTasksOnRebalance) {
-                this.rebalanceCoordination.isRebalancing = false
+                this.resetRebalanceCoordination()
             }
             assignments.forEach((tp) => {
                 kafkaConsumerAssignment.set(
@@ -308,6 +308,9 @@ export class KafkaConsumer {
                             this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
+                        if (this.assignments().length === 0) {
+                            this.resetRebalanceCoordination()
+                        }
                     })
                     .catch((error) => {
                         logger.error('🔁', 'background_task_error_during_revocation', { error })
@@ -318,6 +321,9 @@ export class KafkaConsumer {
                             this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
+                        if (this.assignments().length === 0) {
+                            this.resetRebalanceCoordination()
+                        }
                     })
             } else {
                 // No background tasks or feature disabled, proceed immediately
