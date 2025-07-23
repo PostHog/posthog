@@ -19,6 +19,7 @@ import { List } from 'react-virtualized/dist/es/List'
 
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 
+// This matches LemonButton's height when its size small
 const VIRTUALIZED_SELECT_OPTION_HEIGHT = 33
 
 const VIRTUALIZED_MAX_DROPDOWN_HEIGHT = 420
