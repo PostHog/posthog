@@ -100,14 +100,11 @@ export function ActionsLineGraph({
                     name: `${originalDataset.label} (CI Lower)`,
                 },
                 data: lower,
-                borderColor: 'transparent',
+                borderColor: color,
                 backgroundColor: 'transparent',
                 pointRadius: 0,
                 borderWidth: 0,
                 hideTooltip: true,
-                datalabels: {
-                    display: false,
-                },
             })
             finalDatasets.push({
                 ...originalDataset,
@@ -117,15 +114,12 @@ export function ActionsLineGraph({
                     name: `${originalDataset.label} (CI Upper)`,
                 },
                 data: upper,
-                borderColor: 'transparent',
+                borderColor: color,
                 backgroundColor: hexToRGBA(color, 0.2),
                 pointRadius: 0,
                 borderWidth: 0,
                 fill: '-1',
                 hideTooltip: true,
-                datalabels: {
-                    display: false,
-                },
             })
         })
     }
