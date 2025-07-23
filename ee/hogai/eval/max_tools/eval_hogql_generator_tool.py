@@ -30,7 +30,7 @@ def call_generate_hogql_query(demo_org_team_user):
 
     async def callable(inputs: EvalInput, *args, **kwargs) -> str:
         # Initial state for the graph
-        tool = HogQLGeneratorTool(state=AssistantState(messages=[]))
+        tool = HogQLGeneratorTool(team=team, user=user, state=AssistantState(messages=[]))
 
         if inputs.apply_patch:
             inputs.apply_patch(tool)

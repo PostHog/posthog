@@ -41,7 +41,7 @@ class TestSurveyCreatorTool(BaseTest):
 
     def _setup_tool(self):
         """Helper to create a SurveyCreatorTool instance with mocked dependencies"""
-        tool = CreateSurveyTool()
+        tool = CreateSurveyTool(self.team, self.user)
 
         # Mock the internal state required by MaxTool
         tool._init_run(self._config)

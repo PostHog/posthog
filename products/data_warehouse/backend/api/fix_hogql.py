@@ -1,15 +1,14 @@
-from typing import cast
 import uuid
+from typing import cast
 
 import posthoganalytics
+from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from langchain_core.runnables import RunnableConfig
 
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 
@@ -51,7 +50,7 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         }
 
-        result = HogQLQueryFixerTool().invoke({}, config)  # type: ignore
+        result = HogQLQueryFixerTool(self.team, user).invoke({}, config)
 
         if result is None or (isinstance(result, str) and len(result) == 0):
             return Response({"trace_id": trace_id, "error": "Could not fix the query"}, status=400)

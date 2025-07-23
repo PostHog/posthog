@@ -34,6 +34,7 @@ ee/billing/test/test_billing_manager.py:0: error: Module "django.utils.timezone"
 ee/billing/test/test_billing_manager.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 ee/billing/test/test_billing_manager.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 ee/clickhouse/queries/funnels/funnel_correlation.py:0: error: Statement is unreachable  [unreachable]
+ee/hogai/graph/root/nodes.py:0: error: Too many positional arguments for "MaxTool"  [misc]
 ee/models/explicit_team_membership.py:0: error: Incompatible return value type (got "int", expected "Level")  [return-value]
 ee/models/license.py:0: error: "_T" has no attribute "plan"  [attr-defined]
 ee/models/license.py:0: error: Cannot use a covariant type variable as a parameter  [misc]
@@ -457,4 +458,4 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Subclass of "list[tuple[str, ...]]" and "int" cannot exist: would have incompatible method signatures  [unreachable]
-products/data_warehouse/backend/api/fix_hogql.py:0: error: Unused "type: ignore" comment  [unused-ignore]
+products/data_warehouse/backend/api/fix_hogql.py:0: error: Too many positional arguments for "HogQLQueryFixerTool"  [misc]

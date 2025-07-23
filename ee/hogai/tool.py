@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -104,8 +104,8 @@ class MaxTool(AssistantContextMixin, BaseTool):
     """
 
     _context: dict[str, Any]
-    __internal_team: Optional["Team"]
-    __internal_user: Optional["User"]
+    _team: "Team"
+    _user: "User"
     _config: RunnableConfig
     _state: AssistantState
 
@@ -118,8 +118,10 @@ class MaxTool(AssistantContextMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, state: AssistantState | None = None):
-        super().__init__()
+    def __init__(self, team: "Team", user: "User", *, state: AssistantState | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._team = team
+        self._user = user
         self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):
@@ -135,18 +137,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
         if not getattr(cls, "thinking_message", None):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
-
-    @property
-    def _team(self) -> "Team":
-        if not self.__internal_team:
-            raise ValueError("Team not set")
-        return self.__internal_team
-
-    @property
-    def _user(self) -> "User":
-        if not self.__internal_user:
-            raise ValueError("User not set")
-        return self.__internal_user
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._init_run(config)
@@ -164,8 +154,8 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
     def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self.__internal_team = config["configurable"]["team"]
-        self.__internal_user = config["configurable"]["user"]
+        self._team = config["configurable"]["team"]
+        self._user = config["configurable"]["user"]
         self._config = {
             "recursion_limit": 48,
             "callbacks": config.get("callbacks", []),

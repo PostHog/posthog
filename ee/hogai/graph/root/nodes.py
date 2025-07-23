@@ -12,13 +12,13 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
 
 # Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -35,8 +35,8 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    MaxUIContext,
     MaxInsightContext,
+    MaxUIContext,
     RetentionQuery,
     TrendsQuery,
 )
@@ -533,7 +533,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(state)
+            tool_class = ToolClass(self._team, self._user, state)
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
