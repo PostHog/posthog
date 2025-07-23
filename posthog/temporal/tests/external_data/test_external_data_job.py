@@ -239,7 +239,7 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
 
     activity_environment.run(sync_new_schemas_activity, inputs)
 
-    all_schemas = get_all_schemas_for_source_id(new_source.pk, team.id)
+    all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
 
     assert len(all_schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE])
 

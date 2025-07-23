@@ -323,11 +323,11 @@ def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exter
     return schema
 
 
-def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
+def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
-def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: uuid.UUID, team_id: int) -> list[str]:
+def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: str, team_id: int) -> list[str]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
