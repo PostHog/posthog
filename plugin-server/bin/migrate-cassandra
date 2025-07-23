@@ -1,0 +1,72 @@
+#!/bin/bash
+
+set -e
+
+# Change to the plugin-server directory
+cd "$(dirname "$0")/.."
+
+# Set default environment variables if not provided
+CASSANDRA_HOST=${CASSANDRA_HOST:-localhost}
+CASSANDRA_PORT=${CASSANDRA_PORT:-9042}
+CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE:-posthog}
+
+echo "Running Cassandra migrations..."
+echo "Host: $CASSANDRA_HOST"
+echo "Port: $CASSANDRA_PORT"
+echo "Keyspace: $CASSANDRA_KEYSPACE"
+
+# Update the config file with environment variables
+if command -v jq >/dev/null 2>&1; then
+    echo "Using jq to update configuration..."
+    jq --arg host "$CASSANDRA_HOST" \
+       --arg port "$CASSANDRA_PORT" \
+       --arg keyspace "$CASSANDRA_KEYSPACE" \
+       '.hosts = [$host] | .port = ($port | tonumber) | .keyspace = $keyspace' \
+       cassandra/cassandra-migrate.json > cassandra/cassandra-migrate.tmp.json
+    mv cassandra/cassandra-migrate.tmp.json cassandra/cassandra-migrate.json
+else
+    echo "jq not found, using CI configuration..."
+    # Use CI config or create a simple config
+    cat > cassandra/cassandra-migrate.json << EOF
+{
+  "migrationsDir": "./cassandra/migrations",
+  "hosts": ["$CASSANDRA_HOST"],
+  "port": $CASSANDRA_PORT,
+  "keyspace": "$CASSANDRA_KEYSPACE",
+  "consistency": "LOCAL_ONE",
+  "replication": {
+    "class": "SimpleStrategy",
+    "replication_factor": 1
+  },
+  "createKeyspace": true
+}
+EOF
+fi
+
+# Wait for Cassandra to be ready
+echo "Waiting for Cassandra to be ready..."
+max_attempts=30
+attempt=0
+
+while [ $attempt -lt $max_attempts ]; do
+    if cqlsh $CASSANDRA_HOST $CASSANDRA_PORT -e "SELECT now() FROM system.local;" > /dev/null 2>&1; then
+        echo "Cassandra is ready!"
+        break
+    fi
+    
+    attempt=$((attempt + 1))
+    echo "Attempt $attempt/$max_attempts: Cassandra not ready, waiting 2 seconds..."
+    sleep 2
+done
+
+if [ $attempt -eq $max_attempts ]; then
+    echo "ERROR: Cassandra failed to become ready after $max_attempts attempts"
+    exit 1
+fi
+
+# Run migrations using our custom Node.js script
+echo "Running migrations using custom migration runner..."
+cd cassandra
+node migrate.js
+
+echo "Cassandra migrations completed successfully!"

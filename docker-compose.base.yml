@@ -390,6 +390,15 @@ services:
         networks:
             - otel_network
 
+    cassandra:
+        image: cassandra:4.1
+        restart: on-failure
+        volumes:
+            - cassandra_data:/var/lib/cassandra
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    cassandra_data:
