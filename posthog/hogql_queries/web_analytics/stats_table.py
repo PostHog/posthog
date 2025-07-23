@@ -43,7 +43,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         super().__init__(*args, **kwargs)
         self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
+            limit_context=LimitContext.QUERY,
+            limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset if self.query.offset else None,
         )
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 

@@ -414,6 +414,29 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
 
+    def test_allows_legacy_feature_flag_local_evaluation_with_personal_api_key(self):
+        response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert "flags" in response_data
+        assert "group_type_mapping" in response_data
+        assert "cohorts" in response_data
+
+    def test_legacy_feature_flag_evaluation_with_no_current_team(self):
+        original_team = self.user.current_team
+
+        try:
+            self.user.current_team = None
+            self.user.save()
+
+            # Use team token to provide team context when user.current_team is None
+            response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            assert response.status_code == status.HTTP_200_OK
+        finally:
+            self.user.current_team = original_team
+            self.user.save()
+
     def test_allows_action_with_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
         assert response.status_code == status.HTTP_200_OK
@@ -460,6 +483,41 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing?personal_api_key={self.value}"
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_sharing_refresh_with_personal_api_key(self):
+        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
+
+        # First enable sharing
+        self.key.scopes = ["sharing_configuration:write"]
+        self.key.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing",
+            {"enabled": True},
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        initial_token = response.json()["access_token"]
+
+        # Test refresh with read scope should fail
+        self.key.scopes = ["sharing_configuration:read"]
+        self.key.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'sharing_configuration:write'"
+
+        # Test refresh with write scope should succeed
+        self.key.scopes = ["sharing_configuration:write"]
+        self.key.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        new_token = response.json()["access_token"]
+        assert new_token != initial_token
 
 
 class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysBaseTest):

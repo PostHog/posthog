@@ -60,7 +60,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
-    const { sceneConfig } = useValues(sceneLogic)
+    const { sceneConfig, productFromUrl } = useValues(sceneLogic)
 
     if (!projectNoticeVariant) {
         return null
@@ -95,7 +95,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 <>
                     This project has no events yet. Go to the{' '}
                     <Link
-                        to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
+                        to={urls.onboarding(productFromUrl ?? ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
                         data-attr="real_project_with_no_events-ingestion_link"
                     >
                         onboarding wizard
@@ -108,7 +108,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 </>
             ),
             action: {
-                to: urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL),
+                to: urls.onboarding(productFromUrl ?? ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL),
                 'data-attr': 'demo-warning-cta',
                 icon: <IconGear />,
                 children: 'Go to wizard',

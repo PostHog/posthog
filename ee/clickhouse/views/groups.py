@@ -1,14 +1,18 @@
 from collections import defaultdict
+
+from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from requests import HTTPError
-from typing import cast
+from typing import cast, Optional
 
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets, status
-from posthog.api.capture import new_capture_internal
+
+from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
+from posthog.api.capture import capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -21,8 +25,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
-from posthog.models.group.util import raw_create_group_ch
+from posthog.models.group.util import raw_create_group_ch, create_group
 from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from loginas.utils import is_impersonated_session
 
@@ -100,7 +105,15 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
 
-class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class CreateGroupSerializer(serializers.ModelSerializer):
+    group_properties = serializers.JSONField(default=dict, required=False, allow_null=True)
+
+    class Meta:
+        model = Group
+        fields = ["group_type_index", "group_key", "group_properties"]
+
+
+class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
@@ -119,6 +132,48 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         )
 
         return get_object_or_404(queryset)
+
+    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMapping:
+        try:
+            return GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound()
+
+    def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
+        group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
+        properties = {
+            "$group_type": group_type_mapping.group_type,
+            "$group_key": group.group_key,
+            "$group_set": group_properties or group.group_properties,
+        }
+        try:
+            capture_internal(
+                token=self.team.api_token,
+                event_name="$groupidentify",
+                event_source="ee_ch_views_groups",
+                distinct_id=str(self.team.uuid),
+                timestamp=timezone.now(),
+                properties=properties,
+                process_person_profile=False,
+            ).raise_for_status()
+        except HTTPError as error:
+            raise TriggerGroupIdentifyException(
+                exception_data={
+                    "code": f"Failed to submit {operation} event.",
+                    "detail": "capture_http_error",
+                    "type": "capture_http_error",
+                },
+                status_code=error.response.status_code,
+            )
+        except Exception:
+            raise TriggerGroupIdentifyException(
+                exception_data={
+                    "code": f"Failed to submit {operation} event.",
+                    "detail": "capture_error",
+                    "type": "capture_error",
+                },
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
     @extend_schema(
         parameters=[
@@ -161,6 +216,57 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
+
+    @extend_schema(request=CreateGroupSerializer, responses={status.HTTP_201_CREATED: serializer_class})
+    def create(self, request, *args, **kwargs):
+        request_data = CreateGroupSerializer(data=request.data)
+        request_data.is_valid(raise_exception=True)
+
+        try:
+            group = create_group(
+                group_key=request_data.validated_data["group_key"],
+                group_type_index=request_data.validated_data["group_type_index"],
+                properties=request_data.validated_data["group_properties"],
+                team_id=self.team.pk,
+                timestamp=timezone.now(),
+            )
+        except IntegrityError as exc:
+            if "unique team_id/group_key/group_type_index combo" in str(exc):
+                raise ValidationError({"detail": "A group with this key already exists"})
+            raise
+
+        try:
+            self.trigger_group_identify(group=group, operation="group create")
+        except TriggerGroupIdentifyException as exc:
+            return response.Response(data=exc.exception_data, status=exc.status_code)
+
+        details = [
+            Detail(
+                name=str(name),
+                changes=[
+                    Change(
+                        type="Group",
+                        action="created",
+                        before=None,
+                        after=value,
+                    )
+                ],
+            )
+            for name, value in group.group_properties.items()
+        ]
+        for detail in details:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=group.pk,
+                scope="Group",
+                activity="create_group",
+                detail=detail,
+            )
+
+        return response.Response(data=self.get_serializer(group).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         parameters=[
@@ -218,61 +324,30 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                         },
                         status=400,
                     )
-            try:
-                group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
-                )
-            except GroupTypeMapping.DoesNotExist:
-                raise NotFound()
             original_value = group.group_properties.get(request.data["key"], None)
             group.group_properties[request.data["key"]] = request.data["value"]
             group.save()
+
             # Need to update ClickHouse too
+            timestamp = timezone.now()
             raw_create_group_ch(
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
                 group_key=group.group_key,
                 properties=group.group_properties,
                 created_at=group.created_at,
-                timestamp=timezone.now(),
+                timestamp=timestamp,
             )
 
             # another internal event submission where we best-effort and don't handle failures...
-            team_uuid_as_distinct_id = str(self.team.uuid)
             try:
-                resp = new_capture_internal(
-                    self.team.api_token,
-                    team_uuid_as_distinct_id,
-                    {
-                        "event": "$groupidentify",
-                        "properties": {
-                            "$group_type": group_type_mapping.group_type,
-                            "$group_key": group.group_key,
-                            "$group_set": {request.data["key"]: request.data["value"]},
-                        },
-                        "timestamp": timezone.now().isoformat(),
-                    },
-                    False,  # don't process person profile
+                self.trigger_group_identify(
+                    group=group,
+                    operation="group property update",
+                    group_properties={request.data["key"]: request.data["value"]},
                 )
-                resp.raise_for_status()
-            except HTTPError as e:
-                return response.Response(
-                    {
-                        "code": "Failed to submit group property update event.",
-                        "detail": "capture_http_error",
-                        "type": "capture_http_error",
-                    },
-                    status=e.response.status_code,
-                )
-            except Exception:
-                return response.Response(
-                    {
-                        "code": "Failed to submit group property update event.",
-                        "detail": "capture_error",
-                        "type": "capture_error",
-                    },
-                    status=400,
-                )
+            except TriggerGroupIdentifyException as exc:
+                return response.Response(data=exc.exception_data, status=exc.status_code)
 
             log_activity(
                 organization_id=self.organization.id,
@@ -338,34 +413,39 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
+
             # Need to update ClickHouse too
+            timestamp = timezone.now()
             raw_create_group_ch(
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
                 group_key=group.group_key,
                 properties=group.group_properties,
                 created_at=group.created_at,
-                timestamp=timezone.now(),
+                timestamp=timestamp,
             )
 
             # another internal event submission where we best-effort and don't handle failures...
             team_uuid_as_distinct_id = str(self.team.uuid)
+            event_name = "$delete_group_property"
+            properties = {
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group.group_key,
+                "$group_unset": [request.data["$unset"]],
+            }
+
             try:
-                resp = new_capture_internal(
-                    self.team.api_token,
-                    team_uuid_as_distinct_id,
-                    {
-                        "event": "$delete_group_property",
-                        "properties": {
-                            "$group_type": group_type_mapping.group_type,
-                            "$group_key": group.group_key,
-                            "$group_unset": [request.data["$unset"]],
-                        },
-                        "timestamp": timezone.now().isoformat(),
-                    },
-                    False,  # don't process person profile
+                resp = capture_internal(
+                    token=self.team.api_token,
+                    event_name=event_name,
+                    event_source="ee_ch_views_groups",
+                    distinct_id=team_uuid_as_distinct_id,
+                    timestamp=timestamp,
+                    properties=properties,
+                    process_person_profile=False,  # don't process person profile
                 )
                 resp.raise_for_status()
+
             except HTTPError as e:
                 return response.Response(
                     {

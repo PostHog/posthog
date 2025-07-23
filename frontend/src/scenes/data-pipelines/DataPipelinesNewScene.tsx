@@ -9,6 +9,7 @@ import { Breadcrumb } from '~/types'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export type DataPipelinesNewSceneProps = {
     kind: 'transformation' | 'destination' | 'source' | 'site_app'
@@ -55,8 +56,12 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { logicProps } = useValues(dataPipelinesNewSceneLogic)
     const { kind } = logicProps
 
-    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } =
-        useValues(nonHogFunctionTemplatesLogic)
+    const { availableSources } = useValues(availableSourcesDataLogic)
+    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } = useValues(
+        nonHogFunctionTemplatesLogic({
+            availableSources: availableSources ?? {},
+        })
+    )
 
     if (kind === 'transformation') {
         return <HogFunctionTemplateList type="transformation" />

@@ -1,9 +1,6 @@
-import json
 from datetime import datetime, timedelta
-from urllib.parse import quote
 from unittest.mock import patch
 
-from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
@@ -34,12 +31,6 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"PostHog is not available", response.content)
 
-            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1")
-
-            self.assertEqual(
-                response.status_code, status.HTTP_400_BAD_REQUEST
-            )  # Check for a bad request exception because it means the middleware didn't block the request
-
             # /31 block
             response = self.client.get("/", REMOTE_ADDR="192.168.0.1")
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -48,12 +39,6 @@ class TestAccessMiddleware(APIBaseTest):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"PostHog is not available", response.content)
-
-            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.1")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.2")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
@@ -435,53 +420,6 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_instance_cookie["comment"], "")
         self.assertEqual(ph_instance_cookie["secure"], True)
         self.assertEqual(ph_instance_cookie["max-age"], 31536000)
-
-    def test_ph_project_cookies_are_not_set_on_capture_or_api_endpoints(self):
-        self.client.logout()
-
-        data = {
-            "event": "user did custom action",
-            "properties": {"distinct_id": 2, "token": self.team.api_token},
-        }
-
-        response = self.client.get(
-            "/e/?data={}".format(quote(json.dumps(data))),
-            HTTP_ORIGIN="https://localhost",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
-
-        django_client = Client()
-        response = django_client.post(
-            "/track/",
-            {
-                "data": json.dumps(
-                    [
-                        {
-                            "event": "beep",
-                            "properties": {
-                                "distinct_id": "eeee",
-                                "token": self.team.api_token,
-                            },
-                        }
-                    ]
-                ),
-                "api_key": self.team.api_token,
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
-
-        self.client.force_login(self.user)
-
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
-
-        response = self.client.patch("/api/users/@me/", {"first_name": "Alice"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(0, len(response.cookies))  # no cookies are set
 
     def test_logout(self):
         self.client.force_login(self.user)

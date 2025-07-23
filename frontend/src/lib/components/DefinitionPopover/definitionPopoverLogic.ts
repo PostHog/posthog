@@ -228,6 +228,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.Metadata,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                    TaxonomicFilterGroupType.ErrorTrackingProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         isVirtual: [
