@@ -86,12 +86,16 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
     def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+        If no messages are to be found in the AssistantState, do not run onboarding.
         If the conversation starts with the onboarding initial message, start the onboarding process.
         """
         core_memory = self.core_memory
 
         if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
             # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
+            return "continue"
+
+        if not state.messages:
             return "continue"
 
         last_message = state.messages[-1]
