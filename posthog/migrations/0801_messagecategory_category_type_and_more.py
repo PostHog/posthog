@@ -11,25 +11,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="messagecategory",
-            name="category_type",
-            field=models.CharField(
-                choices=[("marketing", "MARKETING"), ("transactional", "TRANSACTIONAL")],
-                default="marketing",
-                max_length=32,
-            ),
-        ),
-        migrations.AddField(
-            model_name="messagetemplate",
-            name="message_category",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.messagecategory"
-            ),
-        ),
-    ]
-
-    operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AddField(
