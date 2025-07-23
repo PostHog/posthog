@@ -16,13 +16,17 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
+    private nativeDestinationExecutorService: NativeDestinationExecutorService
+    private segmentDestinationExecutorService: SegmentDestinationExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
@@ -39,6 +43,8 @@ export class CdpApi {
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
+        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
+        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -54,13 +60,12 @@ export class CdpApi {
         }
     }
 
-    async start() {
-        await this.hogFunctionManager.start()
+    async start(): Promise<void> {
         await this.cdpSourceWebhooksConsumer.start()
     }
 
-    async stop() {
-        await Promise.all([this.hogFunctionManager.stop(), this.cdpSourceWebhooksConsumer.stop()])
+    async stop(): Promise<void> {
+        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy() {
@@ -182,8 +187,6 @@ export class CdpApi {
                 team_id: team.id,
             }
 
-            await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
-
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
@@ -248,7 +251,14 @@ export class CdpApi {
                             : undefined,
                     }
 
-                    const response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    let response: any = null
+                    if (isNativeHogFunction(compoundConfiguration)) {
+                        response = await this.nativeDestinationExecutorService.execute(invocation)
+                    } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
+                        response = await this.segmentDestinationExecutorService.execute(invocation)
+                    } else {
+                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    }
 
                     logs = logs.concat(response.logs)
                     if (response.error) {

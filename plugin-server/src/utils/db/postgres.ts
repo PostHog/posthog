@@ -106,14 +106,15 @@ export class PostgresRouter {
         target: PostgresUse | TransactionClient,
         queryString: string | QueryConfig<I>,
         values: I | undefined,
-        tag: string
+        tag: string,
+        queryFailureLogLevel: 'error' | 'warn' = 'error'
     ): Promise<QueryResult<R>> {
         if (target instanceof TransactionClient) {
             const wrappedTag = `${PostgresUse[target.target]}:Tx<${tag}>`
-            return postgresQuery(target.client, queryString, values, wrappedTag)
+            return postgresQuery(target.client, queryString, values, wrappedTag, queryFailureLogLevel)
         } else {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
-            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag)
+            return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag, queryFailureLogLevel)
         }
     }
 
@@ -148,7 +149,7 @@ export class PostgresRouter {
         })
     }
 
-    async end() {
+    async end(): Promise<void> {
         // Close all the connection pools
         const uniquePools: Set<Pool> = new Set(this.pools.values())
         for (const pool of uniquePools) {
@@ -162,7 +163,8 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     client: Client | Pool | PoolClient,
     queryString: string | QueryConfig<I>,
     values: I | undefined,
-    tag: string
+    tag: string,
+    queryFailureLogLevel: 'error' | 'warn' = 'error'
 ): Promise<QueryResult<R>> {
     return instrumentQuery('query.postgres', tag, async () => {
         const queryConfig =
@@ -184,7 +186,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
                 throw new DependencyUnavailableError(error.message, 'Postgres', error)
             }
 
-            logger.error('🔴', 'Postgres query error', {
+            logger[queryFailureLogLevel]('🔴', 'Postgres query error', {
                 query: queryConfig.text,
                 error,
                 stack: error.stack,

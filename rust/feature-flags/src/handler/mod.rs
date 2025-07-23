@@ -18,7 +18,7 @@ use crate::{
     flags::flag_service::FlagService,
     metrics::consts::FLAG_REQUESTS_COUNTER,
 };
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 /// Primary entry point for feature flag requests.
 /// 1) Parses and authenticates the request,
@@ -26,6 +26,7 @@ use tracing::{info, warn};
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
 /// 5) Returns a [`FlagsResponse`] or an error.
+#[instrument(skip_all, fields(request_id = %context.request_id))]
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
     async move {
         let start_time = std::time::Instant::now();
@@ -69,7 +70,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let filtered_flags =
+            let (filtered_flags, had_flag_errors) =
                 flags::fetch_and_filter(&flag_service, team.project_id, &context.meta).await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
@@ -77,7 +78,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
-            let response = flags::evaluate_for_request(
+            let mut response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
                 team.project_id,
@@ -92,6 +93,11 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 request.flag_keys.clone(),
             )
             .await;
+
+            // Set error flag if there were deserialization errors
+            if had_flag_errors {
+                response.errors_while_computing_flags = true;
+            }
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {

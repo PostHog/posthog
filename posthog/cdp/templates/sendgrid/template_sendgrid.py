@@ -14,6 +14,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update marketing contacts in Sendgrid",
     icon_url="/static/services/sendgrid.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not updating contacts.')

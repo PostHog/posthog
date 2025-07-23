@@ -486,6 +486,35 @@ export const createTeam = async (
     return id
 }
 
+export const createAction = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    bytecode: any[] | null = null,
+    actionSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_action', {
+        id,
+        name,
+        description: `Test action: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        bytecode: bytecode ? JSON.stringify(bytecode) : null,
+        bytecode_error: null,
+        post_to_slack: false,
+        slack_message_format: '',
+        is_calculating: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_calculated_at: new Date().toISOString(),
+        steps_json: [],
+        ...actionSettings,
+    })
+    return id
+}
+
 export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const uuid = new UUIDT().toString()
     const user = await insertRow(pg, 'posthog_user', {
@@ -528,5 +557,12 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
             } as InternalPerson)
+    )
+}
+
+export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string): Promise<string[]> {
+    const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
+    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
+        (row: { distinct_id: string }) => row.distinct_id
     )
 }
