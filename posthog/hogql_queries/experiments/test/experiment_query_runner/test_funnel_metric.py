@@ -289,10 +289,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 None,
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 0,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
                 },
             ],
             [
@@ -305,10 +305,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 0,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
                 },
             ],
             [
@@ -321,10 +321,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 0,
-                    "test_failure": 1,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 1,
+                    "test_failure": 12,
                 },
             ],
             ###
@@ -335,10 +335,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 None,
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 0,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
                 },
             ],
             [
@@ -351,10 +351,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 0,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
                 },
             ],
             [
@@ -376,10 +376,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
                 None,
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 1,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
                 },
             ],
             [
@@ -392,10 +392,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 0,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
                 },
             ],
             [
@@ -408,10 +408,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 0,
-                    "test_failure": 1,
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 1,
+                    "test_failure": 12,
                 },
             ],
         ]
@@ -425,6 +425,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2020, 1, 1),
             end_date=datetime(2020, 1, 31),
         )
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -442,68 +443,95 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
-        ## Control isn't affected by the filter
-        _create_person(distinct_ids=["user_control_1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="user_control_1",
-            timestamp="2020-01-02T12:00:00Z",
-            properties={
-                "$feature_flag": feature_flag.key,
-                feature_flag_property: "control",
-                "$feature_flag_response": "control",
-            },
-        )
-        _create_event(
-            team=self.team,
-            event="purchase",
-            distinct_id="user_control_1",
-            timestamp="2020-01-02T12:01:00Z",
-            properties={feature_flag_property: "control"},
-        )
+        ## Control group: create 13 users, 8 purchase (successes), 5 don't purchase (failures)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag": feature_flag.key,
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                },
+            )
+            if i < 8:  # First 8 users make purchases (successes)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "control"},
+                )
 
-        ## Test is tied to person on events mode
-        _create_person(
-            distinct_ids=["person_id_1_distinct_id_1"],
-            properties={"email": "person_id_1@earlierevent.com"},
-            team_id=self.team.pk,
-        )
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="person_id_1_distinct_id_1",
-            timestamp="2020-01-02T12:00:00Z",
-            properties={
-                "$feature_flag": feature_flag.key,
-                feature_flag_property: "test",
-                "$feature_flag_response": "test",
-            },
-        )
-        _create_person(
-            distinct_ids=["person_id_1_distinct_id_2"],
-            properties={"email": "person_id_1@laterevent.com"},
-            team_id=self.team.pk,
-        )
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="person_id_1_distinct_id_2",
-            timestamp="2020-01-02T12:01:00Z",
-            properties={
-                "$feature_flag": feature_flag.key,
-                feature_flag_property: "test",
-                "$feature_flag_response": "test",
-            },
-        )
-        _create_event(
-            team=self.team,
-            event="purchase",
-            distinct_id="person_id_1_distinct_id_2",
-            timestamp="2020-01-02T12:02:00Z",
-            properties={feature_flag_property: "test"},
-        )
-        create_person_id_override_by_distinct_id("person_id_1_distinct_id_1", "person_id_1_distinct_id_2", self.team.pk)
+        ## Test group: create users based on person ID override behavior
+        # Create 13 pairs of person IDs to test the override functionality
+        for i in range(13):
+            # Create the "earlier" person (with @earlierevent.com email)
+            _create_person(
+                distinct_ids=[f"person_id_{i}_distinct_id_1"],
+                properties={"email": f"person_id_{i}@earlierevent.com"},
+                team_id=self.team.pk,
+            )
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"person_id_{i}_distinct_id_1",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag": feature_flag.key,
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                },
+            )
+
+            # Create the "later" person (with @laterevent.com email)
+            _create_person(
+                distinct_ids=[f"person_id_{i}_distinct_id_2"],
+                properties={"email": f"person_id_{i}@laterevent.com"},
+                team_id=self.team.pk,
+            )
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"person_id_{i}_distinct_id_2",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    "$feature_flag": feature_flag.key,
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                },
+            )
+
+            # Create purchase events based on test scenario
+            if "laterevent" in name:
+                # For laterevent filter tests: only 1 user gets purchase events (1 success, 12 failure)
+                # This is because the filter will exclude most users with @laterevent.com emails
+                if i == 0:  # Only first user makes purchase
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"person_id_{i}_distinct_id_2",
+                        timestamp="2020-01-02T12:02:00Z",
+                        properties={feature_flag_property: "test"},
+                    )
+            else:
+                # For other tests: first 8 users make purchases (8 success, 5 failure)
+                if i < 8:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"person_id_{i}_distinct_id_2",
+                        timestamp="2020-01-02T12:02:00Z",
+                        properties={feature_flag_property: "test"},
+                    )
+
+            # Create the person ID override connection
+            create_person_id_override_by_distinct_id(
+                f"person_id_{i}_distinct_id_1", f"person_id_{i}_distinct_id_2", self.team.pk
+            )
 
         flush_persons_and_events()
 
