@@ -21,7 +21,7 @@ export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
                 type: 'function_webhook',
                 on_error: 'continue',
                 config: {
-                    template_id: 'template-hogflow-send-webhook',
+                    template_id: 'template-webhook',
                     inputs: {},
                 },
             },

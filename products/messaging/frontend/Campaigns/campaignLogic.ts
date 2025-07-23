@@ -105,6 +105,7 @@ export const campaignLogic = kea<campaignLogicType>([
                 return {
                     name: name.length === 0 ? 'Name is required' : undefined,
                     trigger: {
+                        type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
                         filters:
                             trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
                                 ? 'At least one event or action is required'

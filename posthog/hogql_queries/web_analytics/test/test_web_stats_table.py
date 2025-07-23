@@ -19,6 +19,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     WebAnalyticsOrderByFields,
     WebAnalyticsOrderByDirection,
+    SessionPropertyFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -1795,3 +1796,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert [row[0] for row in response.results] == ["/foo", "/bar"]
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_channel_type_filter(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        pre_agg_builder = runner.preaggregated_query_builder
+        assert pre_agg_builder.can_use_preaggregated_tables()

@@ -1,24 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor, Future
 
 import structlog
-from requests import HTTPError, Response, Session
+from requests import Response, Session
 from requests.adapters import HTTPAdapter, Retry
 from datetime import datetime, UTC
-from django.conf import settings
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from enum import Enum
 from prometheus_client import Counter
-from rest_framework import status
-from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional
 
-from posthog.api.utils import get_token
-from posthog.api.csp import process_csp_report
-from posthog.exceptions import generate_exception_response
-from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
-from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,
@@ -26,20 +15,8 @@ from posthog.settings.ingestion import (
     NEW_ANALYTICS_CAPTURE_ENDPOINT,
     REPLAY_CAPTURE_ENDPOINT,
 )
-from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
-
-LIMITER = Limiter(
-    rate=settings.PARTITION_KEY_BUCKET_REPLENTISH_RATE,
-    capacity=settings.PARTITION_KEY_BUCKET_CAPACITY,
-    storage=MemoryStorage(),
-)
-LOG_RATE_LIMITER = Limiter(
-    rate=1 / 60,
-    capacity=1,
-    storage=MemoryStorage(),
-)
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -47,134 +24,66 @@ LOG_RATE_LIMITER = Limiter(
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
 
-INTERNAL_EVENTS_RECEIVED_COUNTER = Counter(
-    "capture_internal_events_received_total",
-    "Events received by capture, tagged by resource type.",
-    labelnames=[LABEL_RESOURCE_TYPE, "token"],
+# let's track who is using this to detect new (ab)usive call sites quickly
+CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER = Counter(
+    "capture_internal_event_submitted",
+    "Events received by capture_internal, tagged by source.",
+    labelnames=["event_source"],  # which internal codepath submitted this event
 )
-
-
-class InputType(Enum):
-    EVENTS = "events"
-    REPLAY = "replay"
-
-
-@csrf_exempt
-@timed("posthog_cloud_csp_event_endpoint")
-def get_csp_event(request):
-    # we want to handle this as early as possible and avoid any processing
-    if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
-
-    debug_enabled = request.GET.get("debug", "").lower() == "true"
-    if debug_enabled:
-        logger.exception(
-            "CSP debug request",
-            error=ValueError("CSP debug request"),
-            method=request.method,
-            url=request.build_absolute_uri(),
-            content_type=request.content_type,
-            headers=dict(request.headers),
-            query_params=dict(request.GET),
-            body_size=len(request.body) if request.body else 0,
-            body=request.body.decode("utf-8", errors="ignore") if request.body else None,
-        )
-
-    csp_report, error_response = process_csp_report(request)
-    if error_response:
-        return error_response
-
-    first_distinct_id = None  # temp: only used for feature flag check
-    if csp_report and isinstance(csp_report, list):
-        # For list of reports, use the first one's distinct_id for feature flag check
-        first_distinct_id = csp_report[0].get("distinct_id", None)
-    elif csp_report and isinstance(csp_report, dict):
-        # For single report, use the distinct_id for the same
-        first_distinct_id = csp_report.get("distinct_id", None)
-    else:
-        # mimic what get_event does if no data is returned from process_csp_report
-        return cors_response(
-            request,
-            generate_exception_response(
-                "csp_report_capture",
-                f"Failed to submit CSP report",
-                code="invalid_payload",
-                type="invalid_payload",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
-        )
-
-    try:
-        token = get_token(csp_report, request)
-
-        if isinstance(csp_report, list):
-            futures = new_capture_batch_internal(csp_report, token, False)
-            for future in futures:
-                result = future.result()
-                result.raise_for_status()
-        else:
-            resp = new_capture_internal(token, first_distinct_id, csp_report, False)
-            resp.raise_for_status()
-
-        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
-
-    except HTTPError as hte:
-        capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
-        logger.exception("csp_report_capture_http_error", exc_info=hte)
-        return cors_response(
-            request,
-            generate_exception_response(
-                "csp_report_capture",
-                f"Failed to submit CSP report",
-                code="capture_http_error",
-                type="capture_http_error",
-                status_code=hte.response.status_code,
-            ),
-        )
-    except Exception as e:
-        capture_exception(e, {"capture-pathway": "csp_report", "ph-team-token": token})
-        logger.exception("csp_report_capture_error", exc_info=e)
-        return cors_response(
-            request,
-            generate_exception_response(
-                "csp_report_capture",
-                f"Failed to submit CSP report",
-                code="capture_error",
-                type="capture_error",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
-        )
 
 
 class CaptureInternalError(Exception):
     pass
 
 
-# TODO: replace raw_event input with structured inputs after transition off old capture_internal
-def new_capture_internal(
-    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profile: bool = False
+@timed("capture_internal_event_submission")
+def capture_internal(
+    *,  # only keyword args for clarity
+    token: str,
+    event_name: str,
+    event_source: str,
+    distinct_id: str,
+    timestamp: Optional[datetime | str],
+    properties: dict[str, Any],
+    process_person_profile: bool = False,
 ) -> Response:
     """
-    new_capture_internal submits a single-event capture request payload to the capture-rs backend service.
+    capture_internal submits a single-event capture request payload to the capture-rs backend service.
+    This is the preferred method for publishing events from the Django app on behalf of non-PostHog admin
+    teams/projects. PLEASE DO NOT write events directly to ingestion Kafka topics - USE THIS!
 
     Args:
-        token: API token to use for the event.
-        distinct_id: distinct_id to use for the event. Will be extracted from raw_event if not provided.
-        raw_event: raw event payload to enrich and submit to capture-rs.
+        token: API token to submit the event on behalf of (required)
+        event_name: the name of the event to be published (required)
+        event_source: observability tag indicating the internal module/codepath submitting the event (required)
+        distinct_id: the distict ID of the event (optional; required in properties if absent)
+        timestamp: the timestamp of the event to be published (optional; will be set to now UTC if absent)
+        properties: event properties to submit with the event (required; can be empty)
         process_person_profile: if TRUE, process the person profile for the event according to the caller's settings.
                                 if FALSE, disable person processing for this event.
 
     Returns:
         Response object, the result of POSTing the event payload to the capture-rs backend service.
+
+    Throws:
+        HTTPError if the request fails.
+        CaptureInternalError if the inputs to capture_internal are malformed or missing required values.
     """
     logger.debug(
-        "new_capture_internal", token=token, distinct_id=distinct_id, event_name=raw_event.get("event", "MISSING")
+        "capture_internal",
+        token=token,
+        distinct_id=distinct_id,
+        event_name=event_name,
+        event_source=event_source,
     )
 
-    event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
+    event_payload = prepare_capture_internal_payload(
+        token, event_name, event_source, distinct_id, timestamp, properties, process_person_profile
+    )
+
     # determine if this is a recordings or events type, route to correct capture endpoint
     resolved_capture_url = f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}"
-    if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
+    if event_name in SESSION_RECORDING_EVENT_NAMES:
         resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
 
     with Session() as s:
@@ -187,6 +96,7 @@ def new_capture_internal(
             ),
         )
 
+        CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER.labels(event_source="TODO").inc()
         return s.post(
             resolved_capture_url,
             json=event_payload,
@@ -194,27 +104,34 @@ def new_capture_internal(
         )
 
 
-# TODO: rename as capture_batch_internal after the trasition from old capture_internal is complete
-def new_capture_batch_internal(
+def capture_batch_internal(
+    *,
     events: list[dict[str, Any]],
-    token: Optional[str] = None,
+    event_source: str,
+    token: str,
     process_person_profile: bool = False,
 ) -> list[Future]:
     """
-    new_capture_batch_internal submits multiple capture request payloads to
-    PostHog (capture-rs backend) concurrently using ThreadPoolExecutor.
+    capture_batch_internal submits multiple capture request payloads to
+    PostHog (capture-rs backend) concurrently. capture_batch_internal does
+    not submit single requests to the capture /batch/ endpoint, so historical
+    event submission is not supported.
 
     Args:
-        events: List of event dictionaries to capture
-        token: Optional API token to use for all events (overrides individual event tokens)
-        process_person_profile: if FALSE (default) specifically disable person processing on each event
+        events: List of event payloads to capture. Each payload MUST include
+                well-formed distinct_id, timestamp, and (possibly empty) properties dict
+        event_source: observability tag indicating the internal module/codepath submitting the event (required)
+        token: API token to submit events in this batch on behalf of (required; overrides individual event tokens)
+        process_person_profile: if TRUE, process the person profile for each event according to it's properties or team config
+                                if FALSE, disable person processing for all events in the batch (default: FALSE)
 
     Returns:
-        List of Future objects that the caller can await to get Response objects or thrown Exceptions
+        List of Future objects that the caller can resolve to Response objects or thrown Exceptions
     """
     logger.debug(
-        "new_capture_batch_internal",
+        "capture_batch_internal",
         event_count=len(events),
+        event_source=event_source,
         token=token,
         process_person_profile=process_person_profile,
     )
@@ -224,14 +141,21 @@ def new_capture_batch_internal(
     with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
         # Note:
         # 1. token should be supplied by caller, and be consistent per batch submitted.
-        #    new_capture_internal will attempt to extract from each event if missing
+        #    new capture_internal will attempt to extract from each event if missing
         # 2. distinct_id should be present on each event since these can differ within a batch
         for event in events:
+            properties: dict[str, Any] = event.get("properties", {})
+            distinct_id: str = event.get("distinct_id", "")
+            timestamp: str = event.get("timestamp", properties.get("timestamp", ""))
+
             future = executor.submit(
-                new_capture_internal,
+                capture_internal,
                 token=token,
-                distinct_id=None,
-                raw_event=event,
+                event_name=event.get("event", ""),
+                event_source=event_source,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
                 process_person_profile=process_person_profile,
             )
             futures.append(future)
@@ -239,48 +163,48 @@ def new_capture_batch_internal(
     return futures
 
 
-# prep payload for new_capture_internal to POST to capture-rs
+# prep payload for new capture_internal to POST to capture-rs
 def prepare_capture_internal_payload(
-    token: Optional[str],
+    token: str,
+    event_name: str,
+    event_source: str,
     distinct_id: Optional[str],
-    raw_event: dict[str, Any],
+    timestamp: Optional[datetime | str],
+    properties: dict[str, Any],
     process_person_profile: bool = False,
 ) -> dict[str, Any]:
     # mark event as internal for observability
-    properties = raw_event.get("properties", {})
     properties["capture_internal"] = True
 
-    # for back compat, if the caller specifies TRUE to process_person_profile
-    # we don't change the event contents at all; either the caller set the
-    # event prop to force the issue, or we rely on the caller's default PostHog
-    # person processing settings to decide during ingest processing.
-    # If the caller set process_person_profile to FALSE, we *do* explictly
-    # set it as an event property, to ensure internal capture events don't
-    # engage in expensive person processing without explicitly opting in
+    # for back compatibility, if this is TRUE, we don't change the event
+    # so existing event (or team acct) settings for $process_person_profile
+    # will apply. If FALSE, we set the prop to explicitly force the issue.
+    # with FALSE as default, we avoid accidental internal uses that cause
+    # expensive person profile updates for no reason
     if not process_person_profile:
         properties["$process_person_profile"] = process_person_profile
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
-    if token is None:
-        token = raw_event.get("api_key", raw_event.get("token", None))
-    if token is None:
-        raise CaptureInternalError("capture_internal: API token is required")
 
-    if distinct_id is None:
-        distinct_id = raw_event.get("distinct_id", None)
-    if distinct_id is None:
+    if not token:
+        raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): API token is required")
+
+    if not distinct_id:
         distinct_id = properties.get("distinct_id", None)
-    if distinct_id is None:
-        raise CaptureInternalError("capture_internal: distinct ID is required")
+    if not distinct_id:
+        raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): distinct ID is required")
 
-    event_name = raw_event.get("event", None)
-    if event_name is None:
-        raise CaptureInternalError("capture_internal: event name is required")
+    if not event_name:
+        raise CaptureInternalError(f"capture_internal ({event_source}): event name is required")
 
-    event_timestamp = raw_event.get("timestamp", None)
-    if event_timestamp is None:
-        event_timestamp = datetime.now(UTC).isoformat()
+    event_timestamp = datetime.now(UTC).isoformat()
+    if timestamp:
+        if isinstance(timestamp, datetime):
+            event_timestamp = timestamp.replace(tzinfo=UTC).isoformat()
+        elif isinstance(timestamp, str):
+            # assume its an ISO8601 string and submit it as-is
+            event_timestamp = timestamp
 
     return {
         "api_key": token,

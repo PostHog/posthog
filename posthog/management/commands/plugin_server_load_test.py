@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
-from posthog.api.capture import new_capture_batch_internal
+from posthog.api.capture import capture_batch_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.models import Team
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
@@ -113,10 +113,11 @@ class Command(BaseCommand):
         # returning a list of futures (previously ignored!) so final event
         # ordering in the ingest topic is not guaranteed here
         start_time = time.monotonic()
-        results = new_capture_batch_internal(
-            events,
-            token,
-            True,  # allow person profile processing to occur as cfg for this token (team/project)
+        results = capture_batch_internal(
+            events=events,
+            event_source="plugin_server_load_test",
+            token=token,
+            process_person_profile=True,  # allow person profile processing to occur as cfg for this token (team/project)
         )
         for future in results:
             try:

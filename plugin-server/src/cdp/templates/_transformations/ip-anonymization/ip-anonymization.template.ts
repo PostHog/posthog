@@ -10,6 +10,7 @@ export const template: HogFunctionTemplate = {
         'This transformation sets the last octet of an IP address to zero (e.g., 12.214.31.144 → 12.214.31.0), protecting user privacy and reducing disclosure risk.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // Check if the event has an IP address
 if (empty(event.properties?.$ip)) {

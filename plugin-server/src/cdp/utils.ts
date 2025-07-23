@@ -31,7 +31,7 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
-const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
+export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     const customPropertyKey = personDisplayNameProperties.find((x) => properties?.[x])
     const propertyIdentifier = customPropertyKey ? properties[customPropertyKey] : undefined
