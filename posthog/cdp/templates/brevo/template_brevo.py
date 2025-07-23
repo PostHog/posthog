@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Brevo",
     icon_url="/static/services/brevo.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')

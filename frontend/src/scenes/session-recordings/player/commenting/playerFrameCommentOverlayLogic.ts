@@ -89,6 +89,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
             actions.setIsCommenting(true)
         },
+        setIsCommenting: ({ isCommenting }) => {
+            if (!isCommenting) {
+                actions.resetRecordingAnnotation()
+            }
+        },
         addEmojiComment: async ({ emoji }) => {
             if (!isSingleEmoji(emoji)) {
                 lemonToast.error(`Emoji comments must be emojis 🙈, this string was too long: "${emoji}"`)

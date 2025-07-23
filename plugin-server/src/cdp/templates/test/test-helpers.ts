@@ -6,7 +6,7 @@ import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
+import { HogExecutorService } from '../../services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -65,8 +65,6 @@ export class TemplateTester {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
         }
-
-        this.mockHub = { mmdb: undefined } as any
 
         this.executor = new HogExecutorService(this.mockHub)
     }
@@ -171,7 +169,7 @@ export class TemplateTester {
             deleted: false,
         }
 
-        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
@@ -230,11 +228,7 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(_globals), {
-            ...compiledInputs,
-            ...compiledMappingInputs.inputs,
-        })
-        const invocation = createInvocation(globalsWithInputs, {
+        const hogFunction: HogFunctionType = {
             ...this.template,
             team_id: 1,
             enabled: true,
@@ -244,7 +238,15 @@ export class TemplateTester {
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
             is_addon_required: false,
-        })
+        }
+
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(
+            hogFunction,
+            this.createGlobals(_globals),
+            compiledMappingInputs.inputs
+        )
+
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         return this.executor.execute(invocation)
     }

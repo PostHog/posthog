@@ -7,7 +7,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
-import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
+import { HogExecutorService } from '../services/hog-executor.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
@@ -70,13 +70,10 @@ export class HogTransformerService {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
-    public async start(): Promise<void> {
-        await this.hogFunctionManager.start()
-    }
+    public async start(): Promise<void> {}
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
-        await this.hogFunctionManager.stop()
         await this.redis.useClient({ name: 'cleanup' }, async (client) => {
             await client.quit()
         })
@@ -240,6 +237,16 @@ export class HogTransformerService {
 
                     if (!result.execResult) {
                         hogTransformationDroppedEvents.inc()
+                        this.hogFunctionMonitoringService.queueAppMetric(
+                            {
+                                team_id: event.team_id,
+                                app_source_id: hogFunction.id,
+                                metric_kind: 'other',
+                                metric_name: 'dropped',
+                                count: 1,
+                            },
+                            'hog_function'
+                        )
                         transformationsFailed.push(transformationIdentifier)
                         return {
                             event: null,
@@ -330,10 +337,7 @@ export class HogTransformerService {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = await buildGlobalsWithInputs(globals, {
-            ...hogFunction.inputs,
-            ...hogFunction.encrypted_inputs,
-        })
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 

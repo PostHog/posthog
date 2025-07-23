@@ -513,6 +513,15 @@ async def materialize_model(
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
+        elif (
+            "Decimal value does not fit in precision" in error_message
+            or "Rescaling Decimal128 value would cause data loss" in error_message
+        ):
+            error_message = f"Decimal precision issue. Try reducing the precision of the decimal columns, or using toInt() or toFloat() to a cast to a different column type."
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            raise CannotCoerceColumnException(f"Decimal precision error in model {model_label}: {error_message}") from e
         elif "Unknown table" in error_message:
             error_message = (
                 f"Table reference no longer exists for model. This is likely due to a table no longer being available."
@@ -563,6 +572,7 @@ async def materialize_model(
     job.rows_materialized = row_count
     job.status = DataModelingJob.Status.COMPLETED
     job.last_run_at = dt.datetime.now(dt.UTC)
+    job.error = None  # clear any previous error message
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
@@ -973,7 +983,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
         DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
     )(
         status=DataModelingJob.Status.FAILED,
-        error="Job was orphaned when a new data modeling run started",
+        error="Job timed out",
         updated_at=dt.datetime.now(dt.UTC),
     )
 
@@ -1085,7 +1095,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
             table = saved_query.table
 
-            table.row_count = table.get_count()
+            table.row_count = await database_sync_to_async(table.get_count)()
             await database_sync_to_async(table.save)()
         except Exception as err:
             await logger.aexception(f"Failed to update table row count for {model}: {err}")

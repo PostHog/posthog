@@ -81,6 +81,8 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     NAVIGATE = "navigate"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
+    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    CREATE_SURVEY = "create_survey"
 
 
 class AssistantDateRange(BaseModel):
@@ -1002,6 +1004,15 @@ class FirstEvent(BaseModel):
     uuid: str
 
 
+class LastEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    properties: str
+    timestamp: str
+    uuid: str
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -1141,6 +1152,7 @@ class ExperimentMetricMathType(StrEnum):
     MIN = "min"
     MAX = "max"
     AVG = "avg"
+    HOGQL = "hogql"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -1551,6 +1563,7 @@ class IntegrationKind(StrEnum):
     SNAPCHAT = "snapchat"
     INTERCOM = "intercom"
     EMAIL = "email"
+    TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
     META_ADS = "meta-ads"
@@ -2303,6 +2316,91 @@ class SuggestedQuestionsQueryResponse(BaseModel):
     questions: list[str]
 
 
+class Value(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    name: str
+
+
+class Actions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    values: list[Value]
+
+
+class SurveyMatchType(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
+class SurveyPosition(StrEnum):
+    TOP_LEFT = "top_left"
+    TOP_CENTER = "top_center"
+    TOP_RIGHT = "top_right"
+    MIDDLE_LEFT = "middle_left"
+    MIDDLE_CENTER = "middle_center"
+    MIDDLE_RIGHT = "middle_right"
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+    NEXT_TO_TRIGGER = "next_to_trigger"
+
+
+class SurveyQuestionDescriptionContentType(StrEnum):
+    HTML = "html"
+    TEXT = "text"
+
+
+class Type5(StrEnum):
+    NEXT_QUESTION = "next_question"
+    END = "end"
+    RESPONSE_BASED = "response_based"
+    SPECIFIC_QUESTION = "specific_question"
+
+
+class Branching(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    index: Optional[float] = None
+    responseValues: Optional[dict[str, Union[str, float]]] = None
+    type: Type5
+
+
+class Display1(StrEnum):
+    NUMBER = "number"
+    EMOJI = "emoji"
+
+
+class SurveyQuestionType(StrEnum):
+    OPEN = "open"
+    MULTIPLE_CHOICE = "multiple_choice"
+    SINGLE_CHOICE = "single_choice"
+    RATING = "rating"
+    LINK = "link"
+
+
+class SurveyType(StrEnum):
+    POPOVER = "popover"
+    WIDGET = "widget"
+    FULL_SCREEN = "full_screen"
+    EMAIL = "email"
+    API = "api"
+
+
+class SurveyWidgetType(StrEnum):
+    BUTTON = "button"
+    TAB = "tab"
+    SELECTOR = "selector"
+
+
 class TaxonomicFilterGroupType(StrEnum):
     METADATA = "metadata"
     ACTIONS = "actions"
@@ -2339,6 +2437,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
+    ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     MAX_AI_CONTEXT = "max_ai_context"
 
 
@@ -4234,6 +4333,70 @@ class SuggestedQuestionsQuery(BaseModel):
     response: Optional[SuggestedQuestionsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyAppearanceSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    backgroundColor: Optional[str] = None
+    borderColor: Optional[str] = None
+    buttonColor: Optional[str] = None
+    buttonTextColor: Optional[str] = None
+    inputBackground: Optional[str] = None
+    maxWidth: Optional[str] = None
+    placeholder: Optional[str] = None
+    position: Optional[SurveyPosition] = None
+    ratingButtonActiveColor: Optional[str] = None
+    ratingButtonColor: Optional[str] = None
+    shuffleQuestions: Optional[bool] = None
+    surveyPopupDelaySeconds: Optional[float] = None
+    textColor: Optional[str] = None
+    textSubtleColor: Optional[str] = None
+    thankYouMessageCloseButtonText: Optional[str] = None
+    thankYouMessageDescription: Optional[str] = None
+    thankYouMessageDescriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
+    thankYouMessageHeader: Optional[str] = None
+    whiteLabel: Optional[bool] = None
+    widgetColor: Optional[str] = None
+    widgetLabel: Optional[str] = None
+    widgetSelector: Optional[str] = None
+    widgetType: Optional[SurveyWidgetType] = None
+    zIndex: Optional[str] = None
+
+
+class SurveyDisplayConditionsSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[Actions] = None
+    deviceTypes: Optional[list[str]] = None
+    deviceTypesMatchType: Optional[SurveyMatchType] = None
+    seenSurveyWaitPeriodInDays: Optional[float] = None
+    selector: Optional[str] = None
+    url: Optional[str] = None
+    urlMatchType: Optional[SurveyMatchType] = None
+
+
+class SurveyQuestionSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    branching: Optional[Branching] = None
+    buttonText: Optional[str] = None
+    choices: Optional[list[str]] = None
+    description: Optional[str] = None
+    descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
+    display: Optional[Display1] = None
+    hasOpenChoice: Optional[bool] = None
+    link: Optional[str] = None
+    lowerBoundLabel: Optional[str] = None
+    optional: Optional[bool] = None
+    question: str
+    scale: Optional[float] = None
+    shuffleOptions: Optional[bool] = None
+    type: SurveyQuestionType
+    upperBoundLabel: Optional[str] = None
 
 
 class TableSettings(BaseModel):
@@ -7265,6 +7428,7 @@ class ErrorTrackingIssue(BaseModel):
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str
+    last_event: Optional[LastEvent] = None
     last_seen: datetime
     library: Optional[str] = None
     name: Optional[str] = None
@@ -9751,6 +9915,26 @@ class SessionsTimelineQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class SurveyCreationSchema(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    appearance: Optional[SurveyAppearanceSchema] = None
+    archived: Optional[bool] = None
+    conditions: Optional[SurveyDisplayConditionsSchema] = None
+    description: str
+    enable_partial_responses: Optional[bool] = None
+    end_date: Optional[str] = None
+    iteration_count: Optional[float] = None
+    iteration_frequency_days: Optional[float] = None
+    name: str
+    questions: list[SurveyQuestionSchema]
+    responses_limit: Optional[float] = None
+    should_launch: Optional[bool] = None
+    start_date: Optional[str] = None
+    type: SurveyType
+
+
 class TeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9974,6 +10158,7 @@ class WebStatsTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = None
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
@@ -11089,6 +11274,7 @@ class ErrorTrackingQuery(BaseModel):
     volumeResolution: int
     withAggregations: Optional[bool] = None
     withFirstEvent: Optional[bool] = None
+    withLastEvent: Optional[bool] = None
 
 
 class ExperimentFunnelMetric(BaseModel):

@@ -1,12 +1,13 @@
 import dataclasses
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Literal, Optional, Union, cast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     RevenueAnalyticsArpuQuery,
@@ -475,3 +476,43 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             return self.revenue_subqueries.subscription
         else:
             raise ValueError(f"Invalid view: {view}")
+
+    SMALL_CACHE_TARGET_AGE = timedelta(minutes=1)
+    DEFAULT_CACHE_TARGET_AGE = timedelta(hours=6)
+
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        """
+        If we're syncing Revenue data for the first time, cache for `SMALL_CACHE_TARGET_AGE`
+        Otherwise, cache it for half the frequency we sync data from Stripe
+
+        If we can't figure out the interval, default to caching for `DEFAULT_CACHE_TARGET_AGE`.
+        """
+        if last_refresh is None:
+            return None
+
+        # All schemas syncing revenue data
+        schemas = ExternalDataSchema.objects.filter(
+            team=self.team,
+            should_sync=True,
+            source__revenue_analytics_enabled=True,
+            source__source_type=ExternalDataSource.Type.STRIPE,
+        )
+
+        # If we can detect we're syncing Revenue data for the first time, cache for just 1 minute
+        # this guarantees we'll "always" have fresh data for the first sync
+        if any(
+            schema.status == ExternalDataSchema.Status.RUNNING and schema.last_synced_at is None for schema in schemas
+        ):
+            return last_refresh + self.SMALL_CACHE_TARGET_AGE
+
+        # Otherwise, let's check the frequency of the schemas that are syncing revenue data
+        # In the rare case where we can't figure out the interval, default to caching for 6 hours
+        intervals = [schema.sync_frequency_interval for schema in schemas if schema.sync_frequency_interval is not None]
+        if not intervals:
+            return last_refresh + self.DEFAULT_CACHE_TARGET_AGE
+
+        # If we can figure out the interval, let's cache for half of that
+        # to guarantee that - on average - we'll have fresh data for the next sync
+        min_interval = min(intervals)
+        adjusted_interval = min_interval / 2
+        return last_refresh + adjusted_interval

@@ -1,4 +1,4 @@
-import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { Webhook } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -9,7 +9,6 @@ import {
 } from '../../utils/event'
 import { logger } from '../../utils/logger'
 import { legacyFetch } from '../../utils/request'
-import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
@@ -242,76 +241,6 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
             runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
         )
     )
-}
-
-export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
-    const teamId = event.team_id
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
-
-    let returnedEvent: PluginEvent | null = event
-
-    const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
-    const pluginsFailed = event.properties?.$plugins_failed || []
-    const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
-
-    for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
-        const timer = new Date()
-        const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
-
-        if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
-            continue
-        }
-
-        try {
-            returnedEvent = (await processEvent(returnedEvent!)) || null
-            if (returnedEvent && returnedEvent.team_id !== teamId) {
-                returnedEvent.team_id = teamId
-                throw new IllegalOperationError('Plugin tried to change event.team_id')
-            }
-            pluginsSucceeded.push(pluginIdentifier)
-            pluginActionMsSummary
-                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
-                .observe(new Date().getTime() - timer.getTime())
-            await hub.appMetrics.queueMetric({
-                teamId,
-                pluginConfigId: pluginConfig.id,
-                category: 'processEvent',
-                successes: 1,
-            })
-        } catch (error) {
-            await processError(hub, pluginConfig, error, returnedEvent)
-            pluginActionMsSummary
-                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
-                .observe(new Date().getTime() - timer.getTime())
-            pluginsFailed.push(pluginIdentifier)
-            await hub.appMetrics.queueError(
-                {
-                    teamId,
-                    pluginConfigId: pluginConfig.id,
-                    category: 'processEvent',
-                    failures: 1,
-                },
-                {
-                    error,
-                    event,
-                }
-            )
-        }
-
-        if (!returnedEvent) {
-            return null
-        }
-    }
-
-    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
-        event.properties = {
-            ...event.properties,
-            $plugins_succeeded: pluginsSucceeded,
-            $plugins_failed: pluginsFailed,
-        }
-    }
-
-    return returnedEvent
 }
 
 async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(

@@ -44,7 +44,8 @@
         "lint:css": "stylelint \"../(frontend|products)/**/*.{css,scss}\" --ignore-path=frontend/.stylelintignore",
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
-        "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs"
+        "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
+        "start-vite": "concurrently -n VITE,TYPEGEN,TAILWIND -c green,blue,yellow  \"vite --host 0.0.0.0\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\""
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
@@ -86,9 +87,9 @@
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-user-interviews": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
-        "@posthog/rrweb": "0.0.23",
-        "@posthog/rrweb-plugin-console-record": "0.0.23",
-        "@posthog/rrweb-types": "0.0.23",
+        "@posthog/rrweb": "0.0.24",
+        "@posthog/rrweb-plugin-console-record": "0.0.24",
+        "@posthog/rrweb-types": "0.0.24",
         "@posthog/tailwind": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.2",
         "@radix-ui/react-context-menu": "^2.2.6",
@@ -119,9 +120,11 @@
         "@types/md5": "^2.3.0",
         "@types/react-transition-group": "^4.4.5",
         "@types/react-virtualized": "^9.21.23",
+        "@vitejs/plugin-react": "^4.7.0",
         "@xyflow/react": "^12.6.0",
         "ajv": "^8.12.0",
         "algoliasearch": "^4.22.1",
+        "buffer": "^6.0.3",
         "chart.js": "^4.4.3",
         "chartjs-adapter-dayjs-3": "^1.2.3",
         "chartjs-plugin-annotation": "2.2.1",
@@ -139,7 +142,7 @@
         "d3": "^7.9.0",
         "d3-sankey": "^0.12.3",
         "dayjs": "1.11.11",
-        "dompurify": "^3.0.6",
+        "dompurify": "^3.2.6",
         "elkjs": "^0.10.0",
         "emoji-regex": "^10.4.0",
         "eventsource-parser": "^3.0.0",
@@ -180,8 +183,6 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "^1.257.0",
-        "posthog-js-lite": "catalog:",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
@@ -213,6 +214,7 @@
         "typescript": "5.2.2",
         "use-debounce": "^9.0.3",
         "use-resize-observer": "^8.0.0",
+        "vite": "^6.3.5",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {
@@ -294,6 +296,10 @@
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
         "whatwg-fetch": "^3.6.2"
+    },
+    "peerDependencies": {
+        "posthog-js": "*",
+        "posthog-js-lite": "*"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"

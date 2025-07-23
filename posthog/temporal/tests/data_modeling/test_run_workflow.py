@@ -147,6 +147,8 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
                 "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             },
         ),
+        # this mock is needed, otherwise the test takes ~30s b/c of the sync behavior of get_count
+        unittest.mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_count", return_value=42),
     ):
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
@@ -1100,10 +1102,10 @@ async def test_cleanup_running_jobs_activity(activity_environment, ateam):
 
     assert old_job.status == DataModelingJob.Status.FAILED
     assert old_job.error is not None
-    assert "orphaned when a new data modeling run started" in old_job.error
+    assert "Job timed out" in old_job.error
     assert recent_job.status == DataModelingJob.Status.FAILED
     assert recent_job.error is not None
-    assert "orphaned when a new data modeling run started" in recent_job.error
+    assert "Job timed out" in recent_job.error
     assert completed_job.status == DataModelingJob.Status.COMPLETED
 
 
@@ -1126,7 +1128,7 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
     assert orphaned_job.error is not None
-    assert "orphaned when a new data modeling run started" in orphaned_job.error
+    assert "Job timed out" in orphaned_job.error
 
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"

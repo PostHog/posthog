@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 
 from django.conf import settings
@@ -8,7 +9,6 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 from products.batch_exports.backend.temporal.batch_exports import (
-    BatchExportActivity,
     FinishBatchExportRunInputs,
     finish_batch_export_run,
 )
@@ -20,15 +20,17 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 LOGGER = get_logger(__name__)
 
+BatchExportInsertActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResult]]
+
 
 async def execute_batch_export_using_internal_stage(
-    activity: BatchExportActivity,
+    activity: BatchExportInsertActivity,
     inputs,
     non_retryable_error_types: list[str],
-    finish_inputs: FinishBatchExportRunInputs,
     interval: str,
     heartbeat_timeout_seconds: int | None = 180,
     maximum_attempts: int = 0,
@@ -52,7 +54,6 @@ async def execute_batch_export_using_internal_stage(
         activity: The 'insert_into_*' activity function to execute.
         inputs: The inputs to the activity.
         non_retryable_error_types: A list of errors to not retry on when executing the activity.
-        finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
         interval: The interval of the batch export used to set the start to close timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
@@ -60,6 +61,13 @@ async def execute_batch_export_using_internal_stage(
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     get_export_started_metric().add(1)
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=inputs.run_id,
+        batch_export_id=inputs.batch_export_id,
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=inputs.team_id,
+    )
 
     if TEST:
         maximum_attempts = 1
@@ -108,7 +116,7 @@ async def execute_batch_export_using_internal_stage(
             retry_policy=retry_policy,
         )
 
-        records_completed = await workflow.execute_activity(
+        records_completed, bytes_exported = await workflow.execute_activity(
             activity,
             inputs,
             start_to_close_timeout=start_to_close_timeout,
@@ -116,6 +124,7 @@ async def execute_batch_export_using_internal_stage(
             retry_policy=retry_policy,
         )
         finish_inputs.records_completed = records_completed
+        finish_inputs.bytes_exported = bytes_exported
 
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):

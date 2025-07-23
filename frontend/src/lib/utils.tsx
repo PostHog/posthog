@@ -1852,7 +1852,7 @@ export function isNumeric(x: any): boolean {
 }
 
 /**
- * Check if the argument is nullish (null or undefined).
+ * Check if the argument is not nullish (null or undefined).
  *
  * Useful as a typeguard, e.g. when passed to Array.filter()
  *

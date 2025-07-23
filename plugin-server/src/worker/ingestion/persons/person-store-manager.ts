@@ -10,7 +10,7 @@ import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './ba
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 
 interface FinalStateEntry {
     person: InternalPerson
@@ -505,7 +505,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    async flush(): Promise<FlushResult[]> {
         await Promise.resolve(this.compareFinalStates())
         return []
     }

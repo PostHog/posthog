@@ -128,11 +128,11 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         >
                             <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <IconInfo className="size-5 text-tertiary" />
+                                    {scenePanelIsOverlay && <IconInfo className="size-5 text-tertiary" />}
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 
-                                {scenePanelOpen && (
+                                {scenePanelIsOverlay && scenePanelOpen && (
                                     <ButtonPrimitive iconOnly onClick={() => setScenePanelOpen(false)}>
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
@@ -159,7 +159,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 )}
                 <div
                     className={cn(
-                        'flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
+                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
                         {
                             'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
                             'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',

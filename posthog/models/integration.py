@@ -25,7 +25,7 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers.mailjet import MailjetProvider
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -68,6 +68,7 @@ class Integration(models.Model):
         LINEAR = "linear"
         GITHUB = "github"
         META_ADS = "meta-ads"
+        TWILIO = "twilio"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -1186,3 +1187,43 @@ class MetaAdsIntegration:
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+
+class TwilioIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "twilio":
+            raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_keys(
+        cls, account_sid: str, auth_token: str, phone_number: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        twilio_provider = TwilioProvider(account_sid=account_sid, auth_token=auth_token)
+        is_phone_verified = twilio_provider.verify_phone_number(phone_number)
+
+        if not is_phone_verified:
+            raise ValidationError({"phone_number": f"Failed to verify ownership of phone number {phone_number}"})
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="twilio",
+            integration_id=phone_number,
+            defaults={
+                "config": {
+                    "account_sid": account_sid,
+                    "phone_number": phone_number,
+                },
+                "sensitive_config": {
+                    "auth_token": auth_token,
+                },
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration

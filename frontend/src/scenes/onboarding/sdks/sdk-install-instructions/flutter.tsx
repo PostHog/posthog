@@ -14,7 +14,7 @@ export interface FlutterInstallProps {
 }
 
 function FlutterInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^4.0.0</CodeSnippet>
+    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^5.0.0</CodeSnippet>
 }
 
 function InstallFlutterSessionReplay(props: FlutterInstallProps): JSX.Element {
@@ -136,7 +136,7 @@ function FlutterIOSSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.Eleme
                 currentTeam?.api_token +
                 '</string>\n\t<key>com.posthog.posthog.POSTHOG_HOST</key>\n\t<string>' +
                 url +
-                '</string>\n\t<key>com.posthog.posthog.CAPTURE_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<true/>\n\t[...]\n</dict>'}
+                '</string>\n\t<key>com.posthog.posthog.CAPTURE_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<true/>\n\t<key>com.posthog.posthog.DEBUG</key>\n\t<true/>\n</dict>'}
         </CodeSnippet>
     )
 }
@@ -152,10 +152,6 @@ function FlutterWebSetupSnippet(): JSX.Element {
     ...
 ${jsSnippet}
   </head>
-
-  <body>
-    ...
-  </body>
 </html>`}
         </CodeSnippet>
     )
