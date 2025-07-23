@@ -29,7 +29,8 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
-
+from posthog.models.web_preaggregated.team_config import WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 logger = structlog.get_logger(__name__)
 
@@ -182,6 +183,22 @@ def export_web_analytics_data_by_team(
     team_ids = config.get("team_ids")  # None = use dictionary, list = use IN clause
 
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
+
+    # If no team_ids provided, get them from the dictionary
+    if not team_ids:
+        # Query the dictionary to get enabled team IDs
+        dict_query = f"""
+        SELECT team_id
+        FROM {CLICKHOUSE_DATABASE}.{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}
+        WHERE enabled_at IS NOT NULL
+        """
+        try:
+            result = sync_execute(dict_query)
+            team_ids = [row[0] for row in result]
+            context.log.info(f"Retrieved {len(team_ids)} team IDs from dictionary for export")
+        except Exception as e:
+            context.log.info(f"Failed to retrieve team IDs from dictionary: {e}")
+            raise dagster.Failure(f"Failed to retrieve team IDs from dictionary: {e}")
 
     successfully_exported_paths = []
     failed_team_ids = []

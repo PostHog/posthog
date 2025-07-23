@@ -28,9 +28,6 @@ def get_team_ids_from_sources() -> list[int]:
     # Fallback to default teams if no other sources provided data
     if not team_ids:
         team_ids.update(DEFAULT_ENABLED_TEAM_IDS)
-    else:
-        # If we have env teams, also include default teams
-        team_ids.update(DEFAULT_ENABLED_TEAM_IDS)
 
     return sorted(team_ids)
 
