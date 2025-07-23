@@ -102,6 +102,7 @@ export enum NodeKind {
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
+    StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
@@ -2571,8 +2572,11 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
-export interface StickinessActorsQuery extends InsightActorsQuery {
+export interface StickinessActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.StickinessActorsQuery
+    source: StickinessQuery
     operator?: StickinessOperator
+    day?: string | Day
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {

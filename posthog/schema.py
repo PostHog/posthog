@@ -1736,6 +1736,7 @@ class NodeKind(StrEnum):
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
     STICKINESS_QUERY = "StickinessQuery"
+    STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
@@ -11922,6 +11923,23 @@ class RetentionQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class StickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    operator: Optional[StickinessOperator] = None
+    response: Optional[ActorsQueryResponse] = None
+    source: StickinessQuery
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12419,32 +12437,6 @@ class InsightVizNode(BaseModel):
     suppressSessionAnalysisWarning: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
-
-
-class StickinessActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, list[str], int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    operator: Optional[StickinessOperator] = None
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
-    ] = Field(..., discriminator="kind")
-    status: Optional[str] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsQuery(BaseModel):

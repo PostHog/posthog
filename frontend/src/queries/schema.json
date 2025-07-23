@@ -15124,6 +15124,7 @@
                 "RetentionQuery",
                 "PathsQuery",
                 "StickinessQuery",
+                "StickinessActorsQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
@@ -21832,26 +21833,6 @@
         "StickinessActorsQuery": {
             "additionalProperties": false,
             "properties": {
-                "breakdown": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/BreakdownValueInt"
-                        },
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "compare": {
-                    "enum": ["current", "previous"],
-                    "type": "string"
-                },
                 "day": {
                     "anyOf": [
                         {
@@ -21865,12 +21846,8 @@
                 "includeRecordings": {
                     "type": "boolean"
                 },
-                "interval": {
-                    "$ref": "#/definitions/integer",
-                    "description": "An interval selected out of available intervals in source query."
-                },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "StickinessActorsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -21883,14 +21860,8 @@
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
-                "series": {
-                    "$ref": "#/definitions/integer"
-                },
                 "source": {
-                    "$ref": "#/definitions/InsightQuerySource"
-                },
-                "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/StickinessQuery"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
