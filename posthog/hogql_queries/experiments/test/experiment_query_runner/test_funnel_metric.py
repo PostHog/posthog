@@ -15,9 +15,6 @@ from posthog.hogql_queries.experiments.experiment_query_runner import (
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
     ExperimentQueryRunnerBaseTest,
 )
-from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import (
-    create_standard_group_test_events,
-)
 from posthog.models.action.action import Action
 from posthog.schema import (
     ActionsNode,
@@ -25,9 +22,7 @@ from posthog.schema import (
     EventsNode,
     ExperimentFunnelMetric,
     ExperimentQuery,
-    ExperimentVariantFunnelsBaseStats,
     FunnelConversionWindowTimeUnit,
-    LegacyExperimentQueryResponse,
     PersonsOnEventsMode,
     PropertyOperator,
     StepOrderValue,
@@ -68,7 +63,54 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        self.create_standard_test_events(feature_flag)
+        # Create test events with enough statistical variance for Bayesian testing
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control: 8 successes, 7 failures (15 total exposures)
+        for i in range(15):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 8:  # First 8 users make purchases
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "control", "amount": 10 if i < 2 else ""},
+                )
+
+        # Test: 10 successes, 5 failures (15 total exposures)
+        for i in range(15):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 10:  # First 10 users make purchases
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "test", "amount": 10 if i < 2 else ""},
+                )
 
         # Extra success events that should be ignored
         _create_event(
@@ -89,21 +131,21 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
+        # Convert to funnel stats for assertion (sum = success_count, number_of_samples - sum = failure_count)
+        self.assertEqual(control_variant.sum, 8)  # success_count
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 7)  # failure_count
+        self.assertEqual(test_variant.sum, 10)  # success_count
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 5)  # failure_count
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -128,26 +170,115 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        create_standard_group_test_events(self.team, feature_flag)
+        # Create test groups with enough variance for Bayesian testing
+        from posthog.models.group.util import create_group
+        from posthog.models.group_type_mapping import GroupTypeMapping
+
+        group_type_index = 0
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=group_type_index,
+            group_type="organization",
+        )
+
+        # Create many groups
+        for i in range(20):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=group_type_index,
+                group_key=f"org:{i}",
+                properties={"name": f"org {i}"},
+            )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control: 10 groups that purchase, 8 that don't (18 total)
+        group_idx = 0
+        for purchase in [True] * 10 + [False] * 8:
+            for user_idx in range(5):  # 5 users per group
+                user_id = f"user_control_{group_idx}_{user_idx}"
+                _create_person(distinct_ids=[user_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=user_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: "control",
+                        "$feature_flag_response": "control",
+                        "$feature_flag": feature_flag.key,
+                        "$group_0": f"org:{group_idx}",
+                        "$groups": {"organization": f"org:{group_idx}"},
+                    },
+                )
+                if purchase:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=user_id,
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: "control",
+                            "$group_0": f"org:{group_idx}",
+                            "$groups": {"organization": f"org:{group_idx}"},
+                        },
+                    )
+            group_idx += 1
+
+        # Test: 12 groups that purchase, 6 that don't (18 total)
+        for purchase in [True] * 12 + [False] * 6:
+            for user_idx in range(5):  # 5 users per group
+                user_id = f"user_test_{group_idx}_{user_idx}"
+                _create_person(distinct_ids=[user_id], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=user_id,
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: "test",
+                        "$feature_flag_response": "test",
+                        "$feature_flag": feature_flag.key,
+                        "$group_0": f"org:{group_idx}",
+                        "$groups": {"organization": f"org:{group_idx}"},
+                    },
+                )
+                if purchase:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=user_id,
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: "test",
+                            "$group_0": f"org:{group_idx}",
+                            "$groups": {"organization": f"org:{group_idx}"},
+                        },
+                    )
+            group_idx += 1
 
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 2)
-        self.assertEqual(test_variant.success_count, 3)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.failure_count, 0)
+        self.assertEqual(control_variant.sum, 10)  # success_count (10 groups purchase)
+        self.assertEqual(test_variant.sum, 12)  # success_count (12 groups purchase)
+        self.assertEqual(
+            control_variant.number_of_samples - control_variant.sum, 8
+        )  # failure_count (8 groups don't purchase)
+        self.assertEqual(
+            test_variant.number_of_samples - test_variant.sum, 6
+        )  # failure_count (6 groups don't purchase)
 
     @parameterized.expand(
         [
@@ -405,20 +536,22 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 )
             self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-            self.assertEqual(len(result.variants), 2)
-            control_variant = cast(
-                ExperimentVariantFunnelsBaseStats, next(v for v in result.variants if v.key == "control")
-            )
-            test_variant = cast(ExperimentVariantFunnelsBaseStats, next(v for v in result.variants if v.key == "test"))
+            assert result.variant_results is not None
+            self.assertEqual(len(result.variant_results), 1)
+
+            control_variant = result.baseline
+            assert control_variant is not None
+            test_variant = result.variant_results[0]
+            assert test_variant is not None
 
             self.assertEqual(
                 {
-                    "control_success": int(control_variant.success_count),
-                    "control_failure": int(control_variant.failure_count),
-                    "test_success": int(test_variant.success_count),
-                    "test_failure": int(test_variant.failure_count),
+                    "control_success": int(control_variant.sum),
+                    "control_failure": int(control_variant.number_of_samples - control_variant.sum),
+                    "test_success": int(test_variant.sum),
+                    "test_failure": int(test_variant.number_of_samples - test_variant.sum),
                 },
                 expected_results,
             )
@@ -478,21 +611,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_result = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        self.assertEqual(control_result.success_count, 1)
-        self.assertEqual(test_result.success_count, 3)
-        self.assertEqual(control_result.failure_count, 6)
-        self.assertEqual(test_result.failure_count, 6)
+        self.assertEqual(control_result.sum, 1)  # success_count
+        self.assertEqual(test_result.sum, 3)  # success_count
+        self.assertEqual(control_result.number_of_samples - control_result.sum, 6)  # failure_count
+        self.assertEqual(test_result.number_of_samples - test_result.sum, 6)  # failure_count
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -635,22 +767,21 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # Only events within the conversion window should be counted as successes
-        self.assertEqual(control_variant.success_count, 1)
-        self.assertEqual(control_variant.failure_count, 1)
-        self.assertEqual(test_variant.success_count, 1)
-        self.assertEqual(test_variant.failure_count, 1)
+        self.assertEqual(control_variant.sum, 1)  # success_count
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 1)  # failure_count
+        self.assertEqual(test_variant.sum, 1)  # success_count
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)  # failure_count
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -794,22 +925,21 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # Only events within the custom conversion window should be counted as successes
-        self.assertEqual(control_variant.success_count, 1)
-        self.assertEqual(control_variant.failure_count, 1)
-        self.assertEqual(test_variant.success_count, 1)
-        self.assertEqual(test_variant.failure_count, 1)
+        self.assertEqual(control_variant.sum, 1)  # success_count
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 1)  # failure_count
+        self.assertEqual(test_variant.sum, 1)  # success_count
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)  # failure_count
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -977,21 +1107,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 1)
-        self.assertEqual(control_variant.failure_count, 2)
-        self.assertEqual(test_variant.success_count, 1)
-        self.assertEqual(test_variant.failure_count, 2)
+        self.assertEqual(control_variant.sum, 1)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 2)
+        self.assertEqual(test_variant.sum, 1)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 2)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -999,6 +1128,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1197,21 +1327,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 2)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.success_count, 0)
-        self.assertEqual(test_variant.failure_count, 2)
+        self.assertEqual(control_variant.sum, 2)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 2)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1383,21 +1512,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 2)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.success_count, 0)
-        self.assertEqual(test_variant.failure_count, 2)
+        self.assertEqual(control_variant.sum, 2)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 2)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1511,21 +1639,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 1)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.success_count, 0)
-        self.assertEqual(test_variant.failure_count, 1)
+        self.assertEqual(control_variant.sum, 1)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1627,21 +1754,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 1)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.success_count, 0)
-        self.assertEqual(test_variant.failure_count, 1)
+        self.assertEqual(control_variant.sum, 1)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1738,21 +1864,20 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(control_variant.success_count, 1)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.success_count, 0)
-        self.assertEqual(test_variant.failure_count, 1)
+        self.assertEqual(control_variant.sum, 1)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 0)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1902,24 +2027,23 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # With unordered 2-step funnel ($pageview + purchase), both control users should succeed
         # (completed both steps in any order) and test user 2 should succeed (completed both steps),
         # test user 1 should fail (only has $pageview, missing purchase)
-        self.assertEqual(control_variant.success_count, 2)
-        self.assertEqual(control_variant.failure_count, 0)
-        self.assertEqual(test_variant.success_count, 1)
-        self.assertEqual(test_variant.failure_count, 1)
+        self.assertEqual(control_variant.sum, 2)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
+        self.assertEqual(test_variant.sum, 1)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2011,7 +2135,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        ordered_result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        ordered_result = query_runner.calculate()
 
         # Test with unordered funnel (should succeed)
         unordered_metric = ExperimentFunnelMetric(
@@ -2027,36 +2151,32 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        unordered_result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        unordered_result = query_runner.calculate()
 
         # With ordered funnel, the out-of-order events should not be counted as success
-        ordered_control = cast(
-            ExperimentVariantFunnelsBaseStats,
-            next(variant for variant in ordered_result.variants if variant.key == "control"),
-        )
-        ordered_test = cast(
-            ExperimentVariantFunnelsBaseStats,
-            next(variant for variant in ordered_result.variants if variant.key == "test"),
-        )
+        assert ordered_result.variant_results is not None
+        self.assertEqual(len(ordered_result.variant_results), 1)
+        ordered_control = ordered_result.baseline
+        assert ordered_control is not None
+        ordered_test = ordered_result.variant_results[0]
+        assert ordered_test is not None
 
         # With unordered funnel, the out-of-order events should be counted as success
-        unordered_control = cast(
-            ExperimentVariantFunnelsBaseStats,
-            next(variant for variant in unordered_result.variants if variant.key == "control"),
-        )
-        unordered_test = cast(
-            ExperimentVariantFunnelsBaseStats,
-            next(variant for variant in unordered_result.variants if variant.key == "test"),
-        )
+        assert unordered_result.variant_results is not None
+        self.assertEqual(len(unordered_result.variant_results), 1)
+        unordered_control = unordered_result.baseline
+        assert unordered_control is not None
+        unordered_test = unordered_result.variant_results[0]
+        assert unordered_test is not None
 
         # Ordered should fail (0 success) because events are out of order
-        self.assertEqual(ordered_control.success_count, 0)
-        self.assertEqual(ordered_control.failure_count, 1)
-        self.assertEqual(ordered_test.success_count, 0)
-        self.assertEqual(ordered_test.failure_count, 1)
+        self.assertEqual(ordered_control.sum, 0)
+        self.assertEqual(ordered_control.number_of_samples - ordered_control.sum, 1)
+        self.assertEqual(ordered_test.sum, 0)
+        self.assertEqual(ordered_test.number_of_samples - ordered_test.sum, 1)
 
         # Unordered should succeed (1 success) because order doesn't matter
-        self.assertEqual(unordered_control.success_count, 1)
-        self.assertEqual(unordered_control.failure_count, 0)
-        self.assertEqual(unordered_test.success_count, 1)
-        self.assertEqual(unordered_test.failure_count, 0)
+        self.assertEqual(unordered_control.sum, 1)
+        self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 0)
+        self.assertEqual(unordered_test.sum, 1)
+        self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 0)
