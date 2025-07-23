@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0800_add_sharing_token_rotation_fields"),
+        ("posthog", "0802_messagecategory_category_type_and_more_fix"),
     ]
 
     operations = [
