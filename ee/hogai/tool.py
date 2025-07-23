@@ -9,14 +9,12 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 import products
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
 
 if TYPE_CHECKING:
-    from posthog.models.team.team import Team
-    from posthog.models.user import User
-
-MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
+    from posthog.models import Team, User
 
 
 # Lower casing matters here. Do not change it.
@@ -89,7 +87,7 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
-class MaxTool(BaseTool):
+class MaxTool(AssistantContextMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -106,8 +104,8 @@ class MaxTool(BaseTool):
     """
 
     _context: dict[str, Any]
-    _team: Optional["Team"]
-    _user: Optional["User"]
+    __internal_team: Optional["Team"]
+    __internal_user: Optional["User"]
     _config: RunnableConfig
     _state: AssistantState
 
@@ -138,6 +136,18 @@ class MaxTool(BaseTool):
         if not getattr(cls, "thinking_message", None):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
+    @property
+    def _team(self) -> "Team":
+        if not self.__internal_team:
+            raise ValueError("Team not set")
+        return self.__internal_team
+
+    @property
+    def _user(self) -> "User":
+        if not self.__internal_user:
+            raise ValueError("User not set")
+        return self.__internal_user
+
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._init_run(config)
         try:
@@ -154,8 +164,8 @@ class MaxTool(BaseTool):
 
     def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team = config["configurable"]["team"]
-        self._user = config["configurable"]["user"]
+        self.__internal_team = config["configurable"]["team"]
+        self.__internal_user = config["configurable"]["user"]
         self._config = {
             "recursion_limit": 48,
             "callbacks": config.get("callbacks", []),
