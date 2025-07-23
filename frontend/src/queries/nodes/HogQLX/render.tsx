@@ -8,7 +8,7 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { InsightVizNode } from '~/queries/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
