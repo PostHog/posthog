@@ -411,7 +411,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "control_success": 8,
                     "control_failure": 5,
                     "test_success": 1,
-                    "test_failure": 12,
+                    "test_failure": 13,
                 },
             ],
         ]
@@ -487,10 +487,18 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
 
-            # Create the "later" person (with @laterevent.com email)
+            # Create the "later" person with email based on test scenario
+            if "laterevent" in name:
+                # For laterevent filter tests: most users get @laterevent.com (will be filtered out)
+                # Only one user gets different email (won't be filtered) - this creates 1 success, 12 failures
+                email = f"person_id_{i}@otherevent.com" if i == 0 else f"person_id_{i}@laterevent.com"
+            else:
+                # For other tests: use @laterevent.com consistently
+                email = f"person_id_{i}@laterevent.com"
+
             _create_person(
                 distinct_ids=[f"person_id_{i}_distinct_id_2"],
-                properties={"email": f"person_id_{i}@laterevent.com"},
+                properties={"email": email},
                 team_id=self.team.pk,
             )
             _create_event(
@@ -507,9 +515,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
             # Create purchase events based on test scenario
             if "laterevent" in name:
-                # For laterevent filter tests: only 1 user gets purchase events (1 success, 12 failure)
-                # This is because the filter will exclude most users with @laterevent.com emails
-                if i == 0:  # Only first user makes purchase
+                # For laterevent filter tests: only the first user (with @otherevent.com) should make a purchase
+                # This creates 1 success (not filtered) and 12 failures (filtered out)
+                if i == 0:  # Only user with @otherevent.com makes purchase
                     _create_event(
                         team=self.team,
                         event="purchase",
