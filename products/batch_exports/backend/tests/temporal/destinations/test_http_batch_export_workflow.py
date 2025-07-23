@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import unittest.mock
 from random import randint
 from uuid import uuid4
 
@@ -33,7 +34,6 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     HttpBatchExportInputs,
     HttpBatchExportWorkflow,
     HttpInsertInputs,
-    NonRetryableResponseError,
     RetryableResponseError,
     http_default_fields,
     insert_into_http_activity,
@@ -260,13 +260,17 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         **http_config,
     )
 
+    # this is a non-retryable error, so should not raise an exception but should return a BatchExportResult with the error
     with (
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
         override_settings(BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
     ):
-        m.post(TEST_URL, status=400, repeat=True)
-        with pytest.raises(NonRetryableResponseError):
-            await activity_environment.run(insert_into_http_activity, insert_inputs)
+        m.post(TEST_URL, status=400, body="A useful error message", repeat=True)
+        result = await activity_environment.run(insert_into_http_activity, insert_inputs)
+        assert result.error is not None
+        assert (
+            result.error == "NonRetryableResponseError: NonRetryableResponseError (status: 400): A useful error message"
+        )
 
     with (
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as m,
@@ -468,12 +472,8 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
         **http_batch_export.destination.config,
     )
 
-    @activity.defn(name="insert_into_http_activity")
-    async def insert_into_http_activity_mocked(_: HttpInsertInputs) -> str:
-        class NonRetryableResponseError(Exception):
-            pass
-
-        raise NonRetryableResponseError("A useful error message")
+    class NonRetryableResponseError(Exception):
+        pass
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -482,12 +482,15 @@ async def test_http_export_workflow_handles_insert_activity_non_retryable_errors
             workflows=[HttpBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
-                insert_into_http_activity_mocked,
+                insert_into_http_activity,
                 finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with pytest.raises(WorkflowFailureError):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.http_batch_export.aiohttp.ClientSession",
+                side_effect=NonRetryableResponseError("A useful error message"),
+            ):
                 await activity_environment.client.execute_workflow(
                     HttpBatchExportWorkflow.run,
                     inputs,
