@@ -1,4 +1,5 @@
 import { Webhook } from '@posthog/plugin-scaffold'
+// eslint-disable-next-line no-restricted-imports
 import fetch from 'node-fetch'
 
 import { buildIntegerMatcher } from '../config/config'

@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+// eslint-disable-next-line no-restricted-imports
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
