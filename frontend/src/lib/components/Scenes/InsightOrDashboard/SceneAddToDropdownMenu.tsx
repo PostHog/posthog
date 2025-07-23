@@ -13,22 +13,28 @@ import {
 import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'
 import { NotebookNodeType } from '~/types'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { SceneDataAttrKeyProps } from '../utils'
 
 type SceneAddToDropdownMenuProps = {
     onClick?: () => void
 }
 
-type SceneNotebookDropdownMenuProps = {
+type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps & {
     notebook?: boolean
     dashboard?: SceneAddToDropdownMenuProps
     shortId?: string
 }
 
-export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNotebookDropdownMenuProps): JSX.Element {
+export function SceneAddToDropdownMenu({
+    notebook,
+    dashboard,
+    shortId,
+    dataAttrKey,
+}: SceneNotebookDropdownMenuProps): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive menuItem>
+                <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-add-to-dropdown-menu`}>
                     <IconPlus />
                     Add to...
                     <DropdownMenuOpenIndicator />
@@ -39,7 +45,7 @@ export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNo
                     {notebook && (
                         <>
                             <DropdownMenuSubTrigger asChild>
-                                <ButtonPrimitive menuItem>
+                                <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu`}>
                                     Notebook
                                     <DropdownMenuOpenIndicator intent="sub" />
                                 </ButtonPrimitive>
@@ -57,6 +63,7 @@ export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNo
                                             },
                                         },
                                     }}
+                                    dataAttrKey={dataAttrKey}
                                 />
                             </DropdownMenuSubContent>
                         </>
@@ -69,6 +76,7 @@ export function SceneAddToDropdownMenu({ notebook, dashboard, shortId }: SceneNo
                             onClick={() => {
                                 dashboard.onClick?.()
                             }}
+                            data-attr={`${dataAttrKey}-add-to-dashboard-dropdown-menu`}
                         >
                             Dashboard
                         </ButtonPrimitive>

@@ -14,6 +14,21 @@ import { isAddonVisible } from 'scenes/billing/billing-utils'
 import type { maxBillingContextLogicType } from './maxBillingContextLogicType'
 import { billingSpendLogic, BillingSpendResponse } from 'scenes/billing/billingSpendLogic'
 
+// Simplified addon information for Max context
+export interface MaxAddonInfo {
+    type: string
+    name: string
+    description: string
+    is_used: boolean // current_usage > 0
+    has_exceeded_limit: boolean
+    current_usage: number
+    usage_limit?: number | null
+    percentage_usage?: number
+    docs_url?: string
+    projected_amount_usd?: string | null
+    projected_amount_usd_with_limit?: string | null
+}
+
 // Simplified product information for Max context
 export interface MaxProductInfo {
     type: string
@@ -29,23 +44,7 @@ export interface MaxProductInfo {
     docs_url?: string
     projected_amount_usd?: string | null
     projected_amount_usd_with_limit?: string | null
-}
-
-// Simplified addon information for Max context
-export interface MaxAddonInfo {
-    type: string
-    name: string
-    description: string
-    is_used: boolean // current_usage > 0
-    has_exceeded_limit: boolean
-    current_usage: number
-    usage_limit?: number | null
-    percentage_usage?: number
-    custom_limit_usd?: number | null
-    next_period_custom_limit_usd?: number | null
-    docs_url?: string
-    projected_amount_usd?: string | null
-    projected_amount_usd_with_limit?: string | null
+    addons: MaxAddonInfo[]
 }
 
 // Usage data context for Max
@@ -72,9 +71,6 @@ export interface MaxBillingContext {
 
     // Products information
     products: MaxProductInfo[]
-
-    // Addons information (flattened from all products)
-    addons: MaxAddonInfo[]
 
     // Spending
     total_current_amount_usd?: string
@@ -170,6 +166,22 @@ export const billingToMaxContext = (
             product.type,
             product.usage_key || undefined
         )
+        const addons = product.addons
+            .filter((addon) => isAddonVisible(product, addon, featureFlags))
+            .map((addon) => {
+                return {
+                    type: addon.type,
+                    name: addon.name,
+                    description: addon.description || '',
+                    is_used: (addon.current_usage || 0) > 0,
+                    has_exceeded_limit: (addon.percentage_usage || 0) > 1,
+                    current_usage: addon.current_usage || 0,
+                    usage_limit: addon.usage_limit,
+                    percentage_usage: addon.percentage_usage,
+                    docs_url: addon.docs_url || undefined,
+                    projected_amount_usd: addon.projected_amount_usd,
+                }
+            })
         return {
             type: product.type,
             name: product.name,
@@ -184,35 +196,9 @@ export const billingToMaxContext = (
             projected_amount_usd: product.projected_amount_usd,
             projected_amount_usd_with_limit: product.projected_amount_usd_with_limit,
             docs_url: product.docs_url,
+            addons: addons,
         }
     })
-
-    const maxAddons: MaxAddonInfo[] = (billing.products || [])
-        .flatMap((product) => (product.addons || []).map((addon) => ({ product, addon })))
-        .filter(({ product, addon }) => isAddonVisible(product, addon, featureFlags))
-        .map(({ addon }) => {
-            const customLimit = getCustomLimitForProduct('custom_limits_usd', addon.type, addon.usage_key || undefined)
-            const nextPeriodCustomLimit = getCustomLimitForProduct(
-                'next_period_custom_limits_usd',
-                addon.type,
-                addon.usage_key || undefined
-            )
-
-            return {
-                type: addon.type,
-                name: addon.name,
-                description: addon.description || '',
-                is_used: (addon.current_usage || 0) > 0,
-                has_exceeded_limit: (addon.percentage_usage || 0) > 1,
-                current_usage: addon.current_usage || 0,
-                usage_limit: addon.usage_limit,
-                percentage_usage: addon.percentage_usage,
-                custom_limit_usd: customLimit,
-                next_period_custom_limit_usd: nextPeriodCustomLimit,
-                docs_url: addon.docs_url || undefined,
-                projected_amount_usd: addon.projected_amount_usd,
-            }
-        })
 
     return {
         has_active_subscription: billing.has_active_subscription || false,
@@ -220,7 +206,6 @@ export const billingToMaxContext = (
         billing_plan: billing.billing_plan || null,
         is_deactivated: billing.deactivated,
         products: maxProducts,
-        addons: maxAddons,
         total_current_amount_usd: billing.current_total_amount_usd,
         projected_total_amount_usd: billing.projected_total_amount_usd,
         projected_total_amount_usd_after_discount: billing.projected_total_amount_usd_after_discount,
