@@ -19,6 +19,7 @@ from ee.hogai.graph.memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models import CoreMemory
 from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
@@ -34,8 +35,20 @@ from posthog.test.base import (
 @override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
     def get_mixin(self):
-        mixin = MemoryInitializerContextMixin()
-        mixin._team = self.team
+        class Mixin(MemoryInitializerContextMixin):
+            def __init__(self, team, user):
+                self.__team = team
+                self.__user = user
+
+            @property
+            def _team(self):
+                return self.__team
+
+            @property
+            def _user(self):
+                return self.__user
+
+        mixin = Mixin(self.team, self.user)
         return mixin
 
     def test_domain_retrieval(self):
@@ -142,9 +155,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
     def test_should_run(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(
-            node.should_run_onboarding_at_start(
-                AssistantState(messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)])
-            ),
+            node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])),
             "memory_onboarding",
         )
 
@@ -432,7 +443,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
             state = AssistantState(
-                messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)],
+                messages=[HumanMessage(content=SLASH_COMMAND_INIT)],
             )
 
             new_state = self.node.run(state, {})
@@ -471,7 +482,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
 
             # First run - should get interrupted with first question
             state = AssistantState(
-                messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)],
+                messages=[HumanMessage(content=SLASH_COMMAND_INIT)],
             )
             new_state = self.node.run(state, {})
             self.assertEqual(new_state.onboarding_question, "What is your target market?")
