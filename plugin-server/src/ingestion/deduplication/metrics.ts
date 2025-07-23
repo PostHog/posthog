@@ -23,7 +23,7 @@ export const eventsProcessedTotal = new Counter({
 
 // Duplicate breakdown by team and source
 export const duplicateBreakdownTotal = new Counter({
-    name: 'deduplication_duplicates_breakdown_total',
+    name: 'deduplication_breakdown_total',
     help: 'Total number of duplicate events broken down by source',
     labelNames: ['source'],
 })

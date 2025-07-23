@@ -31,6 +31,7 @@ export async function deduplicateEvents(
             keys: deduplicationKeys,
         })
 
+        logger.info('deduplication result', { results: result.duplicates.size })
         if (result.duplicates.size > 0) {
             duplicateReport(result.duplicates, keyToMetricDataMap)
         }
@@ -61,6 +62,7 @@ function duplicateReport(duplicates: Set<string>, keyToMetricDataMap: Map<string
         }
     })
 
+    logger.info('deduplication metric breakdown', { metricCounts })
     // Batch increment metrics - one call per unique team_id/source combination
     metricCounts.forEach(({ labels, count }) => {
         duplicateBreakdownTotal.inc(labels, count)
