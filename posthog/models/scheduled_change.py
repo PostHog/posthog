@@ -1,3 +1,4 @@
+import json
 from django.db import models
 from posthog.models.utils import RootTeamMixin
 
@@ -24,3 +25,41 @@ class ScheduledChange(RootTeamMixin, models.Model):
         indexes = [
             models.Index(fields=["scheduled_at", "executed_at"]),
         ]
+
+    @property
+    def formatted_failure_reason(self) -> str:
+        """
+        Return a user-friendly, safe failure message that excludes sensitive information.
+        """
+        if not self.failure_reason:
+            return "Unknown error"
+
+        # Try to parse as JSON (new format)
+        try:
+            failure_context = json.loads(self.failure_reason)
+
+            if isinstance(failure_context, dict) and "error" in failure_context:
+                error = failure_context.get("error", "Unknown error")
+                will_retry = failure_context.get("will_retry")
+                retry_exhausted = failure_context.get("retry_exhausted", False)
+                error_classification = failure_context.get("error_classification")
+                retry_count = failure_context.get("retry_count", 0)
+
+                # Only include the basic error message, not sensitive context
+                message = str(error)
+
+                # Add retry status info if available
+                if will_retry is False and retry_exhausted:
+                    message += f" (failed after {retry_count} attempts)"
+                elif will_retry is False and error_classification == "unrecoverable":
+                    message += " (permanent error)"
+                elif will_retry:
+                    message += " (will retry automatically)"
+
+                return message
+        except (json.JSONDecodeError, TypeError):
+            # Not JSON or invalid format, treat as plain string
+            pass
+
+        # Legacy format - return as-is (assume it's already sanitized)
+        return str(self.failure_reason)
