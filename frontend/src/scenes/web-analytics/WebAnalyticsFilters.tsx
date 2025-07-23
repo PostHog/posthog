@@ -244,7 +244,7 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
     const { compareFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
-    if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(productTab)) {
+    if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
         return null
     }
 
