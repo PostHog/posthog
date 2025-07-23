@@ -11,9 +11,6 @@ from rest_framework import status
 from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.pipelines.bigquery import BigQuerySourceConfig
-from posthog.temporal.data_imports.pipelines.schemas import (
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -29,7 +26,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
 )
 
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
+from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -92,7 +89,7 @@ class TestExternalDataSource(APIBaseTest):
         # number of schemas should match default schemas for Stripe
         self.assertEqual(
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
-            len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE]),
+            len(STRIPE_ENDPOINTS),
         )
 
     def test_create_external_data_source_delete_on_missing_schemas(self):
@@ -748,7 +745,7 @@ class TestExternalDataSource(APIBaseTest):
             self.assertEqual(response.status_code, 200)
 
             table_names = [table["table"] for table in results]
-            for table in ENDPOINTS:
+            for table in STRIPE_ENDPOINTS:
                 assert table in table_names
 
     @patch(
