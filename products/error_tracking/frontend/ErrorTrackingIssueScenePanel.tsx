@@ -10,9 +10,9 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconChevronDown } from '@posthog/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
@@ -28,7 +28,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
 
     return issue ? (
-        <div>
+        <div className="flex flex-col gap-2">
             <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttrKey={RESOURCE_TYPE} />
             <SceneDescription
                 defaultValue={issue.description ?? ''}
@@ -74,7 +74,7 @@ const IssueStatusSelect = ({
                 <DropdownMenuTrigger asChild>
                     <ButtonPrimitive fullWidth className="flex justify-between">
                         <StatusIndicator status={status} withTooltip={true} />
-                        <IconChevronDown />
+                        <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
@@ -115,13 +115,18 @@ const IssueAssigneeSelect = ({
     return (
         <ScenePanelLabel title="Assignee">
             <AssigneeSelect assignee={assignee} onChange={onChange}>
-                {(anyAssignee) => (
-                    <ButtonPrimitive menuItem fullWidth className="flex justify-between">
+                {(anyAssignee, isOpen) => (
+                    <ButtonPrimitive
+                        menuItem
+                        fullWidth
+                        className="flex justify-between"
+                        data-state={isOpen ? 'open' : 'closed'}
+                    >
                         <div className="flex items-center">
                             <AssigneeIconDisplay assignee={anyAssignee} size="small" />
                             <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
                         </div>
-                        <IconChevronDown />
+                        <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
                 )}
             </AssigneeSelect>
