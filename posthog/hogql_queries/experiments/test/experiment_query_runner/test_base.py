@@ -1785,8 +1785,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = next(variant for variant in result.variant_results if variant.key == "control")
-        test_variant = next(variant for variant in result.variant_results if variant.key == "test")
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
 
         # Control: 6 purchases with (revenue - cost) = (80, 85, 90, 95, 100, 105) = sum = 555
         expected_control_sum = sum([80, 85, 90, 95, 100, 105])
@@ -1860,8 +1861,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = next(variant for variant in result.variant_results if variant.key == "control")
-        test_variant = next(variant for variant in result.variant_results if variant.key == "test")
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
 
         # With one event per user, avg(amount) per user = amount, so we get:
         # Control: 10 + 20 + 30 = 60
@@ -1935,8 +1937,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = next(variant for variant in result.variant_results if variant.key == "control")
-        test_variant = next(variant for variant in result.variant_results if variant.key == "test")
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
 
         # Control: sum(50, 75) = 125
         self.assertEqual(control_variant.sum, 125)
