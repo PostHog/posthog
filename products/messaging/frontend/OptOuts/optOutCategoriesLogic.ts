@@ -2,7 +2,7 @@ import { kea, path, actions, reducers, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import type { optOutCategoriesLogicType } from './marketingCategoriesLogicType'
+import type { optOutCategoriesLogicType } from './optOutCategoriesLogicType'
 
 interface MessageCategory {
     id: string

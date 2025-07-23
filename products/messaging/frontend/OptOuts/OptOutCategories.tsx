@@ -3,9 +3,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { IconPlusSmall, IconGear } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { optOutCategoriesLogic } from './marketingCategoriesLogic'
+import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
 import { NewCategoryModal } from './NewCategoryModal'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 interface MessageCategory {
     id: string
@@ -43,9 +44,9 @@ export function OptOutCategories(): JSX.Element {
                     <div className="font-medium">{category.name}</div>
                     <div className="text-xs text-muted">{category.description}</div>
                 </div>
-                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                    <LemonTag type={category.category_type === 'marketing' ? 'success' : 'default'}>
-                        {category.category_type}
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
+                        {capitalizeFirstLetter(category.category_type)}
                     </LemonTag>
                     <LemonButton icon={<IconGear />} size="small" onClick={() => handleEditCategory(category)}>
                         Edit

@@ -2,7 +2,7 @@ import { kea, path, actions, listeners, props, key } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { optOutCategoriesLogic } from './marketingCategoriesLogic'
+import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 import type { newCategoryLogicType } from './newCategoryLogicType'
 
