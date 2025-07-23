@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 from _pytest.terminal import TerminalReporter
-from braintrust import EvalAsync, init_logger
+from braintrust import EvalAsync, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
@@ -34,6 +34,7 @@ async def MaxEval(
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
+    metadata: Metadata | None = None,
 ):
     # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
@@ -48,6 +49,7 @@ async def MaxEval(
         timeout=60 * 8,
         max_concurrency=20,
         is_public=True,
+        metadata=metadata,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:

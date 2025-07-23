@@ -10,23 +10,23 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
 )
-from posthog.event_usage import report_user_action
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_perplexity import ChatPerplexity
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
-from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
+from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
 from posthog.schema import (
     AssistantForm,
     AssistantFormOption,
@@ -61,9 +61,7 @@ from .prompts import (
 )
 
 
-class MemoryInitializerContextMixin:
-    _team: Team
-
+class MemoryInitializerContextMixin(AssistantContextMixin):
     def _retrieve_context(self):
         # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(
