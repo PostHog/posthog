@@ -2488,14 +2488,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         campaignCostsBreakdown: [
             (s) => [
                 s.loading,
-                s.dateFilter,
+                s.marketingDateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
                 s.dynamicConversionGoal,
             ],
             (
                 loading: boolean,
-                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
                 dynamicConversionGoal: ConversionGoalFilter | null
@@ -2509,8 +2509,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     source: {
                         kind: NodeKind.MarketingAnalyticsTableQuery,
                         dateRange: {
-                            date_from: dateFilter.dateFrom,
-                            date_to: dateFilter.dateTo,
+                            date_from: marketingDateFilter.dateFrom,
+                            date_to: marketingDateFilter.dateTo,
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
