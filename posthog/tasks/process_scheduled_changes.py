@@ -1,7 +1,6 @@
 import json
 import os
 import socket
-from datetime import datetime
 from posthog.models import ScheduledChange
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
@@ -88,7 +87,6 @@ def process_scheduled_changes() -> None:
                     failure_context: dict[str, str | int | bool] = {
                         "error": str(e),
                         "error_type": e.__class__.__name__,
-                        "timestamp": datetime.now().isoformat(),
                     }
 
                     # Add execution context

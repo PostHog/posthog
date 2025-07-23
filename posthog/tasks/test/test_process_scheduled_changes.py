@@ -150,7 +150,6 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         failure_data = json.loads(failure_reason)
         self.assertEqual(failure_data["error"], "Invalid payload")
         self.assertEqual(failure_data["error_type"], "Exception")
-        self.assertIn("timestamp", failure_data)
         self.assertIn("hostname", failure_data)
         # Note: scheduled_change_id, model, team_id, etc. are already in the ScheduledChange table columns
 
@@ -321,6 +320,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(active_change["before"], False)  # type: ignore
         self.assertEqual(active_change["after"], True)  # type: ignore
 
+    @freeze_time("2023-12-21T09:00:00Z")
     def test_updated_at_field_tracks_processing_time(self) -> None:
         """Test that updated_at is automatically updated when scheduled changes are processed"""
         feature_flag = FeatureFlag.objects.create(
@@ -345,28 +345,25 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         original_created_at = scheduled_change.created_at
         original_updated_at = scheduled_change.updated_at
 
-        # Initially, created_at and updated_at should be the same (or very close)
-        # due to the new auto_now=True behavior
+        # Initially, created_at and updated_at should be the same due to creation time
+        self.assertEqual(original_created_at, original_updated_at)
 
-        # Wait a moment to ensure timestamp difference
-        import time
+        # Advance time to simulate processing delay
+        with freeze_time("2023-12-21T09:00:10Z"):
+            # Process the scheduled change
+            process_scheduled_changes()
 
-        time.sleep(0.1)
+            # Refresh the scheduled change from database
+            updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
 
-        # Process the scheduled change
-        process_scheduled_changes()
+            # Verify that updated_at was modified when the change was processed
+            self.assertEqual(updated_scheduled_change.created_at, original_created_at)
+            self.assertGreater(updated_scheduled_change.updated_at, original_updated_at)
 
-        # Refresh the scheduled change from database
-        updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
-
-        # Verify that updated_at was modified when the change was processed
-        self.assertEqual(updated_scheduled_change.created_at, original_created_at)
-        self.assertGreater(updated_scheduled_change.updated_at, original_updated_at)
-
-        # Verify the change was processed successfully
-        self.assertIsNotNone(updated_scheduled_change.executed_at)
-        self.assertIsNone(updated_scheduled_change.failure_reason)
-        self.assertEqual(updated_scheduled_change.failure_count, 0)  # No failures for successful processing
+            # Verify the change was processed successfully
+            self.assertIsNotNone(updated_scheduled_change.executed_at)
+            self.assertIsNone(updated_scheduled_change.failure_reason)
+            self.assertEqual(updated_scheduled_change.failure_count, 0)  # No failures for successful processing
 
     def test_recoverable_error_allows_retry(self) -> None:
         """Test that recoverable errors don't set executed_at, allowing retries"""
