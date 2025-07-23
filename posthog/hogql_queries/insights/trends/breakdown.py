@@ -127,10 +127,8 @@ class Breakdown:
                 )
             return breakdowns
 
-        # Handle cohort breakdown lists for LEFTJOIN_CONJOINED mode
         if (
             isinstance(breakdown_filter.breakdown, list)
-            and breakdown_filter.breakdown_type == BreakdownType.COHORT
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
             return [
@@ -139,40 +137,6 @@ class Breakdown:
                     expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
                 )
             ]
-
-        # Handle cohort breakdown lists for all other modes
-        # This handles cases where filters_override applies cohort breakdown lists
-        # but update_hogql_modifiers() hasn't run or hasn't set LEFTJOIN_CONJOINED
-        if isinstance(breakdown_filter.breakdown, list) and breakdown_filter.breakdown_type == BreakdownType.COHORT:
-            # For multi-element lists, we should use LEFTJOIN_CONJOINED approach
-            # but since modifiers might not be updated, we'll handle it the same way
-            if len(breakdown_filter.breakdown) > 1:
-                # Force the LEFTJOIN_CONJOINED behavior for multi-cohort breakdowns
-                # and update modifiers to ensure consistency downstream
-                if self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED:
-                    self.modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
-                return [
-                    ast.Alias(
-                        alias=self.breakdown_alias,
-                        expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
-                    )
-                ]
-            elif len(breakdown_filter.breakdown) == 1:
-                # For single-element lists, extract the cohort ID and process normally
-                cohort_breakdown = breakdown_filter.breakdown[0]
-                return [
-                    self._get_breakdown_col_expr(
-                        self.breakdown_alias,
-                        value=cohort_breakdown,
-                        breakdown_type=breakdown_filter.breakdown_type,
-                        normalize_url=breakdown_filter.breakdown_normalize_url,
-                        histogram_bin_count=breakdown_filter.breakdown_histogram_bin_count,
-                        group_type_index=breakdown_filter.breakdown_group_type_index,
-                    )
-                ]
-            else:
-                # Empty list, fall through to assertion
-                pass
 
         assert not isinstance(breakdown_filter.breakdown, list)  # type checking
         assert breakdown_filter.breakdown is not None  # type checking

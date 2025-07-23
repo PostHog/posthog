@@ -5719,52 +5719,41 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_cohort_breakdown_list_assertion_error_scenario(self):
-        # Create a cohort
+        """
+        In trends query runner, we run a couple things after init. When updating filters, make sure they get run again.
+        """
+        self._create_test_events()
+
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
             name="test cohort",
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        # Create a query with cohort breakdown as a list (the problematic case)
-        query = TrendsQuery(
+        base_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
             interval=IntervalType.DAY,
-            breakdownFilter=BreakdownFilter(
+        )
+
+        # Apply filters_override with cohort breakdown list (like from dashboard)
+        from posthog.schema import DashboardFilter
+
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(
                 breakdown_type=BreakdownType.COHORT,
-                breakdown=[cohort.pk],  # This is a list, not a single value
-            ),
+                breakdown=[cohort.pk],  # This is a list - the problematic case
+            )
         )
 
-        # Create the trends query builder to trigger the assertion
-        from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-        from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        runner = TrendsQueryRunner(team=self.team, query=base_query)
+        runner.apply_dashboard_filters(filters_override)
 
-        query_date_range = QueryDateRange(
-            date_range=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
-            team=self.team,
-            interval=IntervalType.DAY,
-            now=datetime.now(),
-        )
-
-        modifiers = create_default_modifiers_for_team(self.team)
-
-        builder = TrendsQueryBuilder(
-            trends_query=query,
-            team=self.team,
-            query_date_range=query_date_range,
-            series=query.series[0],
-            timings=None,
-            modifiers=modifiers,
-            limit_context=None,
-        )
-
-        breakdown = builder.breakdown
-        column_exprs = breakdown.column_exprs
+        # This is the call that would fail with assertion error before the fix
+        response = runner.calculate()
 
         # If we get here, the fix is working
-        self.assertIsNotNone(column_exprs)
-        self.assertEqual(len(column_exprs), 1)
+        self.assertIsNotNone(response)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
