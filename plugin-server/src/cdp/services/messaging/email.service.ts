@@ -1,10 +1,10 @@
 import crypto from 'crypto'
-import express from 'express'
 import { Counter } from 'prom-client'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { ModifiedRequest } from '~/router'
 import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
@@ -139,7 +139,9 @@ export class EmailService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Basic ${this.hub.MAILJET_PUBLIC_KEY}:${this.hub.MAILJET_SECRET_KEY}`,
+                    Authorization: `Basic ${Buffer.from(
+                        `${this.hub.MAILJET_PUBLIC_KEY}:${this.hub.MAILJET_SECRET_KEY}`
+                    ).toString('base64')}`,
                 },
                 body: JSON.stringify({
                     Messages: [
@@ -196,9 +198,7 @@ export class EmailService {
     }
 
     // eslint-disable-next-line @typescript-eslint/require-await
-    public async handleWebhook(
-        req: express.Request & { rawBody?: Buffer }
-    ): Promise<{ status: number; message?: string }> {
+    public async handleWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         const signature = req.headers['x-mailjet-signature'] as string
         const timestamp = req.headers['x-mailjet-timestamp'] as string
 

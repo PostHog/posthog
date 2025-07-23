@@ -482,7 +482,8 @@ export class CdpApi {
             try {
                 const { status, message } = await this.emailService.handleWebhook(req)
 
-                return res.status(status).send(message)
+                console.log('status', status, message)
+                return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
             }

@@ -13,6 +13,10 @@ import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixture
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CdpApi } from '~/cdp/cdp-api'
+import supertest from 'supertest'
+import { send } from 'process'
+import { setupExpressApp } from '~/router'
 
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
@@ -39,49 +43,6 @@ describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
     let team: Team
-    const secretKey = 'test-secret-key'
-
-    const createMockRequest = (
-        options: {
-            headers?: Record<string, string>
-            body?: any
-            rawBody?: Buffer
-        } = {}
-    ): express.Request & { rawBody?: Buffer } => {
-        return {
-            headers: options.headers || {},
-            body: options.body || {},
-            rawBody: options.rawBody || Buffer.from(''),
-            get: () => undefined,
-            header: () => undefined,
-            accepts: () => false,
-            acceptsCharsets: () => false,
-            acceptsEncodings: () => false,
-            acceptsLanguages: () => false,
-            param: () => undefined,
-            is: () => false,
-            protocol: 'http',
-            ip: '127.0.0.1',
-            ips: [],
-            subdomains: [],
-            path: '/',
-            hostname: 'localhost',
-            host: 'localhost',
-            fresh: false,
-            stale: true,
-            xhr: false,
-            cookies: {},
-            method: 'POST',
-            params: {},
-            query: {},
-            route: {},
-            secure: false,
-            signedCookies: {},
-            originalUrl: '/',
-            url: '/',
-            baseUrl: '/',
-        } as unknown as express.Request & { rawBody?: Buffer }
-    }
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -195,7 +156,7 @@ describe('EmailService', () => {
                       {
                         "body": "{"Messages":[{"From":{"Email":"test@posthog.com","Name":"Test User"},"To":[{"Email":"test@example.com","Name":"Test User"}],"Subject":"Test Subject","TextPart":"Test Text","HTMLPart":"Test HTML","URLTags":"ph_fn_id=function-1&ph_inv_id=invocation-1"}]}",
                         "headers": {
-                          "Authorization": "Basic mailjet-public-key:mailjet-secret-key",
+                          "Authorization": "Basic bWFpbGpldC1wdWJsaWMta2V5Om1haWxqZXQtc2VjcmV0LWtleQ==",
                           "Content-Type": "application/json",
                         },
                         "method": "POST",
@@ -207,24 +168,36 @@ describe('EmailService', () => {
     })
 
     describe('handleWebhook', () => {
-        it('should return 403 if required headers are missing', async () => {
-            const req = createMockRequest()
+        // NOTE: These tests are done via the CdpApi router so we can get full coverage of the code
+        let api: CdpApi
+        let app: express.Application
 
-            const result = await service.handleWebhook(req)
-            expect(result.status).toBe(403)
-            expect(result.message).toBe('Missing required headers or body')
+        beforeEach(() => {
+            api = new CdpApi(hub)
+            app = setupExpressApp()
+            app.use('/', api.router())
+        })
+
+        it('should return 403 if required headers are missing', async () => {
+            const res = await supertest(app).post(`/public/messaging/mailjet_webhook`).send({})
+
+            expect(res.status).toBe(403)
+            expect(res.body).toMatchInlineSnapshot(`
+                {
+                  "message": "Missing required headers or body",
+                }
+            `)
         })
 
         it('should return 403 if signature is invalid', async () => {
             const timestamp = Date.now().toString()
-            const payload = 'test-payload'
-            const req = createMockRequest({
-                headers: {
+            const res = await supertest(app)
+                .post(`/public/messaging/mailjet_webhook`)
+                .set({
                     'x-mailjet-signature': 'invalid-signature',
                     'x-mailjet-timestamp': timestamp,
-                },
-                rawBody: Buffer.from(payload),
-                body: {
+                })
+                .send({
                     event: 'sent',
                     time: Date.now(),
                     email: 'test@example.com',
@@ -233,12 +206,14 @@ describe('EmailService', () => {
                     message_id: 'test-message-id',
                     custom_id: 'test-custom-id',
                     payload: {},
-                },
-            })
+                })
 
-            const result = await service.handleWebhook(req)
-            expect(result.status).toBe(403)
-            expect(result.message).toBe('Invalid signature')
+            expect(res.status).toBe(403)
+            expect(res.body).toMatchInlineSnapshot(`
+                {
+                  "message": "Invalid signature",
+                }
+            `)
         })
 
         it('should process valid webhook events', async () => {
@@ -253,20 +228,26 @@ describe('EmailService', () => {
                 custom_id: 'test-custom-id',
                 payload: {},
             })
-            const signature = crypto.createHmac('sha256', secretKey).update(`${timestamp}.${payload}`).digest('hex')
+            const signature = crypto
+                .createHmac('sha256', hub.MAILJET_SECRET_KEY)
+                .update(`${timestamp}.${payload}`)
+                .digest('hex')
 
-            const req = createMockRequest({
-                headers: {
+            const res = await supertest(app)
+                .post(`/public/messaging/mailjet_webhook`)
+                .set({
                     'x-mailjet-signature': signature,
                     'x-mailjet-timestamp': timestamp,
-                },
-                rawBody: Buffer.from(payload),
-                body: parseJSON(payload),
-            })
+                    'content-type': 'application/json',
+                })
+                .send(payload)
 
-            const result = await service.handleWebhook(req)
-            expect(result.status).toBe(200)
-            expect(result.message).toBe('OK')
+            expect(res.status).toBe(200)
+            expect(res.body).toMatchInlineSnapshot(`
+                {
+                  "message": "OK",
+                }
+            `)
         })
 
         it.each([
@@ -317,20 +298,22 @@ describe('EmailService', () => {
                 payload: {},
                 ...extraFields,
             })
-            const signature = crypto.createHmac('sha256', secretKey).update(`${timestamp}.${payload}`).digest('hex')
+            const signature = crypto
+                .createHmac('sha256', hub.MAILJET_SECRET_KEY)
+                .update(`${timestamp}.${payload}`)
+                .digest('hex')
 
-            const req = createMockRequest({
-                headers: {
+            const res = await supertest(app)
+                .post(`/public/messaging/mailjet_webhook`)
+                .set({
                     'x-mailjet-signature': signature,
                     'x-mailjet-timestamp': timestamp,
-                },
-                rawBody: Buffer.from(payload),
-                body: parseJSON(payload),
-            })
+                    'content-type': 'application/json',
+                })
+                .send(payload)
 
-            const result = await service.handleWebhook(req)
-            expect(result.status).toBe(200)
-            expect(result.message).toBe('OK')
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ message: 'OK' })
         })
     })
 })
