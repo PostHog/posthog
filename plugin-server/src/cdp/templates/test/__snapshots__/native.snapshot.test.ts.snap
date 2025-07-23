@@ -11,6 +11,7 @@ exports[`Testing snapshots for native-webhook destination: all fields 1`] = `
       "category": [
         "Custom",
       ],
+      "code_language": "javascript",
       "created_at": "2024-01-01T00:00:00Z",
       "deleted": false,
       "description": "Sends a native webhook templated by the incoming event data",
@@ -301,6 +302,7 @@ exports[`Testing snapshots for native-webhook destination: required fields 1`] =
       "category": [
         "Custom",
       ],
+      "code_language": "javascript",
       "created_at": "2024-01-01T00:00:00Z",
       "deleted": false,
       "description": "Sends a native webhook templated by the incoming event data",
