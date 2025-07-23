@@ -1,7 +1,18 @@
 from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase
 
-from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature, Project
+from posthog.models import (
+    Team,
+    User,
+    Insight,
+    Dashboard,
+    FeatureFlag,
+    Annotation,
+    EarlyAccessFeature,
+    Project,
+    EventDefinition,
+    PropertyDefinition,
+)
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
 
@@ -395,3 +406,111 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
             if "organization environments rollback completed" in str(call)
         ]
         self.assertEqual(len(completion_calls), 1)
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_event_definition_project_id_update(self, mock_get_client: MagicMock) -> None:
+        """Test that EventDefinition project_ids are updated when teams move to new projects"""
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        # Create event definitions in both environments
+        staging_event = EventDefinition.objects.create(team=staging_env, name="user_signup", project_id=main_project.id)
+        production_event = EventDefinition.objects.create(
+            team=production_env, name="button_click", project_id=main_project.id
+        )
+        internal_event = EventDefinition.objects.create(team=staging_env, name="$pageview", project_id=main_project.id)
+
+        # Verify initial state
+        self.assertEqual(staging_event.project_id, main_project.id)
+        self.assertEqual(production_event.project_id, main_project.id)
+        self.assertEqual(internal_event.project_id, main_project.id)
+
+        environments_rollback_migration(
+            organization_id=self.organization.id,
+            environment_mappings={str(staging_env.id): production_env.id},
+            user_id=self.user.id,
+        )
+
+        # Refresh all objects from database
+        staging_event.refresh_from_db()
+        production_event.refresh_from_db()
+        internal_event.refresh_from_db()
+        staging_env.refresh_from_db()
+        production_env.refresh_from_db()
+
+        # Verify EventDefinitions stay with their original teams but get correct project_ids
+        # Staging events should remain on staging team (but staging team was moved to new project)
+        self.assertEqual(staging_event.team_id, staging_env.id)  # Stays with original team
+        self.assertEqual(internal_event.team_id, staging_env.id)  # Stays with original team
+        self.assertEqual(production_event.team_id, production_env.id)  # Stays with original team
+
+        # All EventDefinitions should have project_id matching their team's current project_id
+        self.assertEqual(staging_event.project_id, staging_env.project_id)  # Follows team's new project
+        self.assertEqual(internal_event.project_id, staging_env.project_id)  # Follows team's new project
+        self.assertEqual(production_event.project_id, production_env.project_id)
+
+        # Verify business logic for teams that got moved to new projects
+        # The staging team should have been moved to a new project where team.id == team.project_id
+        self.assertEqual(staging_env.id, staging_env.project_id)
+        self.assertNotEqual(staging_env.project_id, main_project.id)
+
+        # Production team should stay in main project (so team.id != team.project_id in this case)
+        self.assertEqual(production_env.project_id, main_project.id)
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_property_definition_project_id_update(self, mock_get_client: MagicMock) -> None:
+        """Test that PropertyDefinition project_ids are updated when teams move to new projects"""
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        # Create property definitions in both environments
+        staging_prop = PropertyDefinition.objects.create(
+            team=staging_env, name="user_id", type=PropertyDefinition.Type.EVENT, project_id=main_project.id
+        )
+        production_prop = PropertyDefinition.objects.create(
+            team=production_env,
+            name="session_duration",
+            type=PropertyDefinition.Type.SESSION,
+            project_id=main_project.id,
+        )
+        person_prop = PropertyDefinition.objects.create(
+            team=staging_env, name="email", type=PropertyDefinition.Type.PERSON, project_id=main_project.id
+        )
+
+        environments_rollback_migration(
+            organization_id=self.organization.id,
+            environment_mappings={str(staging_env.id): production_env.id},
+            user_id=self.user.id,
+        )
+
+        # Refresh all objects from database
+        staging_prop.refresh_from_db()
+        production_prop.refresh_from_db()
+        person_prop.refresh_from_db()
+        staging_env.refresh_from_db()
+        production_env.refresh_from_db()
+
+        # Verify PropertyDefinitions stay with their original teams but get correct project_ids
+        self.assertEqual(staging_prop.team_id, staging_env.id)  # Stays with original team
+        self.assertEqual(person_prop.team_id, staging_env.id)  # Stays with original team
+        self.assertEqual(production_prop.team_id, production_env.id)  # Stays with original team
+
+        # All PropertyDefinitions should have project_id matching their team's current project_id
+        self.assertEqual(staging_prop.project_id, staging_env.project_id)  # Follows team's new project
+        self.assertEqual(person_prop.project_id, staging_env.project_id)  # Follows team's new project
+        self.assertEqual(production_prop.project_id, production_env.project_id)
+
+        # Production team should stay in main project
+        self.assertEqual(production_env.project_id, main_project.id)
