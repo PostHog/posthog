@@ -16,7 +16,7 @@ import {
 } from './metrics'
 import { applyEventPropertyUpdates } from './person-update'
 import { PersonsStore } from './persons-store'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 
 type MethodName =
     | 'fetchForChecking'
@@ -100,7 +100,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
-    flush(): Promise<TopicMessage[]> {
+    flush(): Promise<FlushResult[]> {
         return Promise.resolve([])
     }
 
