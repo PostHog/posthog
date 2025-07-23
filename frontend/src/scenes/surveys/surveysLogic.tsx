@@ -349,27 +349,6 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
         ],
-        surveysHTMLAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML),
-        ],
-        surveysMultipleQuestionsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
-        ],
-        surveysRecurringScheduleAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_RECURRING),
-        ],
-        surveysEventsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_EVENTS),
-        ],
-        surveysActionsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean) =>
-                hasAvailableFeature(AvailableFeature.SURVEYS_ACTIONS),
-        ],
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam],
             (currentTeam) => {

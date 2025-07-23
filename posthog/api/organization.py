@@ -32,7 +32,6 @@ from posthog.permissions import (
     APIScopePermission,
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
-    OrganizationInviteSettingsPermission,
     OrganizationMemberPermissions,
     extract_organization,
 )
@@ -215,8 +214,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
 
-            if "members_can_invite" in self.request.data:
-                create_permissions.append(OrganizationInviteSettingsPermission())
+            if any(key in self.request.data for key in ["members_can_invite", "members_can_use_personal_api_keys"]):
+                create_permissions.append(OrganizationAdminWritePermissions())
 
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())

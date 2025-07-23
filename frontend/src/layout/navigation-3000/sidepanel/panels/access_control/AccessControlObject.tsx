@@ -17,7 +17,7 @@ import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter, fullName } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -29,8 +29,6 @@ import {
     AccessControlTypeRole,
     AvailableFeature,
     OrganizationMemberType,
-    RoleMemberType,
-    RoleType,
 } from '~/types'
 
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
@@ -141,7 +139,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             people={(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members?.map(
                                 (member) => ({
                                     email: membersById[member]?.user.email,
-                                    name: fullName(membersById[member]?.user),
+                                    name: membersById[member]?.user.first_name,
                                 })
                             )}
                         />
@@ -157,16 +155,16 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         <div>
                             <p className="font-medium mb-0">
                                 {member(ac as AccessControlTypeMember)?.user.uuid == user.uuid
-                                    ? `${fullName(member(ac as AccessControlTypeMember)?.user)} (you)`
-                                    : fullName(member(ac as AccessControlTypeMember)?.user)}
+                                    ? `${member(ac as AccessControlTypeMember)?.user.first_name} (you)`
+                                    : member(ac as AccessControlTypeMember)?.user.first_name}
                             </p>
                             <p className="text-secondary mb-0">{member(ac as AccessControlTypeMember)?.user.email}</p>
                         </div>
                     </div>
                 ),
             sorter: (a, b) =>
-                fullName(member(a as AccessControlTypeMember)?.user).localeCompare(
-                    fullName(member(b as AccessControlTypeMember)?.user)
+                member(a as AccessControlTypeMember)?.user.first_name.localeCompare(
+                    member(b as AccessControlTypeMember)?.user.first_name
                 ),
         },
         {
@@ -242,9 +240,9 @@ function AccessControlObjectUsers(): JSX.Element | null {
                         setModelOpen(false)
                     }
                 }}
-                options={addableMembers.map((member: OrganizationMemberType) => ({
+                options={addableMembers.map((member) => ({
                     key: member.id,
-                    label: `${fullName(member.user)} ${member.user.email}`,
+                    label: `${member.user.first_name} ${member.user.email}`,
                     labelComponent: <UserSelectItem user={member.user} />,
                 }))}
             />
@@ -287,10 +285,10 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 return (
                     <ProfileBubbles
                         people={
-                            rolesById[role]?.members?.map((member: RoleMemberType) => ({
+                            rolesById[role]?.members?.map((member) => ({
                                 email: member.user.email,
-                                name: fullName(member.user),
-                                title: `${fullName(member.user)} <${member.user.email}>`,
+                                name: member.user.first_name,
+                                title: `${member.user.first_name} <${member.user.email}>`,
                             })) ?? []
                         }
                     />
@@ -355,7 +353,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                         setModelOpen(false)
                     }
                 }}
-                options={addableRoles.map((role: RoleType) => ({
+                options={addableRoles.map((role) => ({
                     key: role.id,
                     label: role.name,
                 }))}

@@ -64,8 +64,8 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td>Personal API Key ({{ personal_api_key_hash_mode }})</td>
-                            <td>{{ personal_api_key_object.label }}</td>
+                            <td><a href="/admin/posthog/personalapikey/{{ personal_api_key_object.id }}/change/">Personal API Key ({{ personal_api_key_hash_mode }})</a></td>
+                            <td><a href="/admin/posthog/personalapikey/{{ personal_api_key_object.id }}/change/">{{ personal_api_key_object.label }}</a></td>
                             <td><a href="/admin/posthog/user/{{ personal_api_key_object.user.id }}/change/">{{ personal_api_key_object.user.email }}</a></td>
                             <td>{{ personal_api_key_object.scopes }}</td>
                             <td>

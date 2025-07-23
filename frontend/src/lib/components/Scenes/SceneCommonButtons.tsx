@@ -1,8 +1,19 @@
-import { IconCopy, IconShare, IconStar, IconStarFilled } from '@posthog/icons'
+import {
+    IconCopy,
+    IconShare,
+    IconExpand45,
+    IconPin,
+    IconPinFilled,
+    IconRewindPlay,
+    IconStar,
+    IconStarFilled,
+    IconComment,
+} from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { SceneDataAttrKeyProps } from './utils'
 import { useActions } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import posthog from 'posthog-js'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
@@ -10,28 +21,40 @@ import { SidePanelTab } from '~/types'
 type SceneCommonButtonsButtonProps = {
     onClick?: () => void
     active?: boolean
+    to?: string
 }
 
-type SceneCommonButtonsProps = {
+type SceneCommonButtonsProps = SceneDataAttrKeyProps & {
     duplicate?: SceneCommonButtonsButtonProps
     favorite?: SceneCommonButtonsButtonProps
-    comment?: boolean
     share?: SceneCommonButtonsButtonProps
+    pinned?: SceneCommonButtonsButtonProps
+    fullscreen?: SceneCommonButtonsButtonProps
+    recordings?: SceneCommonButtonsButtonProps
+    comment?: boolean
 }
 
-export function SceneCommonButtons({ duplicate, favorite, comment, share }: SceneCommonButtonsProps): JSX.Element {
+export function SceneCommonButtons({
+    duplicate,
+    favorite,
+    share,
+    pinned,
+    fullscreen,
+    recordings,
+    comment,
+    dataAttrKey,
+}: SceneCommonButtonsProps): JSX.Element {
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
 
     return (
-        <div className="grid grid-cols-2 gap-1">
+        <div className="flex gap-1">
             {favorite && (
                 <ButtonPrimitive
                     onClick={favorite.onClick}
                     tooltip={favorite.active ? 'Remove from favorites' : 'Add to favorites'}
                     active={favorite.active}
-                    fullWidth
-                    className="justify-center"
+                    className="justify-center flex-1"
                     menuItem
                 >
                     {favorite.active ? <IconStarFilled className="text-warning" /> : <IconStar />}
@@ -65,12 +88,53 @@ export function SceneCommonButtons({ duplicate, favorite, comment, share }: Scen
                 <ButtonPrimitive
                     onClick={duplicate.onClick}
                     tooltip="Duplicate"
-                    fullWidth
-                    className="justify-center"
+                    className="justify-center flex-1"
                     menuItem
+                    data-attr={`${dataAttrKey}-duplicate`}
                 >
                     <IconCopy />
                 </ButtonPrimitive>
+            )}
+
+            {pinned && (
+                <ButtonPrimitive
+                    onClick={pinned.onClick}
+                    tooltip={pinned.active ? 'Unpin' : 'Pin'}
+                    active={pinned.active}
+                    className="justify-center flex-1"
+                    menuItem
+                    data-attr={`${dataAttrKey}-pin`}
+                >
+                    {pinned.active ? <IconPinFilled className="text-warning" /> : <IconPin />}
+                </ButtonPrimitive>
+            )}
+
+            {fullscreen && (
+                <ButtonPrimitive
+                    onClick={fullscreen.onClick}
+                    tooltip={fullscreen.active ? 'Exit fullscreen' : 'Fullscreen'}
+                    active={fullscreen.active}
+                    className="justify-center flex-1"
+                    menuItem
+                    data-attr={`${dataAttrKey}-fullscreen`}
+                >
+                    <IconExpand45 />
+                </ButtonPrimitive>
+            )}
+
+            {recordings && (
+                <Link
+                    onClick={recordings.onClick}
+                    to={recordings.to}
+                    tooltip="View recordings"
+                    className="justify-center flex-1"
+                    buttonProps={{
+                        menuItem: true,
+                    }}
+                    data-attr={`${dataAttrKey}-view-recordings`}
+                >
+                    <IconRewindPlay />
+                </Link>
             )}
         </div>
     )

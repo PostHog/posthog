@@ -13,7 +13,6 @@ import { capitalizeFirstLetter } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { useEffect, useMemo, useState } from 'react'
-import { fullName } from 'lib/utils'
 
 import { AccessControlLevel, APIScopeObject, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
 
@@ -64,7 +63,7 @@ export function ResourcesAccessControls(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <ProfilePicture user={organization_member!.user} />
                         <div>
-                            <p className="font-medium mb-0">{fullName(organization_member!.user)}</p>
+                            <p className="font-medium mb-0">{organization_member!.user.first_name}</p>
                             <p className="text-secondary mb-0">{organization_member!.user.email}</p>
                         </div>
                     </div>
@@ -95,13 +94,11 @@ export function ResourcesAccessControls(): JSX.Element {
                     <div className="flex space-x-2">
                         {role!.members.length ? (
                             <ProfileBubbles
-                                people={
-                                    role?.members?.map((member) => ({
-                                        email: member.user.email,
-                                        name: fullName(member.user),
-                                        title: `${fullName(member.user)} <${member.user.email}>`,
-                                    })) ?? []
-                                }
+                                people={role!.members.map((member) => ({
+                                    email: member.user.email,
+                                    name: member.user.first_name,
+                                    title: `${member.user.first_name} <${member.user.email}>`,
+                                }))}
                             />
                         ) : (
                             'No members'
@@ -157,7 +154,7 @@ export function ResourcesAccessControls(): JSX.Element {
                 onAdd={handleAddMemberAccess}
                 options={addableMembers.map((member) => ({
                     key: member.id,
-                    label: `${fullName(member.user)} ${member.user.email}`,
+                    label: `${member.user.first_name} ${member.user.email}`,
                     labelComponent: <UserSelectItem user={member.user} />,
                 }))}
                 type="member"
@@ -182,7 +179,7 @@ export function ResourcesAccessControls(): JSX.Element {
         getRole: (item: T) => RoleType | undefined,
         getMember: (item: T) => OrganizationMemberType | undefined
     ): LemonTableColumns<T> {
-        return resources.map((resource: APIScopeObject) => ({
+        return resources.map((resource) => ({
             title: resource.replace(/_/g, ' ') + 's',
             key: resource,
             width: 0,
@@ -192,12 +189,10 @@ export function ResourcesAccessControls(): JSX.Element {
                 const organization_member = getMember(item)
                 const ac = accessControlByResource[resource]
 
-                const options: { value: string | null; label: string }[] = availableLevels.map(
-                    (level: AccessControlLevel) => ({
-                        value: level,
-                        label: capitalizeFirstLetter(level ?? ''),
-                    })
-                )
+                const options: { value: string | null; label: string }[] = availableLevels.map((level) => ({
+                    value: level,
+                    label: capitalizeFirstLetter(level ?? ''),
+                }))
                 options.push({
                     value: null,
                     label: 'No override',
@@ -238,13 +233,13 @@ export function ResourcesAccessControls(): JSX.Element {
     function createMemberResourceColumns(): LemonTableColumns<MemberResourceAccessControls> {
         return createResourceColumnsForType<MemberResourceAccessControls>(
             () => undefined,
-            (item: MemberResourceAccessControls) => item.organization_member
+            (item) => item.organization_member
         )
     }
 
     function createRoleResourceColumns(): LemonTableColumns<RoleResourceAccessControls> {
         return createResourceColumnsForType<RoleResourceAccessControls>(
-            (item: RoleResourceAccessControls) => item.role,
+            (item) => item.role,
             () => undefined
         )
     }
