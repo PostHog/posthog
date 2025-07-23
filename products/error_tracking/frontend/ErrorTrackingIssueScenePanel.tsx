@@ -21,17 +21,19 @@ import { StatusIndicator } from './components/Indicator'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { ExternalReferences } from './components/ExternalReferences'
 
+const RESOURCE_TYPE = 'issue'
+
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
 
     return issue ? (
         <div>
-            <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttr="issue-name" />
+            <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttrKey={RESOURCE_TYPE} />
             <SceneDescription
                 defaultValue={issue.description ?? ''}
                 onSave={updateDescription}
-                dataAttr="issue-description"
+                dataAttrKey={RESOURCE_TYPE}
             />
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
@@ -52,6 +54,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                             )
                         },
                     }}
+                    dataAttrKey={RESOURCE_TYPE}
                 />
             </ScenePanelCommonActions>
         </div>
