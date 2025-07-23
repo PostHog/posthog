@@ -34,7 +34,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.test.test_journeys import journeys_for
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -740,119 +739,85 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User completes both steps within custom conversion window (24 hours)
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T10:00:00",  # Within 24 hours of pageview
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User completes first step but second step is outside conversion window
-                "user_control_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T14:00:00",  # Outside 24 hours window (25 hours after pageview)
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # Test variant: completes both steps within window
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T10:30:00",  # Within 24 hours of pageview
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # Test variant: completes first step but second step outside window
-                "user_test_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T15:00:00",  # Outside 24 hours window
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Control group: 8 successful funnels (within window), 5 failures (outside window) - 13 total
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T13:00:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete within 24-hour window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-03T10:00:00Z",  # 21 hours after pageview (within 24h window)
+                    properties={ff_property: "control"},
+                )
+            else:  # Last 5 users purchase outside 24-hour window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-03T14:00:00Z",  # 25 hours after pageview (outside 24h window)
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels (within window), 7 failures (outside window) - 13 total
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T13:00:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete within 24-hour window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-03T10:30:00Z",  # 21.5 hours after pageview (within 24h window)
+                    properties={ff_property: "test"},
+                )
+            else:  # Last 7 users purchase outside 24-hour window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-03T15:00:00Z",  # 26 hours after pageview (outside 24h window)
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -887,10 +852,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Only events within the custom conversion window should be counted as successes
-        self.assertEqual(control_variant.sum, 1)  # success_count
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 1)  # failure_count
-        self.assertEqual(test_variant.sum, 1)  # success_count
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)  # failure_count
+        self.assertEqual(control_variant.sum, 8)  # 8 successes within 24h window
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures outside window
+        self.assertEqual(test_variant.sum, 6)  # 6 successes within 24h window
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures outside window
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
