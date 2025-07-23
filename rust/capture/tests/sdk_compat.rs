@@ -16,7 +16,7 @@ use capture::{
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
-use axum_test_helper::TestClient;
+use axum_test_helper::{TestClient, TestResponse};
 //use chrono::{Utc, Offset};
 use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
@@ -164,6 +164,28 @@ fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
         .expect(&err_msg)
         .unix_timestamp()
         * 1000_i64
+}
+
+async fn validate_capture_response(title: &str, res: TestResponse) {
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "test {}: non-2xx response: {}",
+        title,
+        res.text().await
+    );
+
+    let cap_resp_details = res.json().await;
+    assert_eq!(
+        Some(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        }),
+        cap_resp_details,
+        "test {}: non-OK CaptureResponse: {:?}",
+        title,
+        cap_resp_details,
+    );
 }
 
 // utility to validate tests/fixtures/single_event_payload.json
@@ -324,25 +346,7 @@ async fn simple_single_event_payload() {
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
-    assert_eq!(
-        StatusCode::OK,
-        res.status(),
-        "test {}: non-2xx response: {}",
-        title,
-        res.text().await
-    );
-
-    let cap_resp_details = res.json().await;
-    assert_eq!(
-        Some(CaptureResponse {
-            status: CaptureResponseCode::Ok,
-            quota_limited: None,
-        }),
-        cap_resp_details,
-        "test {}: non-OK CaptureResponse: {:?}",
-        title,
-        cap_resp_details,
-    );
+    validate_capture_response(title, res).await;
 
     // extract the processed events from the in-mem sink and validate contents
     let got = sink.events();
@@ -367,25 +371,7 @@ async fn gzipped_single_event_payload() {
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
-    assert_eq!(
-        StatusCode::OK,
-        res.status(),
-        "test {}: non-2xx response: {}",
-        title,
-        res.text().await
-    );
-
-    let cap_resp_details = res.json().await;
-    assert_eq!(
-        Some(CaptureResponse {
-            status: CaptureResponseCode::Ok,
-            quota_limited: None,
-        }),
-        cap_resp_details,
-        "test {}: non-OK CaptureResponse: {:?}",
-        title,
-        cap_resp_details,
-    );
+    validate_capture_response(title, res).await;
 
     // extract the processed events from the in-mem sink and validate contents
     let got = sink.events();
@@ -411,25 +397,7 @@ async fn gzipped_no_hint_single_event_payload() {
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
-    assert_eq!(
-        StatusCode::OK,
-        res.status(),
-        "test {}: non-2xx response: {}",
-        title,
-        res.text().await
-    );
-
-    let cap_resp_details = res.json().await;
-    assert_eq!(
-        Some(CaptureResponse {
-            status: CaptureResponseCode::Ok,
-            quota_limited: None,
-        }),
-        cap_resp_details,
-        "test {}: non-OK CaptureResponse: {:?}",
-        title,
-        cap_resp_details,
-    );
+    validate_capture_response(title, res).await;
 
     // extract the processed events from the in-mem sink and validate contents
     let got = sink.events();
@@ -460,25 +428,7 @@ async fn post_form_urlencoded_single_event_payload() {
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
-    assert_eq!(
-        StatusCode::OK,
-        res.status(),
-        "test {}: non-2xx response: {}",
-        title,
-        res.text().await
-    );
-
-    let cap_resp_details = res.json().await;
-    assert_eq!(
-        Some(CaptureResponse {
-            status: CaptureResponseCode::Ok,
-            quota_limited: None,
-        }),
-        cap_resp_details,
-        "test {}: non-OK CaptureResponse: {:?}",
-        title,
-        cap_resp_details,
-    );
+    validate_capture_response(title, res).await;
 
     // extract the processed events from the in-mem sink and validate contents
     let got = sink.events();
@@ -509,25 +459,7 @@ async fn post_form_lz64_single_event_payload() {
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
-    assert_eq!(
-        StatusCode::OK,
-        res.status(),
-        "test {}: non-2xx response: {}",
-        title,
-        res.text().await
-    );
-
-    let cap_resp_details = res.json().await;
-    assert_eq!(
-        Some(CaptureResponse {
-            status: CaptureResponseCode::Ok,
-            quota_limited: None,
-        }),
-        cap_resp_details,
-        "test {}: non-OK CaptureResponse: {:?}",
-        title,
-        cap_resp_details,
-    );
+    validate_capture_response(title, res).await;
 
     // extract the processed events from the in-mem sink and validate contents
     let got = sink.events();
