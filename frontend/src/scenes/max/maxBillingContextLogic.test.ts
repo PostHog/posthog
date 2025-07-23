@@ -399,7 +399,11 @@ describe('maxBillingContextLogic', () => {
         })
 
         it('handles free subscription correctly', () => {
-            const freeBilling = { ...mockBilling, has_active_subscription: false }
+            const freeBilling = {
+                ...mockBilling,
+                has_active_subscription: false,
+                subscription_level: 'free' as const,
+            }
             const result = billingToMaxContext(freeBilling, {}, mockTeam, [], null, null)
 
             expect(result?.has_active_subscription).toBe(false)
