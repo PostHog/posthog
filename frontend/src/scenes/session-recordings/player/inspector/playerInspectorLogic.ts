@@ -110,13 +110,11 @@ export type InspectorListItemNotebookComment = InspectorListItemBase & {
     data: RecordingComment
 }
 
-export type InspectorListItemCommentComment = InspectorListItemBase & {
+export type InspectorListItemComment = InspectorListItemBase & {
     type: 'comment'
     source: 'comment'
     data: CommentType
 }
-
-export type InspectorListItemComment = InspectorListItemNotebookComment | InspectorListItemCommentComment
 
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: 'console'
@@ -155,6 +153,7 @@ export type InspectorListItem =
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
     | InspectorListItemComment
+    | InspectorListItemNotebookComment
     | InspectorListItemSummary
     | InspectorListItemInactivity
 
@@ -237,7 +236,7 @@ function notebookCommentTimestamp(
     return { timestamp, timeInRecording }
 }
 
-function commentCommentTimestamp(
+function commentTimestamp(
     commentTime: Dayjs,
     start: Dayjs | null
 ): {
@@ -275,8 +274,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'end',
                 'durationMs',
                 'sessionNotebookComments',
-                'sessionCommentComments',
-                'sessionCommentCommentsLoading',
+                'sessionComments',
+                'sessionCommentsLoading',
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
@@ -597,25 +596,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         commentItems: [
-            (s) => [s.sessionCommentComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
-            (
-                sessionCommentComments,
-                windowIdForTimestamp,
-                windowNumberForID,
-                start
-            ): InspectorListItemCommentComment[] => {
-                const items: InspectorListItemCommentComment[] = []
-                for (const comment of sessionCommentComments || []) {
+            (s) => [s.sessionComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (sessionComments, windowIdForTimestamp, windowNumberForID, start): InspectorListItemComment[] => {
+                const items: InspectorListItemComment[] = []
+                for (const comment of sessionComments || []) {
                     if (!comment.item_context.time_in_recording) {
                         continue
                     }
 
-                    const { timestamp, timeInRecording } = commentCommentTimestamp(
+                    const { timestamp, timeInRecording } = commentTimestamp(
                         dayjs(comment.item_context.time_in_recording),
                         start
                     )
                     if (timestamp) {
-                        const item: InspectorListItemCommentComment = {
+                        const item: InspectorListItemComment = {
                             timestamp,
                             timeInRecording,
                             type: 'comment',
@@ -961,8 +955,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.consoleLogs,
                 s.allPerformanceEvents,
                 s.doctorEvents,
-                s.sessionCommentComments,
-                s.sessionCommentCommentsLoading,
+                s.sessionComments,
+                s.sessionCommentsLoading,
             ],
             (
                 sessionEventsDataLoading,
@@ -972,8 +966,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 logs,
                 performanceEvents,
                 doctorEvents,
-                sessionCommentComments,
-                sessionCommentCommentsLoading
+                sessionComments,
+                sessionCommentsLoading
             ): Record<FilterableInspectorListItemTypes, 'loading' | 'ready' | 'empty'> => {
                 const dataForEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const dataForConsoleState =
@@ -996,9 +990,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         : 'empty'
 
                 // TODO include notebook comments here?
-                const dataForCommentState = sessionCommentCommentsLoading
+                const dataForCommentState = sessionCommentsLoading
                     ? 'loading'
-                    : sessionCommentComments?.length
+                    : sessionComments?.length
                     ? 'ready'
                     : 'empty'
 

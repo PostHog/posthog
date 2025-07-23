@@ -5,7 +5,6 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import {
-    InspectorListItemCommentComment,
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -14,7 +13,11 @@ import { RecordingCommentForm } from 'scenes/session-recordings/player/commentin
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 export interface ItemCommentProps {
-    item: InspectorListItemComment
+    item: InspectorListItemComment | InspectorListItemNotebookComment
+}
+
+function isInspectorListItemNotebookComment(x: ItemCommentProps['item']): x is InspectorListItemNotebookComment {
+    return 'comment' in x.data
 }
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
@@ -29,7 +32,7 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
     )
 }
 
-function ItemCommentComment({ item }: { item: InspectorListItemCommentComment }): JSX.Element {
+function ItemComment_({ item }: { item: InspectorListItemComment }): JSX.Element {
     // lazy but good enough check for markdown image urls
     // we don't want to render markdown in the list row if there's an image since it won't fit
     const hasMarkdownImage = (item.data.content ?? '').includes('![')
@@ -60,16 +63,8 @@ function ItemCommentComment({ item }: { item: InspectorListItemCommentComment })
     )
 }
 
-function isInspectorListItemNotebookComment(x: ItemCommentProps['item']): x is InspectorListItemNotebookComment {
-    return 'comment' in x.data
-}
-
 export function ItemComment({ item }: ItemCommentProps): JSX.Element {
-    return isInspectorListItemNotebookComment(item) ? (
-        <ItemNotebookComment item={item} />
-    ) : (
-        <ItemCommentComment item={item} />
-    )
+    return isInspectorListItemNotebookComment(item) ? <ItemNotebookComment item={item} /> : <ItemComment_ item={item} />
 }
 
 function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
@@ -96,7 +91,7 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
     )
 }
 
-function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemCommentComment }): JSX.Element {
+function ItemCommentDetail_({ item }: { item: InspectorListItemComment }): JSX.Element {
     const { startCommenting } = useActions(playerCommentModel)
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
@@ -141,6 +136,6 @@ export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
     return isInspectorListItemNotebookComment(item) ? (
         <ItemCommentNotebookDetail item={item} />
     ) : (
-        <ItemCommentAnnotationDetail item={item} />
+        <ItemCommentDetail_ item={item} />
     )
 }

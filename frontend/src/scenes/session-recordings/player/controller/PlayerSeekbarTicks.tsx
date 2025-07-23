@@ -8,7 +8,6 @@ import React, { memo, MutableRefObject } from 'react'
 import {
     InspectorListItem,
     InspectorListItemComment,
-    InspectorListItemCommentComment,
     InspectorListItemEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -26,16 +25,16 @@ function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebook
     return x.type === 'comment' && x.source === 'notebook'
 }
 
-function IsCommentComment(x: InspectorListItem): x is InspectorListItemCommentComment {
+function IsComment(x: InspectorListItem): x is InspectorListItemComment {
     return x.type === 'comment' && x.source === 'comment'
 }
 
 function isComment(x: InspectorListItem): x is InspectorListItemComment {
-    return IsCommentComment(x) || isNotebookComment(x)
+    return IsComment(x) || isNotebookComment(x)
 }
 
-function IsEmojiComment(x: InspectorListItem): x is InspectorListItemCommentComment {
-    return IsCommentComment(x) && !!x.data.item_context?.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
+function IsEmojiComment(x: InspectorListItem): x is InspectorListItemComment {
+    return IsComment(x) && !!x.data.item_context?.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
 }
 
 function PlayerSeekbarTick({

@@ -79,7 +79,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
-        loadRecordingCommentComments: true,
+        loadRecordingComments: true,
         loadRecordingNotebookComments: true,
         loadSnapshots: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
@@ -140,8 +140,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     loaders(({ values, props, cache }) => ({
-        sessionCommentComments: {
-            loadRecordingCommentComments: async (_, breakpoint) => {
+        sessionComments: {
+            loadRecordingComments: async (_, breakpoint) => {
                 const empty: CommentType[] = []
                 if (!props.sessionRecordingId) {
                     return empty
@@ -443,7 +443,7 @@ AND properties.$lib != 'web'`
     listeners(({ values, actions, cache, props }) => ({
         [playerCommentModel.actionTypes.commentEdited]: ({ recordingId }) => {
             if (props.sessionRecordingId === recordingId) {
-                actions.loadRecordingCommentComments()
+                actions.loadRecordingComments()
             }
         },
         loadSnapshots: () => {
@@ -456,8 +456,8 @@ AND properties.$lib != 'web'`
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
             }
-            if (!values.sessionCommentCommentsLoading) {
-                actions.loadRecordingCommentComments()
+            if (!values.sessionCommentsLoading) {
+                actions.loadRecordingComments()
             }
             if (!values.sessionNotebookCommentsLoading) {
                 actions.loadRecordingNotebookComments()
@@ -759,7 +759,7 @@ AND properties.$lib != 'web'`
                 s.sessionPlayerMetaDataLoading,
                 s.snapshotsLoading,
                 s.sessionEventsDataLoading,
-                s.sessionCommentCommentsLoading,
+                s.sessionCommentsLoading,
                 s.sessionNotebookCommentsLoading,
             ],
             (
@@ -767,7 +767,7 @@ AND properties.$lib != 'web'`
                 sessionPlayerMetaDataLoading,
                 snapshotsLoading,
                 sessionEventsDataLoading,
-                sessionCommentCommentsLoading,
+                sessionCommentsLoading,
                 sessionNotebookCommentsLoading
             ): boolean => {
                 // TODO: Do a proper check for all sources having been loaded
@@ -776,7 +776,7 @@ AND properties.$lib != 'web'`
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
                     !sessionEventsDataLoading &&
-                    !sessionCommentCommentsLoading &&
+                    !sessionCommentsLoading &&
                     !sessionNotebookCommentsLoading
                 )
             },

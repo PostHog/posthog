@@ -97,7 +97,7 @@ describe('playerInspectorLogic', () => {
         it('does not load comments without prompting', async () => {
             await expectLogic(logic).toMatchValues({
                 sessionNotebookComments: null,
-                sessionCommentComments: null,
+                sessionComments: null,
             })
         })
 
@@ -122,10 +122,10 @@ describe('playerInspectorLogic', () => {
         it('reads comment comments from data logic', async () => {
             await expectLogic(dataLogic, () => {
                 dataLogic.actions.maybeLoadRecordingMeta()
-            }).toDispatchActions(['loadRecordingCommentCommentsSuccess'])
+            }).toDispatchActions(['loadRecordingCommentsSuccess'])
 
             await expectLogic(logic).toMatchValues({
-                sessionCommentComments: [
+                sessionComments: [
                     {
                         content: '🥶',
                         created_at: '2025-07-23T20:21:53.197354Z',
