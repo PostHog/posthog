@@ -71,6 +71,19 @@ export function generateUniqueName(baseName: string, existingNames: string[]): s
     return newName
 }
 
+export function isDynamicConversionGoalColumn(
+    column: string,
+    dynamicConversionGoal: ConversionGoalFilter | null
+): boolean {
+    if (!dynamicConversionGoal) {
+        return false
+    }
+    return (
+        column === dynamicConversionGoal.conversion_goal_name ||
+        column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal.conversion_goal_name}`
+    )
+}
+
 /**
  * Inject the dynamic conversion goal into the select list after the base columns
  * and before the conversion goal columns.
@@ -87,10 +100,7 @@ export const injectDynamicConversionGoal = (
     }
 
     const selectWithoutDynamicConversionGoal = selectList.filter(
-        (column) =>
-            column !== dynamicConversionGoal?.conversion_goal_name &&
-            column !==
-                `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal?.conversion_goal_name}`
+        (column) => !isDynamicConversionGoalColumn(column, dynamicConversionGoal)
     )
 
     let lastIndex = 0

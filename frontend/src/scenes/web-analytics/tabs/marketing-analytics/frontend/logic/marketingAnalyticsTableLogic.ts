@@ -14,6 +14,8 @@ import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
 import type { marketingAnalyticsTableLogicType } from './marketingAnalyticsTableLogicType'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { isDynamicConversionGoalColumn } from './utils'
 
 export type ExternalTable = {
     name: string
@@ -38,7 +40,7 @@ export type NativeSource = {
 export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType>([
     path(['scenes', 'marketingAnalytics', 'marketingAnalyticsTableLogic']),
     connect(() => ({
-        values: [marketingAnalyticsLogic, ['conversion_goals']],
+        values: [marketingAnalyticsLogic, ['conversion_goals', 'dynamicConversionGoal']],
         actions: [marketingAnalyticsLogic, ['setDynamicConversionGoal']],
     })),
     actions({
@@ -69,6 +71,73 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             },
         ],
     }),
+    /* Both in actionToUrl and urlToAction we need to filter out the dynamic conversion goal columns
+    to handle the query params because it's a dynamic column */
+    actionToUrl(({ values }) => ({
+        setQuery: () => {
+            const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
+            const searchParams = new URLSearchParams(window.location.search)
+            const selectArray = typedQuery?.select?.filter(
+                (column: string) => !isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
+            )
+
+            if (typedQuery?.orderBy && typedQuery?.orderBy.length > 0) {
+                const [column, direction] = typedQuery.orderBy[0]
+                if (selectArray && selectArray.includes(column)) {
+                    searchParams.set('order_column', column)
+                    searchParams.set('order_direction', direction)
+                }
+            } else {
+                searchParams.delete('order_column')
+                searchParams.delete('order_direction')
+            }
+
+            if (selectArray && selectArray.length > 0) {
+                searchParams.set('select', selectArray.join(','))
+            } else {
+                searchParams.delete('select')
+            }
+
+            return [window.location.pathname, searchParams.toString()]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
+
+            let newSelect = typedQuery?.select || []
+            const selectParam = searchParams.select
+            if (selectParam) {
+                const selectArray = selectParam.split(',')
+                newSelect = selectArray.filter(
+                    (column: string) => !isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
+                )
+
+                actions.setQuery({
+                    ...values.query,
+                    source: {
+                        ...values.query?.source,
+                        select: newSelect,
+                    },
+                } as DataTableNode)
+            }
+
+            let newOrderBy: [string, 'ASC' | 'DESC'][] = []
+            const orderColumn = searchParams.order_column
+            const orderDirection = searchParams.order_direction as 'ASC' | 'DESC' | undefined
+
+            if (orderColumn && orderDirection && newSelect.includes(orderColumn)) {
+                newOrderBy = [[orderColumn, orderDirection]]
+                actions.setQuery({
+                    ...values.query,
+                    source: {
+                        ...values.query?.source,
+                        orderBy: newOrderBy,
+                    },
+                } as DataTableNode)
+            }
+        },
+    })),
     listeners(({ actions, values }) => ({
         setDynamicConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
             if (!goal) {
