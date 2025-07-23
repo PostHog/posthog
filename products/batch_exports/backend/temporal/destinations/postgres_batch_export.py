@@ -31,7 +31,6 @@ from posthog.temporal.common.logger import (
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -43,6 +42,7 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
@@ -75,6 +75,48 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
+
+NON_RETRYABLE_ERROR_TYPES = [
+    # Raised on errors that are related to database operation.
+    # For example: unexpected disconnect, database or other object not found.
+    "OperationalError",
+    # The schema name provided is invalid (usually because it doesn't exist).
+    "InvalidSchemaName",
+    # Missing permissions to, e.g., insert into table.
+    "InsufficientPrivilege",
+    # Issue with exported data compared to schema, retrying won't help.
+    "NotNullViolation",
+    # A user added a unique constraint on their table, but batch exports (particularly events)
+    # can cause duplicates.
+    "UniqueViolation",
+    # Something changed in the target table's schema that we were not expecting.
+    "UndefinedColumn",
+    # A VARCHAR column is too small.
+    "StringDataRightTruncation",
+    # Raised by PostgreSQL client. Self explanatory.
+    "DiskFull",
+    # Raised by our PostgreSQL client when failing to connect after several attempts.
+    "PostgreSQLConnectionError",
+    # Raised when merging without a primary key.
+    "MissingPrimaryKeyError",
+    # Raised when the database doesn't support a particular feature we use.
+    # Generally, we have seen this when the database is read-only.
+    "FeatureNotSupported",
+    # A check constraint has been violated.
+    # We do not create any ourselves, so this generally is a user-managed check, so we
+    # should not retry.
+    "CheckViolation",
+    # We do not create foreign keys, so this is a user managed check we have failed.
+    "ForeignKeyViolation",
+    # Data (usually event properties) contains garbage that we cannot clean.
+    "UntranslatableCharacter",
+    "InvalidTextRepresentation",
+    # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
+    # created manually)
+    "DatatypeMismatch",
+    # Exceeded limits for indexes that we do not maintain.
+    "ProgramLimitExceeded",
+]
 
 
 class PostgreSQLConnectionError(Exception):
@@ -600,208 +642,217 @@ class PostgreSQLConsumer(Consumer):
 
 
 @activity.defn
-async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
+async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to Postgres."""
-    bind_contextvars(
-        team_id=inputs.team_id,
-        destination="PostgreSQL",
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
-    )
-    external_logger = EXTERNAL_LOGGER.bind()
-
-    external_logger.info(
-        "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
-        inputs.data_interval_start or "START",
-        inputs.data_interval_end or "END",
-        inputs.database,
-        inputs.schema,
-        inputs.table_name,
-    )
-
-    async with (
-        Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id),
-    ):
-        _, details = await should_resume_from_activity_heartbeat(activity, PostgreSQLHeartbeatDetails)
-        if details is None:
-            details = PostgreSQLHeartbeatDetails()
-
-        done_ranges: list[DateRange] = details.done_ranges
-
-        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
-        )
-
-        data_interval_start = (
-            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-        )
-        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-        full_range = (data_interval_start, data_interval_end)
-
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(record_batch_model)
-        producer_task = await producer.start(
-            queue=queue,
-            model_name=model_name,
-            is_backfill=inputs.get_is_backfill(),
-            backfill_details=inputs.backfill_details,
+    try:
+        bind_contextvars(
             team_id=inputs.team_id,
-            full_range=full_range,
-            done_ranges=done_ranges,
-            fields=fields,
-            filters=filters,
-            destination_default_fields=postgres_default_fields(),
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-            extra_query_parameters=extra_query_parameters,
+            destination="PostgreSQL",
+            data_interval_start=inputs.data_interval_start,
+            data_interval_end=inputs.data_interval_end,
+        )
+        external_logger = EXTERNAL_LOGGER.bind()
+
+        external_logger.info(
+            "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
+            inputs.data_interval_start or "START",
+            inputs.data_interval_end or "END",
+            inputs.database,
+            inputs.schema,
+            inputs.table_name,
         )
 
-        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-        if record_batch_schema is None:
-            external_logger.info(
-                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-                inputs.data_interval_start or "START",
-                inputs.data_interval_end or "END",
+        async with (
+            Heartbeater() as heartbeater,
+            set_status_to_running_task(run_id=inputs.run_id),
+        ):
+            _, details = await should_resume_from_activity_heartbeat(activity, PostgreSQLHeartbeatDetails)
+            if details is None:
+                details = PostgreSQLHeartbeatDetails()
+
+            done_ranges: list[DateRange] = details.done_ranges
+
+            model, record_batch_model, model_name, fields, filters, extra_query_parameters = (
+                resolve_batch_exports_model(inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema)
             )
 
-            return details.records_completed
+            data_interval_start = (
+                dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+            )
+            data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+            full_range = (data_interval_start, data_interval_end)
 
-        record_batch_schema = pa.schema(
-            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
-        )
-
-        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-            table_fields: Fields = [
-                ("uuid", "VARCHAR(200)"),
-                ("event", "VARCHAR(200)"),
-                ("properties", "JSONB"),
-                ("elements", "JSONB"),
-                ("set", "JSONB"),
-                ("set_once", "JSONB"),
-                ("distinct_id", "VARCHAR(200)"),
-                ("team_id", "INTEGER"),
-                ("ip", "VARCHAR(200)"),
-                ("site_url", "VARCHAR(200)"),
-                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
-            ]
-
-        else:
-            table_fields = get_postgres_fields_from_record_schema(
-                record_batch_schema,
-                known_json_columns=["properties", "set", "set_once", "person_properties"],
+            queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+            producer = Producer(record_batch_model)
+            producer_task = await producer.start(
+                queue=queue,
+                model_name=model_name,
+                is_backfill=inputs.get_is_backfill(),
+                backfill_details=inputs.backfill_details,
+                team_id=inputs.team_id,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                fields=fields,
+                filters=filters,
+                destination_default_fields=postgres_default_fields(),
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                extra_query_parameters=extra_query_parameters,
             )
 
-        requires_merge = False
-        merge_key: Fields = []
-        update_key: Fields = []
-        primary_key: Fields | None = None
-        if isinstance(inputs.batch_export_model, BatchExportModel):
-            if inputs.batch_export_model.name == "persons":
-                requires_merge = True
-                merge_key = [
-                    ("team_id", "INT"),
-                    ("distinct_id", "TEXT"),
-                ]
-                update_key = [
-                    ("person_version", "INT"),
-                    ("person_distinct_id_version", "INT"),
-                ]
-                primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
-
-            elif inputs.batch_export_model.name == "sessions":
-                requires_merge = True
-                merge_key = [
-                    ("team_id", "INT"),
-                    ("session_id", "TEXT"),
-                ]
-                update_key = [
-                    ("end_timestamp", "TIMESTAMP"),
-                ]
-                primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
-
-        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        # NOTE: PostgreSQL has a 63 byte limit on identifiers.
-        # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
-        # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
-        stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
-            if requires_merge
-            else inputs.table_name
-        )[:63]
-
-        async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
-            # handle the case where the final table doesn't contain all the fields present in the record batch schema
-            try:
-                columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
-                table_fields = [field for field in table_fields if field[0] in columns]
-            except psycopg.errors.InsufficientPrivilege:
-                external_logger.warning(
-                    "Insufficient privileges to get table columns for table '%s.%s'; "
-                    "will assume all columns are present. If this results in an error, please grant SELECT "
-                    "permissions on this table or ensure the destination table is using the latest schema "
-                    "as described in the docs: https://posthog.com/docs/cdp/batch-exports/postgres",
-                    inputs.schema,
-                    inputs.table_name,
+            record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+            if record_batch_schema is None:
+                external_logger.info(
+                    "Batch export will finish early as there is no data matching specified filters in range %s - %s",
+                    inputs.data_interval_start or "START",
+                    inputs.data_interval_end or "END",
                 )
-            except psycopg.errors.UndefinedTable:
-                # this can happen if the table doesn't exist yet
-                pass
 
-            schema_columns = [field[0] for field in table_fields]
+                return BatchExportResult(records_completed=details.records_completed)
 
-            async with (
-                pg_client.managed_table(
-                    inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
-                ) as pg_table,
-                pg_client.managed_table(
-                    inputs.schema,
-                    stagle_table_name,
-                    table_fields,
-                    create=requires_merge,
-                    delete=requires_merge,
-                    primary_key=primary_key,
-                ) as pg_stage_table,
-            ):
-                consumer = PostgreSQLConsumer(
-                    heartbeater=heartbeater,
-                    heartbeat_details=details,
-                    data_interval_end=data_interval_end,
-                    data_interval_start=data_interval_start,
-                    writer_format=WriterFormat.CSV,
-                    postgresql_client=pg_client,
-                    postgresql_table=pg_stage_table if requires_merge else pg_table,
-                    postgresql_table_schema=inputs.schema,
-                    postgresql_table_fields=schema_columns,
+            record_batch_schema = pa.schema(
+                [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+            )
+
+            if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+                table_fields: Fields = [
+                    ("uuid", "VARCHAR(200)"),
+                    ("event", "VARCHAR(200)"),
+                    ("properties", "JSONB"),
+                    ("elements", "JSONB"),
+                    ("set", "JSONB"),
+                    ("set_once", "JSONB"),
+                    ("distinct_id", "VARCHAR(200)"),
+                    ("team_id", "INTEGER"),
+                    ("ip", "VARCHAR(200)"),
+                    ("site_url", "VARCHAR(200)"),
+                    ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+                ]
+
+            else:
+                table_fields = get_postgres_fields_from_record_schema(
+                    record_batch_schema,
+                    known_json_columns=["properties", "set", "set_once", "person_properties"],
                 )
+
+            requires_merge = False
+            merge_key: Fields = []
+            update_key: Fields = []
+            primary_key: Fields | None = None
+            if isinstance(inputs.batch_export_model, BatchExportModel):
+                if inputs.batch_export_model.name == "persons":
+                    requires_merge = True
+                    merge_key = [
+                        ("team_id", "INT"),
+                        ("distinct_id", "TEXT"),
+                    ]
+                    update_key = [
+                        ("person_version", "INT"),
+                        ("person_distinct_id_version", "INT"),
+                    ]
+                    primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
+
+                elif inputs.batch_export_model.name == "sessions":
+                    requires_merge = True
+                    merge_key = [
+                        ("team_id", "INT"),
+                        ("session_id", "TEXT"),
+                    ]
+                    update_key = [
+                        ("end_timestamp", "TIMESTAMP"),
+                    ]
+                    primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
+
+            data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+            # NOTE: PostgreSQL has a 63 byte limit on identifiers.
+            # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
+            # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
+            stagle_table_name = (
+                f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+                if requires_merge
+                else inputs.table_name
+            )[:63]
+
+            async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
+                # handle the case where the final table doesn't contain all the fields present in the record batch schema
                 try:
-                    _ = await run_consumer(
-                        consumer=consumer,
-                        queue=queue,
-                        producer_task=producer_task,
-                        schema=record_batch_schema,
-                        max_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=(),
-                        writer_file_kwargs={
-                            "delimiter": "\t",
-                            "quoting": csv.QUOTE_MINIMAL,
-                            "escape_char": None,
-                            "field_names": schema_columns,
-                        },
-                        multiple_files=True,
+                    columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
+                    table_fields = [field for field in table_fields if field[0] in columns]
+                except psycopg.errors.InsufficientPrivilege:
+                    external_logger.warning(
+                        "Insufficient privileges to get table columns for table '%s.%s'; "
+                        "will assume all columns are present. If this results in an error, please grant SELECT "
+                        "permissions on this table or ensure the destination table is using the latest schema "
+                        "as described in the docs: https://posthog.com/docs/cdp/batch-exports/postgres",
+                        inputs.schema,
+                        inputs.table_name,
                     )
-                finally:
-                    if requires_merge:
-                        await pg_client.amerge_mutable_tables(
-                            final_table_name=pg_table,
-                            stage_table_name=pg_stage_table,
-                            schema=inputs.schema,
-                            update_when_matched=table_fields,
-                            merge_key=merge_key,
-                            update_key=update_key,
-                        )
+                except psycopg.errors.UndefinedTable:
+                    # this can happen if the table doesn't exist yet
+                    pass
 
-                return details.records_completed
+                schema_columns = [field[0] for field in table_fields]
+
+                async with (
+                    pg_client.managed_table(
+                        inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
+                    ) as pg_table,
+                    pg_client.managed_table(
+                        inputs.schema,
+                        stagle_table_name,
+                        table_fields,
+                        create=requires_merge,
+                        delete=requires_merge,
+                        primary_key=primary_key,
+                    ) as pg_stage_table,
+                ):
+                    consumer = PostgreSQLConsumer(
+                        heartbeater=heartbeater,
+                        heartbeat_details=details,
+                        data_interval_end=data_interval_end,
+                        data_interval_start=data_interval_start,
+                        writer_format=WriterFormat.CSV,
+                        postgresql_client=pg_client,
+                        postgresql_table=pg_stage_table if requires_merge else pg_table,
+                        postgresql_table_schema=inputs.schema,
+                        postgresql_table_fields=schema_columns,
+                    )
+                    try:
+                        _ = await run_consumer(
+                            consumer=consumer,
+                            queue=queue,
+                            producer_task=producer_task,
+                            schema=record_batch_schema,
+                            max_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
+                            json_columns=(),
+                            writer_file_kwargs={
+                                "delimiter": "\t",
+                                "quoting": csv.QUOTE_MINIMAL,
+                                "escape_char": None,
+                                "field_names": schema_columns,
+                            },
+                            multiple_files=True,
+                        )
+                    finally:
+                        if requires_merge:
+                            await pg_client.amerge_mutable_tables(
+                                final_table_name=pg_table,
+                                stage_table_name=pg_stage_table,
+                                schema=inputs.schema,
+                                update_when_matched=table_fields,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                            )
+
+                    return BatchExportResult(records_completed=details.records_completed)
+    except Exception as e:
+        # If we catch an error at any point during this activity, we check if it's a non-retryable error.
+        # If it is, we return a BatchExportResult with the error.
+        # If it's not, we re-raise the error.
+        # TODO: Use actual exception classes instead of strings.
+        if e.__class__.__name__ in NON_RETRYABLE_ERROR_TYPES:
+            return BatchExportResult.from_exception(e)
+        raise
 
 
 @workflow.defn(name="postgres-export", failure_exception_types=[workflow.NondeterminismError])
@@ -881,46 +932,5 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             insert_into_postgres_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                # Raised on errors that are related to database operation.
-                # For example: unexpected disconnect, database or other object not found.
-                "OperationalError",
-                # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName",
-                # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege",
-                # Issue with exported data compared to schema, retrying won't help.
-                "NotNullViolation",
-                # A user added a unique constraint on their table, but batch exports (particularly events)
-                # can cause duplicates.
-                "UniqueViolation",
-                # Something changed in the target table's schema that we were not expecting.
-                "UndefinedColumn",
-                # A VARCHAR column is too small.
-                "StringDataRightTruncation",
-                # Raised by PostgreSQL client. Self explanatory.
-                "DiskFull",
-                # Raised by our PostgreSQL client when failing to connect after several attempts.
-                "PostgreSQLConnectionError",
-                # Raised when merging without a primary key.
-                "MissingPrimaryKeyError",
-                # Raised when the database doesn't support a particular feature we use.
-                # Generally, we have seen this when the database is read-only.
-                "FeatureNotSupported",
-                # A check constraint has been violated.
-                # We do not create any ourselves, so this generally is a user-managed check, so we
-                # should not retry.
-                "CheckViolation",
-                # We do not create foreign keys, so this is a user managed check we have failed.
-                "ForeignKeyViolation",
-                # Data (usually event properties) contains garbage that we cannot clean.
-                "UntranslatableCharacter",
-                "InvalidTextRepresentation",
-                # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
-                # created manually)
-                "DatatypeMismatch",
-                # Exceeded limits for indexes that we do not maintain.
-                "ProgramLimitExceeded",
-            ],
             finish_inputs=finish_inputs,
         )
