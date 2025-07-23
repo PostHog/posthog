@@ -1,3 +1,5 @@
+import { types as CassandraTypes } from 'cassandra-driver'
+import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -16,6 +18,7 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export type BehavioralEvent = {
     teamId: number
     filterGlobals: HogFunctionFilterGlobals
+    personId?: string
 }
 
 export const counterParseError = new Counter({
@@ -70,9 +73,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 return 0
             }
 
-            const results = await Promise.all(
-                actions.map((action) => this.doesEventMatchAction(event.filterGlobals, action))
-            )
+            const results = await Promise.all(actions.map((action) => this.doesEventMatchAction(event, action)))
 
             return results.filter(Boolean).length
         } catch (error) {
@@ -94,7 +95,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    private async doesEventMatchAction(filterGlobals: HogFunctionFilterGlobals, action: Action): Promise<boolean> {
+    private async doesEventMatchAction(event: BehavioralEvent, action: Action): Promise<boolean> {
         if (!action.bytecode) {
             return false
         }
@@ -102,7 +103,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         try {
             // Execute bytecode directly with the filter globals
             const execHogOutcome = await execHog(action.bytecode, {
-                globals: filterGlobals,
+                globals: event.filterGlobals,
                 telemetry: false,
             })
 
@@ -113,6 +114,11 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             const matchedFilter =
                 typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
+            // If matched and we have person info, write to Cassandra
+            if (matchedFilter && event.personId) {
+                await this.writeBehavioralCounter(event.teamId, action, event.personId)
+            }
+
             return matchedFilter
         } catch (error) {
             logger.error('Error executing action bytecode', {
@@ -121,6 +127,35 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             })
             return false
         }
+    }
+
+    private async writeBehavioralCounter(teamId: number, action: Action, personId: string): Promise<void> {
+        try {
+            // Create filter hash from action bytecode
+            const filterHash = this.createFilterHash(action.bytecode!)
+
+            // Get current date in YYYY-MM-DD format
+            const date = new Date().toISOString().split('T')[0]
+
+            // Update counter in Cassandra
+            await this.hub.cassandra.execute(
+                'UPDATE behavioral_event_counters SET count = count + 1 WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
+                [teamId, filterHash, CassandraTypes.Uuid.fromString(personId), date],
+                { prepare: true }
+            )
+        } catch (error) {
+            logger.error('Error writing behavioral counter', {
+                teamId,
+                actionId: action.id,
+                personId,
+                error,
+            })
+        }
+    }
+
+    private createFilterHash(bytecode: any): string {
+        const data = typeof bytecode === 'string' ? bytecode : JSON.stringify(bytecode)
+        return createHash('sha256').update(data).digest('hex').substring(0, 16)
     }
 
     // This consumer always parses from kafka
@@ -141,6 +176,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             events.push({
                                 teamId: clickHouseEvent.team_id,
                                 filterGlobals,
+                                personId: clickHouseEvent.person_id,
                             })
                         } catch (e) {
                             logger.error('Error parsing message', e)

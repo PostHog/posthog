@@ -163,4 +163,4 @@ async function runMigrations() {
 }
 
 // Run migrations
-await runMigrations()
+runMigrations().catch(console.error)
