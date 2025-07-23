@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createTeam, resetTestDatabase } from '../../../../tests/helpers/sql'
+import { createTeam, insertRow, resetTestDatabase } from '../../../../tests/helpers/sql'
 import { Hub, InternalPerson, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
@@ -956,6 +956,167 @@ describe('BasePersonRepository', () => {
 
             expect(actualVersion).toBeUndefined()
             expect(messages).toHaveLength(0)
+        })
+    })
+
+    describe('updateCohortsAndFeatureFlagsForMerge()', () => {
+        let team: Team
+        let sourcePersonID: InternalPerson['id']
+        let targetPersonID: InternalPerson['id']
+
+        async function getAllHashKeyOverrides(): Promise<any> {
+            const result = await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
+                [],
+                ''
+            )
+            return result.rows
+        }
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            const [sourcePerson, kafkaMessagesSourcePerson] = await repository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                [{ distinctId: 'source_person' }]
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
+            const [targetPerson, kafkaMessagesTargetPerson] = await repository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                [{ distinctId: 'target_person' }]
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesTargetPerson)
+            sourcePersonID = sourcePerson.id
+            targetPersonID = targetPerson.id
+        })
+
+        it("doesn't fail on empty data", async () => {
+            await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
+        })
+
+        it('updates all valid keys when target person had no overrides', async () => {
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+
+            await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+
+        it('updates all valid keys when conflicts with target person', async () => {
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: sourcePersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'existing_override_value_for_beta_feature',
+            })
+
+            await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'existing_override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
+        })
+
+        it('updates nothing when target person overrides exist', async () => {
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'aloha',
+                hash_key: 'override_value_for_aloha',
+            })
+            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+                team_id: team.id,
+                person_id: targetPersonID,
+                feature_flag_key: 'beta-feature',
+                hash_key: 'override_value_for_beta_feature',
+            })
+
+            await repository.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
+
+            const result = await getAllHashKeyOverrides()
+
+            expect(result.length).toEqual(2)
+            expect(result).toEqual(
+                expect.arrayContaining([
+                    {
+                        feature_flag_key: 'aloha',
+                        hash_key: 'override_value_for_aloha',
+                        person_id: targetPersonID,
+                    },
+                    {
+                        feature_flag_key: 'beta-feature',
+                        hash_key: 'override_value_for_beta_feature',
+                        person_id: targetPersonID,
+                    },
+                ])
+            )
         })
     })
 })

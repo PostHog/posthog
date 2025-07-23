@@ -97,6 +97,7 @@ describe('BatchWritingPersonStore', () => {
             addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
+            updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
         }
         return mockRepo
     }
@@ -1255,6 +1256,60 @@ describe('BatchWritingPersonStore', () => {
 
             expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(0)
+        })
+    })
+
+    describe('updateCohortsAndFeatureFlagsForMerge', () => {
+        it('should call repository method with correct arguments', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const teamID = 1
+            const sourcePersonID = 'source-person-id'
+            const targetPersonID = 'target-person-id'
+            const distinctId = 'test-distinct'
+
+            await personStoreForBatch.updateCohortsAndFeatureFlagsForMerge(
+                teamID,
+                sourcePersonID,
+                targetPersonID,
+                distinctId
+            )
+
+            expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
+                teamID,
+                sourcePersonID,
+                targetPersonID,
+                undefined
+            )
+        })
+
+        it('should call repository method with transaction when provided', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const teamID = 1
+            const sourcePersonID = 'source-person-id'
+            const targetPersonID = 'target-person-id'
+            const distinctId = 'test-distinct'
+            const mockTransaction = {} as any
+
+            await personStoreForBatch.updateCohortsAndFeatureFlagsForMerge(
+                teamID,
+                sourcePersonID,
+                targetPersonID,
+                distinctId,
+                mockTransaction
+            )
+
+            expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
+                teamID,
+                sourcePersonID,
+                targetPersonID,
+                mockTransaction
+            )
         })
     })
 })

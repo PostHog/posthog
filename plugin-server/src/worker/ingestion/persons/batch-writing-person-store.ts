@@ -486,7 +486,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         tx?: TransactionClient
     ): Promise<void> {
         this.incrementCount('updateCohortsAndFeatureFlagsForMerge', distinctId)
-        await this.db.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, tx)
+        await this.personRepository.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, tx)
     }
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {

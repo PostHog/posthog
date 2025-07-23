@@ -2,14 +2,14 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '../../../types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { PersonUpdate } from './person-update-batch'
 
 export interface PersonRepository {
     fetchPerson(
-        teamId: number,
+        teamId: Team['id'],
         distinctId: string,
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined>
@@ -19,7 +19,7 @@ export interface PersonRepository {
         properties: Properties,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        teamId: number,
+        teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
@@ -51,8 +51,15 @@ export interface PersonRepository {
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 
-    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
-    addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean>
+    addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
+    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
 
-    personPropertiesSize(teamId: number, distinctId: string): Promise<number>
+    personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number>
+
+    updateCohortsAndFeatureFlagsForMerge(
+        teamID: Team['id'],
+        sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        tx?: TransactionClient
+    ): Promise<void>
 }

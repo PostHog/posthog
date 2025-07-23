@@ -10,6 +10,7 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawPerson,
+    Team,
 } from '../../../types'
 import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../utils/db/db'
 import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter } from '../../../utils/db/metrics'
@@ -493,5 +494,45 @@ export class BasePersonRepository implements PersonRepository {
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
         return [updatedPerson.version, [kafkaMessage]]
+    }
+
+    async updateCohortsAndFeatureFlagsForMerge(
+        teamID: Team['id'],
+        sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        tx?: TransactionClient
+    ): Promise<void> {
+        // When personIDs change, update places depending on a person_id foreign key
+
+        await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            // Do two high level things in a single round-trip to the DB.
+            //
+            // 1. Update cohorts.
+            // 2. Update (delete+insert) feature flags.
+            //
+            // NOTE: Every override is unique for a team-personID-featureFlag combo. In case we run
+            // into a conflict we would ideally use the override from most recent personId used, so
+            // the user experience is consistent, however that's tricky to figure out this also
+            // happens rarely, so we're just going to do the performance optimal thing i.e. do
+            // nothing on conflicts, so we keep using the value that the person merged into had
+            `WITH cohort_update AS (
+                UPDATE posthog_cohortpeople
+                SET person_id = $1
+                WHERE person_id = $2
+                RETURNING person_id
+            ),
+            deletions AS (
+                DELETE FROM posthog_featureflaghashkeyoverride
+                WHERE team_id = $3 AND person_id = $2
+                RETURNING team_id, person_id, feature_flag_key, hash_key
+            )
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                SELECT team_id, $1, feature_flag_key, hash_key
+                FROM deletions
+                ON CONFLICT DO NOTHING`,
+            [targetPersonID, sourcePersonID, teamID],
+            'updateCohortAndFeatureFlagsPeople'
+        )
     }
 }
