@@ -31,7 +31,6 @@ from .prompts import (
     DATE_FIELDS_PROMPT,
     TOOL_USAGE_PROMPT,
     EXAMPLES_PROMPT,
-    EVENT_DEFINITIONS_PROMPT,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from .toolkit import EntityType, FilterOptionsTool, FilterOptionsToolkit, ask_user_for_help, final_answer
@@ -104,7 +103,6 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         system_messages = [
             ("system", dynamic_filter_prompt),  # Use dynamic prompt instead of static
             ("system", self._get_react_property_filters_prompt()),
-            ("system", EVENT_DEFINITIONS_PROMPT),
             ("system", HUMAN_IN_THE_LOOP_PROMPT),
         ]
 

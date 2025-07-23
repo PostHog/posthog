@@ -148,7 +148,35 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
         data=[
             # Test basic filter generation for mobile devices
             EvalCase(
-                input="show me the last 3 days for users that were using a mobile device",
+                input="show me recordings of users that were using a mobile device",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        "date_from": "-3d",
+                        "date_to": None,
+                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$device_type",
+                                            "type": "event",
+                                            "value": ["Mobile"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "filter_test_accounts": True,
+                        "order": "start_time",
+                    }
+                ),
+            ),
+            EvalCase(
+                input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
                     **{
                         "date_from": "-3d",
