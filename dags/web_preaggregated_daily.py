@@ -30,7 +30,6 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
 from posthog.models.web_preaggregated.team_config import WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 logger = structlog.get_logger(__name__)
 
@@ -184,13 +183,10 @@ def export_web_analytics_data_by_team(
 
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
 
-    # If no team_ids provided, get them from the dictionary
     if not team_ids:
-        # Query the dictionary to get enabled team IDs
         dict_query = f"""
         SELECT team_id
-        FROM {CLICKHOUSE_DATABASE}.{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}
-        WHERE enabled_at IS NOT NULL
+        FROM {WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}
         """
         try:
             result = sync_execute(dict_query)
