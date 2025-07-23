@@ -17,7 +17,6 @@ import {
     DataWarehouseNode,
     EventsNode,
     HogQLQuery,
-    InsightQueryNode,
     InsightVizNode,
     Node,
     NodeKind,
@@ -627,62 +626,69 @@ export function crushDraftQueryForURL(query: Node<Record<string, any>>): string 
     return JSON.stringify(query)
 }
 
-const TOP_LEVEL_LABELS: Record<string, string> = {
-    kind: 'Insight type',
-    source: 'Query settings',
-}
-
 const SOURCE_FIELD_LABELS: Record<string, string> = {
     breakdownFilter: 'Breakdowns',
     compareFilter: 'Compare filter',
     dateRange: 'Date range',
     filterTestAccounts: 'Test account filtering',
     interval: 'Interval',
-    kind: 'Query kind',
+    kind: 'Insight type',
     properties: 'Global property filters',
     samplingFactor: 'Sampling',
     series: 'Series',
     trendsFilter: 'Display options',
 }
 
-function isObject(value: any): value is Record<string, any> {
-    return value !== null && typeof value === 'object'
+function arraysEqual(arr1: any[], arr2: any[]): boolean {
+    if (arr1.length !== arr2.length) {
+        return false
+    }
+
+    // Create copies and sort them for order-independent comparison
+    const sorted1 = [...arr1].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+    const sorted2 = [...arr2].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+
+    // Compare each element
+    for (let i = 0; i < sorted1.length; i++) {
+        if (!isEqual(sorted1[i], sorted2[i])) {
+            return false
+        }
+    }
+    return true
 }
 
-export function compareInsightTopLevelSections(obj1: InsightQueryNode, obj2: InsightQueryNode): string[] {
-    const changedLabels: string[] = []
+function deepEqual(val1: any, val2: any): boolean {
+    if (Array.isArray(val1) && Array.isArray(val2)) {
+        return arraysEqual(val1, val2)
+    }
+    return isEqual(val1, val2)
+}
+
+export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
+    const changedLabels = new Set<string>()
+
     const cleanObj1 = cleanInsightQuery(removeUndefinedAndNull(obj1)) as Record<string, any>
     const cleanObj2 = cleanInsightQuery(removeUndefinedAndNull(obj2)) as Record<string, any>
 
-    if (objectsEqual(cleanObj1, cleanObj2)) {
-        return changedLabels
-    }
+    // Handle both InsightVizNode (with source) and InsightQueryNode (without source)
+    const source1 = cleanObj1.source || cleanObj1
+    const source2 = cleanObj2.source || cleanObj2
 
-    // Top-level keys (e.g. kind, source)
-    const keys = new Set([...Object.keys(cleanObj1 || {}), ...Object.keys(cleanObj1 || {})])
+    if (!objectsEqual(source1, source2)) {
+        const keys = new Set([...Object.keys(source1 || {}), ...Object.keys(source2 || {})])
 
-    for (const key of keys) {
-        const val1 = cleanObj1?.[key]
-        const val2 = cleanObj2?.[key]
+        for (const key of keys) {
+            const val1 = source1?.[key]
+            const val2 = source2?.[key]
 
-        if (!isEqual(val1, val2)) {
-            if (key === 'source' && isObject(val1) && isObject(val2)) {
-                // Compare one level deeper in 'source'
-                const innerKeys = new Set([...Object.keys(val1), ...Object.keys(val2)])
-                for (const innerKey of innerKeys) {
-                    const subVal1 = val1[innerKey]
-                    const subVal2 = val2[innerKey]
-                    if (!isEqual(subVal1, subVal2)) {
-                        const label = SOURCE_FIELD_LABELS[innerKey] || `source.${innerKey}`
-                        changedLabels.push(label)
-                    }
-                }
-            } else {
-                const label = TOP_LEVEL_LABELS[key] || key
-                changedLabels.push(label)
+            // Check if the property exists in both objects and has different values
+            // Also check if property exists in one but not the other
+            if (!deepEqual(val1, val2) || key in source1 !== key in source2) {
+                const label = SOURCE_FIELD_LABELS[key] || key
+                changedLabels.add(label)
             }
         }
     }
 
-    return changedLabels
+    return Array.from(changedLabels).sort()
 }
