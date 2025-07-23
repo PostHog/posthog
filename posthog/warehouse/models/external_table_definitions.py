@@ -625,7 +625,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "id": StringDatabaseField(name="id"),
         "object": StringDatabaseField(name="object"),
         "amount": IntegerDatabaseField(name="amount"),
-        "created": IntegerDatabaseField(name="date"),
+        "date": IntegerDatabaseField(name="date"),
         "__date": IntegerDatabaseField(name="date", hidden=True),
         "created_at": ast.ExpressionField(
             isolate_scope=True,
