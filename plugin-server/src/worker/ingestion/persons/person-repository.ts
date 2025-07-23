@@ -26,4 +26,10 @@ export interface PersonRepository {
     ): Promise<[InternalPerson, TopicMessage[]]>
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
+    addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<TopicMessage[]>
 }

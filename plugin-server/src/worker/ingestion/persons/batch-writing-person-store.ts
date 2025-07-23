@@ -441,7 +441,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementCount('addDistinctId', distinctId)
         this.incrementDatabaseOperation('addDistinctId', distinctId)
         const start = performance.now()
-        const response = await this.db.addDistinctId(person, distinctId, version, tx)
+        const response = await this.personRepository.addDistinctId(person, distinctId, version, tx)
         observeLatencyByVersion(person, start, 'addDistinctId')
         this.setDistinctIdToPersonId(person.team_id, distinctId, person.id)
         return response

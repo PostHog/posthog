@@ -320,6 +320,52 @@ describe('BasePersonRepository', () => {
         })
     })
 
+    describe('addDistinctId()', () => {
+        it('should add distinct ID to person', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
+            const newDistinctId = 'new-distinct-id'
+            const version = 1
+
+            const messages = await repository.addDistinctId(person, newDistinctId, version)
+
+            expect(messages).toHaveLength(1)
+            expect(messages[0].topic).toBe('clickhouse_person_distinct_id_test')
+            expect(messages[0].messages).toHaveLength(1)
+
+            const messageValue = parseJSON(messages[0].messages[0].value as string)
+            expect(messageValue).toEqual({
+                person_id: person.uuid,
+                team_id: team.id,
+                distinct_id: 'new-distinct-id',
+                version: 1,
+                is_deleted: 0,
+            })
+        })
+
+        it('should handle adding distinct ID with different version', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'existing-distinct-id', { name: 'John Doe' })
+            const newDistinctId = 'another-distinct-id'
+            const version = 5
+
+            const messages = await repository.addDistinctId(person, newDistinctId, version)
+
+            expect(messages).toHaveLength(1)
+            expect(messages[0].topic).toBe('clickhouse_person_distinct_id_test')
+            expect(messages[0].messages).toHaveLength(1)
+
+            const messageValue = parseJSON(messages[0].messages[0].value as string)
+            expect(messageValue).toEqual({
+                person_id: person.uuid,
+                team_id: team.id,
+                distinct_id: 'another-distinct-id',
+                version: 5,
+                is_deleted: 0,
+            })
+        })
+    })
+
     describe('deletePerson()', () => {
         it('should delete person from postgres', async () => {
             const team = await getFirstTeam(hub)

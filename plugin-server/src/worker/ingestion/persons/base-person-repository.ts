@@ -3,7 +3,13 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../config/kafka-topics'
 import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, RawPerson } from '../../../types'
+import {
+    InternalPerson,
+    PersonDistinctId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    RawPerson,
+} from '../../../types'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue } from '../../../utils/db/utils'
 import { PersonRepository } from './person-repository'
@@ -190,5 +196,40 @@ export class BasePersonRepository implements PersonRepository {
             kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
         }
         return kafkaMessages
+    }
+
+    async addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<TopicMessage[]> {
+        const insertResult = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
+            [distinctId, person.id, person.team_id, version],
+            'addDistinctId',
+            'warn'
+        )
+
+        const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
+        const messages = [
+            {
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            ...personDistinctIdCreated,
+                            version,
+                            person_id: person.uuid,
+                            is_deleted: 0,
+                        }),
+                    },
+                ],
+            },
+        ]
+
+        return messages
     }
 }
