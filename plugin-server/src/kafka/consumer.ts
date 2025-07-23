@@ -143,10 +143,16 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
+        this.config.waitForBackgroundTasksOnRebalance ??= false
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
+
+        const rebalancecb: boolean | ((err: LibrdKafkaError, assignments: Assignment[]) => void) = this.config
+            .waitForBackgroundTasksOnRebalance
+            ? this.rebalanceCallback.bind(this)
+            : true
 
         this.consumerConfig = {
             'client.id': hostname(),
@@ -174,7 +180,7 @@ export class KafkaConsumer {
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
-            rebalance_cb: this.rebalanceCallback.bind(this),
+            rebalance_cb: rebalancecb,
             offset_commit_cb: true,
         }
 
@@ -249,7 +255,9 @@ export class KafkaConsumer {
 
         if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             // Mark rebalancing as complete when partitions are assigned
-            this.isRebalancing = false
+            if (this.config.waitForBackgroundTasksOnRebalance) {
+                this.isRebalancing = false
+            }
             assignments.forEach((tp) => {
                 kafkaConsumerAssignment.set(
                     {
@@ -261,9 +269,16 @@ export class KafkaConsumer {
                     1
                 )
             })
+            if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                this.rdKafkaConsumer.incrementalAssign(assignments)
+            } else {
+                this.rdKafkaConsumer.assign(assignments)
+            }
         } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
             // Mark rebalancing as starting when partitions are revoked
-            this.isRebalancing = true
+            if (this.config.waitForBackgroundTasksOnRebalance) {
+                this.isRebalancing = true
+            }
             // Store revoked partitions for offset committing
             this.rebalanceCoordination.revokedPartitions = assignments.map((tp) => ({
                 topic: tp.topic,
@@ -286,9 +301,9 @@ export class KafkaConsumer {
                     .then(() => {
                         logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
                         if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalAssign(assignments)
+                            this.rdKafkaConsumer.incrementalUnassign(assignments)
                         } else {
-                            this.rdKafkaConsumer.assign(assignments)
+                            this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
                     })
@@ -312,9 +327,13 @@ export class KafkaConsumer {
                 this.updateMetricsAfterRevocation(assignments)
             }
         } else {
-            // We had a "real" error
-            logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
-            captureException(err)
+            // Ignore exceptions if we are not connected
+            if (this.rdKafkaConsumer.isConnected()) {
+                logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
+                captureException(err)
+            } else {
+                logger.warn('🔥', 'kafka_consumer_rebalancing_error_while_not_connected', { err })
+            }
         }
     }
 

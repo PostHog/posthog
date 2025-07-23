@@ -19,6 +19,8 @@ jest.mock('node-rdkafka', () => ({
         offsetsStore: jest.fn(),
         setDefaultConsumeTimeout: jest.fn(),
         incrementalUnassign: jest.fn(),
+        incrementalAssign: jest.fn(),
+        rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
     })),
     CODES: {
         ERRORS: {
@@ -108,6 +110,8 @@ describe('consumer', () => {
             offsetsStore: jest.fn(),
             setDefaultConsumeTimeout: jest.fn(),
             incrementalUnassign: jest.fn(),
+            incrementalAssign: jest.fn(),
+            rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
         }
 
         // Mock the RdKafkaConsumer constructor to return our configured mock
