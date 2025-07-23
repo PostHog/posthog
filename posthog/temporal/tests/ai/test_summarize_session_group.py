@@ -492,16 +492,18 @@ class TestSummarizeSessionGroupWorkflow:
             # Operations: session data storage (2) + session summaries (2) + pattern extraction (1) + pattern assignment (1)
             assert spy_setex.call_count == 6
             # Operations:
-            # - try to get cached DB data for 2 sessions (2)
-            # - try to get cached single-session summaries for 2 sessions (2)
-            # - get cached DB data for 2 sessions (2)
-            # - try to get cached extracted patterns from all sessions (1)
-            # - get cached single-session summaries for 2 sessions (2)
-            # - try to get cached patterns assignments for all sessions (1)
-            # - get cached extracted patterns for all sessions (1)
-            # - get cached single-session summaries for 2 sessions (2)
-            # - get cached DB data for 2 sessions (2)
-            assert spy_get.call_count == 15
+            # - try to get cached DB data for 2 sessions (2) - fetch_session_batch_events_activity
+            # - try to get cached single-session summaries for 2 sessions (2) - fetch_session_batch_events_activity
+            # - get cached DB data for 2 sessions (2) - fetch_session_batch_events_activity
+            # - get cached DB data for 2 sessions (2) - split_session_summaries_into_chunks_for_patterns_extraction_activity
+            # - nothing from combine_patterns_from_chunks_activity, as only one chunk, so no combination step
+            # - try to get cached extracted patterns from all sessions (1) - extract_session_group_patterns_activity
+            # - get cached single-session summaries for 2 sessions (2) - extract_session_group_patterns_activity
+            # - try to get cached patterns assignments for all sessions (1) - assign_events_to_patterns_activity
+            # - get cached extracted patterns for all sessions (1) - assign_events_to_patterns_activity
+            # - get cached single-session summaries for 2 sessions (2) - assign_events_to_patterns_activity
+            # - get cached DB data for 2 sessions (2) - assign_events_to_patterns_activity
+            assert spy_get.call_count == 17
 
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow_with_chunking(
