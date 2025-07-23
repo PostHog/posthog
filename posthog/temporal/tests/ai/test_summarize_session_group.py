@@ -31,6 +31,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog import constants
 from collections.abc import AsyncGenerator
@@ -40,9 +41,6 @@ from datetime import datetime, timedelta
 from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.ai import WORKFLOWS
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
-from posthog.temporal.ai.session_summary.activities.patterns import (
-    split_session_summaries_into_chunks_for_patterns_extraction,
-)
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryOfSummariesInputs,
     SessionGroupSummaryPatternsExtractionChunksInputs,
@@ -387,6 +385,7 @@ class TestSummarizeSessionGroupWorkflow:
                         assign_events_to_patterns_activity,
                         fetch_session_batch_events_activity,
                         combine_patterns_from_chunks_activity,
+                        split_session_summaries_into_chunks_for_patterns_extraction_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:

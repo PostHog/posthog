@@ -102,28 +102,24 @@ async def _get_session_summaries_str_from_inputs(
     ]
 
 
-async def split_session_summaries_into_chunks_for_patterns_extraction(
+@temporalio.activity.defn
+async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     inputs: SessionGroupSummaryOfSummariesInputs,
-    redis_client: aioredis.Redis,
-    model: str = SESSION_SUMMARIES_SYNC_MODEL,
 ) -> list[list[str]]:
     """
     Split LLM input data into chunks based on token count.
-
-    :param session_summaries_str: List of session summaries inputs to get summaries from Redis.
-    :param redis_client: Redis client to get summaries from.
-    :param model: Model to use for token estimation.
-    :return: List of lists, where each inner list contains the indices of sessions that should be processed together in one chunk.
+    This is an activity to avoid workflow deadlocks when using tiktoken inside workflow.
     """
     if not inputs.single_session_summaries_inputs:
         return []
+    redis_client = get_async_client()
     # Calculate token count for the prompt templates, providing empty context
     prompt = generate_session_group_patterns_extraction_prompt(
         session_summaries_str=[""], extra_summary_context=inputs.extra_summary_context
     )
     # Estimate base template tokens (without session summaries)
     base_template_tokens = estimate_tokens_from_strings(
-        strings=[prompt.system_prompt, prompt.patterns_prompt], model=model
+        strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_SYNC_MODEL
     )
     # Get session summaries from Redis
     session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
@@ -134,10 +130,14 @@ async def split_session_summaries_into_chunks_for_patterns_extraction(
         )
     # Remove excessive content from summaries for token estimation, and convert to strings
     intermediate_session_summaries_str = [
-        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary)) for summary in session_summaries_str
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary).data)
+        for summary in session_summaries_str
     ]
     # Calculate tokens for each session summary
-    session_tokens = [estimate_tokens_from_strings([summary], model) for summary in intermediate_session_summaries_str]
+    session_tokens = [
+        estimate_tokens_from_strings(strings=[summary], model=SESSION_SUMMARIES_SYNC_MODEL)
+        for summary in intermediate_session_summaries_str
+    ]
     # Create chunks ensuring each stays under the token limit
     chunks = []
     current_chunk: list[str] = []

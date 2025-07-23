@@ -34,7 +34,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
-    split_session_summaries_into_chunks_for_patterns_extraction,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
@@ -414,11 +414,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         inputs: SessionGroupSummaryOfSummariesInputs,
     ) -> list[str] | None:
         """Extract patterns from session summaries using chunking if needed."""
-        # Get Redis client and check if we need to chunk based on token count
-        redis_client = get_async_client()
-        chunks = await split_session_summaries_into_chunks_for_patterns_extraction(
-            inputs=inputs,
-            redis_client=redis_client,
+        # Execute chunking activity to split sessions based on token count
+        chunks = await temporalio.workflow.execute_activity(
+            split_session_summaries_into_chunks_for_patterns_extraction_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         # If a single chunk is returned, use the activity directly, as it should cover all the sessions, so combination step is not needed
         if len(chunks) == 1:
@@ -490,7 +491,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
         db_session_inputs = await self._fetch_session_group_data(inputs)
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
-
         # Extract patterns from session summaries (with chunking if needed)
         session_ids_to_process = await self._run_patterns_extraction(
             SessionGroupSummaryOfSummariesInputs(
@@ -504,7 +504,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         if session_ids_to_process is None:
             # Keeping all the initial sessions
             single_session_summaries_inputs = summaries_session_inputs
-
         # If specific ids returned - then patterns were extracted for session chunks, and combined,
         # so we need to continue specifically with sessions that succeeded
         else:
