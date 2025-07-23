@@ -611,42 +611,6 @@ AND properties.$lib != 'web'`
         },
     })),
     selectors(({ cache }) => ({
-        // sessionAnnotations: [
-        //     (s) => [s.annotations, s.start, s.end],
-        //     (annotations, start, end): InspectorListItemCommentComment[] => {
-        //         const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
-        //         const startValue = start?.valueOf()
-        //         const endValue = end?.valueOf()
-        //
-        //         const result: InspectorListItemCommentComment[] = []
-        //         for (const annotation of annotations) {
-        //             if (!allowedScopes.includes(annotation.scope)) {
-        //                 continue
-        //             }
-        //
-        //             if (!annotation.date_marker || !startValue || !endValue || !annotation.content) {
-        //                 continue
-        //             }
-        //
-        //             const annotationTime = dayjs(annotation.date_marker).valueOf()
-        //             if (annotationTime < startValue || annotationTime > endValue) {
-        //                 continue
-        //             }
-        //
-        //             result.push({
-        //                 type: 'comment',
-        //                 source: 'annotation',
-        //                 data: annotation,
-        //                 timestamp: dayjs(annotation.date_marker),
-        //                 timeInRecording: annotation.date_marker.valueOf() - startValue,
-        //                 search: annotation.content,
-        //                 highlightColor: 'primary',
-        //             })
-        //         }
-        //
-        //         return result
-        //     },
-        // ],
         webVitalsEvents: [
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>

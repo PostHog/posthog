@@ -28,14 +28,13 @@ class Annotation(models.Model):
     creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    # we don't want a foreign key, since not all recordings will be in postgres
-    recording_id = models.UUIDField(null=True, blank=True)
-
-    # convenience so that we can load just emoji annotations, without checking the content
-    is_emoji = models.BooleanField(default=False, null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)
+    # DEPRECATED: moved to the comment model
+    recording_id = models.UUIDField(null=True, blank=True)
+    # DEPRECATED: moved to the comment model
+    is_emoji = models.BooleanField(default=False, null=True, blank=True)
 
     @property
     def insight_short_id(self) -> Optional[str]:
