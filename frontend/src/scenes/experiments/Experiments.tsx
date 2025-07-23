@@ -38,7 +38,7 @@ export const scene: SceneExport = {
 export function Experiments(): JSX.Element {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
-    const { loadExperiments, setExperimentsTab, archiveExperiment, setExperimentsFilters } =
+    const { loadExperiments, setExperimentsTab, archiveExperiment, setExperimentsFilters, duplicateExperiment } =
         useActions(experimentsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -139,7 +139,7 @@ export function Experiments(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    to={urls.experiment(`${experiment.id}`, 'duplicate')}
+                                    onClick={() => duplicateExperiment(experiment.id as number)}
                                     size="small"
                                     fullWidth
                                 >
