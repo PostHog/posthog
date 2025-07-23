@@ -252,7 +252,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = sorted(
             self._calculate(
-                dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"),
+                dateRange=DateRange(date_from="-1d", date_to="+1d"),
                 filterTestAccounts=True,
                 searchQuery="databasenot",
                 withAggregations=True,
