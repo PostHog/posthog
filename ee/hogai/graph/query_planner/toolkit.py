@@ -6,7 +6,6 @@ from typing import Literal, Optional, Union, cast
 
 from pydantic import BaseModel, Field, field_validator
 
-from ee.hogai.tool import MaxSupportedQueryKind
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -97,6 +96,9 @@ class ask_user_for_help(BaseModel):
     """
 
     request: str = Field(..., description="The question you want to ask the user.")
+
+
+MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
 
 class final_answer(BaseModel):
