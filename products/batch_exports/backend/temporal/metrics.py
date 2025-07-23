@@ -110,7 +110,10 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         if workflow_type not in BATCH_EXPORT_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
-        histogram_attributes: Attributes = {"interval": input.args[0].interval}
+        # For consistency with the activity metric, use '_' as a separator instead of spaces.
+        # This only affects "every 5 minutes" which becomes "every_5_minutes".
+        interval = input.args[0].interval.replace(" ", "_")
+        histogram_attributes: Attributes = {"interval": interval}
 
         with ExecutionTimeRecorder(
             "batch_exports_workflow_interval_execution_latency", histogram_attributes=histogram_attributes, log=False
@@ -348,6 +351,6 @@ def get_interval_from_bounds(
             case 604800.0:
                 interval = "week"
             case s:
-                interval = f"every_{int(s) / 60}_minutes"
+                interval = f"every_{int(s / 60)}_minutes"
 
     return interval

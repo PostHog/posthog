@@ -75,7 +75,6 @@ def call_root_for_insight_generation(demo_org_team_user):
                 "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                 "root": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
-                "memory_onboarding": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
         )
