@@ -20,10 +20,7 @@ export interface LemonTipTapProps {
     children: string
     /** Whether headings should just be <strong> text. Recommended for item descriptions. */
     lowKeyHeadings?: boolean
-    /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
-    disableDocsRedirect?: boolean
     className?: string
-    wrapCode?: boolean
 }
 
 const LemonTipTapRenderer = memo(function LemonTipTapRenderer({
@@ -72,21 +69,10 @@ const LemonTipTapRenderer = memo(function LemonTipTapRenderer({
 })
 
 /** Beautifully rendered Markdown with TipTap. */
-function LemonTipTapComponent({
-    children,
-    lowKeyHeadings = false,
-    disableDocsRedirect = false,
-    wrapCode = false,
-    className,
-}: LemonTipTapProps): JSX.Element {
+function LemonTipTapComponent({ children, lowKeyHeadings = false, className }: LemonTipTapProps): JSX.Element {
     return (
         <LemonTipTapContainer className={className}>
-            <LemonTipTapRenderer
-                children={children}
-                lowKeyHeadings={lowKeyHeadings}
-                disableDocsRedirect={disableDocsRedirect}
-                wrapCode={wrapCode}
-            />
+            <LemonTipTapRenderer children={children} lowKeyHeadings={lowKeyHeadings} />
         </LemonTipTapContainer>
     )
 }
