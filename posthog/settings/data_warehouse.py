@@ -1,5 +1,7 @@
 import os
 
+from posthog.settings import TEST
+from posthog.settings.base_variables import DEBUG
 from posthog.settings.utils import get_from_env, str_to_bool
 
 AIRBYTE_BUCKET_REGION = os.getenv("AIRBYTE_BUCKET_REGION", "us-east-1")
@@ -11,7 +13,7 @@ DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
 BUCKET_PATH = os.getenv("BUCKET_PATH", "data-warehouse")
 
-USE_LOCAL_SETUP = False
+USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0)
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 

@@ -77,6 +77,7 @@ def stripe_source(
         # Get the incremental field name for this endpoint
         incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
         incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
+        incremental_field_label = incremental_field_config[0]["label"] if incremental_field_config else "created"
 
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
@@ -116,7 +117,7 @@ def stripe_source(
                 }
             )
             for obj in stripe_objects.auto_paging_iter():
-                if obj[incremental_field_name] <= db_incremental_field_last_value:
+                if obj[incremental_field_label] <= db_incremental_field_last_value:
                     break
 
                 yield obj
