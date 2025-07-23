@@ -285,18 +285,30 @@ export class KafkaConsumer {
                 Promise.all(this.backgroundTask)
                     .then(() => {
                         logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
-                        this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                            this.rdKafkaConsumer.incrementalAssign(assignments)
+                        } else {
+                            this.rdKafkaConsumer.assign(assignments)
+                        }
                         this.updateMetricsAfterRevocation(assignments)
                     })
                     .catch((error) => {
                         logger.error('🔁', 'background_task_error_during_revocation', { error })
                         // Still proceed with revocation even if background tasks fail
-                        this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                            this.rdKafkaConsumer.incrementalUnassign(assignments)
+                        } else {
+                            this.rdKafkaConsumer.unassign()
+                        }
                         this.updateMetricsAfterRevocation(assignments)
                     })
             } else {
                 // No background tasks or feature disabled, proceed immediately
-                this.rdKafkaConsumer.incrementalUnassign(assignments)
+                if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                    this.rdKafkaConsumer.incrementalUnassign(assignments)
+                } else {
+                    this.rdKafkaConsumer.unassign()
+                }
                 this.updateMetricsAfterRevocation(assignments)
             }
         } else {
