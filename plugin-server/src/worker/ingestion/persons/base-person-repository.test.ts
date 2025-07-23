@@ -509,6 +509,85 @@ describe('BasePersonRepository', () => {
             }
         })
     })
+
+    describe('addPersonlessDistinctId', () => {
+        it('should insert personless distinct ID successfully', async () => {
+            const team = await getFirstTeam(hub)
+            const distinctId = 'test-distinct-new'
+
+            const result = await repository.addPersonlessDistinctId(team.id, distinctId)
+
+            expect(result).toBe(false) // is_merged should be false for new insert
+
+            // Verify the record was actually inserted
+            const selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, distinctId],
+                'verifyInsert'
+            )
+
+            expect(selectResult.rows).toHaveLength(1)
+            expect(selectResult.rows[0].is_merged).toBe(false)
+        })
+
+        it('should return existing is_merged value when distinct ID already exists', async () => {
+            const team = await getFirstTeam(hub)
+            const distinctId = 'test-distinct-existing'
+
+            // First insert
+            const firstResult = await repository.addPersonlessDistinctId(team.id, distinctId)
+            expect(firstResult).toBe(false) // is_merged should be false for new insert
+
+            // Second insert with same distinct ID - should return existing value
+            const secondResult = await repository.addPersonlessDistinctId(team.id, distinctId)
+            expect(secondResult).toBe(false) // should still be false since we didn't merge it
+
+            // Verify only one record exists
+            const selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT COUNT(*) as count FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, distinctId],
+                'verifyCount'
+            )
+
+            expect(selectResult.rows[0].count).toBe('1')
+        })
+
+        it('should handle different team IDs correctly', async () => {
+            const team1 = await getFirstTeam(hub)
+            const team2 = await getFirstTeam(hub) // Get another team
+            const distinctId = 'shared-distinct-id'
+
+            // Insert for team 1
+            const result1 = await repository.addPersonlessDistinctId(team1.id, distinctId)
+            expect(result1).toBe(false)
+
+            // Insert for team 2 (should work since it's a different team)
+            const result2 = await repository.addPersonlessDistinctId(team2.id, distinctId)
+            expect(result2).toBe(false)
+
+            // Verify both records exist
+            const selectResult1 = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team1.id, distinctId],
+                'verifyTeam1'
+            )
+
+            const selectResult2 = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team2.id, distinctId],
+                'verifyTeam2'
+            )
+
+            expect(selectResult1.rows).toHaveLength(1)
+            expect(selectResult2.rows).toHaveLength(1)
+            expect(selectResult1.rows[0].is_merged).toBe(false)
+            expect(selectResult2.rows[0].is_merged).toBe(false)
+        })
+    })
 })
 
 // Helper function from the original test file

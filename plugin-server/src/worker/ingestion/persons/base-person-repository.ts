@@ -313,4 +313,36 @@ export class BasePersonRepository implements PersonRepository {
 
         return { success: true, messages: kafkaMessages }
     }
+
+    async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
+        const result = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                VALUES ($1, $2, false, now())
+                ON CONFLICT (team_id, distinct_id) DO NOTHING
+                RETURNING is_merged
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctId'
+        )
+
+        if (result.rows.length === 1) {
+            return result.rows[0]['is_merged']
+        }
+
+        // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
+        const existingResult = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+                SELECT is_merged
+                FROM posthog_personlessdistinctid
+                WHERE team_id = $1 AND distinct_id = $2
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctId'
+        )
+
+        return existingResult.rows[0]['is_merged']
+    }
 }

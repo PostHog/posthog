@@ -491,7 +491,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId', distinctId)
-        return await this.db.addPersonlessDistinctId(teamId, distinctId)
+        return await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
     }
 
     async addPersonlessDistinctIdForMerge(

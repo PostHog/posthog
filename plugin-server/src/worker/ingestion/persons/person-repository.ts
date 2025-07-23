@@ -40,4 +40,6 @@ export interface PersonRepository {
         target: InternalPerson,
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
+
+    addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
 }
