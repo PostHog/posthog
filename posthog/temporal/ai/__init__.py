@@ -1,5 +1,6 @@
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
+    combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -37,6 +38,7 @@ ACTIVITIES = [
     extract_session_group_patterns_activity,
     assign_events_to_patterns_activity,
     fetch_session_data_activity,
+    combine_patterns_from_chunks_activity,
 ]
 
 __all__ = [

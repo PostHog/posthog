@@ -386,6 +386,7 @@ class TestSummarizeSessionGroupWorkflow:
                         extract_session_group_patterns_activity,
                         assign_events_to_patterns_activity,
                         fetch_session_batch_events_activity,
+                        combine_patterns_from_chunks_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:
