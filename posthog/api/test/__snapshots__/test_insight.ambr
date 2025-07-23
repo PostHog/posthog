@@ -1192,6 +1192,22 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.20
   '''
+  SELECT "posthog_insightvariable"."created_by_id",
+         "posthog_insightvariable"."created_at",
+         "posthog_insightvariable"."updated_at",
+         "posthog_insightvariable"."id",
+         "posthog_insightvariable"."team_id",
+         "posthog_insightvariable"."name",
+         "posthog_insightvariable"."code_name",
+         "posthog_insightvariable"."type",
+         "posthog_insightvariable"."default_value",
+         "posthog_insightvariable"."values"
+  FROM "posthog_insightvariable"
+  WHERE "posthog_insightvariable"."team_id" = 99999
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.21
+  '''
   SELECT "posthog_dashboardtile"."dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -1201,7 +1217,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.21
+# name: TestInsight.test_listing_insights_does_not_nplus1.22
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1232,14 +1248,14 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.22
+# name: TestInsight.test_listing_insights_does_not_nplus1.23
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.23
+# name: TestInsight.test_listing_insights_does_not_nplus1.24
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1272,7 +1288,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.24
+# name: TestInsight.test_listing_insights_does_not_nplus1.25
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1351,7 +1367,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.25
+# name: TestInsight.test_listing_insights_does_not_nplus1.26
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1391,7 +1407,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.26
+# name: TestInsight.test_listing_insights_does_not_nplus1.27
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -1437,7 +1453,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.27
+# name: TestInsight.test_listing_insights_does_not_nplus1.28
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1475,7 +1491,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.28
+# name: TestInsight.test_listing_insights_does_not_nplus1.29
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -1505,15 +1521,6 @@
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.29
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboarditem"
-  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_team"."project_id" = 99999
-         AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.3
@@ -1563,6 +1570,15 @@
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.30
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboarditem"
+  INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_team"."project_id" = 99999
+         AND NOT ("posthog_dashboarditem"."deleted"))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.31
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1735,7 +1751,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.31
+# name: TestInsight.test_listing_insights_does_not_nplus1.32
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -1874,7 +1890,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.32
+# name: TestInsight.test_listing_insights_does_not_nplus1.33
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -2025,7 +2041,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.33
+# name: TestInsight.test_listing_insights_does_not_nplus1.34
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -2044,7 +2060,7 @@
                                               5 /* ... */)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.34
+# name: TestInsight.test_listing_insights_does_not_nplus1.35
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
