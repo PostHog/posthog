@@ -447,7 +447,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
+            [
+                'loading',
+                'createMarketingDataWarehouseNodes',
+                'dynamicConversionGoal',
+                'compareFilter as marketingCompareFilter',
+                'dateFilter as marketingDateFilter',
+            ],
         ],
     })),
     actions({
@@ -967,6 +973,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
+        marketingContext: [
+            (s) => [s.createMarketingDataWarehouseNodes, s.marketingCompareFilter, s.marketingDateFilter],
+            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter) => ({
+                createMarketingDataWarehouseNodes,
+                marketingCompareFilter,
+                marketingDateFilter,
+            }),
+        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -979,7 +993,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
                 () => values.campaignCostsBreakdown,
-                s.createMarketingDataWarehouseNodes,
+                s.marketingContext,
             ],
             (
                 productTab,
@@ -1001,8 +1015,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tileVisualizations,
                 preAggregatedEnabled,
                 campaignCostsBreakdown,
-                createMarketingDataWarehouseNodes
+                marketingContext
             ): WebAnalyticsTile[] => {
+                const { createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter } =
+                    marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1137,7 +1153,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ].filter(isNotNil)
 
                     // Check if this tile has a visualization preference
-                    const visualization = tileVisualizations[tileId]
+                    const visualization =
+                        tileVisualizations[tileId as unknown as keyof typeof tileVisualizations] || undefined
 
                     const baseTabProps = {
                         id: tabId,
@@ -1313,7 +1330,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
-                                    compareFilter,
+                                    compareFilter: marketingCompareFilter,
                                     series:
                                         createMarketingDataWarehouseNodes.length > 0
                                             ? createMarketingDataWarehouseNodes
@@ -1326,8 +1343,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                       math: BaseMathType.TotalCount,
                                                   },
                                               ],
-                                    interval,
-                                    dateRange: dateRange,
+                                    interval: marketingDateFilter.interval,
+                                    dateRange: {
+                                        date_from: marketingDateFilter.dateFrom,
+                                        date_to: marketingDateFilter.dateTo,
+                                    },
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsAreaGraph,
                                         aggregationAxisFormat: 'numeric',
