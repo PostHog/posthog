@@ -481,8 +481,6 @@ export class CdpApi {
         async (req: express.Request & { rawBody?: Buffer }, res: express.Response): Promise<any> => {
             try {
                 const { status, message } = await this.emailService.handleWebhook(req)
-
-                console.log('status', status, message)
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
