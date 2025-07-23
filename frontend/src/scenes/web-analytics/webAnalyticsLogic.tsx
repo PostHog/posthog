@@ -1313,6 +1313,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
+                                    compareFilter,
                                     series:
                                         createMarketingDataWarehouseNodes.length > 0
                                             ? createMarketingDataWarehouseNodes
@@ -1325,7 +1326,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                       math: BaseMathType.TotalCount,
                                                   },
                                               ],
-                                    interval: 'week',
+                                    interval,
                                     dateRange: dateRange,
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsAreaGraph,
@@ -1334,6 +1335,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                             },
+                            showIntervalSelect: true,
                             insightProps: createInsightProps(TileId.MARKETING),
                             canOpenInsight: true,
                             canOpenModal: false,
