@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="PostHog" type="Python.DjangoServer" factoryName="Django server">
     <module name="posthog" />
-    <option name="ENV_FILES" value="$PROJECT_DIR$/.env.local" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
