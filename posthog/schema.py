@@ -3566,6 +3566,15 @@ class HogQLNotice(BaseModel):
     start: Optional[int] = None
 
 
+class HogQLPaginationConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: bool
+    limit: int
+    offset: int
+
+
 class HogQLPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10664,6 +10673,7 @@ class HogQLASTQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     name: Optional[str] = Field(default=None, description="Client provided name of the query")
+    pagination: Optional[HogQLPaginationConfig] = None
     query: dict[str, Any]
     response: Optional[HogQLQueryResponse] = None
     tags: Optional[QueryLogTags] = None
@@ -10687,6 +10697,7 @@ class HogQLQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     name: Optional[str] = Field(default=None, description="Client provided name of the query")
+    pagination: Optional[HogQLPaginationConfig] = None
     query: str
     response: Optional[HogQLQueryResponse] = None
     tags: Optional[QueryLogTags] = None

@@ -1,6 +1,8 @@
 export interface PaginationBase {
     /** By default pagination is only shown when there are multiple pages, but will always be if this is `false`. */
     hideOnSinglePage?: boolean
+    /** Page change handler. */
+    onPageChange?: (newPage: number, isLastPage?: boolean, isFirstPage?: boolean) => void
 }
 
 export interface PaginationAuto extends PaginationBase {

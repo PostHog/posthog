@@ -57,7 +57,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -225,7 +225,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -364,7 +364,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -498,7 +498,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -541,7 +541,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -584,7 +584,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -627,7 +627,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -670,7 +670,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -733,7 +733,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -796,7 +796,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -886,7 +886,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1017,7 +1017,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1084,7 +1084,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1134,7 +1134,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1184,7 +1184,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1446,7 +1446,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1496,7 +1496,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1670,7 +1670,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1777,7 +1777,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1862,7 +1862,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -1995,7 +1995,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2072,7 +2072,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2149,7 +2149,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2215,7 +2215,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2281,7 +2281,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2310,7 +2310,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2374,7 +2374,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2542,7 +2542,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2692,7 +2692,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2738,7 +2738,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2767,7 +2767,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2813,7 +2813,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2842,7 +2842,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2888,7 +2888,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2926,7 +2926,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -2962,7 +2962,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3007,7 +3007,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3052,7 +3052,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3097,7 +3097,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3126,7 +3126,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3162,7 +3162,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3211,7 +3211,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3240,7 +3240,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3290,7 +3290,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3319,7 +3319,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3355,7 +3355,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3404,7 +3404,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3433,7 +3433,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3483,7 +3483,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3512,7 +3512,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3548,7 +3548,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3597,7 +3597,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3626,7 +3626,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3676,7 +3676,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3712,7 +3712,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3741,7 +3741,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3777,7 +3777,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3806,7 +3806,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3842,7 +3842,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3871,7 +3871,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3900,7 +3900,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3929,7 +3929,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3958,7 +3958,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -3987,7 +3987,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4016,7 +4016,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4045,7 +4045,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4107,7 +4107,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4169,7 +4169,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4198,7 +4198,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4244,7 +4244,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4304,7 +4304,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4364,7 +4364,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4406,7 +4406,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4448,7 +4448,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4491,7 +4491,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4520,7 +4520,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4549,7 +4549,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4631,7 +4631,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4740,7 +4740,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4851,7 +4851,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4900,7 +4900,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4949,7 +4949,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -4998,7 +4998,7 @@
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
                                                                                                                                              breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5047,7 +5047,7 @@
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
                                                                                                                                              breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5076,7 +5076,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5105,7 +5105,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5134,7 +5134,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5189,7 +5189,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))))
         GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)))
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5218,7 +5218,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
         WHERE and(equals(e.team_id, 99999), equals(e.event, 'viewed video'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), minus(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(0))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-07 23:59:59', 'UTC'))))
         GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)))
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5270,7 +5270,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5314,7 +5314,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5358,7 +5358,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5387,7 +5387,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5421,7 +5421,7 @@
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5455,7 +5455,7 @@
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5527,7 +5527,7 @@
         ORDER BY day_start ASC)
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5631,7 +5631,7 @@
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
                                                                                                                                                                          breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5697,7 +5697,7 @@
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, total DESC,
                                                                                                                                              breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5726,7 +5726,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5754,7 +5754,7 @@
      WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY e.`$session_id`
      ORDER BY 1 DESC)
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5782,7 +5782,7 @@
      WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY e.`$session_id`
      ORDER BY 1 DESC)
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5824,7 +5824,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5866,7 +5866,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5924,7 +5924,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -5982,7 +5982,7 @@
   WHERE isNotNull(breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6040,7 +6040,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6098,7 +6098,7 @@
   WHERE arrayExists(x -> isNotNull(x), breakdown_value)
   GROUP BY breakdown_value
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6140,7 +6140,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6182,7 +6182,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6224,7 +6224,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6263,7 +6263,7 @@
               e.actor_id
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0))
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6302,7 +6302,7 @@
               e.actor_id
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), 0))
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6341,7 +6341,7 @@
               e.actor_id
      ORDER BY d.timestamp ASC)
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), 0))
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6390,7 +6390,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6439,7 +6439,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6488,7 +6488,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6547,7 +6547,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6606,7 +6606,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6655,7 +6655,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6691,7 +6691,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6727,7 +6727,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
@@ -6763,7 +6763,7 @@
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
-  LIMIT 50000 SETTINGS readonly=2,
+  LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,

@@ -53,7 +53,9 @@ export function PaginationControl<T>({
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                        const newPage = Math.max(1, Math.min(pageCount as number, currentPage as number) - 1)
+                        setCurrentPage(newPage)
+                        pagination?.onPageChange?.(newPage, false, newPage === 1)
                     }
                 }}
             />
@@ -64,7 +66,9 @@ export function PaginationControl<T>({
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                        const newPage = Math.min(pageCount as number, (currentPage as number) + 1)
+                        setCurrentPage(newPage)
+                        pagination?.onPageChange?.(newPage, newPage === pageCount, false)
                     }
                 }}
             />

@@ -149,7 +149,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         showResultControls,
         sourceFeatures,
         response,
-        responseLoading,
+        dataLoading,
         responseError,
         queryCancelled,
         isChartSettingsPanelOpen,
@@ -167,7 +167,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!response || responseLoading) {
+    // use data loading instead of responseLoading for initial loading state. Follow on states shouldn't block the component
+    if (!response || dataLoading) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />

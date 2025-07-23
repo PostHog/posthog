@@ -34,7 +34,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 
 // Sync with posthog/hogql/constants.py
-export const MAX_SELECT_RETURNED_ROWS = 50000
+export const CSV_EXPORT_LIMIT = 300000
 
 const columnDisallowList = ['person.$delete', '*']
 

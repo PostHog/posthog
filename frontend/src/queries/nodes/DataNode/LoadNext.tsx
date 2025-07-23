@@ -5,9 +5,6 @@ import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-
-import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 
 interface LoadNextProps {
     query: DataNode
@@ -18,27 +15,6 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
     const { loadNextData } = useActions(dataNodeLogic)
 
     const text = useMemo(() => {
-        // if hogql based viz, show a different text
-        if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
-            // No data limit means the user is controlling the pagination
-            if (!dataLimit) {
-                if (numberOfRows && numberOfRows <= DEFAULT_PAGE_SIZE) {
-                    return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                        numberOfRows === 1 ? 'entry' : 'entries'
-                    }`
-                }
-                // If the number of rows is greater than the default page size, it's handled by pagination component
-                return ''
-            }
-            if (numberOfRows && numberOfRows < dataLimit) {
-                return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                    numberOfRows === 1 ? 'entry' : 'entries'
-                }`
-            }
-            return `Default limit of ${dataLimit} rows reached`
-        } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
-        }
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
         }${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'}`
@@ -50,16 +26,6 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
         return result
     }, [query, dataLimit, numberOfRows, canLoadNextData, nextDataLoading, hasMoreData])
 
-    // pagination component exists
-    if (
-        isDataVisualizationNode(query) &&
-        isHogQLQuery(query.source) &&
-        !dataLimit &&
-        (!numberOfRows || numberOfRows > DEFAULT_PAGE_SIZE)
-    ) {
-        return <></>
-    }
-
     return (
         <div className="m-2 flex items-center">
             <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center disabled={!canLoadNextData}>
@@ -70,7 +36,14 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 }
 
 export function LoadPreviewText({ localResponse }: { localResponse?: Record<string, any> | null }): JSX.Element {
-    const { response: dataNodeResponse, hasMoreData, responseLoading } = useValues(dataNodeLogic)
+    const {
+        response: dataNodeResponse,
+        hasMoreData,
+        responseLoading,
+        nextQuery,
+        nextDataLoading,
+    } = useValues(dataNodeLogic)
+    const { loadNextData } = useActions(dataNodeLogic)
 
     const response = dataNodeResponse ?? localResponse
 
@@ -86,17 +59,28 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         response && 'last_refresh' in response ? response['last_refresh'] : null
 
     return (
-        <>
+        <div className="flex flex-row items-center gap-2">
             <span>
                 {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
                 {isSingleEntry ? 'one row' : `${resultCount} rows`}
             </span>
+            {nextQuery && (
+                <LemonButton
+                    className="my-2"
+                    onClick={loadNextData}
+                    loading={nextDataLoading}
+                    size="xsmall"
+                    type="secondary"
+                >
+                    Load more
+                </LemonButton>
+            )}
             {lastRefreshTimeUtc && (
                 <>
-                    <span className="ml-2 mr-2">|</span>
+                    <span>|</span>
                     <TZLabel noStyles time={lastRefreshTimeUtc} />
                 </>
             )}
-        </>
+        </div>
     )
 }
