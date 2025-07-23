@@ -206,7 +206,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
                 if last_uploaded_timestamp is None:
                     # Don't heartbeat if worker shuts down before we could even send anything
                     # Just start from the beginning again.
-                    return BatchExportResult(records_completed=0)
+                    return
 
                 activity.heartbeat(last_uploaded_timestamp)
 
