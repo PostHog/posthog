@@ -49,8 +49,6 @@ describe('EmailTrackingService', () => {
         const invocationId = 'invocation-id'
 
         let exampleEvent: MailjetWebhookEvent
-        let customIdHogFunction: string
-        let customIdHogFlow: string
 
         beforeEach(async () => {
             api = new CdpApi(hub)
@@ -59,8 +57,6 @@ describe('EmailTrackingService', () => {
 
             hogFunction = await insertHogFunction(hub.postgres, team.id)
             hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
-            customIdHogFunction = generateMailjetCustomId({ functionId: hogFunction.id, id: invocationId })
-            customIdHogFlow = generateMailjetCustomId({ functionId: hogFlow.id, id: invocationId })
             exampleEvent = {
                 event: 'sent',
                 time: Date.now(),
@@ -72,7 +68,7 @@ describe('EmailTrackingService', () => {
                 MessageID: 1,
                 Message_GUID: 'test-message-guid',
                 customcampaign: 'test-custom-campaign',
-                CustomID: customIdHogFunction,
+                CustomID: generateMailjetCustomId({ functionId: hogFunction.id, id: invocationId }),
                 Payload: JSON.stringify({}),
             }
         })
