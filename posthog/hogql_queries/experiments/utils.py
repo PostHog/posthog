@@ -135,9 +135,6 @@ def get_frequentist_experiment_result_legacy_format(
     for test_variant in test_variants:
         try:
             test_stat = metric_variant_to_statistic(metric, test_variant)
-        except StatisticError as e:
-            raise ExposedCHQueryError(str(e), code=None) from e
-        try:
             result = method.run_test(test_stat, control_stat)
         except StatisticError as e:
             raise ExposedCHQueryError(str(e), code=None) from e
