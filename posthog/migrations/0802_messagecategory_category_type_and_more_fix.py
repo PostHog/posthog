@@ -14,6 +14,15 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AddField(
+                    model_name="messagecategory",
+                    name="category_type",
+                    field=models.CharField(
+                        choices=[("marketing", "MARKETING"), ("transactional", "TRANSACTIONAL")],
+                        default="marketing",
+                        max_length=32,
+                    ),
+                ),
+                migrations.AddField(
                     model_name="messagetemplate",
                     name="message_category",
                     field=models.ForeignKey(
@@ -22,7 +31,7 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL,
                         to="posthog.messagecategory",
                     ),
-                )
+                ),
             ],
             database_operations=[
                 # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
