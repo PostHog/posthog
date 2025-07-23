@@ -147,13 +147,11 @@ fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
     encoder.finish().expect(&err_msg)
 }
 
-fn lz64_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
+fn lz64_compress(title: &str, data: Vec<u8>) -> String {
     let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {}", title);
     let utf8_str = std::str::from_utf8(&data).expect(&utf8_err_msg);
     let utf16_bytes: Vec<u16> = utf8_str.encode_utf16().collect();
     lz_str::compress_to_base64(utf16_bytes)
-        .as_bytes()
-        .to_owned()
 }
 
 // format the sent_at value when included in GET URL query params
@@ -446,14 +444,64 @@ async fn post_form_urlencoded_single_event_payload() {
         "failed to serialize payload to urlencoded form in case: {}",
         title
     );
-    let utf_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
+    let utf8_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
     let form_payload =
-        serde_urlencoded::to_string([("data", utf_payload), ("ver", "1.2.3")]).expect(&err_msg);
+        serde_urlencoded::to_string([("data", utf8_payload), ("ver", "1.2.3")]).expect(&err_msg);
 
     let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
     let client = TestClient::new(router);
+
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
     let req_path = format!("/e/?_={}", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(form_payload)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "test {}: non-2xx response: {}",
+        title,
+        res.text().await
+    );
+
+    let cap_resp_details = res.json().await;
+    assert_eq!(
+        Some(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        }),
+        cap_resp_details,
+        "test {}: non-OK CaptureResponse: {:?}",
+        title,
+        cap_resp_details,
+    );
+
+    // extract the processed events from the in-mem sink and validate contents
+    let got = sink.events();
+    validate_single_event_payload(title, got);
+}
+
+#[tokio::test]
+async fn post_form_lz64_single_event_payload() {
+    let title = "post-form-lz64-encoded-single-event-payload";
+    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
+    let lz64_payload = lz64_compress(title, raw_payload);
+    let err_msg = format!(
+        "failed to serialize LZ64 payload to urlencoded form in case: {}",
+        title
+    );
+    let form_payload =
+        serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())]).expect(&err_msg);
+
+    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/e/?_={}&compression=lz64", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(form_payload)
