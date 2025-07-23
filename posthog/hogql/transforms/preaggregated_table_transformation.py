@@ -18,13 +18,6 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
 
 _T_AST = TypeVar("_T_AST", bound=AST)
 
-# Constants for time intervals, but use seconds so that we can numerically compare them
-SECOND = 1
-MINUTE = 60 * SECOND
-HOUR = 60 * MINUTE
-DAY = 24 * HOUR
-WEEK = 7 * DAY
-
 
 @dataclass
 class PageviewCheckResult:
