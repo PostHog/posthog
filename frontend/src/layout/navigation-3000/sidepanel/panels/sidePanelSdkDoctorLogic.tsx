@@ -651,8 +651,13 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const tenMinutesAgo = Date.now() - 10 * 60 * 1000
                     const limitedEvents = recentEvents.slice(0, 15)
 
+                    // Filter out PostHog's internal UI events (URLs containing /project/1/)
+                    const customerEvents = limitedEvents.filter(
+                        (event) => !event.properties?.$current_url?.includes('/project/1/')
+                    )
+
                     // Filter for feature flag events from the last 10 minutes
-                    const flagEvents = limitedEvents
+                    const flagEvents = customerEvents
                         .filter(
                             (event) =>
                                 event.event === '$feature_flag_called' &&
@@ -662,7 +667,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
                     // Find PostHog init events (pageviews with $lib initialization)
-                    const initEvents = limitedEvents
+                    const initEvents = customerEvents
                         .filter(
                             (event) =>
                                 event.event === '$pageview' &&
