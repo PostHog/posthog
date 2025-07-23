@@ -24,7 +24,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                 <Form
                     logic={playerCommentOverlayLogic}
                     formKey="recordingComment"
-                    id="recording-annotation-form"
+                    id="recording-comment-form"
                     enableFormOnSubmit
                     className="flex flex-col gap-y-1"
                 >
@@ -45,14 +45,14 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                         <LemonField name="content">
                             <LemonTextAreaMarkdown
                                 placeholder="Comment on this recording?"
-                                data-attr="create-annotation-input"
+                                data-attr="create-recording-comment-input"
                                 maxLength={400}
                             />
                         </LemonField>
                     </div>
                     <div className="flex gap-2 mt-2 justify-between">
                         <LemonButton
-                            data-attr="cancel-recording-annotation"
+                            data-attr="cancel-recording-comment"
                             type="secondary"
                             onClick={() => {
                                 resetRecordingComment()
@@ -62,10 +62,10 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            form="recording-annotation-form"
+                            form="recording-comment-form"
                             type="primary"
                             onClick={submitRecordingComment}
-                            data-attr="create-recording-annotation-submit"
+                            data-attr="create-recording-comment-submit"
                             size="small"
                             loading={isRecordingCommentSubmitting}
                         >
