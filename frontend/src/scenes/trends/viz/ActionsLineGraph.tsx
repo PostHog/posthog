@@ -87,12 +87,15 @@ export function ActionsLineGraph({
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    const finalDatasets = []
-    if (showConfidenceIntervals) {
-        indexedResults.forEach((originalDataset) => {
+    const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
+        const yAxisID = showMultipleYAxes && index > 0 ? `y${index}` : 'y'
+        const mainSeries = { ...originalDataset, yAxisID }
+
+        if (showConfidenceIntervals && yAxisScaleType !== 'log10') {
             const color = getTrendsColor(originalDataset)
             const [lower, upper] = ciRanges(originalDataset.data, confidenceLevel / 100)
-            finalDatasets.push({
+
+            const lowerCIBound = {
                 ...originalDataset,
                 label: `${originalDataset.label} (CI Lower)`,
                 action: {
@@ -105,8 +108,9 @@ export function ActionsLineGraph({
                 pointRadius: 0,
                 borderWidth: 0,
                 hideTooltip: true,
-            })
-            finalDatasets.push({
+                yAxisID,
+            }
+            const upperCIBound = {
                 ...originalDataset,
                 label: `${originalDataset.label} (CI Upper)`,
                 action: {
@@ -120,11 +124,13 @@ export function ActionsLineGraph({
                 borderWidth: 0,
                 fill: '-1',
                 hideTooltip: true,
-            })
-        })
-    }
+                yAxisID,
+            }
 
-    finalDatasets.push(...indexedResults)
+            return [lowerCIBound, upperCIBound, mainSeries]
+        }
+        return [mainSeries]
+    })
 
     return (
         <LineGraph
