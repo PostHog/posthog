@@ -34,7 +34,8 @@ export class PubSub {
 
     public async stop(): Promise<void> {
         if (!this.redisSubscriber) {
-            throw new Error('Unstarted PubSub cannot be stopped!')
+            logger.error('🛑', 'Unstarted PubSub cannot be stopped!')
+            return
         }
 
         await this.promises.waitForAll()
