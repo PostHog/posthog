@@ -1,0 +1,17 @@
+patterns:
+    - pattern_id: 1
+      pattern_name: 'Consolidated Pattern Name'
+      pattern_description: 'Clear, synthesized description of the pattern'
+      severity: 'high' # critical | high | medium
+      indicators:
+          - 'Specific observable indicator from consolidated patterns'
+          - 'Another indicator showing this pattern'
+          # Maximum 5-6 indicators
+    - pattern_id: 2
+      pattern_name: 'Another Consolidated Pattern'
+      pattern_description: 'Description of this pattern'
+      severity: 'medium'
+      indicators:
+          - 'Observable behavior or event'
+          - 'Another indicator'
+    # As many patterns as needed based on the provided patterns chunks
