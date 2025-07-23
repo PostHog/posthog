@@ -3,7 +3,6 @@ import { Message } from 'node-rdkafka'
 import { IncomingEvent, PipelineEvent } from '~/types'
 
 import { deduplicateEvents } from './events'
-import * as metrics from './metrics'
 import { DeduplicationRedis } from './redis-client'
 
 // Mock the metrics
@@ -11,6 +10,7 @@ jest.mock('./metrics', () => ({
     duplicateBreakdownTotal: {
         inc: jest.fn(),
     },
+    duplicateReport: jest.fn(),
 }))
 
 describe('deduplicateEvents', () => {
@@ -72,23 +72,11 @@ describe('deduplicateEvents', () => {
                 '7a184cabe9cce485b181a9b8113845fededc36f56d7d4eff4fbebca53abd55f7',
                 'd0eafb964a9b3a603d44cea8376f5434e24fec80760e0bed1cd5b76ee5869796',
             ],
+            keyToMetricDataMap: expect.any(Map),
         })
         expect(deduplicationRedis.deduplicate).not.toHaveBeenCalled()
 
-        // Verify metrics were published with correct counts
-        expect(metrics.duplicateBreakdownTotal.inc).toHaveBeenCalledTimes(2)
-        expect(metrics.duplicateBreakdownTotal.inc).toHaveBeenCalledWith(
-            {
-                source: 'web',
-            },
-            1
-        )
-        expect(metrics.duplicateBreakdownTotal.inc).toHaveBeenCalledWith(
-            {
-                source: 'python',
-            },
-            1
-        )
+        // Metrics are now handled internally by deduplicateIds
     })
 
     it('should resolve same event to same key and not publish metrics when no duplicates', async () => {
@@ -129,11 +117,11 @@ describe('deduplicateEvents', () => {
 
         expect(deduplicationRedis.deduplicateIds).toHaveBeenCalledWith({
             keys: ['7a184cabe9cce485b181a9b8113845fededc36f56d7d4eff4fbebca53abd55f7'],
+            keyToMetricDataMap: expect.any(Map),
         })
         expect(deduplicationRedis.deduplicate).not.toHaveBeenCalled()
 
-        // Verify no metrics were published when no duplicates found
-        expect(metrics.duplicateBreakdownTotal.inc).not.toHaveBeenCalled()
+        // Metrics are handled internally by deduplicateIds
     })
 
     it('should handle empty messages', async () => {
@@ -141,6 +129,6 @@ describe('deduplicateEvents', () => {
         await deduplicateEvents(deduplicationRedis, messages)
         expect(deduplicationRedis.deduplicateIds).not.toHaveBeenCalled()
         expect(deduplicationRedis.deduplicate).not.toHaveBeenCalled()
-        expect(metrics.duplicateBreakdownTotal.inc).not.toHaveBeenCalled()
+        // No calls expected for empty messages
     })
 })

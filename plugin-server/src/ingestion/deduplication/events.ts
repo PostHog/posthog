@@ -3,12 +3,8 @@ import crypto from 'crypto'
 import { IncomingEvent } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { duplicateBreakdownTotal } from './metrics'
-import { DeduplicationIdsResult, DeduplicationRedis } from './redis-client'
-
-interface KeyMetricData {
-    source: string
-}
+import { KeyMetricData } from './metrics'
+import { DeduplicationRedis } from './redis-client'
 
 export async function deduplicateEvents(
     deduplicationRedis: DeduplicationRedis,
@@ -27,44 +23,14 @@ export async function deduplicateEvents(
         }
 
         // Perform fire-and-forget deduplication
-        const result: DeduplicationIdsResult = await deduplicationRedis.deduplicateIds({
+        await deduplicationRedis.deduplicateIds({
             keys: deduplicationKeys,
+            keyToMetricDataMap,
         })
-
-        if (result.duplicates.size > 0) {
-            duplicateReport(result.duplicates, keyToMetricDataMap)
-        }
     } catch (error) {
         // Log error but don't fail the batch processing
         logger.warn('Failed to deduplicate events', { error, eventsCount: messages.length })
     }
-}
-
-function duplicateReport(duplicates: Set<string>, keyToMetricDataMap: Map<string, KeyMetricData>): void {
-    // Group duplicates by team_id and source to batch metric increments
-    const metricCounts = new Map<string, { labels: KeyMetricData; count: number }>()
-
-    duplicates.forEach((duplicateKey) => {
-        const metricData = keyToMetricDataMap.get(duplicateKey)
-        if (metricData) {
-            const key = metricData.source
-            const existing = metricCounts.get(key)
-
-            if (existing) {
-                existing.count++
-            } else {
-                metricCounts.set(key, {
-                    labels: { source: metricData.source },
-                    count: 1,
-                })
-            }
-        }
-    })
-
-    // Batch increment metrics - one call per unique team_id/source combination
-    metricCounts.forEach(({ labels, count }) => {
-        duplicateBreakdownTotal.inc(labels, count)
-    })
 }
 
 function extractDeduplicationKeysWithMapping(messages: IncomingEvent[]): {

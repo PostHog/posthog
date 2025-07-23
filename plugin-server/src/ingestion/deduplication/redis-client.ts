@@ -2,7 +2,7 @@ import Redis from 'ioredis'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
-import { recordDeduplicationOperation } from './metrics'
+import { duplicateReport, KeyMetricData, recordDeduplicationOperation } from './metrics'
 import deduplicationScript from './scripts/deduplication.lua'
 import deduplicationIdsScript from './scripts/deduplication-ids.lua'
 
@@ -19,6 +19,7 @@ export type DeduplicationIdsResult = {
 export interface DeduplicationOptions {
     keys: string[]
     ttl?: number
+    keyToMetricDataMap?: Map<string, KeyMetricData>
 }
 
 export interface LuaScript {
@@ -197,7 +198,7 @@ export class DeduplicationRedis {
     }
 
     async deduplicateIds(options: DeduplicationOptions): Promise<DeduplicationIdsResult> {
-        const { keys, ttl = this.defaultTtl } = options
+        const { keys, ttl = this.defaultTtl, keyToMetricDataMap } = options
         const startTime = Date.now()
 
         if (keys.length === 0) {
@@ -224,6 +225,12 @@ export class DeduplicationRedis {
                 duplicates,
                 processed: keys.length,
             }
+
+            // Report metrics for duplicates if we have metadata
+            if (result.duplicates.size > 0 && keyToMetricDataMap) {
+                duplicateReport(result.duplicates, keyToMetricDataMap)
+            }
+
             recordDeduplicationOperation(
                 'deduplicateIds',
                 startTime,

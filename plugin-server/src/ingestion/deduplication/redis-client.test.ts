@@ -1,5 +1,13 @@
 import { PluginsServerConfig } from '../../types'
+import { duplicateReport } from './metrics'
 import { createDeduplicationRedis, DeduplicationOptions, DeduplicationRedis } from './redis-client'
+
+// Mock the metrics module
+jest.mock('./metrics', () => ({
+    ...jest.requireActual('./metrics'),
+    duplicateReport: jest.fn(),
+    recordDeduplicationOperation: jest.fn(),
+}))
 
 const getConfig = (): PluginsServerConfig =>
     ({
@@ -22,6 +30,10 @@ const insertKeys = async (deduplicationRedis: DeduplicationRedis, keys: string[]
 }
 
 describe('DeduplicationRedis Integration Tests', () => {
+    beforeEach(() => {
+        jest.resetAllMocks()
+    })
+
     it.concurrent('should handle invalid Redis config gracefully without throwing', async () => {
         const invalidConfig: PluginsServerConfig = {
             ...getConfig(),
@@ -524,32 +536,35 @@ describe('DeduplicationRedis Integration Tests', () => {
             5000
         )
 
-        it.concurrent(
-            'should return actual duplicate IDs with deduplicateIds',
-            async () => {
-                const testId = `test:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`
-                const deduplicationRedis = new DeduplicationRedis(getConfig())
+        it('should return actual duplicate IDs with deduplicateIds and verify metrics', async () => {
+            const testId = `test:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`
+            const deduplicationRedis = new DeduplicationRedis(getConfig())
 
-                try {
-                    const keys = [`${testId}:ids:existing:1`, `${testId}:ids:existing:2`]
-                    const options: DeduplicationOptions = { keys, ttl: 60 }
+            try {
+                const keys = [`${testId}:ids:existing:1`, `${testId}:ids:existing:2`]
+                const keyToMetricDataMap = new Map([
+                    [deduplicationRedis.prefixKeys([keys[0]])[0], { source: 'web' }],
+                    [deduplicationRedis.prefixKeys([keys[1]])[0], { source: 'python' }],
+                ])
+                const options: DeduplicationOptions = { keys, ttl: 60, keyToMetricDataMap }
 
-                    // First call - should be all new
-                    const firstResult = await deduplicationRedis.deduplicateIds(options)
-                    expect(firstResult.processed).toBe(2)
-                    expect(firstResult.duplicates).toEqual(new Set())
+                // First call - should be all new, no metrics called
+                const firstResult = await deduplicationRedis.deduplicateIds(options)
+                expect(firstResult.processed).toBe(2)
+                expect(firstResult.duplicates).toEqual(new Set())
+                expect(duplicateReport).not.toHaveBeenCalled()
 
-                    // Second call - should return the duplicate IDs
-                    const secondResult = await deduplicationRedis.deduplicateIds(options)
-                    expect(secondResult.processed).toBe(2)
-                    expect(secondResult.duplicates).toEqual(new Set(deduplicationRedis.prefixKeys(keys)))
-                    expect(secondResult.duplicates.size).toBe(2)
-                } finally {
-                    await deduplicationRedis.destroy()
-                }
-            },
-            5000
-        )
+                // Second call - should return the duplicate IDs and call metrics
+                const secondResult = await deduplicationRedis.deduplicateIds(options)
+                expect(secondResult.processed).toBe(2)
+                expect(secondResult.duplicates).toEqual(new Set(deduplicationRedis.prefixKeys(keys)))
+                expect(secondResult.duplicates.size).toBe(2)
+                expect(duplicateReport).toHaveBeenCalledTimes(1)
+                expect(duplicateReport).toHaveBeenCalledWith(secondResult.duplicates, keyToMetricDataMap)
+            } finally {
+                await deduplicationRedis.destroy()
+            }
+        }, 5000)
 
         it.concurrent(
             'should return only duplicate IDs for mixed keys with deduplicateIds',
@@ -577,21 +592,18 @@ describe('DeduplicationRedis Integration Tests', () => {
             5000
         )
 
-        it.concurrent(
-            'should handle empty keys array with deduplicateIds',
-            async () => {
-                const deduplicationRedis = new DeduplicationRedis(getConfig())
+        it('should handle empty keys array with deduplicateIds and verify no metrics', async () => {
+            const deduplicationRedis = new DeduplicationRedis(getConfig())
 
-                try {
-                    const result = await deduplicationRedis.deduplicateIds({ keys: [], ttl: 60 })
-                    expect(result.processed).toBe(0)
-                    expect(result.duplicates).toEqual(new Set())
-                } finally {
-                    await deduplicationRedis.destroy()
-                }
-            },
-            5000
-        )
+            try {
+                const result = await deduplicationRedis.deduplicateIds({ keys: [], ttl: 60 })
+                expect(result.processed).toBe(0)
+                expect(result.duplicates).toEqual(new Set())
+                expect(duplicateReport).not.toHaveBeenCalled()
+            } finally {
+                await deduplicationRedis.destroy()
+            }
+        }, 5000)
 
         it.concurrent(
             'should respect TTL expiration with deduplicateIds',

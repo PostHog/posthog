@@ -1,5 +1,7 @@
 import { Counter, Histogram, Summary } from 'prom-client'
 
+import { logger } from '~/utils/logger'
+
 // Deduplication operation counters
 export const deduplicationOperationsTotal = new Counter({
     name: 'deduplication_operations_total',
@@ -23,7 +25,7 @@ export const eventsProcessedTotal = new Counter({
 
 // Duplicate breakdown by team and source
 export const duplicateBreakdownTotal = new Counter({
-    name: 'deduplication_duplicates_breakdown_total',
+    name: 'deduplication_breakdown_total',
     help: 'Total number of duplicate events broken down by source',
     labelNames: ['source'],
 })
@@ -48,6 +50,40 @@ export const deduplicationOperationOutcomesCounter = new Counter({
     help: 'Total number of deduplication operation outcomes',
     labelNames: ['operation', 'outcome'],
 })
+
+export interface KeyMetricData {
+    source: string
+}
+
+export function duplicateReport(duplicates: Set<string>, keyToMetricDataMap: Map<string, KeyMetricData>): void {
+    // Group duplicates by team_id and source to batch metric increments
+    const metricCounts = new Map<string, { labels: KeyMetricData; count: number }>()
+
+    duplicates.forEach((duplicateKey) => {
+        const metricData = keyToMetricDataMap.get(duplicateKey)
+        if (metricData) {
+            const key = metricData.source
+            const existing = metricCounts.get(key)
+
+            if (existing) {
+                existing.count++
+            } else {
+                metricCounts.set(key, {
+                    labels: { source: metricData.source },
+                    count: 1,
+                })
+            }
+        }
+    })
+
+    // log the metricCounts
+    logger.info('deduplication metric breakdown', { metricCounts })
+
+    // Batch increment metrics - one call per unique team_id/source combination
+    metricCounts.forEach(({ labels, count }) => {
+        duplicateBreakdownTotal.inc(labels, count)
+    })
+}
 
 export function recordDeduplicationOperation(
     operation: 'deduplicate' | 'deduplicateIds',
