@@ -1,21 +1,39 @@
+from posthog.temporal.data_imports.pipelines.hubspot import hubspot
+from posthog.temporal.data_imports.pipelines.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.hubspot.settings import (
     ENDPOINTS as HUBSPOT_ENDPOINTS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
 from posthog.warehouse.models import ExternalDataSource
 
 
+@config.config
+class HubspotSourceOldConfig(config.Config):
+    hubspot_secret_key: str | None = None
+    hubspot_refresh_token: str | None = None
+
+
 @SourceRegistry.register
-class HubspotSource(BaseSource[HubspotSourceConfig]):
+class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.HUBSPOT
 
-    def get_schemas(self, config: HubspotSourceConfig, team_id: int) -> list[SourceSchema]:
+    # TODO: clean up hubspot job inputs to not have two auth config options
+    def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:
+        if "hubspot_integration_id" in job_inputs.keys():
+            return self._config_class.from_dict(job_inputs)
+
+        return HubspotSourceOldConfig.from_dict(job_inputs)
+
+    def get_schemas(self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -26,6 +44,36 @@ class HubspotSource(BaseSource[HubspotSourceConfig]):
             for endpoint in HUBSPOT_ENDPOINTS
         ]
 
-    def source_for_pipeline(self, config: HubspotSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the Hubspot source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+    def source_for_pipeline(
+        self, config: HubspotSourceConfig | HubspotSourceOldConfig, inputs: SourceInputs
+    ) -> SourceResponse:
+        if isinstance(config, HubspotSourceConfig):
+            integration = self.get_oauth_integration(config.hubspot_integration_id, inputs.team_id)
+
+            if not integration.access_token or not integration.refresh_token:
+                raise ValueError(f"Hubspot refresh or access token not found for job {inputs.job_id}")
+
+            hubspot_access_code = integration.access_token
+            refresh_token = integration.refresh_token
+        else:
+            config_hubspot_access_code = config.hubspot_secret_key
+            config_refresh_token = config.hubspot_refresh_token
+
+            if not config_refresh_token:
+                raise ValueError(f"Hubspot refresh token not found for job {inputs.job_id}")
+            else:
+                refresh_token = config_refresh_token
+
+            if not config_hubspot_access_code:
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+            else:
+                hubspot_access_code = config_hubspot_access_code
+
+        return dlt_source_to_source_response(
+            hubspot(
+                api_key=hubspot_access_code,
+                refresh_token=refresh_token,
+                endpoints=tuple(inputs.schema_name),
+                logger=inputs.logger,
+            )
+        )

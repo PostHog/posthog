@@ -1,3 +1,4 @@
+from posthog.temporal.data_imports.pipelines.meta_ads.source import meta_ads_source
 from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -25,5 +26,14 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
         ]
 
     def source_for_pipeline(self, config: MetaAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the Meta Ads source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return meta_ads_source(
+            resource_name=inputs.schema_name,
+            config=config,
+            team_id=inputs.team_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
+            incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

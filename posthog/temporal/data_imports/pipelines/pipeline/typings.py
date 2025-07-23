@@ -38,10 +38,12 @@ class SourceInputs:
     """Contextual info required by a source to actually run"""
 
     schema_name: str
+    schema_id: str
     team_id: int
     should_use_incremental_field: bool
     db_incremental_field_last_value: Optional[Any]
     db_incremental_field_earliest_value: Optional[Any]
     incremental_field: Optional[str]
     incremental_field_type: Optional[IncrementalFieldType]
+    job_id: str
     logger: FilteringBoundLogger

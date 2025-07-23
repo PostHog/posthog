@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, 
 from posthog.temporal.data_imports.pipelines.postgres.postgres import (
     postgres_source,
     get_schemas as get_postgres_schemas,
+    get_postgres_row_count,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
@@ -39,10 +40,25 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
     def get_schemas(self, config: PostgresSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
 
-        # TODO: refactor get_postgres_schemas to not explictly set up ssh tunnel
-        db_schemas = get_postgres_schemas(config)
+        with self.with_ssh_tunnel(config) as (host, port):
+            db_schemas = get_postgres_schemas(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+            )
 
-        # TODO: add in row counts from get_postgres_row_count
+            row_counts = get_postgres_row_count(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+            )
+
         for table_name, columns in db_schemas.items():
             column_info = [(col_name, col_type) for col_name, col_type in columns]
 
@@ -63,6 +79,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
+                    row_count=row_counts.get(table_name, None),
                 )
             )
 

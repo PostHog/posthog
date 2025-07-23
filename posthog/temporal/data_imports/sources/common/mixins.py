@@ -40,7 +40,7 @@ class SSHTunnelMixin:
 class OAuthMixin:
     """Mixin for OAuth-based sources"""
 
-    def get_oauth_integration(self, integration_id: str, team_id: int) -> Integration:
+    def get_oauth_integration(self, integration_id: int, team_id: int) -> Integration:
         """Get OAuth integration from integration ID"""
         if not integration_id:
             raise ValueError(f"Missing integration ID")

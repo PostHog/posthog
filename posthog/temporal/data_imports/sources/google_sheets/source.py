@@ -1,6 +1,7 @@
 from posthog.temporal.data_imports.pipelines.google_sheets.source import (
     get_schemas as get_google_sheets_schemas,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
+    google_sheets_source,
 )
 from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -17,7 +18,6 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
         return ExternalDataSource.Type.GOOGLESHEETS
 
     def get_schemas(self, config: GoogleSheetsSourceConfig, team_id: int) -> list[SourceSchema]:
-        # TODO: fix the below
         sheets = get_google_sheets_schemas(config)
 
         schemas: list[SourceSchema] = []
@@ -35,9 +35,12 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
 
         return schemas
 
-    def validate_credentials(self, config: GoogleSheetsSourceConfig, team_id: int) -> tuple[bool, str | None]:
-        return True, None
-
     def source_for_pipeline(self, config: GoogleSheetsSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the Google Sheets source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return google_sheets_source(
+            config,
+            inputs.schema_name,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

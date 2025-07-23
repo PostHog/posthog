@@ -32,7 +32,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
+from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 
@@ -48,49 +48,40 @@ class MySQLSourceConfig(config.Config):
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
-def get_schemas(config: MySQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(
+    host: str, user: str, password: str, database: str, schema: str, port: int, using_ssl: bool = True
+) -> dict[str, list[tuple[str, str]]]:
     """Get all tables from MySQL source schemas to sync."""
 
-    def inner(mysql_host: str, mysql_port: int):
-        ssl_ca: str | None = None
+    ssl_ca: str | None = None
 
-        if config.using_ssl:
-            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+    if using_ssl:
+        ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
 
-        connection = pymysql.connect(
-            host=mysql_host,
-            port=mysql_port,
-            database=config.database,
-            user=config.user,
-            password=config.password,
-            connect_timeout=5,
-            ssl_ca=ssl_ca,
+    connection = pymysql.connect(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        connect_timeout=5,
+        ssl_ca=ssl_ca,
+    )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+            {"schema": schema},
         )
+        result = cursor.fetchall()
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": config.schema},
-            )
-            result = cursor.fetchall()
+        schema_list = collections.defaultdict(list)
+        for row in result:
+            schema_list[row[0]].append((row[1], row[2]))
 
-            schema_list = collections.defaultdict(list)
-            for row in result:
-                schema_list[row[0]].append((row[1], row[2]))
+    connection.close()
 
-        connection.close()
-
-        return schema_list
-
-    if config.ssh_tunnel and config.ssh_tunnel.enabled:
-        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
-        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
-            if tunnel is None:
-                raise Exception("Can't open tunnel to SSH server")
-
-            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
-
-    return inner(config.host, config.port)
+    return schema_list
 
 
 def _sanitize_identifier(identifier: str) -> str:

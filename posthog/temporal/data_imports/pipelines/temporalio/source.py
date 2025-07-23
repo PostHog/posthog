@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 from temporalio.client import Client
 from temporalio.service import RPCError
@@ -40,17 +40,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
 }
-
-
-@config.config
-class TemporalIOSourceConfig(config.Config):
-    host: str
-    port: int
-    namespace: str
-    server_client_root_ca: str
-    client_certificate: str
-    client_private_key: str
-    encryption_key: str | None
 
 
 def _async_iter_to_sync(async_iter):

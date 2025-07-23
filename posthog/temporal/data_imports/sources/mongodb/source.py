@@ -26,7 +26,6 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
         return ExternalDataSource.Type.MONGODB
 
     def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:
-        # TODO: fix config in mongo source
         mongo_schemas = get_mongo_schemas(config)
 
         filtered_results = [

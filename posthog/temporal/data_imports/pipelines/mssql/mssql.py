@@ -22,71 +22,48 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
 if typing.TYPE_CHECKING:
     from pymssql import Cursor
 
 
-@config.config
-class MSSQLSourceConfig(config.Config):
-    host: str
-    user: str
-    password: str
-    database: str
-    schema: str
-    port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig | None = None
+def get_schemas(
+    host: str, user: str, password: str, database: str, schema: str, port: int
+) -> dict[str, list[tuple[str, str]]]:
+    # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
+    import pymssql
 
+    connection = pymssql.connect(
+        server=host,
+        # pymssql requires port to be str
+        port=str(port),
+        database=database,
+        user=user,
+        password=password,
+        login_timeout=5,
+    )
 
-def get_schemas(config: MSSQLSourceConfig) -> dict[str, list[tuple[str, str]]]:
-    def inner(mssql_host: str, mssql_port: int):
-        # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
-        import pymssql
-
-        connection = pymssql.connect(
-            server=mssql_host,
-            # pymssql requires port to be str
-            port=str(mssql_port),
-            database=config.database,
-            user=config.user,
-            password=config.password,
-            login_timeout=5,
+    with connection.cursor(as_dict=False) as cursor:
+        cursor.execute(
+            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+            {"schema": schema},
         )
 
-        with connection.cursor(as_dict=False) as cursor:
-            cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": config.schema},
-            )
+        schema_list = collections.defaultdict(list)
 
-            schema_list = collections.defaultdict(list)
+        for row in cursor:
+            if row:
+                schema_list[row[0]].append((row[1], row[2]))
 
-            for row in cursor:
-                if row:
-                    schema_list[row[0]].append((row[1], row[2]))
+    connection.close()
 
-        connection.close()
-
-        return schema_list
-
-    if config.ssh_tunnel and config.ssh_tunnel.enabled:
-        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
-
-        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
-            if tunnel is None:
-                raise ConnectionError("Can't open tunnel to SSH server")
-
-            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
-
-    return inner(config.host, config.port)
+    return schema_list
 
 
 def _build_query(

@@ -20,22 +20,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
-
-
-@config.config
-class BigQuerySourceConfig(config.Config):
-    dataset_id: str
-    project_id: str
-    private_key: str
-    private_key_id: str
-    client_email: str
-    token_uri: str
-    using_temporary_dataset: bool | None = config.value(converter=config.str_to_bool, default=False)
-    temporary_dataset_id: str | None = None
-    using_custom_dataset_project: bool | None = config.value(converter=config.str_to_bool, default=False)
-    dataset_project_id: str | None = None
 
 
 def get_schemas(
@@ -45,11 +31,17 @@ def get_schemas(
     schema_list = collections.defaultdict(list)
 
     with bigquery_client(
-        config.project_id, config.private_key, config.private_key_id, config.client_email, config.token_uri
+        config.key_file.project_id,
+        config.key_file.private_key,
+        config.key_file.private_key_id,
+        config.key_file.client_email,
+        config.key_file.token_uri,
     ) as bq:
         query = bq.query(
             f"SELECT table_name, column_name, data_type FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-            project=config.dataset_project_id or config.project_id,
+            project=config.dataset_project.dataset_project_id
+            if config.dataset_project and config.dataset_project.enabled
+            else config.key_file.project_id,
         )
         try:
             rows = query.result()

@@ -21,7 +21,7 @@ class BaseSource(ABC, Generic[ConfigType]):
         raise NotImplementedError()
 
     @property
-    def config_class(self) -> type[ConfigType]:
+    def _config_class(self) -> type[ConfigType]:
         config = get_config_for_source(self.source_type)
         if not config:
             raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
@@ -40,8 +40,9 @@ class BaseSource(ABC, Generic[ConfigType]):
 
         return AVAILABLE_SOURCES[self.source_type]
 
+    @abstractmethod
     def parse_config(self, job_inputs: dict) -> ConfigType:
-        return self.config_class.from_dict(job_inputs)
+        return self._config_class.from_dict(job_inputs)
 
     @abstractmethod
     def validate_credentials(self, config: ConfigType, team_id: int) -> tuple[bool, str | None]:

@@ -1,7 +1,6 @@
 import collections
 import os
 import tempfile
-import typing
 from collections.abc import Iterator
 from typing import Any, Optional
 
@@ -15,22 +14,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
-
-
-@config.config
-class SnowflakeSourceConfig(config.Config):
-    account_id: str
-    warehouse: str
-    database: str
-    schema: str
-    auth_type: typing.Literal["password", "keypair"] = "password"
-    user: str | None = None
-    password: str | None = None
-    passphrase: str | None = None
-    private_key: str | None = None
-    role: str | None = None
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -53,20 +38,20 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]
     auth_connect_args: dict[str, str | None] = {}
     file_name: str | None = None
 
-    if config.auth_type == "keypair" and config.private_key is not None:
+    if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
         with tempfile.NamedTemporaryFile(delete=False) as tf:
-            tf.write(config.private_key.encode("utf-8"))
+            tf.write(config.auth_type.private_key.encode("utf-8"))
             file_name = tf.name
 
         auth_connect_args = {
-            "user": config.user,
+            "user": config.auth_type.user,
             "private_key_file": file_name,
-            "private_key_file_pwd": config.passphrase,
+            "private_key_file_pwd": config.auth_type.passphrase,
         }
     else:
         auth_connect_args = {
-            "password": config.password,
-            "user": config.user,
+            "password": config.auth_type.password,
+            "user": config.auth_type.user,
         }
 
     with snowflake.connector.connect(

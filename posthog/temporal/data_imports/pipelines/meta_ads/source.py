@@ -10,7 +10,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from posthog.models import Integration
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.temporal.data_imports.pipelines.meta_ads.schemas import RESOURCE_SCHEMAS
 
@@ -30,12 +30,6 @@ def _clean_account_id(s: str | None) -> str | None:
     if not s.startswith("act_"):
         s = f"act_{s}"
     return s
-
-
-@config.config
-class MetaAdsSourceConfig(config.Config):
-    meta_ads_integration_id: str
-    account_id: str = config.value(converter=_clean_account_id)
 
 
 def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
@@ -209,7 +203,9 @@ def meta_ads_source(
                 "until": dt.date.today().strftime("%Y-%m-%d"),
             }
 
-        formatted_url = schema.url.format(API_VERSION=MetaAdsIntegration.api_version, account_id=config.account_id)
+        formatted_url = schema.url.format(
+            API_VERSION=MetaAdsIntegration.api_version, account_id=_clean_account_id(config.account_id)
+        )
         params = {
             "fields": ",".join(schema.field_names),
             "limit": 500,

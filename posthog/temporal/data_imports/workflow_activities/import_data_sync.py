@@ -131,6 +131,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                schema_id=str(schema.id),
                 team_id=inputs.team_id,
                 should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.incremental_field if schema.should_use_incremental_field else None,
@@ -142,6 +143,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 if schema.should_use_incremental_field
                 else None,
                 logger=logger,
+                job_id=inputs.run_id,
             )
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)

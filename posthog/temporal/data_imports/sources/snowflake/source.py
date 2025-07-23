@@ -36,7 +36,6 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
     def get_schemas(self, config: SnowflakeSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
 
-        # TODO: fix config in snowflake source
         db_schemas = get_snowflake_schemas(config)
 
         for table_name, columns in db_schemas.items():

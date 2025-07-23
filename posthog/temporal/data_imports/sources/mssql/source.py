@@ -32,8 +32,15 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
     def get_schemas(self, config: MSSQLSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
 
-        # TODO: refactor get_mysql_schemas to not explictly set up ssh tunnel
-        db_schemas = get_mssql_schemas(config)
+        with self.with_ssh_tunnel(config) as (host, port):
+            db_schemas = get_mssql_schemas(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+            )
 
         for table_name, columns in db_schemas.items():
             column_info = [(col_name, col_type) for col_name, col_type in columns]

@@ -46,7 +46,6 @@ class StripeSource(BaseSource[StripeSourceConfig]):
             return False, str(e)
 
     def source_for_pipeline(self, config: StripeSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the stripe source func in here
         return stripe_source(
             api_key=config.stripe_secret_key,
             account_id=config.stripe_account_id,

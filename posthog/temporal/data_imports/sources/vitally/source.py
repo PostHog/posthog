@@ -5,11 +5,13 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
 )
+from posthog.temporal.data_imports.pipelines.vitally import vitally_source
 from posthog.temporal.data_imports.pipelines.vitally.settings import (
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
 from posthog.warehouse.models import ExternalDataSource
 
@@ -42,5 +44,17 @@ class VitallySource(BaseSource[VitallySourceConfig]):
         return False, "Invalid credentials"
 
     def source_for_pipeline(self, config: VitallySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the Vitally source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return dlt_source_to_source_response(
+            vitally_source(
+                secret_token=config.secret_token,
+                region=config.region.selection,
+                subdomain=config.region.subdomain,
+                endpoint=inputs.schema_name,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+            )
+        )

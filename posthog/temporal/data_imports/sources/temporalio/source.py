@@ -1,7 +1,12 @@
 from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.temporalio.source import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.pipelines.temporalio.source import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    temporalio_source,
+    TemporalIOResource,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
 from posthog.warehouse.models import ExternalDataSource
@@ -25,5 +30,11 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
         ]
 
     def source_for_pipeline(self, config: TemporalIOSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the TemporalIO source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return temporalio_source(
+            config,
+            TemporalIOResource(inputs.schema_name),
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

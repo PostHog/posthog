@@ -3,10 +3,12 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.chargebee import (
+    chargebee_source,
     validate_credentials as validate_chargebee_credentials,
 )
 from posthog.temporal.data_imports.pipelines.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
 from posthog.warehouse.models import ExternalDataSource
 
@@ -39,5 +41,16 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
         return False, "Invalid credentials"
 
     def source_for_pipeline(self, config: ChargebeeSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the Chargebee source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return dlt_source_to_source_response(
+            chargebee_source(
+                api_key=config.api_key,
+                site_name=config.site_name,
+                endpoint=inputs.schema_name,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+            )
+        )

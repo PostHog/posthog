@@ -16,17 +16,12 @@ from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
+from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
-
-
-@config.config
-class MongoSourceConfig(config.Config):
-    connection_string: str
 
 
 def _process_nested_value(value: Any) -> Any:
@@ -290,7 +285,7 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
-def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
     connection_params = _parse_connection_string(config.connection_string)

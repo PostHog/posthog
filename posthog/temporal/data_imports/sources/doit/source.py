@@ -1,4 +1,4 @@
-from posthog.temporal.data_imports.pipelines.doit.source import doit_list_reports, DOIT_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.pipelines.doit.source import doit_source, doit_list_reports, DOIT_INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import BaseSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -14,8 +14,7 @@ class DoItSource(BaseSource[DoItSourceConfig]):
         return ExternalDataSource.Type.DOIT
 
     def get_schemas(self, config: DoItSourceConfig, team_id: int) -> list[SourceSchema]:
-        # TODO: fix the below
-        reports = doit_list_reports(doit_config)
+        reports = doit_list_reports(config)
 
         return [
             SourceSchema(
@@ -27,9 +26,13 @@ class DoItSource(BaseSource[DoItSourceConfig]):
             for name, _id in reports
         ]
 
-    def validate_credentials(self, config: DoItSourceConfig, team_id: int) -> tuple[bool, str | None]:
-        return True, None
-
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the DoIt source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return doit_source(
+            config,
+            inputs.schema_name,
+            logger=inputs.logger,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

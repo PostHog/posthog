@@ -3,6 +3,7 @@ import datetime as dt
 import operator
 import typing
 
+from django.conf import settings
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.ads.googleads.client import GoogleAdsClient
@@ -19,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
+from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
 
 
@@ -35,7 +37,11 @@ def _clean_customer_id(s: str | None) -> str | None:
 
 @config.config
 class GoogleAdsServiceAccountSourceConfig(config.Config):
-    """Google Ads source config using service account for authentication."""
+    """Google Ads source config using service account for authentication.
+
+    Old config for when we were using a service account instead of oauth.
+    ~100 sources still use this method for auth. We recommend using
+    `GoogleAdsSourceConfig` instead"""
 
     resource_name: str
     customer_id: str = config.value(converter=_clean_customer_id)
@@ -53,32 +59,20 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
     developer_token: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_DEVELOPER_TOKEN"))
 
 
-@config.config
-class GoogleAdsOAuthSourceConfig(config.Config):
-    """Google Ads source config using OAuth2 flow for authentication."""
-
-    resource_name: str
-    google_ads_integration_id: str
-    customer_id: str = config.value(converter=_clean_customer_id)
-    developer_token: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_DEVELOPER_TOKEN"))
-    client_id: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_APP_CLIENT_ID"))
-    client_secret: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_APP_CLIENT_SECRET"))
+GoogleAdsSourceConfigUnion = GoogleAdsServiceAccountSourceConfig | GoogleAdsSourceConfig
 
 
-GoogleAdsSourceConfig = GoogleAdsServiceAccountSourceConfig | GoogleAdsOAuthSourceConfig
-
-
-def google_ads_client(config: GoogleAdsSourceConfig, team_id: int) -> GoogleAdsClient:
+def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
-    if isinstance(config, GoogleAdsOAuthSourceConfig):
+    if isinstance(config, GoogleAdsSourceConfig):
         integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
 
         client = GoogleAdsClient.load_from_dict(
             {
-                "developer_token": config.developer_token,
+                "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                 "refresh_token": integration.refresh_token,
-                "client_id": config.client_id,
-                "client_secret": config.client_secret,
+                "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
+                "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 "use_proto_plus": False,
             }
         )
@@ -220,7 +214,7 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
 TableSchemas = dict[str, GoogleAdsTable]
 
 
-def get_schemas(config: GoogleAdsSourceConfig, team_id: int) -> TableSchemas:
+def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchemas:
     """Obtain Google Ads schemas.
 
     This is a two step process:
@@ -281,7 +275,8 @@ def get_schemas(config: GoogleAdsSourceConfig, team_id: int) -> TableSchemas:
 
 
 def google_ads_source(
-    config: GoogleAdsSourceConfig,
+    config: GoogleAdsSourceConfigUnion,
+    resource_name: str,
     team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
@@ -293,8 +288,9 @@ def google_ads_source(
     We utilize the Google Ads gRPC API to query for the configured resource and
     yield batches of rows as `pyarrow.Table`.
     """
-    name = NamingConvention().normalize_identifier(config.resource_name)
-    table = get_schemas(config, team_id)[config.resource_name]
+
+    name = NamingConvention().normalize_identifier(resource_name)
+    table = get_schemas(config, team_id)[resource_name]
 
     if table.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
@@ -327,7 +323,7 @@ def google_ads_source(
 
         client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v19")
-        stream = service.search_stream(query=query, customer_id=config.customer_id)
+        stream = service.search_stream(query=query, customer_id=_clean_customer_id(config.customer_id))
 
         yield from _stream_as_arrow_table(stream, table)
 

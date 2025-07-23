@@ -3,7 +3,7 @@ from __future__ import annotations
 import collections
 import math
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, LiteralString, Optional, cast
+from typing import Any, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
@@ -26,72 +26,105 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
-if TYPE_CHECKING:
-    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 
+def get_postgres_row_count(
+    host: str, port: int, database: str, user: str, password: str, schema: str
+) -> dict[str, int]:
+    connection = psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=5,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
 
-def get_schemas(config: PostgresSourceConfig) -> dict[str, list[tuple[str, str]]]:
-    """Get all tables from PostgreSQL source schemas to sync."""
-
-    def inner(postgres_host: str, postgres_port: int):
-        connection = psycopg.connect(
-            host=postgres_host,
-            port=postgres_port,
-            dbname=config.database,
-            user=config.user,
-            password=config.password,
-            sslmode="prefer",
-            connect_timeout=5,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        )
-
+    try:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT * FROM (
-                    SELECT table_name, column_name, data_type FROM information_schema.columns
-                    WHERE table_schema = %(schema)s
-                    UNION ALL
-                    SELECT
-                        c.relname AS table_name,
-                        a.attname AS column_name,
-                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
-                    FROM pg_class c
-                    JOIN pg_namespace n ON c.relnamespace = n.oid
-                    JOIN pg_attribute a ON a.attrelid = c.oid
-                    WHERE c.relkind = 'm'  -- materialized view
-                    AND n.nspname = %(schema)s
-                    AND a.attnum > 0
-                    AND NOT a.attisdropped
-                ) t
-                ORDER BY table_name ASC""",
-                {"schema": config.schema},
+                SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
+                UNION ALL
+                SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s
+                """,
+                {"schema": schema},
             )
-            result = cursor.fetchall()
+            tables = cursor.fetchall()
 
-            schema_list = collections.defaultdict(list)
-            for row in result:
-                schema_list[row[0]].append((row[1], row[2]))
+            if not tables:
+                return {}
 
+            counts = [
+                sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
+                    table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                )
+                for table in tables
+            ]
+
+            union_counts = sql.SQL(" UNION ALL ").join(counts)
+            cursor.execute(union_counts)
+            row_count_result = cursor.fetchall()
+            row_counts = {row[0]: row[1] for row in row_count_result}
+        return row_counts
+    finally:
         connection.close()
 
-        return schema_list
 
-    if config.ssh_tunnel and config.ssh_tunnel.enabled:
-        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+def get_schemas(
+    host: str, database: str, user: str, password: str, schema: str, port: int
+) -> dict[str, list[tuple[str, str]]]:
+    """Get all tables from PostgreSQL source schemas to sync."""
 
-        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
-            if tunnel is None:
-                raise ConnectionError("Can't open tunnel to SSH server")
+    connection = psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=5,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
 
-            return inner(tunnel.local_bind_host, tunnel.local_bind_port)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT * FROM (
+                SELECT table_name, column_name, data_type FROM information_schema.columns
+                WHERE table_schema = %(schema)s
+                UNION ALL
+                SELECT
+                    c.relname AS table_name,
+                    a.attname AS column_name,
+                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+                FROM pg_class c
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                JOIN pg_attribute a ON a.attrelid = c.oid
+                WHERE c.relkind = 'm'  -- materialized view
+                AND n.nspname = %(schema)s
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+            ) t
+            ORDER BY table_name ASC""",
+            {"schema": schema},
+        )
+        result = cursor.fetchall()
 
-    return inner(config.host, config.port)
+        schema_list = collections.defaultdict(list)
+        for row in result:
+            schema_list[row[0]].append((row[1], row[2]))
+
+    connection.close()
+
+    return schema_list
 
 
 class JsonAsStringLoader(Loader):

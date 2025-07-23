@@ -9,7 +9,9 @@ from posthog.temporal.data_imports.pipelines.zendesk.settings import (
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
     SUPPORT_ENDPOINTS,
 )
+from posthog.temporal.data_imports.pipelines.zendesk import zendesk_source
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
 from posthog.warehouse.models import ExternalDataSource
 
@@ -43,5 +45,17 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
         return False, "Invalid credentials"
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        # TODO: Move the Zendesk source func in here
-        return SourceResponse(name="", items=iter([]), primary_keys=None)
+        return dlt_source_to_source_response(
+            zendesk_source(
+                subdomain=config.subdomain,
+                api_key=config.api_key,
+                email_address=config.email_address,
+                endpoint=inputs.schema_name,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value
+                if inputs.should_use_incremental_field
+                else None,
+            )
+        )

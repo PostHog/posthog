@@ -8,7 +8,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -19,11 +19,6 @@ DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
         "type": IncrementalFieldType.Timestamp,
     }
 ]
-
-
-@config.config
-class DoItSourceConfig(config.Config):
-    api_key: str
 
 
 def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
