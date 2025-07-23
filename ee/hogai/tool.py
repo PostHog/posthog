@@ -118,7 +118,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, team: "Team", user: "User", *, state: AssistantState | None = None, **kwargs):
+    def __init__(self, team: "Team", user: "User", state: AssistantState | None = None, **kwargs):
         super().__init__(**kwargs)
         self._team = team
         self._user = user
