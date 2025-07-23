@@ -27,6 +27,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_metric_value,
     is_continuous,
 )
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     build_common_exposure_conditions,
     get_entity_key,
@@ -89,6 +90,9 @@ from posthog.schema import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+MAX_EXECUTION_TIME = 600
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -427,6 +431,17 @@ class ExperimentQueryRunner(QueryRunner):
                             return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
                         case ExperimentMetricMathType.AVG:
                             return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+                        case ExperimentMetricMathType.HOGQL:
+                            # For HogQL expressions, extract the aggregation function if present
+                            if metric.source.math_hogql is not None:
+                                aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
+                                if aggregation_function:
+                                    # Use the extracted aggregation function
+                                    return parse_expr(
+                                        f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))"
+                                    )
+                            # Default to sum if no aggregation function is found
+                            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
                         case _:
                             return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
                 case ExperimentFunnelMetric():
@@ -611,7 +626,7 @@ class ExperimentQueryRunner(QueryRunner):
                 team=self.team,
                 timings=self.timings,
                 modifiers=create_default_modifiers_for_team(self.team),
-                settings=HogQLGlobalSettings(max_execution_time=180),
+                settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
             )
         except InternalHogQLError as e:
             # Log essential context for debugging (no PII/secrets)

@@ -60,6 +60,7 @@ import {
     CommentType,
     ConversationDetail,
     CoreMemory,
+    CreateGroupParams,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
@@ -943,12 +944,16 @@ export class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
-    public errorTrackingRules(rule: string, teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent(rule)
+    public errorTrackingRules(ruleType: ErrorTrackingRuleType, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent(ruleType)
     }
 
-    public errorTrackingRule(rule: string, id: ErrorTrackingRule['id']): ApiRequest {
-        return this.errorTrackingRules(rule).addPathComponent(id)
+    public errorTrackingRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): ApiRequest {
+        return this.errorTrackingRules(ruleType).addPathComponent(id)
+    }
+
+    public errorTrackingReorderRules(rule: ErrorTrackingRuleType): ApiRequest {
+        return this.errorTrackingRules(rule).addPathComponent('reorder')
     }
 
     // # Warehouse
@@ -1296,7 +1301,7 @@ export class ApiRequest {
     }
 
     public authenticateWizard(): ApiRequest {
-        return this.organizations().current().addPathComponent('authenticate_wizard')
+        return this.wizard().addPathComponent('authenticate')
     }
 
     public messagingTemplates(): ApiRequest {
@@ -1317,6 +1322,10 @@ export class ApiRequest {
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
         return this.hogFlows().addPathComponent(hogFlowId)
+    }
+
+    public wizard(): ApiRequest {
+        return this.addPathComponent('wizard')
     }
 }
 
@@ -1421,6 +1430,9 @@ const api = {
     featureFlags: {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
+        },
+        async bulkKeys(ids: FeatureFlagType['id'][]): Promise<{ keys: Record<string, string> }> {
+            return await new ApiRequest().featureFlags().withAction('bulk_keys').create({ data: { ids } })
         },
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
@@ -2222,6 +2234,9 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
+        async create(data: CreateGroupParams): Promise<Group> {
+            return await new ApiRequest().groups().create({ data })
+        },
         async updateProperty(index: number, key: string, property: string, value: any): Promise<void> {
             return new ApiRequest()
                 .group(index, key)
@@ -2584,6 +2599,10 @@ const api = {
 
         async deleteRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): Promise<void> {
             return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
+        },
+
+        async reorderRules(ruleType: ErrorTrackingRuleType, orders: Record<string, number>): Promise<void> {
+            return await new ApiRequest().errorTrackingReorderRules(ruleType).update({ data: { orders } })
         },
 
         async createExternalReference(
@@ -3597,7 +3616,7 @@ const api = {
     conversations: {
         async stream(
             data: {
-                /** The user message. Null content means we're continuing previous generation. */
+                /** The user message. Null content means we're resuming streaming or continuing previous generation. */
                 content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxUIContext

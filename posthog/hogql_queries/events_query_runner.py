@@ -186,7 +186,24 @@ class EventsQueryRunner(QueryRunner):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    columns: list[str] = []
+                    for _, col in enumerate(self.query.orderBy):
+                        if col.split("--")[0].strip() == "person_display_name":
+                            property_keys = (
+                                self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                            )
+                            props = []
+                            for key in property_keys:
+                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                    props.append(f"toString(person.properties.{key})")
+                                else:
+                                    props.append(f"toString(person.properties.`{key}`)")
+                            expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                            newCol = re.sub(r"person_display_name -- Person ", expr, col)
+                            columns.append(newCol)
+                        else:
+                            columns.append(col)
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in columns]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:

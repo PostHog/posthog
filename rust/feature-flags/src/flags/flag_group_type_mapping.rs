@@ -6,7 +6,10 @@ use common_types::ProjectId;
 use sqlx::FromRow;
 use tracing::error;
 
-use crate::{api::errors::FlagError, metrics::consts::FLAG_EVALUATION_ERROR_COUNTER};
+use crate::{
+    api::errors::FlagError,
+    metrics::consts::{FLAG_DB_CONNECTION_TIME, FLAG_EVALUATION_ERROR_COUNTER},
+};
 
 pub type GroupTypeIndex = i32;
 
@@ -94,7 +97,16 @@ impl GroupTypeMappingCache {
         reader: PostgresReader,
         project_id: ProjectId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
+        let labels = [
+            ("pool".to_string(), "reader".to_string()),
+            (
+                "operation".to_string(),
+                "fetch_group_type_mapping".to_string(),
+            ),
+        ];
+        let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
         let mut conn = reader.as_ref().get_connection().await?;
+        conn_timer.fin();
 
         let query = r#"
             SELECT group_type, group_type_index 

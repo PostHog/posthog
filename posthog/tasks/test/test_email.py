@@ -250,6 +250,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 95,
                     "failed": 5,
+                    "failure_rate": 5.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -258,6 +259,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 200,
                     "failed": 50,
+                    "failure_rate": 20.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -285,6 +287,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 1000,
                     "failed": 50000,
+                    "failure_rate": 98.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -293,6 +296,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 1500000,
                     "failed": 25000,
+                    "failure_rate": 1.6,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
                 {
@@ -301,6 +305,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 75000,
                     "failed": 3500,
+                    "failure_rate": 4.5,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-3",
                 },
                 {
@@ -309,6 +314,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 2000000,
                     "failed": 150000,
+                    "failure_rate": 7.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-4",
                 },
                 {
@@ -317,6 +323,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 500000,
                     "failed": 12000,
+                    "failure_rate": 2.3,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-5",
                 },
             ],
@@ -368,6 +375,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 1000,
                     "failed": 50000,
+                    "failure_rate": 98.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -376,6 +384,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 1500000,
                     "failed": 25000,
+                    "failure_rate": 1.6,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -459,6 +468,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # Test 3: Empty allowlist (default behavior) - should send email since there are failures
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test 4: Using '*' in allowlist - should send email to all teams with failures
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=["*"]):
             send_hog_functions_daily_digest()
 
         assert len(mocked_email_messages) == 1

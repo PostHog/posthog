@@ -23,7 +23,7 @@ export const createExampleNativeInvocation = (
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: 'native',
+        queue: 'hog',
         queuePriority: 0,
     }
 }

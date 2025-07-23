@@ -40,18 +40,18 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
-    Experiment as ExperimentType,
     ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
+    ProgressStatus,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
-import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
-import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { getExperimentInsightColour } from '../utils'
+import { getExperimentStatusColor } from '../experimentsLogic'
+import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
+import { getExperimentInsightColour } from '../utils'
 
 export function VariantTag({
     experimentId,
@@ -691,8 +691,7 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
     )
 }
 
-export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
-    const status = getExperimentStatus(experiment)
+export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
     return (
         <LemonTag type={getExperimentStatusColor(status)}>
             <b className="uppercase">{status}</b>

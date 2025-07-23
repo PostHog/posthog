@@ -37,6 +37,7 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
     snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
 )
 from clickhouse_driver.errors import ServerException
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
@@ -211,9 +212,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             groups=ANY,
         )
 
-    @snapshot_postgres_queries
     def test_listing_recordings_is_not_nplus1_for_persons(self):
-        with freeze_time("2022-06-03T12:00:00.000Z"):
+        # we want to get the various queries that django runs once and then caches out of the way
+        # otherwise chance and changes outside of here can cause snapshots to flap
+        # so we call the API once and then use query snapshot as a context manager _after_ that
+        self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+
+        with freeze_time("2022-06-03T12:00:00.000Z"), snapshot_postgres_queries_context(self):
             # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
@@ -1305,7 +1310,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
 
         personal_api_key = generate_random_token_personal()
-        personal_api_key_object: PersonalAPIKey = PersonalAPIKey.objects.create(
+        PersonalAPIKey.objects.create(
             label="X",
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
@@ -1322,7 +1327,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert mock_capture.call_args_list[0] == call(
             event="snapshots_api_called_with_personal_api_key",
-            distinct_id=personal_api_key_object.secure_value,
+            distinct_id=self.user.distinct_id,
             properties={
                 "key_label": "X",
                 "key_scopes": ["session_recording:read"],

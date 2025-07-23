@@ -113,7 +113,7 @@ export function Experiments(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: function Render(_, experiment: Experiment) {
-                return <StatusTag experiment={experiment} />
+                return <StatusTag status={getExperimentStatus(experiment)} />
             },
             align: 'center',
             sorter: (a, b) => {
