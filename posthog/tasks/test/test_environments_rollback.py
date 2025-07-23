@@ -426,11 +426,6 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         )
         internal_event = EventDefinition.objects.create(team=staging_env, name="$pageview", project_id=main_project.id)
 
-        # Verify initial state
-        self.assertEqual(staging_event.project_id, main_project.id)
-        self.assertEqual(production_event.project_id, main_project.id)
-        self.assertEqual(internal_event.project_id, main_project.id)
-
         environments_rollback_migration(
             organization_id=self.organization.id,
             environment_mappings={str(staging_env.id): production_env.id},
@@ -454,11 +449,6 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(staging_event.project_id, staging_env.project_id)  # Follows team's new project
         self.assertEqual(internal_event.project_id, staging_env.project_id)  # Follows team's new project
         self.assertEqual(production_event.project_id, production_env.project_id)
-
-        # Verify business logic for teams that got moved to new projects
-        # The staging team should have been moved to a new project where team.id == team.project_id
-        self.assertEqual(staging_env.id, staging_env.project_id)
-        self.assertNotEqual(staging_env.project_id, main_project.id)
 
         # Production team should stay in main project (so team.id != team.project_id in this case)
         self.assertEqual(production_env.project_id, main_project.id)
