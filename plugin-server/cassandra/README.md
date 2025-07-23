@@ -26,18 +26,10 @@ pnpm cassandra:rollback
 
 ### CI/CD Environment
 
-The migration script automatically detects the environment and uses appropriate configuration.
-
 **Environment Variables:**
 - `CASSANDRA_HOST` - Cassandra host (default: localhost)
 - `CASSANDRA_PORT` - Cassandra port (default: 9042)
 - `CASSANDRA_KEYSPACE` - Keyspace name (default: posthog)
-
-**Docker Compose Services:**
-Make sure Cassandra is running:
-```bash
-docker compose -f docker-compose.dev.yml up cassandra
-```
 
 ### Migration Files
 
@@ -57,10 +49,3 @@ steps:
       cd plugin-server
       pnpm cassandra:migrate
 ```
-
-## Migration Script Features
-
-- Automatic Cassandra readiness check
-- Environment variable support
-- Fallback configuration for environments without `jq`
-- Detailed logging for debugging

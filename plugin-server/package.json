@@ -68,7 +68,6 @@
         "aws-sdk": "^2.927.0",
         "cassandra-driver": "^4.8.0",
         "cassandra-migrate": "^1.2.333",
-        "cqlsh": "^0.0.1",
         "dayjs": "1.11.11",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",
