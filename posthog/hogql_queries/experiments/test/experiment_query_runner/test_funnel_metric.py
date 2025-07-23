@@ -1702,11 +1702,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data with events in reverse order (purchase before pageview)
-        # For ordered funnel: this should fail (0 successes)
-        # For unordered funnel: this should succeed
+        # Create mixed test data: correct order, reverse order, and incomplete funnels
+        # This tests the difference between ordered vs unordered funnels
 
-        # Control group: create events in reverse order
+        # Control group: 6 correct order, 5 reverse order, 2 incomplete (13 total)
         for i in range(13):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
             _create_event(
@@ -1720,23 +1719,47 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "$feature_flag": feature_flag.key,
                 },
             )
-            # Create events in REVERSE order: purchase first, then pageview
-            _create_event(
-                team=self.team,
-                event="purchase",  # Wrong order for ordered funnel
-                distinct_id=f"user_control_{i}",
-                timestamp="2024-01-02T12:01:00Z",
-                properties={ff_property: "control"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",  # Should come first for ordered funnel
-                distinct_id=f"user_control_{i}",
-                timestamp="2024-01-02T12:02:00Z",
-                properties={ff_property: "control"},
-            )
 
-        # Test group: create events in reverse order
+            if i < 6:  # First 6 users: correct order (pageview → purchase)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "control"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+            elif i < 11:  # Next 5 users: reverse order (purchase → pageview)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "control"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+            else:  # Last 2 users: only pageview (incomplete funnel)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 5 correct order, 4 reverse order, 4 incomplete (13 total)
         for i in range(13):
             _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
             _create_event(
@@ -1750,21 +1773,45 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "$feature_flag": feature_flag.key,
                 },
             )
-            # Create events in REVERSE order: purchase first, then pageview
-            _create_event(
-                team=self.team,
-                event="purchase",  # Wrong order for ordered funnel
-                distinct_id=f"user_test_{i}",
-                timestamp="2024-01-02T12:01:00Z",
-                properties={ff_property: "test"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",  # Should come first for ordered funnel
-                distinct_id=f"user_test_{i}",
-                timestamp="2024-01-02T12:02:00Z",
-                properties={ff_property: "test"},
-            )
+
+            if i < 5:  # First 5 users: correct order (pageview → purchase)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "test"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
+            elif i < 9:  # Next 4 users: reverse order (purchase → pageview)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "test"},
+                )
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
+            else:  # Last 4 users: only pageview (incomplete funnel)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:01:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -1821,14 +1868,16 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         unordered_test = unordered_result.variant_results[0]
         assert unordered_test is not None
 
-        # Ordered should fail (0 success) because events are out of order
-        self.assertEqual(ordered_control.sum, 0)  # No successes due to wrong order
-        self.assertEqual(ordered_control.number_of_samples - ordered_control.sum, 13)  # All 13 are failures
-        self.assertEqual(ordered_test.sum, 0)  # No successes due to wrong order
-        self.assertEqual(ordered_test.number_of_samples - ordered_test.sum, 13)  # All 13 are failures
+        # Ordered funnel: only users with correct order (pageview → purchase) succeed
+        self.assertEqual(ordered_control.sum, 6)  # 6 users with correct order
+        self.assertEqual(
+            ordered_control.number_of_samples - ordered_control.sum, 7
+        )  # 7 users with wrong/incomplete order
+        self.assertEqual(ordered_test.sum, 5)  # 5 users with correct order
+        self.assertEqual(ordered_test.number_of_samples - ordered_test.sum, 8)  # 8 users with wrong/incomplete order
 
-        # Unordered should succeed because order doesn't matter - all users have both events
-        self.assertEqual(unordered_control.sum, 13)  # All 13 successes (both events present)
-        self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 0)  # No failures
-        self.assertEqual(unordered_test.sum, 13)  # All 13 successes (both events present)
-        self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 0)  # No failures
+        # Unordered funnel: users with both events succeed regardless of order
+        self.assertEqual(unordered_control.sum, 11)  # 6 correct + 5 reverse order (11 with both events)
+        self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 2)  # 2 incomplete (only pageview)
+        self.assertEqual(unordered_test.sum, 9)  # 5 correct + 4 reverse order (9 with both events)
+        self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 4)  # 4 incomplete (only pageview)
