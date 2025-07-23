@@ -189,7 +189,7 @@ export const billingToMaxContext = (
             is_used: (product.current_usage || 0) > 0,
             has_exceeded_limit: product.percentage_usage > 1,
             current_usage: product.current_usage,
-            usage_limit: product.tiered && product.tiers ? product.tiers?.[0].up_to : product.free_allocation,
+            usage_limit: product.usage_limit,
             percentage_usage: product.percentage_usage || 0,
             custom_limit_usd: customLimit,
             next_period_custom_limit_usd: nextPeriodCustomLimit,
@@ -202,7 +202,7 @@ export const billingToMaxContext = (
 
     return {
         has_active_subscription: billing.has_active_subscription || false,
-        subscription_level: billing.has_active_subscription ? 'paid' : 'free',
+        subscription_level: billing.subscription_level,
         billing_plan: billing.billing_plan || null,
         is_deactivated: billing.deactivated,
         products: maxProducts,
