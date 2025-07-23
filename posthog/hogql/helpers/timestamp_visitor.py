@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from posthog.hogql import ast
@@ -7,7 +8,9 @@ from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.visitor import Visitor
 
 
-def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext, tombstone_string: Optional[str] = None) -> bool:
+def is_simple_timestamp_field_expression(
+    expr: ast.Expr, context: HogQLContext, tombstone_string: Optional[str] = None
+) -> bool:
     result = IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
     return result
 
@@ -212,3 +215,175 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
     def visit_array(self, node: ast.Tuple) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
+
+def is_start_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+    return IsStartOfDayConstantVisitor(tombstone_string).visit(expr)
+
+
+class IsStartOfDayConstantVisitor(Visitor[bool]):
+    def __init__(self, tombstone_string: Optional[str]):
+        self.tombstone_string = tombstone_string
+
+    def visit_constant(self, node: ast.Constant) -> bool:
+        if self.tombstone_string is not None and node.value == self.tombstone_string:
+            return False
+        if not isinstance(node.value, str):
+            return False
+        try:
+            parsed = datetime.fromisoformat(node.value)
+        except ValueError:
+            return False
+        # Check if the constant is a date without time (i.e., start of the day)
+        if parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0:
+            return True
+        return False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> bool:
+        return False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return False
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
+        return False
+
+    def visit_call(self, node: ast.Call) -> bool:
+        # some functions just return a constant
+        if node.name in ["today", "yesterday"]:
+            return True
+        elif node.name in ["toStartOfDay", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"]:
+            # these functions return the start of the day/week/month/quarter/year
+            # note that we no longer care that it's a constant representing the start of the period, just that it's a constant now
+            return is_time_or_interval_constant(node.args[0])
+        # also handle toStartOfInterval functions, if the interval is valid
+        elif node.name.startswith("toStartOfInterval") and len(node.args) == 2:
+            if is_time_or_interval_constant(node.args[0]):
+                interval = node.args[1]
+                if isinstance(interval, ast.Call) and interval.name in [
+                    "toIntervalDay",
+                    "toIntervalWeek",
+                    "toIntervalMonth",
+                    "toIntervalQuarter",
+                    "toIntervalYear",
+                ]:
+                    # these intervals are valid for start of day/week/month/quarter/year
+                    num_intervals = interval.args[0]
+                    if (
+                        isinstance(num_intervals, ast.Constant)
+                        and isinstance(num_intervals.value, int)
+                        and num_intervals.value > 0
+                    ):
+                        return True
+        # some functions return a constant if the first argument is a constant
+        elif node.name in [
+            "parseDateTime64BestEffortOrNull",
+            "toDateTime",
+            "toDateTime64",
+            "assumeNotNull",
+        ]:
+            return self.visit(node.args[0])
+        elif node.name == "toTimestamp" and len(node.args) == 2:
+            # only allow UTC
+            timezone = node.args[1]
+            if isinstance(timezone, ast.Constant) and timezone.value == "UTC":
+                return self.visit(node.args[0])
+
+        return False
+
+    def visit_field(self, node: ast.Field) -> bool:
+        return False
+
+    def visit_and(self, node: ast.And) -> bool:
+        return False
+
+    def visit_or(self, node: ast.Or) -> bool:
+        return False
+
+    def visit_not(self, node: ast.Not) -> bool:
+        return False
+
+    def visit_placeholder(self, node: ast.Placeholder) -> bool:
+        raise Exception()
+
+    def visit_alias(self, node: ast.Alias) -> bool:
+        return self.visit(node.expr)
+
+    def visit_tuple(self, node: ast.Tuple) -> bool:
+        return False
+
+    def visit_array(self, node: ast.Tuple) -> bool:
+        return False
+
+
+def is_end_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+    return IsEndOfDayConstantVisitor(tombstone_string).visit(expr)
+
+
+class IsEndOfDayConstantVisitor(Visitor[bool]):
+    def __init__(self, tombstone_string: Optional[str]):
+        self.tombstone_string = tombstone_string
+
+    def visit_constant(self, node: ast.Constant) -> bool:
+        if self.tombstone_string is not None and node.value == self.tombstone_string:
+            return False
+        if not isinstance(node.value, str):
+            return False
+        try:
+            parsed = datetime.fromisoformat(node.value)
+        except ValueError:
+            return False
+        # Check if the constant is 23:59:59 of any day. This is not exact, but this is how
+        # our QueryDateRange class works, and we need to be compatible with that.
+        if parsed.hour == 23 and parsed.minute == 59 and parsed.second == 59:
+            return True
+        return False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> bool:
+        return False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
+        return False
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
+        return False
+
+    def visit_call(self, node: ast.Call) -> bool:
+        # there's no toEndOfDay function, so we're just checking the constant itself
+        if node.name in [
+            "parseDateTime64BestEffortOrNull",
+            "toDateTime",
+            "toDateTime64",
+            "assumeNotNull",
+        ]:
+            return self.visit(node.args[0])
+        elif node.name == "toTimestamp" and len(node.args) == 2:
+            # only allow UTC
+            timezone = node.args[1]
+            if isinstance(timezone, ast.Constant) and timezone.value == "UTC":
+                return self.visit(node.args[0])
+
+        return False
+
+    def visit_field(self, node: ast.Field) -> bool:
+        return False
+
+    def visit_and(self, node: ast.And) -> bool:
+        return False
+
+    def visit_or(self, node: ast.Or) -> bool:
+        return False
+
+    def visit_not(self, node: ast.Not) -> bool:
+        return False
+
+    def visit_placeholder(self, node: ast.Placeholder) -> bool:
+        raise Exception()
+
+    def visit_alias(self, node: ast.Alias) -> bool:
+        return self.visit(node.expr)
+
+    def visit_tuple(self, node: ast.Tuple) -> bool:
+        return False
+
+    def visit_array(self, node: ast.Tuple) -> bool:
+        return False

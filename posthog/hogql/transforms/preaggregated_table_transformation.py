@@ -5,7 +5,11 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
+from posthog.hogql.helpers.timestamp_visitor import (
+    is_simple_timestamp_field_expression,
+    is_start_of_day_constant,
+    is_end_of_day_constant,
+)
 from posthog.hogql.visitor import CloningVisitor
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
@@ -82,32 +86,13 @@ def is_pageview_filter(expr: ast.Expr) -> bool:
     return False
 
 
-def is_to_start_of_day_time_constant(expr: ast.Expr, context: HogQLContext) -> bool:
-    """Check if an expression is toStartOfDay(some_constant) or similar."""
-    if (isinstance(expr, ast.Call)
-            and expr.name == "toStartOfDay"
-            and len(expr.args) == 1
-        and is_time_or_interval_constant(expr.args[0])
-    ):
-        return True
-    # also accept toStartOfInterval(timestamp, toIntervalDay(1))
-    if (
-        isinstance(expr, ast.Call)
-        and expr.name == "toStartOfInterval"
-        and len(expr.args) == 2
-        and is_simple_timestamp_field_expression(expr.args[0], context)
-        and isinstance(expr.args[1], ast.Call)
-        and expr.args[1].name == "toIntervalDay"
-        and len(expr.args[1].args) == 1
-        and isinstance(expr.args[1].args[0], ast.Constant)
-        and expr.args[1].args[0].value == 1
-    ):
-        return True
-    return False
-
 def is_to_start_of_day_timestamp_field(expr: ast.Call, context: HogQLContext) -> bool:
     """Check if a call represents a toStartOfDay timestamp operation."""
-    if expr.name == "toStartOfDay" and len(expr.args) == 1 and is_simple_timestamp_field_expression(expr.args[0], context):
+    if (
+        expr.name == "toStartOfDay"
+        and len(expr.args) == 1
+        and is_simple_timestamp_field_expression(expr.args[0], context)
+    ):
         return True
     # also accept toStartOfInterval(timestamp, toIntervalDay(1))
     if (
@@ -123,19 +108,35 @@ def is_to_start_of_day_timestamp_field(expr: ast.Call, context: HogQLContext) ->
         return True
     return False
 
-def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(expr: ast.Call, context: HogQLContext) -> Optional[ast.Call]:
+
+def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
+    expr: ast.Call, context: HogQLContext
+) -> Optional[ast.Call]:
     """
     timestamp >= toStartOfDay('2024-11-24') is equivalent to toStartOfDay(timestamp) >= toStartOfDay('2024-11-24')
     which can be transformed into period_bucket >= toStartOfDay('2024-11-24')
+
+    The valid variants of this expression are:
+    timestamp >= toStartOfDay(date) is equivalent to toStartOfDay(timestamp) >= toStartOfDay(date)
+    timestamp <  toStartOfDay(date) is equivalent to toStartOfDay(timestamp) <  toStartOfDay(date)
+    toStartOfDay(date) <= timestamp is equivalent to toStartOfDay(date) <= toStartOfDay(timestamp)
+    toStartOfDay(date) >  timestamp is equivalent to toStartOfDay(date) >  toStartOfDay(timestamp)
+
+    We don't have a toEndOfDay function but we can approximate it, if we did then the following variants would also be valid:
     """
-    if expr.name not in ["greaterOrEquals", "lessOrEquals", "greater", "less", "greaterEquals", "lessEquals", "gte", "lte", "gt", "lt"]:
+    if expr.name not in ["greaterOrEquals", "lessOrEquals", "greater", "less"] or len(expr.args) != 2:
         return None
-    if len(expr.args) != 2:
-        return None
-    if is_simple_timestamp_field_expression(expr.args[0], context) and is_to_start_of_day_time_constant(expr.args[1], context):
-        return ast.Call(name=expr.name, args=[ast.Field(chain=["period_bucket"]), expr.args[1]])
-    if is_simple_timestamp_field_expression(expr.args[1], context) and is_to_start_of_day_time_constant(expr.args[0], context):
-        return ast.Call(name=expr.name, args=[ast.Field(chain=["period_bucket"]), expr.args[0]])
+    arg0 = expr.args[0]
+    arg1 = expr.args[1]
+    name = expr.name
+    if is_simple_timestamp_field_expression(arg0, context):
+        if name in ["greaterOrEquals", "less"] and is_start_of_day_constant(arg1):
+            return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
+        if name in ["lessOrEquals"] and is_end_of_day_constant(arg1):
+            return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
+    if is_simple_timestamp_field_expression(arg0, context):
+        if name in ["lessOrEquals", "greater"] and is_start_of_day_constant(arg0):
+            return ast.Call(name=expr.name, args=[arg0, ast.Field(chain=["period_bucket"])])
     return None
 
 
@@ -213,59 +214,46 @@ def _is_simple_constant_comparison(expr: ast.Expr) -> bool:
     return isinstance(expr, ast.Constant) and expr.value in (1, True, "1")
 
 
-def _get_supported_property_field(field: ast.Field) -> tuple[str, str] | None:
+def _get_supported_field(field: ast.Field) -> tuple[str, ast.Field] | None:
     """
-    Check if a field represents a supported property and return (property_name, field_name) if valid.
-
-    Returns:
-        tuple[str, str] | None: (property_name, field_name) if supported, None otherwise
+    Check if a field represents a supported property and return (property_name, field) if valid.
     """
     # Handle properties.x pattern
     if len(field.chain) == 2 and field.chain[0] == "properties":
         property_name = field.chain[1]
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle events.properties.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
         property_name = field.chain[2]
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle session.x pattern
     elif len(field.chain) == 2 and field.chain[0] == "session":
         property_name = field.chain[1]
         if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
-            return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle events.session.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "session":
         property_name = field.chain[2]
         if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
-            return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
+
+    # Handle team_id and events.team_id
+    elif (
+        len(field.chain) == 1 and field.chain[0] == "team_id" or (len(field.chain) == 2 and field.chain[1] == "team_id")
+    ):
+        return ("team_id", ast.Field(chain=["team_id"]))
 
     return None
 
-def _try_transform_timestamp_comparison(call: ast.Call) -> Optional[ast.Call]:
-    """Transform a timestamp comparison call to use the preaggregated period bucket."""
-    if call.name in {
-        "greaterOrEquals",
-        "lessOrEquals",
-        "greater",
-        "less",
-        "greaterEquals",
-        "lessEquals",
-        "gte",
-        "lte",
-        "gt",
-        "lt",
-    }:
-        # Replace the first argument with the period_bucket field
-        return ast.Call(name=call.name, args=[ast.Field(chain=["period_bucket"]), call.args[1]])
-    return None
 
-class SelectExprTransformer(CloningVisitor):
+class ExprTransformer(CloningVisitor):
     """Visitor to transform SELECT expressions to use preaggregated fields."""
+
     has_transformed_aggregation: bool = False
     seen_aliases: set[str] = set()
 
@@ -290,22 +278,24 @@ class SelectExprTransformer(CloningVisitor):
             self.has_transformed_aggregation = True
             # toStartOfDay(timestamp) becomes toStartOfDay(period_bucket)
             return ast.Call(name="toStartOfDay", args=[ast.Field(chain=["period_bucket"])])
-        elif transformed_call := _try_transform_timestamp_comparsion_with_start_of_day_time_constant(node, self.context):
+        elif transformed_call := _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
+            node, self.context
+        ):
             return transformed_call
         # For other calls, just return the node unchanged
         return super().visit_call(node)
 
     def visit_field(self, node: ast.Field) -> ast.Field:
         # Transform the field expression
-        property_result = _get_supported_property_field(node)
+        property_result = _get_supported_field(node)
         if property_result is not None:
-            _, field_name = property_result
-            return ast.Field(chain=[field_name])
+            _, field = property_result
+            return field
         # if it's referencing an alias we've seen, allow it
         if len(node.chain) == 1 and node.chain[0] in self.seen_aliases:
             return node
         # any other field access is not supported
-        raise ValueError("Unsupported field in SELECT clause: {}".format(node.chain))
+        raise ValueError("Unsupported field: {}".format(node.chain))
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         # We already handle this stuff in visit_call, don't duplicate it here
@@ -333,7 +323,7 @@ def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
     """Transform a GROUP BY expression to use preaggregated fields."""
     if isinstance(expr, ast.Field):
         # Transform properties.x to the corresponding field in the preaggregated table
-        property_result = _get_supported_property_field(expr)
+        property_result = _get_supported_field(expr)
         if property_result is not None:
             property_name, field_name = property_result
             return ast.Field(chain=[field_name])
@@ -343,9 +333,11 @@ def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
         # Pass through other expressions unchanged
         return expr
 
+
 def _is_constant_one(expr: ast.Expr) -> bool:
     """Check if an expression is a constant with value 1."""
     return isinstance(expr, ast.Constant) and expr.value == 1
+
 
 def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
     if not node or not isinstance(node.table, ast.Field):
@@ -356,7 +348,9 @@ def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
         return False
     if node.sample:
         sample_value = node.sample.sample_value
-        if not _is_constant_one(sample_value.left) or not (_is_constant_one(sample_value.right) or sample_value.right is None):
+        if not _is_constant_one(sample_value.left) or not (
+            _is_constant_one(sample_value.right) or sample_value.right is None
+        ):
             return False
     return True
 
@@ -369,13 +363,22 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
 
     # Bail if any unsupported part of the SELECT query exist
     # Some of these could be supported in the future, if you add them, make sure you add some tests!
-    if node.array_join_list or node.array_join_op or node.limit_by or node.limit_with_ties or node.window_exprs or node.prewhere or node.view_name or node.distinct:
+    if (
+        node.array_join_list
+        or node.array_join_op
+        or node.limit_by
+        or node.limit_with_ties
+        or node.window_exprs
+        or node.prewhere
+        or node.view_name
+        or node.distinct
+    ):
         return node
 
     if not _is_valid_select_from(node.select_from):
         return node
 
-    visitor = SelectExprTransformer(context)
+    visitor = ExprTransformer(context)
 
     try:
         # Transform the SELECT clause
@@ -399,9 +402,8 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
 
         # Tranform the GROUP BY clause
         group_by = [visitor.visit(expr) for expr in node.group_by] if node.group_by else None
-    except ValueError as e:
+    except ValueError:
         # We ran into an unsupported expression, just return the original node
-        print(e)
         return node
 
     # If we didn't find a pageview filter, we can't use preaggregated tables
@@ -410,7 +412,6 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
     # If there was no aggregation in the SELECT clause, we can't use preaggregated tables
     if not visitor.has_transformed_aggregation:
         return node
-
 
     # Transform the query to use the preaggregated table
     select_from = ast.JoinExpr(
@@ -427,7 +428,6 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
         select_from=select_from,
         group_by=group_by,
         where=where,
-
         array_join_list=None,
         array_join_op=None,
         limit_by=None,
@@ -436,12 +436,10 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
         prewhere=None,
         view_name=None,
         distinct=None,
-
         limit=node.limit,
         offset=node.offset,
         order_by=node.order_by,
         having=node.having,
-
         settings=node.settings,
         ctes=node.ctes,  # Preserve CTEs, they should get transformed by the outer visitor
     )
