@@ -24,7 +24,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -241,28 +241,6 @@ function PayloadWarning(): JSX.Element {
                 </Link>
             </p>
         </>
-    )
-}
-
-function CinemaModeSettings(): JSX.Element | null {
-    const { isCinemaMode } = useValues(playerSettingsLogic)
-    const { setIsCinemaMode } = useActions(playerSettingsLogic)
-
-    return (
-        <div>
-            <h3>Cinema mode</h3>
-            <p>
-                This setting controls if cinema mode is enabled. Cinema mode hides all the extra features (e.g.
-                annotations, inspector, etc.) and only shows the bare minimum.
-            </p>
-            <LemonSwitch
-                data-attr="opt-in-cinema-mode-switch"
-                onChange={setIsCinemaMode}
-                label="Enable cinema mode"
-                bordered
-                checked={isCinemaMode}
-            />
-        </div>
     )
 }
 

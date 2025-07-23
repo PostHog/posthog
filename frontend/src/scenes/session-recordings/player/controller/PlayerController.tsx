@@ -15,8 +15,7 @@ import { SessionPlayerState } from '~/types'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
@@ -100,7 +99,6 @@ function CinemaMode(): JSX.Element {
 export function PlayerController(): JSX.Element {
     const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -126,7 +124,7 @@ export function PlayerController(): JSX.Element {
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
-                    {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
+                    <CinemaMode />
                     <FullScreen />
                 </div>
             </div>
