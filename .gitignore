@@ -63,6 +63,8 @@ frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
 frontend/src/products.tsx
+# Vite-specific assets (we copy public assets to src/assets) just for development
+frontend/src/assets
 .typegen
 # ANTLR-generated temp files when "npm run grammar:build" crashes
 gen/
