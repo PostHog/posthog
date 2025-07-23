@@ -24,9 +24,9 @@ use flate2::Compression;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
+use serde_json::{from_str, Number, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
 use time::OffsetDateTime;
-use serde_json::{from_str, Value, Number};
 
 const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 
@@ -151,15 +151,21 @@ fn lz64_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
     let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {}", title);
     let utf8_str = std::str::from_utf8(&data).expect(&utf8_err_msg);
     let utf16_bytes: Vec<u16> = utf8_str.encode_utf16().collect();
-    lz_str::compress_to_base64(utf16_bytes).as_bytes().to_owned()
+    lz_str::compress_to_base64(utf16_bytes)
+        .as_bytes()
+        .to_owned()
 }
 
 // format the sent_at value when included in GET URL query params
 fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
-    let err_msg = format!("failed to parse ISO8601 time into UNIX millis in case: {}", title);
+    let err_msg = format!(
+        "failed to parse ISO8601 time into UNIX millis in case: {}",
+        title
+    );
     OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
         .expect(&err_msg)
-        .unix_timestamp() * 1000_i64
+        .unix_timestamp()
+        * 1000_i64
 }
 
 // utility to validate tests/fixtures/single_event_payload.json
@@ -197,20 +203,17 @@ fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
-        &event.token,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token in case: {}",
         title,
     );
     assert_eq!(
-        "019833ae-4913-7179-b6bc-019570abb1c9",
-        &event.distinct_id,
+        "019833ae-4913-7179-b6bc-019570abb1c9", &event.distinct_id,
         "mismatched distinct_id in case: {}",
         title,
     );
     assert_eq!(
-        DEFAULT_TEST_TIME,
-        &event.now,
+        DEFAULT_TEST_TIME, &event.now,
         "mismatched 'now' timestamp in case: {}",
         title,
     );
@@ -227,9 +230,8 @@ fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
         "mismatched sent_at in case: {}",
         title,
     );
-    assert_eq!(
-        false,
-        event.is_cookieless_mode,
+    assert!(
+        !event.is_cookieless_mode,
         "mismatched cookieless flag in case: {}",
         title,
     );
@@ -251,8 +253,7 @@ fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
         title,
     );
     assert_eq!(
-        "019833ae-4913-7179-b6bc-019570abb1c9",
-        event["distinct_id"],
+        "019833ae-4913-7179-b6bc-019570abb1c9", event["distinct_id"],
         "mismatched event.distinct_id in case: {}",
         title,
     );
@@ -268,20 +269,17 @@ fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
         title,
     );
     assert_eq!(
-        "web",
-        props["$lib"],
+        "web", props["$lib"],
         "mismatched event.properties.$lib in case: {}",
         title,
     );
     assert_eq!(
-        "1.2.3",
-        props["$lib_version"],
+        "1.2.3", props["$lib_version"],
         "mismatched event.properties.$lib_version in case: {}",
         title,
     );
     assert_eq!(
-        "https://posthog.example.com/testing",
-        props["$current_url"],
+        "https://posthog.example.com/testing", props["$current_url"],
         "mismatched event.properties.$current_url in case: {}",
         title,
     );
@@ -444,12 +442,13 @@ async fn gzipped_no_hint_single_event_payload() {
 async fn post_form_urlencoded_single_event_payload() {
     let title = "post-form-urlencoded-single-event-payload";
     let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let err_msg = format!("failed to serialize payload to urlencoded form in case: {}", title);
+    let err_msg = format!(
+        "failed to serialize payload to urlencoded form in case: {}",
+        title
+    );
     let utf_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
-    let form_payload = serde_urlencoded::to_string([
-        ("data", utf_payload),
-        ("ver", "1.2.3"),
-    ]).expect(&err_msg);
+    let form_payload =
+        serde_urlencoded::to_string([("data", utf_payload), ("ver", "1.2.3")]).expect(&err_msg);
 
     let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
     let client = TestClient::new(router);
