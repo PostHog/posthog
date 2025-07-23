@@ -29,7 +29,7 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
-    AnnotationType,
+    CommentType,
     MatchedRecordingEvent,
     PerformanceEvent,
     RecordingConsoleLogV2,
@@ -110,13 +110,13 @@ export type InspectorListItemNotebookComment = InspectorListItemBase & {
     data: RecordingComment
 }
 
-export type InspectorListItemAnnotationComment = InspectorListItemBase & {
+export type InspectorListItemCommentComment = InspectorListItemBase & {
     type: 'comment'
-    source: 'annotation'
-    data: AnnotationType
+    source: 'comment'
+    data: CommentType
 }
 
-export type InspectorListItemComment = InspectorListItemNotebookComment | InspectorListItemAnnotationComment
+export type InspectorListItemComment = InspectorListItemNotebookComment | InspectorListItemCommentComment
 
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: 'console'
@@ -226,15 +226,25 @@ function getPayloadFor(customEvent: customEvent, tag: string): Record<string, an
     return customEvent.data.payload as Record<string, any>
 }
 
-function commentTimestamp(
-    comment: RecordingComment,
+function notebookCommentTimestamp(
+    timeInRecording: number,
     start: Dayjs | null
 ): {
     timeInRecording: number
     timestamp: dayjs.Dayjs | undefined
 } {
-    const timestamp = start?.add(comment.timeInRecording, 'ms')
-    return { timestamp, timeInRecording: comment.timeInRecording }
+    const timestamp = start?.add(timeInRecording, 'ms')
+    return { timestamp, timeInRecording }
+}
+
+function commentCommentTimestamp(
+    commentTime: Dayjs,
+    start: Dayjs | null
+): {
+    timeInRecording: number
+    timestamp: dayjs.Dayjs | undefined
+} {
+    return { timestamp: commentTime, timeInRecording: commentTime.valueOf() - (start?.valueOf() ?? 0) }
 }
 
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -264,12 +274,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'start',
                 'end',
                 'durationMs',
-                'sessionComments',
+                'sessionNotebookComments',
+                'sessionCommentComments',
+                'sessionCommentCommentsLoading',
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
-                'sessionAnnotations',
-                'annotationsLoading',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -558,11 +568,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         notebookCommentItems: [
-            (s) => [s.sessionComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
-            (sessionComments, windowIdForTimestamp, windowNumberForID, start): InspectorListItemNotebookComment[] => {
+            (s) => [s.sessionNotebookComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (
+                sessionNotebookComments,
+                windowIdForTimestamp,
+                windowNumberForID,
+                start
+            ): InspectorListItemNotebookComment[] => {
                 const items: InspectorListItemNotebookComment[] = []
-                for (const comment of sessionComments || []) {
-                    const { timestamp, timeInRecording } = commentTimestamp(comment, start)
+                for (const comment of sessionNotebookComments || []) {
+                    const { timestamp, timeInRecording } = notebookCommentTimestamp(comment.timeInRecording, start)
                     if (timestamp) {
                         items.push({
                             highlightColor: 'primary',
@@ -581,20 +596,38 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        annotationItems: [
-            (s) => [s.sessionAnnotations, s.windowIdForTimestamp, s.windowNumberForID],
-            (sessionAnnotations, windowIdForTimestamp, windowNumberForID): InspectorListItemAnnotationComment[] => {
-                const items: InspectorListItemAnnotationComment[] = []
-                for (const annotation of sessionAnnotations || []) {
-                    const windowId = windowIdForTimestamp(annotation.timestamp.valueOf())
-                    items.push({
-                        ...annotation,
-                        type: 'comment',
-                        source: 'annotation',
-                        highlightColor: 'primary',
-                        windowId: windowId,
-                        windowNumber: windowNumberForID(windowId),
-                    })
+        commentItems: [
+            (s) => [s.sessionCommentComments, s.windowIdForTimestamp, s.windowNumberForID, s.start],
+            (
+                sessionCommentComments,
+                windowIdForTimestamp,
+                windowNumberForID,
+                start
+            ): InspectorListItemCommentComment[] => {
+                const items: InspectorListItemCommentComment[] = []
+                for (const comment of sessionCommentComments || []) {
+                    if (!comment.item_context.time_in_recording) {
+                        continue
+                    }
+
+                    const { timestamp, timeInRecording } = commentCommentTimestamp(
+                        dayjs(comment.item_context.time_in_recording),
+                        start
+                    )
+                    if (timestamp) {
+                        const item: InspectorListItemCommentComment = {
+                            timestamp,
+                            timeInRecording,
+                            type: 'comment',
+                            source: 'comment',
+                            highlightColor: 'primary',
+                            windowId: windowIdForTimestamp(timestamp.valueOf()),
+                            windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
+                            data: comment,
+                            search: comment.content,
+                        }
+                        items.push(item)
+                    }
                 }
                 return items
             },
@@ -686,7 +719,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.matchingEventUUIDs,
                 s.windowNumberForID,
                 s.allContextItems,
-                s.annotationItems,
+                s.commentItems,
                 s.notebookCommentItems,
             ],
             (
@@ -697,7 +730,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 matchingEventUUIDs,
                 windowNumberForID,
                 allContextItems,
-                annotationItems,
+                commentItems,
                 notebookCommentItems
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
@@ -786,8 +819,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push(event)
                 }
 
-                for (const annotation of annotationItems || []) {
-                    items.push(annotation)
+                for (const comment of commentItems || []) {
+                    items.push(comment)
                 }
 
                 for (const notebookComment of notebookCommentItems || []) {
@@ -928,8 +961,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.consoleLogs,
                 s.allPerformanceEvents,
                 s.doctorEvents,
-                s.sessionAnnotations,
-                s.annotationsLoading,
+                s.sessionCommentComments,
+                s.sessionCommentCommentsLoading,
             ],
             (
                 sessionEventsDataLoading,
@@ -939,8 +972,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 logs,
                 performanceEvents,
                 doctorEvents,
-                sessionAnnotations,
-                annotationsLoading
+                sessionCommentComments,
+                sessionCommentCommentsLoading
             ): Record<FilterableInspectorListItemTypes, 'loading' | 'ready' | 'empty'> => {
                 const dataForEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const dataForConsoleState =
@@ -963,9 +996,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         : 'empty'
 
                 // TODO include notebook comments here?
-                const dataForCommentState = annotationsLoading
+                const dataForCommentState = sessionCommentCommentsLoading
                     ? 'loading'
-                    : sessionAnnotations?.length
+                    : sessionCommentComments?.length
                     ? 'ready'
                     : 'empty'
 

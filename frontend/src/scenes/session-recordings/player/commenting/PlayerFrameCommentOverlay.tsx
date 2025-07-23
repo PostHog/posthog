@@ -15,21 +15,21 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
 
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
-    const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingAnnotation, resetRecordingAnnotation } = useActions(theBuiltOverlayLogic)
+    const { recordingComment, isRecordingCommentSubmitting } = useValues(theBuiltOverlayLogic)
+    const { submitRecordingComment, resetRecordingComment } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
         <div className="absolute bottom-4 left-4 z-20 w-90">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerCommentOverlayLogic}
-                    formKey="recordingAnnotation"
+                    formKey="recordingComment"
                     id="recording-annotation-form"
                     enableFormOnSubmit
                     className="flex flex-col gap-y-1"
                 >
                     <div className="flex flex-col gap-y-1">
-                        <LemonField name="annotationId" className="hidden">
+                        <LemonField name="commentId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
                         <LemonField
@@ -55,7 +55,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             data-attr="cancel-recording-annotation"
                             type="secondary"
                             onClick={() => {
-                                resetRecordingAnnotation()
+                                resetRecordingComment()
                                 setIsCommenting(false)
                             }}
                         >
@@ -64,12 +64,12 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                         <LemonButton
                             form="recording-annotation-form"
                             type="primary"
-                            onClick={submitRecordingAnnotation}
+                            onClick={submitRecordingComment}
                             data-attr="create-recording-annotation-submit"
                             size="small"
-                            loading={isRecordingAnnotationSubmitting}
+                            loading={isRecordingCommentSubmitting}
                         >
-                            {recordingAnnotation.annotationId ? 'Update' : 'Save'}
+                            {recordingComment.commentId ? 'Update' : 'Save'}
                         </LemonButton>
                     </div>
                 </Form>

@@ -7,8 +7,8 @@ import { autoCaptureEventToDescription } from 'lib/utils'
 import React, { memo, MutableRefObject } from 'react'
 import {
     InspectorListItem,
-    InspectorListItemAnnotationComment,
     InspectorListItemComment,
+    InspectorListItemCommentComment,
     InspectorListItemEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -26,16 +26,16 @@ function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebook
     return x.type === 'comment' && x.source === 'notebook'
 }
 
-function isAnnotationComment(x: InspectorListItem): x is InspectorListItemAnnotationComment {
-    return x.type === 'comment' && x.source === 'annotation'
+function IsCommentComment(x: InspectorListItem): x is InspectorListItemCommentComment {
+    return x.type === 'comment' && x.source === 'comment'
 }
 
 function isComment(x: InspectorListItem): x is InspectorListItemComment {
-    return isAnnotationComment(x) || isNotebookComment(x)
+    return IsCommentComment(x) || isNotebookComment(x)
 }
 
-function isAnnotationEmojiComment(x: InspectorListItem): x is InspectorListItemAnnotationComment {
-    return isAnnotationComment(x) && !!x.data.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
+function IsEmojiComment(x: InspectorListItem): x is InspectorListItemCommentComment {
+    return IsCommentComment(x) && !!x.data.item_context?.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
 }
 
 function PlayerSeekbarTick({
@@ -95,21 +95,12 @@ function PlayerSeekbarTick({
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
                             <TextContent text={item.data.content ?? ''} data-attr="PlayerSeekbarTicks--text-content" />
-                            <ProfilePicture
-                                user={
-                                    item.data.creation_type === 'GIT'
-                                        ? { first_name: 'GitHub automation' }
-                                        : item.data.created_by
-                                }
-                                showName
-                                size="md"
-                                type={item.data.creation_type === 'GIT' ? 'bot' : 'person'}
-                            />{' '}
+                            <ProfilePicture user={item.data.created_by} showName size="md" type="person" />{' '}
                         </div>
                     )
                 }
             >
-                {isAnnotationEmojiComment(item) ? (
+                {IsEmojiComment(item) ? (
                     <div className="PlayerSeekbarTick__emoji">{item.data.content}</div>
                 ) : isComment(item) ? (
                     <div className="PlayerSeekbarTick__comment">

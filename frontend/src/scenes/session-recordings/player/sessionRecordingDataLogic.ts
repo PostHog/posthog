@@ -8,10 +8,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import posthog from 'posthog-js'
-import {
-    InspectorListItemAnnotationComment,
-    RecordingComment,
-} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
@@ -23,7 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { annotationsModel } from '~/models/annotationsModel'
 import { hogql, HogQLQueryString } from '~/queries/utils'
 import {
-    AnnotationScope,
+    CommentType,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
@@ -43,6 +40,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
@@ -80,8 +78,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
-        loadRecordingComments: true,
         maybeLoadRecordingMeta: true,
+        loadRecordingCommentComments: true,
+        loadRecordingNotebookComments: true,
         loadSnapshots: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
@@ -141,8 +140,21 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     loaders(({ values, props, cache }) => ({
-        sessionComments: {
-            loadRecordingComments: async (_, breakpoint) => {
+        sessionCommentComments: {
+            loadRecordingCommentComments: async (_, breakpoint) => {
+                const empty: CommentType[] = []
+                if (!props.sessionRecordingId) {
+                    return empty
+                }
+
+                const response = await api.comments.list({ item_id: props.sessionRecordingId })
+                breakpoint()
+
+                return response.results || empty
+            },
+        },
+        sessionNotebookComments: {
+            loadRecordingNotebookComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
                 if (!props.sessionRecordingId) {
                     return empty
@@ -255,7 +267,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         (a, b) => a.timestamp - b.timestamp
                     )
                     // we store the data in the cache because we want to avoid copying this data as much as possible
-                    // and kea's immutability means we were copying all of the data on every snapshot call
+                    // and kea's immutability means we were copying all the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}
                     // it doesn't matter which source we use as the key, since we combine the snapshots anyway
                     cache.snapshotsBySource[keyForSource(sources[0])] = { snapshots: parsedSnapshots }
@@ -429,6 +441,11 @@ AND properties.$lib != 'web'`
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
+        [playerCommentModel.actionTypes.commentEdited]: ({ recordingId }) => {
+            if (props.sessionRecordingId === recordingId) {
+                actions.loadRecordingCommentComments()
+            }
+        },
         loadSnapshots: () => {
             // This kicks off the loading chain
             if (!values.snapshotSourcesLoading) {
@@ -439,8 +456,11 @@ AND properties.$lib != 'web'`
             if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
             }
-            if (!values.sessionCommentsLoading) {
-                actions.loadRecordingComments()
+            if (!values.sessionCommentCommentsLoading) {
+                actions.loadRecordingCommentComments()
+            }
+            if (!values.sessionNotebookCommentsLoading) {
+                actions.loadRecordingNotebookComments()
             }
         },
         loadSnapshotSources: () => {
@@ -492,7 +512,7 @@ AND properties.$lib != 'web'`
         },
 
         loadNextSnapshotSource: () => {
-            // yes this is ugly duplication but we're going to deprecate v1 and I want it to be clear which is which
+            // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
                 const nextSourcesToLoad =
                     values.snapshotSources?.filter((s) => {
@@ -591,42 +611,42 @@ AND properties.$lib != 'web'`
         },
     })),
     selectors(({ cache }) => ({
-        sessionAnnotations: [
-            (s) => [s.annotations, s.start, s.end],
-            (annotations, start, end): InspectorListItemAnnotationComment[] => {
-                const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
-                const startValue = start?.valueOf()
-                const endValue = end?.valueOf()
-
-                const result: InspectorListItemAnnotationComment[] = []
-                for (const annotation of annotations) {
-                    if (!allowedScopes.includes(annotation.scope)) {
-                        continue
-                    }
-
-                    if (!annotation.date_marker || !startValue || !endValue || !annotation.content) {
-                        continue
-                    }
-
-                    const annotationTime = dayjs(annotation.date_marker).valueOf()
-                    if (annotationTime < startValue || annotationTime > endValue) {
-                        continue
-                    }
-
-                    result.push({
-                        type: 'comment',
-                        source: 'annotation',
-                        data: annotation,
-                        timestamp: dayjs(annotation.date_marker),
-                        timeInRecording: annotation.date_marker.valueOf() - startValue,
-                        search: annotation.content,
-                        highlightColor: 'primary',
-                    })
-                }
-
-                return result
-            },
-        ],
+        // sessionAnnotations: [
+        //     (s) => [s.annotations, s.start, s.end],
+        //     (annotations, start, end): InspectorListItemCommentComment[] => {
+        //         const allowedScopes = [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization]
+        //         const startValue = start?.valueOf()
+        //         const endValue = end?.valueOf()
+        //
+        //         const result: InspectorListItemCommentComment[] = []
+        //         for (const annotation of annotations) {
+        //             if (!allowedScopes.includes(annotation.scope)) {
+        //                 continue
+        //             }
+        //
+        //             if (!annotation.date_marker || !startValue || !endValue || !annotation.content) {
+        //                 continue
+        //             }
+        //
+        //             const annotationTime = dayjs(annotation.date_marker).valueOf()
+        //             if (annotationTime < startValue || annotationTime > endValue) {
+        //                 continue
+        //             }
+        //
+        //             result.push({
+        //                 type: 'comment',
+        //                 source: 'annotation',
+        //                 data: annotation,
+        //                 timestamp: dayjs(annotation.date_marker),
+        //                 timeInRecording: annotation.date_marker.valueOf() - startValue,
+        //                 search: annotation.content,
+        //                 highlightColor: 'primary',
+        //             })
+        //         }
+        //
+        //         return result
+        //     },
+        // ],
         webVitalsEvents: [
             (s) => [s.sessionEventsData],
             (sessionEventsData): RecordingEventType[] =>
@@ -770,14 +790,30 @@ AND properties.$lib != 'web'`
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
 
         fullyLoaded: [
-            (s) => [s.snapshots, s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.sessionEventsDataLoading],
-            (snapshots, sessionPlayerMetaDataLoading, snapshotsLoading, sessionEventsDataLoading): boolean => {
+            (s) => [
+                s.snapshots,
+                s.sessionPlayerMetaDataLoading,
+                s.snapshotsLoading,
+                s.sessionEventsDataLoading,
+                s.sessionCommentCommentsLoading,
+                s.sessionNotebookCommentsLoading,
+            ],
+            (
+                snapshots,
+                sessionPlayerMetaDataLoading,
+                snapshotsLoading,
+                sessionEventsDataLoading,
+                sessionCommentCommentsLoading,
+                sessionNotebookCommentsLoading
+            ): boolean => {
                 // TODO: Do a proper check for all sources having been loaded
                 return (
                     !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
-                    !sessionEventsDataLoading
+                    !sessionEventsDataLoading &&
+                    !sessionCommentCommentsLoading &&
+                    !sessionNotebookCommentsLoading
                 )
             },
         ],
