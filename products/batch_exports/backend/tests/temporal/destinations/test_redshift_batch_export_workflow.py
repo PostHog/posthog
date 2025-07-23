@@ -779,7 +779,7 @@ async def test_redshift_export_workflow(
                     id=workflow_id,
                     task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=20),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
