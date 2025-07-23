@@ -46,7 +46,7 @@ function AdvertiseSurveysReactNativeBeta({ productKey }: { productKey: ProductKe
             tagText="Beta"
             tagType="highlight"
             productKey="surveys"
-            description="Surveys are now available for React Native as Beta."
+            description="Surveys is now available for React Native as Beta."
             linkText="Learn how to set it up"
         />
     )
@@ -61,7 +61,7 @@ function AdvertiseSurveysIOSBeta({ productKey }: { productKey: ProductKey }): JS
             tagText="Beta"
             tagType="highlight"
             productKey="surveys"
-            description="Surveys are now available for iOS as Beta."
+            description="Surveys is now available for iOS as Beta."
             linkText="Learn how to set it up"
         />
     )
@@ -76,7 +76,7 @@ function AdvertiseSurveysFlutterBeta({ productKey }: { productKey: ProductKey })
             tagText="Beta"
             tagType="highlight"
             productKey="surveys"
-            description="Surveys are now available for Flutter as Beta (iOS only)."
+            description="Surveys is now available for Flutter as Beta (iOS only)."
             linkText="Learn how to set it up"
         />
     )
