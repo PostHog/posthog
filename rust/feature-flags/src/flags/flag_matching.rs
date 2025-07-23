@@ -1090,7 +1090,9 @@ impl FeatureFlagMatcher {
                 let rollout_percentage = condition.rollout_percentage;
 
                 if let Some(percentage) = rollout_percentage {
-                    if self.get_holdout_hash(flag, None)? > (percentage / 100.0) {
+                    if percentage < 100.0
+                        && self.get_holdout_hash(flag, None)? > (percentage / 100.0)
+                    {
                         // If hash is greater than percentage, we're OUT of holdout
                         return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
                     }
@@ -1251,8 +1253,11 @@ impl FeatureFlagMatcher {
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
+        if rollout_percentage == 100.0 {
+            return Ok((true, FeatureFlagMatchReason::ConditionMatch));
+        }
         let hash = self.get_hash(feature_flag, "", hash_key_overrides)?;
-        if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
+        if hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
             Ok((false, FeatureFlagMatchReason::OutOfRolloutBound))
