@@ -19,13 +19,13 @@ class TestTrendsGeneratorNode(BaseTest):
         super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
-    def test_node_runs(self):
+    async def test_node_runs(self):
         node = TrendsGeneratorNode(self.team, self.user)
         with patch.object(TrendsGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: TrendsSchemaGeneratorOutput(query=self.schema).model_dump()
             )
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     plan="Plan",
