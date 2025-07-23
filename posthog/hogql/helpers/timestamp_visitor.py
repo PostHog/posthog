@@ -6,6 +6,7 @@ from posthog.hogql.ast import ArithmeticOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.visitor import Visitor
+from posthog.hogql.errors import NotImplementedError
 
 
 def is_simple_timestamp_field_expression(
@@ -18,7 +19,7 @@ def is_simple_timestamp_field_expression(
 class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     context: HogQLContext
 
-    def __init__(self, context: HogQLContext, tombstone_string: Optional[str]):
+    def __init__(self, context: HogQLContext, tombstone_string: Optional[str] = None):
         self.context = context
         self.tombstone_string = tombstone_string
 
