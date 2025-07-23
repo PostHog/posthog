@@ -1,4 +1,7 @@
+from enum import StrEnum
 from typing import Any
+
+from pydantic import BaseModel
 
 from posthog.hogql import ast
 
@@ -62,6 +65,18 @@ def convert_dict_to_hx(node: ast.Dict) -> ast.Tuple:
     return ast.Tuple(exprs=attrs)
 
 
+def convert_dataclass_to_hx(node: BaseModel) -> ast.Tuple:
+    attrs: list[ast.Expr] = [
+        ast.Constant(value="__hx_tag"),
+        ast.Constant(value=node.__class__.__name__),
+    ]
+    for field_name, field_value in node.model_dump(exclude_none=True).items():
+        if field_value is not None:
+            attrs.append(ast.Constant(value=field_name))
+            attrs.append(convert_to_hx(field_value))
+    return ast.Tuple(exprs=attrs)
+
+
 def convert_to_hx(node: Any) -> ast.Expr:
     if isinstance(node, ast.HogQLXTag):
         return convert_tag_to_hx(node)
@@ -73,4 +88,23 @@ def convert_to_hx(node: Any) -> ast.Expr:
         return node
     if isinstance(node, list) or isinstance(node, tuple):
         return ast.Tuple(exprs=[convert_to_hx(x) for x in node])
+    if isinstance(node, dict):
+        resp = ast.Tuple(exprs=[ast.Constant(value="__hx_tag"), ast.Constant(value="__hx_obj")])
+        for key, value in node.items():
+            if value is not None:
+                resp.exprs.append(ast.Constant(value=key))
+                resp.exprs.append(convert_to_hx(value))
+        return resp
+    if isinstance(node, StrEnum):
+        return ast.Constant(value=str(node))
+    if isinstance(node, BaseModel):
+        return convert_dataclass_to_hx(node)
+    if (
+        node is None
+        or isinstance(node, str)
+        or isinstance(node, int)
+        or isinstance(node, float)
+        or isinstance(node, bool)
+    ):
+        return ast.Constant(value=node)
     return ast.Constant(value=node)

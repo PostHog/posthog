@@ -825,6 +825,16 @@ const Content = ({
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
                     rows={sortedRows}
+                    rowHeight={(row) => {
+                        if (
+                            Object.values(row).find(
+                                (r) => typeof r === 'string' && r.startsWith('["__hx_tag","InsightVizNode"')
+                            )
+                        ) {
+                            return 400
+                        }
+                        return 35
+                    }}
                     sortColumns={sortColumns}
                     onSortColumnsChange={setSortColumns}
                 />

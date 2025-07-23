@@ -1,5 +1,6 @@
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
+from pydantic import BaseModel
 
 from posthog.hogql.ast import AST_CLASSES, AST, Expr, Constant
 
@@ -78,3 +79,15 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
             raise ValueError(f"Unexpected field '{key}' for AST node '{kind}'")
 
     return cls(**init_args)  # type: ignore
+
+
+def dump_with_kind(obj: Any) -> Any:
+    if isinstance(obj, BaseModel):
+        data = obj.model_dump()
+        return {"kind": obj.__class__.__name__, **{k: dump_with_kind(v) for k, v in data.items()}}
+    elif isinstance(obj, list):
+        return [dump_with_kind(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: dump_with_kind(v) for k, v in obj.items()}
+    else:
+        return obj

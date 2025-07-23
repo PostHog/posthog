@@ -55,6 +55,7 @@ from posthog.schema import (
     HogQLVariable,
     InsightActorsQuery,
     InsightActorsQueryOptions,
+    InsightVizNode,
     LifecycleQuery,
     CalendarHeatmapQuery,
     PathsQuery,
@@ -299,6 +300,18 @@ def get_query_runner(
 
         return InsightActorsQueryRunner(
             query=cast(InsightActorsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "InsightVizNode":
+        from .insights.insight_viz_node_runner import (
+            InsightVizNodeRunner,
+        )
+
+        return InsightVizNodeRunner(
+            query=cast(InsightVizNode | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

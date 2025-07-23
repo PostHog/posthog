@@ -301,6 +301,7 @@ export type AnyResponseType =
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
     | Partial<QueryBasedInsightModel>
+    | InsightVizNodeResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -959,9 +960,15 @@ export interface VizSpecificOptions {
     }
 }
 
-export interface InsightVizNode<T = InsightQueryNode> extends Node<never>, InsightVizNodeViewProps {
+export interface InsightVizNode<T = InsightQueryNode>
+    extends DataNode<InsightVizNodeResponse>,
+        InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: T
+}
+
+export interface InsightVizNodeResponse extends AnalyticsQueryResponseBase<unknown> {
+    query_type: string
 }
 
 interface InsightVizNodeViewProps {

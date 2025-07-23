@@ -7,6 +7,8 @@ import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { InsightVizNode } from '~/queries/schema-general'
 
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
@@ -113,6 +115,40 @@ export function renderHogQLX(value: any): JSX.Element {
                     />
                 </LightErrorBoundary>
             )
+        } else if (tag === 'InsightVizNode') {
+            const { results, query } = rest
+
+            if (typeof query === 'string') {
+                try {
+                    let node = JSON.parse(query)
+                    if (node.kind === 'InsightVizNode') {
+                        return (
+                            <InsightViz
+                                query={node as InsightVizNode}
+                                setQuery={() => {
+                                    // no-op
+                                }}
+                                context={{
+                                    insightProps: {
+                                        dashboardItemId: undefined,
+                                        query: node,
+                                        cachedInsight: { query: node, result: results },
+                                        doNotLoad: true,
+                                    },
+                                }}
+                                readOnly
+                            />
+                        )
+                    }
+                } catch (e) {
+                    return (
+                        <div className="border border-danger p-4 text-danger">
+                            Error parsing JSON: {e instanceof Error ? e.message : String(e)}
+                        </div>
+                    )
+                }
+            }
+            return <div>Insight: {JSON.stringify(rest)}</div>
         } else if (tag === 'a') {
             const { href, children, source, target } = rest
             return (
