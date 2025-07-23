@@ -21,6 +21,7 @@ from products.replay.backend.max_tools import (
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
+    MULTIPLE_FILTERS_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ def call_search_session_recordings(demo_org_team_user):
         "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
         "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
         "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
+        "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
     }
     graph = FilterOptionsGraph(
         demo_org_team_user[1], demo_org_team_user[2], injected_prompts=injected_prompts
@@ -151,7 +153,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                 input="show me recordings of users that were using a mobile device",
                 expected=MaxRecordingUniversalFilters(
                     **{
-                        "date_from": "-3d",
+                        "date_from": "-7d",
                         "date_to": None,
                         "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
                         "filter_group": {
@@ -179,7 +181,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                 input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
                     **{
-                        "date_from": "-3d",
+                        "date_from": "-7d",
                         "date_to": None,
                         "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
                         "filter_group": {
