@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
-from dlt.sources import DltSource
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
@@ -152,7 +151,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
 def _run(
     job_inputs: PipelineInputs,
-    source: DltSource | SourceResponse,
+    source: SourceResponse,
     logger: FilteringBoundLogger,
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
