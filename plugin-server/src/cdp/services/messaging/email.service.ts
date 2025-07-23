@@ -71,16 +71,18 @@ const parseCustomId = (customId: string): { functionId: string; invocationId: st
 export class EmailService {
     constructor(private hub: Hub) {}
 
-    private validateEmailDomain(integration: IntegrationType, email: string): string | undefined {
+    private validateEmailDomain(integration: IntegrationType, email: string): void {
         // First check its a valid domain in general
         const domain = email.split('@')[1]
         // Then check its the same as the integration domain
         if (!domain || (integration.config.domain && integration.config.domain !== domain)) {
-            return `The selected email integration domain (${integration.config.domain}) does not match the 'from' email domain (${domain})`
+            throw new Error(
+                `The selected email integration domain (${integration.config.domain}) does not match the 'from' email domain (${domain})`
+            )
         }
 
         if (!integration.config.mailjet_verified) {
-            return 'The selected email integration domain is not verified'
+            throw new Error('The selected email integration domain is not verified')
         }
     }
 
@@ -111,10 +113,7 @@ export class EmailService {
                 throw new Error('Email integration not found')
             }
 
-            const emailDomainError = this.validateEmailDomain(integration, params.from.email)
-            if (emailDomainError) {
-                throw new Error(emailDomainError)
-            }
+            this.validateEmailDomain(integration, params.from.email)
 
             // First we need to lookup the email sending domain of the given team
             const response = await fetch('https://api.mailjet.com/v3.1/send', {

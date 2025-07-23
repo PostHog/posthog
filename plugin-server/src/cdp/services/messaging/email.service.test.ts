@@ -7,7 +7,6 @@ import express from 'express'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { parseJSON } from '../../../utils/json-parse'
 import { EmailService } from './email.service'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -15,7 +14,6 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CdpApi } from '~/cdp/cdp-api'
 import supertest from 'supertest'
-import { send } from 'process'
 import { setupExpressApp } from '~/router'
 
 const createEmailParams = (
