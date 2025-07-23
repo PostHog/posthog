@@ -7,6 +7,7 @@ from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSave
 from posthog.warehouse.models.table import DataWarehouseTable
 from typing import Any
 from collections import defaultdict, deque
+import logging
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -119,6 +120,8 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                     to_process.append((external_table, saved_query.external_tables))
                 else:
                     table = tables.get(external_table)
+                    if not table:
+                        logging.warning(f"Upstream table not found for external_table: {external_table}")
                     node_data[external_table] = {
                         "id": external_table,
                         "type": "table",
