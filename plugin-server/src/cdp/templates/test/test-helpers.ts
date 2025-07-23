@@ -110,6 +110,8 @@ export class TemplateTester {
             return res
         } else if (typeof obj === 'string') {
             return await compileHog(`return f'${obj}'`)
+        } else if (typeof obj === 'number') {
+            return await compileHog(`return ${obj}`)
         } else {
             return undefined
         }
@@ -260,6 +262,19 @@ export class TemplateTester {
         modifiedInvocation.state.vmState!.stack.push({
             status: response.status,
             body: response.body,
+        })
+
+        return this.executor.execute(modifiedInvocation)
+    }
+
+    async invokeEmailResponse(
+        invocation: CyclotronJobInvocationHogFunction,
+        response: { success: boolean }
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const modifiedInvocation = cloneInvocation(invocation)
+
+        modifiedInvocation.state.vmState!.stack.push({
+            success: response.success,
         })
 
         return this.executor.execute(modifiedInvocation)

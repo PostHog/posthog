@@ -413,6 +413,16 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        case 'native_email':
+            return (
+                // TODO: Improve this
+                <EmailTemplateField
+                    schema={schema}
+                    value={input.value}
+                    onChange={onValueChange}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
+            )
         default:
             return (
                 <strong className="text-danger">
