@@ -180,6 +180,24 @@ def send_password_reset(user_id: int, token: str) -> None:
         },
     )
     message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_password_changed_email(user_id: int) -> None:
+    user = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"password-changed-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Your password has been changed",
+        template_name="password_changed",
+        template_context={
+            "preheader": "Your password has been changed",
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
     message.send()
 
 
@@ -238,7 +256,7 @@ def send_fatal_plugin_error(
     )
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -262,7 +280,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     )
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
 
 
 def send_batch_export_run_failure(
@@ -308,7 +326,7 @@ def send_batch_export_run_failure(
 
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -349,8 +367,8 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
     )
     message_old_address.add_recipient(email=old_address)
     message_new_address.add_recipient(email=new_address)
-    message_old_address.send(send_async=False)
-    message_new_address.send(send_async=False)
+    message_old_address.send()
+    message_new_address.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -393,7 +411,7 @@ def send_two_factor_auth_enabled_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -410,7 +428,7 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -427,7 +445,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send(send_async=False)
+    message.send()
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
@@ -483,4 +501,222 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
     )
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_hog_functions_digest_email(digest_data: dict) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team_id = digest_data["team_id"]
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.exception(f"Team {team_id} not found for HogFunctions digest email")
+        return
+
+    # Get members to email
+    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    if not memberships_to_email:
+        return
+
+    campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
+
+    # Sort functions by failure rate descending (highest first)
+    sorted_functions = sorted(
+        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
+    )
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"Data Pipeline Failures Alert for {team.name}",
+        template_name="hog_functions_daily_digest",
+        template_context={
+            "team": team,
+            "functions": sorted_functions,
+            "site_url": settings.SITE_URL,
+        },
+    )
+
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+
+    message.send()
+    logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
+
+
+@shared_task(ignore_result=True)
+def send_hog_functions_daily_digest() -> None:
+    """
+    Send daily digest email to teams with HogFunctions that have failures.
+    Queries ClickHouse first to find failures, then fans out to team-specific tasks.
+    """
+    from posthog.clickhouse.client import sync_execute
+
+    logger.info("Starting HogFunctions daily digest task")
+
+    # Query ClickHouse to find all teams with failures and their hog_function_ids
+    failures_query = """
+    SELECT DISTINCT team_id, app_source_id as hog_function_id
+    FROM app_metrics2
+    WHERE app_source = 'hog_function'
+    AND metric_name = 'failed'
+    AND count > 0
+    AND timestamp >= NOW() - INTERVAL 24 HOUR
+    AND timestamp < NOW()
+    AND metric_kind = 'failure'
+    """
+
+    failed_teams_data = sync_execute(failures_query, {})
+
+    if not failed_teams_data:
+        logger.info("No HogFunctions with failures found")
+        return
+
+    # Group hog_function_ids by team_id
+    teams_with_functions: dict[int, set[str]] = {}
+    for row in failed_teams_data:
+        team_id, hog_function_id = row
+        if team_id not in teams_with_functions:
+            teams_with_functions[team_id] = set()
+        teams_with_functions[team_id].add(str(hog_function_id))
+
+    team_ids = list(teams_with_functions.keys())
+
+    # Filter teams based on the feature flag setting
+    allowed_team_ids = settings.HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS
+    if allowed_team_ids and "*" not in allowed_team_ids:
+        # Convert string team IDs to integers for comparison
+        allowed_team_ids_int = [int(team_id) for team_id in allowed_team_ids]
+        team_ids = [team_id for team_id in team_ids if team_id in allowed_team_ids_int]
+        logger.info(f"Filtered to {len(team_ids)} teams based on HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS setting")
+
+    if not team_ids:
+        logger.info("No teams in allowed list have HogFunctions with failures")
+        return
+
+    logger.info(f"Found {len(team_ids)} teams with HogFunction failures")
+
+    # Fan out to team-specific tasks
+    for team_id in team_ids:
+        hog_function_ids = list(teams_with_functions[team_id])
+        send_team_hog_functions_digest.delay(team_id, hog_function_ids)
+        logger.info(f"Scheduled digest for team {team_id} with {len(hog_function_ids)} functions")
+
+    logger.info("Completed HogFunctions daily digest task")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | None = None) -> None:
+    """
+    Send daily digest email for a specific team with their failed HogFunctions.
+
+    Args:
+        team_id: The team ID to process
+        hog_function_ids: Optional list of specific hog function IDs to process
+    """
+    from posthog.clickhouse.client import sync_execute
+    from posthog.models.hog_functions.hog_function import HogFunction
+
+    logger.info(f"Processing HogFunctions digest for team {team_id}")
+
+    # Get metrics data from ClickHouse for all functions in the team
+    metrics_query = """
+    SELECT
+        app_source_id as hog_function_id,
+        metric_name,
+        sum(count) as total_count
+    FROM app_metrics2
+    WHERE team_id = %(team_id)s
+    AND app_source = 'hog_function'
+    AND timestamp >= NOW() - INTERVAL 24 HOUR
+    AND timestamp < NOW()
+    AND metric_name IN ('succeeded', 'failed')
+    {hog_function_filter}
+    GROUP BY app_source_id, metric_name
+    HAVING total_count > 0
+    ORDER BY app_source_id, metric_name
+    """
+
+    # Add filter for specific hog_function_ids if provided
+    hog_function_filter = ""
+    query_params: dict[str, int | list[str]] = {"team_id": team_id}
+
+    if hog_function_ids:
+        hog_function_filter = "AND app_source_id IN %(hog_function_ids)s"
+        query_params["hog_function_ids"] = hog_function_ids
+
+    final_query = metrics_query.format(hog_function_filter=hog_function_filter)
+
+    metrics_data = sync_execute(
+        final_query,
+        query_params,
+    )
+
+    if not metrics_data:
+        logger.info(f"No functions with metrics found for team {team_id}")
+        return
+
+    # Group metrics by hog_function_id
+    metrics_by_function = {}
+    for row in metrics_data:
+        hog_function_id, metric_name, count = str(row[0]), row[1], row[2]
+        if hog_function_id not in metrics_by_function:
+            metrics_by_function[hog_function_id] = {"succeeded": 0, "failed": 0}
+        metrics_by_function[hog_function_id][metric_name] = count
+
+    # Only include functions that have failures
+    failed_function_ids = [fid for fid, metrics in metrics_by_function.items() if metrics["failed"] > 0]
+
+    if not failed_function_ids:
+        logger.info(f"No functions with failures found for team {team_id}")
+        return
+
+    # Get all active HogFunctions for the team that had failures
+    hog_functions = HogFunction.objects.filter(
+        team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids
+    ).values("id", "team_id", "name", "type")
+
+    if not hog_functions:
+        logger.info(f"No active HogFunctions found for team {team_id}")
+        return
+
+    # Build function metrics
+    function_metrics = []
+    for hog_function in hog_functions:
+        hog_function_id = str(hog_function["id"])
+        if hog_function_id in metrics_by_function:
+            metrics = metrics_by_function[hog_function_id]
+            total_runs = metrics["succeeded"] + metrics["failed"]
+            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+            # Only include functions with failure rate > 1%
+            if failure_rate > 1.0:
+                function_info = {
+                    "id": hog_function_id,
+                    "name": hog_function["name"],
+                    "type": hog_function["type"],
+                    "succeeded": metrics["succeeded"],
+                    "failed": metrics["failed"],
+                    "failure_rate": round(failure_rate, 1),
+                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+                }
+                function_metrics.append(function_info)
+
+    if not function_metrics:
+        logger.info(f"No functions with failures found for team {team_id}")
+        return
+
+    # Sort by failure rate descending (highest failure rate first)
+    function_metrics.sort(key=lambda x: x["failure_rate"] or 0, reverse=True)
+
+    # Prepare data for email
+    digest_data = {
+        "team_id": team_id,
+        "functions": function_metrics,
+    }
+
+    send_hog_functions_digest_email.delay(digest_data)
+    logger.info(f"Scheduled HogFunctions digest email for team {team_id} with {len(function_metrics)} failed functions")

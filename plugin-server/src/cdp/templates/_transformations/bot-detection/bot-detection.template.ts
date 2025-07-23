@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
@@ -10,6 +10,7 @@ export const template: HogFunctionTemplate = {
         'Filters out events from known bot user agents. This transformation will drop the event if a bot is detected.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // List of known bot user agents
 let known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',

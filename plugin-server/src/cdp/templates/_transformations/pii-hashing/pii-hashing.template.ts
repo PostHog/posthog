@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
@@ -10,6 +10,7 @@ export const template: HogFunctionTemplate = {
         'This transformation hashes sensitive personal data (PII) like email, phone numbers, etc. using SHA-256 to protect user privacy.',
     icon_url: '/static/hedgehog/builder-hog-02.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // Get the properties to hash from inputs and split by comma
 let propertiesToHash := []

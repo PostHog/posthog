@@ -1,0 +1,101 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`NativeDestinationExecutorService native plugins should call the plugin perform method 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "endpoint, https://posthog.com/webhook",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "convertedResponse, 200, {"code":200,"server_upload_time":1747910402315,"payload_size_bytes":22207,"events_ingested":1}, {"code":200,"server_upload_time":1747910402315,"payload_size_bytes":22207,"events_ingested":1}, {}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "info",
+    "message": "Function completed in [REPLACED]",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+]
+`;
+
+exports[`NativeDestinationExecutorService native plugins should handle non retryable fetch errors 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "endpoint, https://posthog.com/webhook",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "warn",
+    "message": "HTTP request failed with status 403 ({"error":"Forbidden"}). ",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "error",
+    "message": "Function failed: Error executing function on event uuid: Request failed with status 403 ({"error":"Forbidden"})",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+]
+`;
+
+exports[`NativeDestinationExecutorService native plugins should retry retryable fetch errors 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "endpoint, https://posthog.com/webhook",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "warn",
+    "message": "HTTP request failed with status 429 ({"error":"Too many requests"}). Scheduling retry...",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+]
+`;

@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 from langchain_core.agents import AgentAction
@@ -53,8 +53,8 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
-            self.assertEqual(new_state.plan, "")
+            self.assertEqual(new_state.intermediate_steps, None)
+            self.assertEqual(new_state.plan, None)
             self.assertEqual(len(new_state.messages), 1)
             self.assertEqual(new_state.messages[0].type, "ai/viz")
             self.assertEqual(new_state.messages[0].answer, self.schema)
@@ -235,7 +235,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
+            self.assertEqual(new_state.intermediate_steps, None)
 
             new_state = node.run(
                 AssistantState(
@@ -247,7 +247,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
+            self.assertEqual(new_state.intermediate_steps, None)
 
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -267,10 +267,10 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
+            self.assertEqual(new_state.intermediate_steps, None)
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], FailureMessage)
-            self.assertEqual(new_state.plan, "")
+            self.assertEqual(new_state.plan, None)
 
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
@@ -449,17 +449,3 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         self.assertIsNotNone("validationerror", state.intermediate_steps[0][1])
         self.assertIn("validationerror", state.intermediate_steps[0][1])
         self.assertIn("pydanticexception", state.intermediate_steps[0][1])
-
-    def test_model_has_correct_max_retries(self):
-        with patch("ee.hogai.graph.schema_generator.nodes.ChatOpenAI") as mock_chat_openai:
-            mock_model = MagicMock()
-            mock_model.with_structured_output.return_value = mock_model
-            mock_chat_openai.return_value = mock_model
-
-            node = DummyGeneratorNode(self.team, self.user)
-
-            _ = node._model
-
-            mock_chat_openai.assert_called_once()
-            call_args = mock_chat_openai.call_args
-            self.assertEqual(call_args.kwargs["max_retries"], 3)

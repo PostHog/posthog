@@ -14,7 +14,7 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 FROM raw_person_distinct_ids
 WHERE distinct_id in (SELECT distinct_id FROM raw_person_distinct_ids WHERE 1=1 AND {cohort_predicate})
 GROUP BY distinct_id
-HAVING argMax(is_deleted, version) = 0 AND {cohort_predicate}
+HAVING argMax(is_deleted, version) = 0
     """
 
     def __init__(self, team: Team, query: RecordingsQuery):

@@ -1,6 +1,6 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,8 +24,6 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return capitalizeFirstLetter(tab)
     }
 }
-
-export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit of ${SESSION_RECORDINGS_PLAYLIST_FREE_COUNT} saved playlists`
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),

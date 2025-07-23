@@ -4,11 +4,11 @@ from redis import asyncio as aioredis
 import structlog
 import temporalio
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO, PATTERNS_ASSIGNMENT_CHUNK_SIZE
-from ee.session_recordings.session_summary.llm.consume import (
+from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
 )
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
@@ -18,8 +18,11 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.summarize_session_group import (
+from ee.hogai.session_summaries.session.summarize_session import (
+    ExtraSummaryContext,
+    SingleSessionSummaryLlmInputs,
+)
+from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
@@ -122,7 +125,12 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         )
         patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
         # Store the extracted patterns in Redis
-        await store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=patterns_extraction_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=patterns_extraction_str,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
         return None
 
 
@@ -270,7 +278,7 @@ async def assign_events_to_patterns_activity(
         combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
             single_session_summaries_inputs=single_session_summaries_llm_inputs
         )
-        # Combine patterns assignments to have a single patter-to-event list
+        # Combine patterns assignments to have a single pattern-to-events list
         combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
             patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
         )
@@ -285,5 +293,12 @@ async def assign_events_to_patterns_activity(
             patterns=patterns_extraction,
             pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
             total_sessions_count=len(session_ids),
+        )
+        patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=patterns_with_events_context_str,
+            label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
         )
     return patterns_with_events_context

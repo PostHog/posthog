@@ -305,6 +305,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
@@ -2228,7 +2229,9 @@ async def test_append_only_table(team, mock_stripe_client):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, mock_stripe_client):
+async def test_worker_shutdown_desc_sort_order(team, stripe_price, mock_stripe_client):
+    """Testing that a descending sort ordered source will not trigger the rescheduling"""
+
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
@@ -2251,12 +2254,54 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, 
             ignore_assertions=True,
         )
 
+    # assert that the running job was completed successfully and that the new workflow was NOT triggered
+    mock_trigger_schedule_buffer_one.assert_not_called()
+
+    run: ExternalDataJob | None = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands):
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "zendesk_subdomain": "test",
+                "zendesk_api_key": "test_api_key",
+                "zendesk_email_address": "test@posthog.com",
+            },
+            mock_data_response=zendesk_brands["brands"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
+            ignore_assertions=True,
+        )
+
     # assert that the running job was completed successfully and that the new workflow was triggered
     mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
 
-    run: ExternalDataJob = await get_latest_run_if_exists(
+    run: ExternalDataJob | None = await get_latest_run_if_exists(
         team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
     )
+
+    assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
 
@@ -2409,3 +2454,30 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+    with (
+        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+    ):
+        await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "zendesk_subdomain": "test",
+                "zendesk_api_key": "test_api_key",
+                "zendesk_email_address": "test@posthog.com",
+            },
+            mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
+            ignore_assertions=True,
+        )
+
+    # Returning two items should cause the pipeline to process each item individually
+
+    assert mock_process_pa_table.call_count == 2

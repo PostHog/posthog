@@ -20,6 +20,7 @@ MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES"
 
 TEMPORAL_USE_EXTERNAL_LOGGER: bool = get_from_env("TEMPORAL_USE_EXTERNAL_LOGGER", False, type_cast=str_to_bool)
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
+TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
 BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
 BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
@@ -78,10 +79,6 @@ CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE
 # The teams that will use the internal stage for batch exports (for destinations that support it)
 BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS", "")
-)
-# The percentage of teams that will use the internal stage for S3 batch exports.
-BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE: int = get_from_env(
-    "BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE", 0, type_cast=int
 )
 BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
     "BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000"

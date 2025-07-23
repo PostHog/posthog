@@ -63,7 +63,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.6.56']
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
