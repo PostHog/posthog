@@ -103,9 +103,9 @@ const getStorageItem = async (key: string, newKey?: string): Promise<string | nu
     }
 
     if (newKey) {
-        const dbValue = await get(newKey)
-        if (dbValue) {
-            return dbValue
+        const newKeyDbValue = await get(newKey)
+        if (newKeyDbValue) {
+            return newKeyDbValue
         }
     }
 
