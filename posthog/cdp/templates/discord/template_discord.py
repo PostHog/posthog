@@ -20,6 +20,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a discord channel",
     icon_url="/static/services/discord.png",
     category=["Customer Success"],
+    code_language="hog",
     hog="""
 if (not match(inputs.webhookUrl, '^https://discord.com/api/webhooks/.*')) {
     throw Error('Invalid URL. The URL should match the format: https://discord.com/api/webhooks/...')

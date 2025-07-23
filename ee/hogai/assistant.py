@@ -109,6 +109,7 @@ class Assistant:
     _user: User
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
+    _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
@@ -127,6 +128,7 @@ class Assistant:
         new_message: Optional[HumanMessage] = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         user: User,
+        session_id: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
@@ -135,6 +137,7 @@ class Assistant:
         self._team = team
         self._contextual_tools = contextual_tools or {}
         self._user = user
+        self._session_id = session_id
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
@@ -156,6 +159,7 @@ class Assistant:
                 properties={
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
+                    "$session_id": self._session_id,
                 },
                 trace_id=trace_id,
             )
@@ -271,18 +275,6 @@ class Assistant:
                     last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
                 )
 
-    @property
-    def _initial_state(self) -> AssistantState:
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(
-                messages=[self._latest_message],
-                start_id=self._latest_message.id,
-            )
-        else:
-            return AssistantState(
-                messages=[],
-            )
-
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
@@ -309,12 +301,26 @@ class Assistant:
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
                 await self._graph.aupdate_state(
-                    config, PartialAssistantState(messages=[self._latest_message], graph_status="resumed")
+                    config,
+                    PartialAssistantState(
+                        messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
+                    ),
                 )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
                 return None
 
-        initial_state = self._initial_state
+        # Append the new message and reset some fields to their default values.
+        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+            initial_state = AssistantState(
+                messages=[self._latest_message],
+                start_id=self._latest_message.id,
+                query_generation_retry_count=0,
+                graph_status=None,
+                rag_context=None,
+            )
+        else:
+            initial_state = AssistantState(messages=[])
+
         if self._tool_call_partial_state:
             for key, value in self._tool_call_partial_state.model_dump().items():
                 setattr(initial_state, key, value)

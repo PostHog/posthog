@@ -9,6 +9,7 @@ template_user: HogFunctionTemplate = HogFunctionTemplate(
     description="Updates a contact in Klaviyo",
     icon_url="/static/services/klaviyo.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.externalId) and empty(inputs.email)) {
     print('Email or External ID has to be set. Skipping...')
@@ -152,6 +153,7 @@ template_event: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Klaviyo",
     icon_url="/static/services/klaviyo.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.externalId) and empty(inputs.email)) {
     print('Email or External ID has to be set. Skipping...')

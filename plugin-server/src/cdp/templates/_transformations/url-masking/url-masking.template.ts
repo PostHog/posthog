@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Masks sensitive information in URL parameters (query strings) of specified properties',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // Function to check if parameter matches any mask pattern
 fun isParameterInList(paramName, paramsString) {
