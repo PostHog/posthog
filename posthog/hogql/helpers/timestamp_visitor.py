@@ -311,7 +311,7 @@ class IsStartOfDayConstantVisitor(Visitor[bool]):
     def visit_tuple(self, node: ast.Tuple) -> bool:
         return False
 
-    def visit_array(self, node: ast.Tuple) -> bool:
+    def visit_array(self, node: ast.Array) -> bool:
         return False
 
 
@@ -385,5 +385,5 @@ class IsEndOfDayConstantVisitor(Visitor[bool]):
     def visit_tuple(self, node: ast.Tuple) -> bool:
         return False
 
-    def visit_array(self, node: ast.Tuple) -> bool:
+    def visit_array(self, node: ast.Array) -> bool:
         return False
