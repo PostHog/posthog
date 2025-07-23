@@ -13,7 +13,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema import TrendsQuery, DateRange, HogQLQueryModifiers, EventsNode, BaseMathType
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, BaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, BaseTest, QueryMatchingTest, snapshot_clickhouse_queries
 from parameterized import parameterized
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
@@ -21,15 +21,15 @@ from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
 )
 
 
-class TestPreaggregatedTableTransformation(BaseTest):
+class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
     @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
     def test_all_event_properties_on_events_supported(self, property_name, field_name):
         original_query = (
             f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
         )
         query = self._parse_and_transform(original_query)
-        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY {field_name})"
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
     def test_all_session_properties_on_events_unsupported(self, property_name, field_name):
@@ -38,6 +38,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         )
         query = self._parse_and_transform(original_query)
         # Query is preserved - no transformation, these are invalid event properties
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
@@ -47,6 +48,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         )
         query = self._parse_and_transform(original_query)
         # Query is preserved - no transformation, these are invalid session properties
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
@@ -55,8 +57,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
         )
         query = self._parse_and_transform(original_query)
-        expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY {field_name})"
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def _parse_and_transform(self, query: str):
         node = parse_select(query)
@@ -96,6 +98,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_wrong_aggregation_function(self):
@@ -106,6 +109,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_no_aggregation_function(self):
@@ -116,24 +120,26 @@ class TestPreaggregatedTableTransformation(BaseTest):
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_nested_preaggregation_tables(self):
         original_query = "select * from (select count(), uniq(person_id) from events where event = '$pageview')"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT * FROM (SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_equals_function(self):
         original_query = "select count(), uniq(person_id) from events where equals(event, '$pageview')"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_unsupported_event(self):
         original_query = "select count(), uniq(person_id) from events where equals(event, 'other event')"
         query = self._parse_and_transform(original_query)
         # Query is preserved - wrong event
+        assert "web_stats_daily" not in query
         expected = self._normalize(original_query)
         assert query == expected
 
@@ -141,12 +147,14 @@ class TestPreaggregatedTableTransformation(BaseTest):
         original_query = "select count(), uniq(person_id) from events"
         query = self._parse_and_transform(original_query)
         # Query is preserved - no event filter
+        assert "web_stats_daily" not in query
         expected = self._normalize(original_query)
         assert query == expected
 
     def test_supported_and_unsupported_event(self):
         original_query = "select count(), uniq(person_id) from events where equals(event, '$pageview') or equals(event, 'other event')"
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         # Query is preserved - no transformation due to mixed events
         expected = self._normalize(original_query)
         assert query == expected
@@ -154,13 +162,14 @@ class TestPreaggregatedTableTransformation(BaseTest):
     def test_sample_1(self):
         original_query = "select count(), uniq(person_id) from events sample 1 where event = '$pageview'"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_sample_not_1(self):
         original_query = "select count(), uniq(person_id) from events sample 0.5 where event = '$pageview'"
         query = self._parse_and_transform(original_query)
         # Query is preserved - no transformation due to unsupported sample rate
+        assert "web_stats_daily" not in query
         expected = self._normalize(original_query)
         assert query == expected
 
@@ -169,13 +178,14 @@ class TestPreaggregatedTableTransformation(BaseTest):
             "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source"
         )
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY utm_source)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_preaggregation_tables_group_by_not_supported(self):
         original_query = "select count(), uniq(person_id) from events where event = '$pageview' group by properties.not_supported_property"
         query = self._parse_and_transform(original_query)
         # Query is preserved - no transformation due to unsupported group by field
+        assert "web_stats_daily" not in query
         expected = self._normalize(original_query)
         assert query == expected
 
@@ -184,50 +194,52 @@ class TestPreaggregatedTableTransformation(BaseTest):
             "select count(), uniq(person_id) from events where event = '$pageview' group by session.$entry_pathname"
         )
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY entry_pathname)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_group_by_property(self):
         original_query = "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source, events.properties.utm_campaign, session.$entry_pathname, events.session.$end_pathname"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily GROUP BY utm_source, utm_campaign, entry_pathname, end_pathname)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_group_by_alias_supported(self):
         original_query = "select count(), uniq(person_id), properties.utm_source as u from events where event = '$pageview' group by u"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), utm_source AS u FROM web_stats_daily GROUP BY u)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_group_by_alias_not_supported(self):
         original_query = "select count(), uniq(person_id), properties.not_supported_property as n from events where event = '$pageview' group by n"
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_group_by_start_of_day(self):
         original_query = "SELECT count() AS total, toStartOfDay(e.timestamp) AS day_start FROM events WHERE event = '$pageview' GROUP BY day_start"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start FROM web_stats_daily GROUP BY day_start)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_group_by_and_where(self):
         original_query = "SELECT count() AS total, toStartOfDay(e.timestamp) AS day_start, properties.utm_source as u FROM events WHERE event = '$pageview' AND ifNull(u, 'null') GROUP BY day_start, u"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS total, toStartOfDay(period_bucket) AS day_start, utm_source AS u FROM web_stats_daily WHERE ifNull(u, 'null') GROUP BY day_start, u)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_unsupported_table(self):
         original_query = "select count(), uniq(person_id) from not_events where equals(event, '$pageview')"
         query = self._parse_and_transform(original_query)
         # Query is preserved - wrong table
+        assert "web_stats_daily" not in query
         expected = self._normalize(original_query)
         assert query == expected
 
     def test_alias_intact(self):
         original_query = "select count() as c, uniq(person_id) as p, uniq($session_id) as s, properties.utm_medium as m from events where event = '$pageview' group by m"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m FROM web_stats_daily GROUP BY m)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_all_supported_event_properties_are_in_taxonomy(self):
         for property_name in EVENT_PROPERTY_TO_FIELD.keys():
@@ -329,10 +341,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # The inner query should be transformed, but not the outer one
-        assert (
-            query
-            == "sql(SELECT count() AS total, (SELECT sumMerge(pageviews_count_state) FROM web_stats_daily) AS pageviews FROM events WHERE equals(event, '$pageview'))"
-        )
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_union_queries(self):
         """Test that UNION queries are handled properly."""
@@ -345,6 +355,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         # Both parts of the union should be transformed
         assert query.count("sumMerge(pageviews_count_state)") == 2
         assert query.count("web_stats_daily") == 2
+        self.assertQueryMatchesSnapshot(query)
 
     def test_mixed_aggregations_with_unsupported(self):
         """Test queries with both supported and unsupported aggregation functions."""
@@ -357,6 +368,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         # Should not transform because avg(person_id) is not supported
         assert query == self._normalize(original_query)
 
@@ -370,8 +382,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             HAVING c > 100
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_daily GROUP BY utm_source HAVING greater(c, 100))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_order_by_preservation(self):
         """Test that ORDER BY clauses are preserved."""
@@ -383,8 +395,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             ORDER BY c DESC
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS u FROM web_stats_daily GROUP BY utm_source ORDER BY c DESC)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_limit_offset_preservation(self):
         """Test that LIMIT and OFFSET clauses are preserved."""
@@ -395,8 +407,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             LIMIT 10 OFFSET 5
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily LIMIT 10 OFFSET 5)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_complex_where_clause_with_and_or(self):
         """Test complex WHERE clauses with AND/OR that include pageview filter."""
@@ -408,6 +420,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # Should not transform due to complex OR logic with unsupported conditions
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_simple_and_condition_transforms(self):
@@ -418,17 +431,18 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview' AND plus(1,2) = 3
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE equals(plus(1, 2), 3))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_distinct_queries(self):
-        """Test that count DISTINCT is not."""
+        """Test that count DISTINCT is not transformed"""
         original_query = """
             SELECT count(DISTINCT person_id), uniq(person_id)
             FROM events
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_empty_select_query(self):
@@ -439,8 +453,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_transformation_with_table_alias(self):
         """Test that table aliases are preserved correctly."""
@@ -451,10 +465,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # The alias should be preserved even though we change the table
-        expected = (
-            "sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_daily AS e)"
-        )
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_unsupported_group_by_session_property(self):
         """Test that unsupported session properties prevent transformation."""
@@ -466,6 +478,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # Should not transform due to unsupported session property
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_mixed_supported_unsupported_properties_in_select(self):
@@ -481,6 +494,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # Should not transform due to unsupported property in GROUP BY
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_window_functions_unsupported(self):
@@ -494,6 +508,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # Should not transform due to window function
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_subquery_in_where_clause(self):
@@ -506,6 +521,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # Should not transform due to complex WHERE clause with subquery
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_case_when_expressions(self):
@@ -519,8 +535,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             GROUP BY source_type
         """
         query = self._parse_and_transform(original_query)
-        expected = "sql(SELECT sumMerge(pageviews_count_state), if(equals(utm_source, 'google'), 'search', 'other') AS source_type FROM web_stats_daily GROUP BY source_type)"
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_arithmetic_in_select(self):
         """Test that arithmetic expressions with aggregations are not supported."""
@@ -530,8 +546,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT multiply(sumMerge(pageviews_count_state), 2) AS double_count FROM web_stats_daily)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_null_comparisons_unsupported(self):
         """Test that NULL comparisons beyond simple constants are unsupported."""
@@ -542,6 +558,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
         """
         query = self._parse_and_transform(original_query)
         # Should not transform due to IS NOT NULL comparison
+        assert "web_stats_daily" not in query
         assert query == self._normalize(original_query)
 
     def test_start_of_day_timestamp_with_condition(self):
@@ -552,8 +569,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview' AND toStartOfDay(timestamp) >= '2024-11-24'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE greaterOrEquals(period_bucket, '2024-11-24'))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_timestamp_with_start_of_day_condition(self):
         """This case is pretty tricky, it relies on assuming that toStartOfDay(timestamp) >= toStartOfDay('2024-11-24') is equivalent to timestamp >= toStartOfDay('2024-11-24')."""
@@ -564,8 +581,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview' AND timestamp >= toStartOfDay('2024-11-24')
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE greaterOrEquals(period_bucket, toStartOfDay('2024-11-24')))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_timestamp_with_start_of_day_condition_reversed(self):
         original_query = """
@@ -575,11 +592,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview' AND toStartOfDay('2024-11-24') <= timestamp
         """
         query = self._parse_and_transform(original_query)
-        expected = (
-            "sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE "
-            "lessOrEquals(toStartOfDay('2024-11-24'), period_bucket))"
-        )
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_invalid_timestamp_condition(self):
         """This case relies on us knowing that this transformation is invalid."""
@@ -601,8 +615,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
             WHERE event = '$pageview' AND timestamp >= '2024-11-24'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE greaterOrEquals(period_bucket, '2024-11-24'))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_timestamp_end_of_day_string_condition(self):
         original_query = """
@@ -612,8 +626,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
               WHERE event = '$pageview' AND lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-11-24 23:59:59')))
           """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE lessOrEquals(period_bucket, assumeNotNull(toDateTime('2024-11-24 23:59:59'))))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_to_start_of_interval_day_with_mid_day_timestamp(self):
         """This case relies on knowing that toStartOfInterval with a day corresponds to the start of a day."""
@@ -625,8 +639,8 @@ class TestPreaggregatedTableTransformation(BaseTest):
               AND greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1)))
           """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state) FROM web_stats_daily WHERE greaterOrEquals(period_bucket, toStartOfInterval(assumeNotNull(toDateTime('2025-07-10 14:04:24')), toIntervalDay(1))))"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_trends_line_inner_query(self):
         # This inner query comes from the default query in Product analytics
@@ -642,6 +656,7 @@ class TestPreaggregatedTableTransformation(BaseTest):
             day_start"""
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_full_trends_line_query(self):
         original_query = """
@@ -672,6 +687,7 @@ LIMIT 50000
         """
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_full_trends_query_clickhouse(self):
         original_query = """
@@ -679,6 +695,7 @@ SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-
             """
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_trends_pie_inner_query(self):
         # This inner query comes from the default query in Trends pie chart
@@ -693,13 +710,8 @@ ORDER BY
     1 DESC
         """
         query = self._parse_and_transform(original_query)
-        assert query == (
-            "sql(SELECT sumMerge(pageviews_count_state) AS total FROM web_stats_daily AS "
-            "e WHERE and(equals(team_id, 1), greaterOrEquals(period_bucket, "
-            "toStartOfInterval(assumeNotNull(toDateTime('2025-07-11 00:00:00', 'UTC')), "
-            "toIntervalDay(1))), lessOrEquals(period_bucket, "
-            "assumeNotNull(toDateTime('2025-07-18 23:59:59', 'UTC')))) ORDER BY 1 DESC)"
-        )
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_tuple(self):
         original_query = """
@@ -709,11 +721,8 @@ ORDER BY
         WHERE event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        assert query == (
-            "sql(SELECT tuple(uniqMerge(persons_uniq_state), "
-            "sumMerge(pageviews_count_state), uniqMerge(sessions_uniq_state)) AS "
-            "daily_metrics FROM web_stats_daily)"
-        )
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     @unittest.expectedFailure
     def test_if_functions_instead_of_where(self):
@@ -729,8 +738,10 @@ GROUP BY date
         """
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
 
+@snapshot_clickhouse_queries
 class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTestMixin):
     CLASS_DATA_LEVEL_SETUP = False
     TEST_DATA_DATE = datetime(2024, 11, 24, tzinfo=UTC)
