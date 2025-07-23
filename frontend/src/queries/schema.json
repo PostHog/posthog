@@ -843,7 +843,8 @@
                 "create_hog_function_inputs",
                 "navigate",
                 "search_error_tracking_issues",
-                "experiment_results_summary"
+                "experiment_results_summary",
+                "create_survey"
             ],
             "type": "string"
         },
@@ -9456,6 +9457,22 @@
                 "id": {
                     "type": "string"
                 },
+                "last_event": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "properties": {
+                            "type": "string"
+                        },
+                        "timestamp": {
+                            "type": "string"
+                        },
+                        "uuid": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["uuid", "timestamp", "properties"],
+                    "type": "object"
+                },
                 "last_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -9611,6 +9628,9 @@
                     "type": "boolean"
                 },
                 "withFirstEvent": {
+                    "type": "boolean"
+                },
+                "withLastEvent": {
                     "type": "boolean"
                 }
             },
@@ -10825,7 +10845,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "hogql"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
@@ -22205,6 +22225,294 @@
             },
             "required": ["questions"],
             "type": "object"
+        },
+        "SurveyAppearanceSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "backgroundColor": {
+                    "type": "string"
+                },
+                "borderColor": {
+                    "type": "string"
+                },
+                "buttonColor": {
+                    "type": "string"
+                },
+                "buttonTextColor": {
+                    "type": "string"
+                },
+                "inputBackground": {
+                    "type": "string"
+                },
+                "maxWidth": {
+                    "type": "string"
+                },
+                "placeholder": {
+                    "type": "string"
+                },
+                "position": {
+                    "$ref": "#/definitions/SurveyPosition"
+                },
+                "ratingButtonActiveColor": {
+                    "type": "string"
+                },
+                "ratingButtonColor": {
+                    "type": "string"
+                },
+                "shuffleQuestions": {
+                    "type": "boolean"
+                },
+                "surveyPopupDelaySeconds": {
+                    "type": "number"
+                },
+                "textColor": {
+                    "type": "string"
+                },
+                "textSubtleColor": {
+                    "type": "string"
+                },
+                "thankYouMessageCloseButtonText": {
+                    "type": "string"
+                },
+                "thankYouMessageDescription": {
+                    "type": "string"
+                },
+                "thankYouMessageDescriptionContentType": {
+                    "$ref": "#/definitions/SurveyQuestionDescriptionContentType"
+                },
+                "thankYouMessageHeader": {
+                    "type": "string"
+                },
+                "whiteLabel": {
+                    "type": "boolean"
+                },
+                "widgetColor": {
+                    "type": "string"
+                },
+                "widgetLabel": {
+                    "type": "string"
+                },
+                "widgetSelector": {
+                    "type": "string"
+                },
+                "widgetType": {
+                    "$ref": "#/definitions/SurveyWidgetType"
+                },
+                "zIndex": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "SurveyCreationSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "appearance": {
+                    "$ref": "#/definitions/SurveyAppearanceSchema"
+                },
+                "archived": {
+                    "type": "boolean"
+                },
+                "conditions": {
+                    "$ref": "#/definitions/SurveyDisplayConditionsSchema"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enable_partial_responses": {
+                    "type": "boolean"
+                },
+                "end_date": {
+                    "type": "string"
+                },
+                "iteration_count": {
+                    "type": "number"
+                },
+                "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "questions": {
+                    "items": {
+                        "$ref": "#/definitions/SurveyQuestionSchema"
+                    },
+                    "type": "array"
+                },
+                "responses_limit": {
+                    "type": "number"
+                },
+                "should_launch": {
+                    "type": "boolean"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/SurveyType"
+                }
+            },
+            "required": ["name", "description", "type", "questions"],
+            "type": "object"
+        },
+        "SurveyDisplayConditionsSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "values": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {
+                                        "type": "number"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["id", "name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["values"],
+                    "type": "object"
+                },
+                "deviceTypes": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "deviceTypesMatchType": {
+                    "$ref": "#/definitions/SurveyMatchType"
+                },
+                "seenSurveyWaitPeriodInDays": {
+                    "type": "number"
+                },
+                "selector": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "urlMatchType": {
+                    "$ref": "#/definitions/SurveyMatchType"
+                }
+            },
+            "type": "object"
+        },
+        "SurveyMatchType": {
+            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "SurveyPosition": {
+            "enum": [
+                "top_left",
+                "top_center",
+                "top_right",
+                "middle_left",
+                "middle_center",
+                "middle_right",
+                "left",
+                "center",
+                "right",
+                "next_to_trigger"
+            ],
+            "type": "string"
+        },
+        "SurveyQuestionDescriptionContentType": {
+            "enum": ["html", "text"],
+            "type": "string"
+        },
+        "SurveyQuestionSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "branching": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "index": {
+                            "type": "number"
+                        },
+                        "responseValues": {
+                            "additionalProperties": {
+                                "type": ["string", "number"]
+                            },
+                            "type": "object"
+                        },
+                        "type": {
+                            "enum": ["next_question", "end", "response_based", "specific_question"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
+                "buttonText": {
+                    "type": "string"
+                },
+                "choices": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "descriptionContentType": {
+                    "$ref": "#/definitions/SurveyQuestionDescriptionContentType"
+                },
+                "display": {
+                    "enum": ["number", "emoji"],
+                    "type": "string"
+                },
+                "hasOpenChoice": {
+                    "type": "boolean"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "lowerBoundLabel": {
+                    "type": "string"
+                },
+                "optional": {
+                    "type": "boolean"
+                },
+                "question": {
+                    "type": "string"
+                },
+                "scale": {
+                    "type": "number"
+                },
+                "shuffleOptions": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "$ref": "#/definitions/SurveyQuestionType"
+                },
+                "upperBoundLabel": {
+                    "type": "string"
+                }
+            },
+            "required": ["type", "question"],
+            "type": "object"
+        },
+        "SurveyQuestionType": {
+            "enum": ["open", "multiple_choice", "single_choice", "rating", "link"],
+            "type": "string"
+        },
+        "SurveyType": {
+            "enum": ["popover", "widget", "full_screen", "email", "api"],
+            "type": "string"
+        },
+        "SurveyWidgetType": {
+            "enum": ["button", "tab", "selector"],
+            "type": "string"
         },
         "TableSettings": {
             "additionalProperties": false,

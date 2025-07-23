@@ -211,13 +211,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const selectedLabel = findSelectedLabel(queryInput)
 
-    const isMaterializedView =
-        !!editingView?.last_run_at ||
-        (!!editingView?.status &&
-            (editingView.status === 'Completed' ||
-                editingView.status === 'Failed' ||
-                editingView.status === 'Cancelled' ||
-                editingView.status === 'Running'))
+    const isMaterializedView = !!editingView?.last_run_at || !!editingView?.sync_frequency
 
     const renderSidebarButton = (): JSX.Element => {
         if (activePanelIdentifier !== 'Database') {

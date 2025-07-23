@@ -163,6 +163,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
             node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])), "continue"
         )
 
+    def test_should_run_with_empty_messages(self):
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
+        self.assertEqual(node.should_run_onboarding_at_start(AssistantState(messages=[])), "continue")
+
     def test_router(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "initialize_memory")
