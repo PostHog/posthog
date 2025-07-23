@@ -4,7 +4,7 @@
 export type MailjetEventType = 'sent' | 'open' | 'click' | 'bounce' | 'blocked' | 'spam' | 'unsub'
 
 // Base interface shared by all events
-interface MailjetEventBase {
+export interface MailjetEventBase {
     /** The event type */
     event: MailjetEventType
     /** Unix timestamp when the event occurred */

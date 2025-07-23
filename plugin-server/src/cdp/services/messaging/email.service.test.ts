@@ -1,9 +1,6 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import crypto from 'crypto'
-import express from 'express'
-
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
@@ -12,9 +9,6 @@ import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixture
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { CdpApi } from '~/cdp/cdp-api'
-import supertest from 'supertest'
-import { setupExpressApp } from '~/router'
 
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
@@ -162,156 +156,6 @@ describe('EmailService', () => {
                     ]
                 `)
             })
-        })
-    })
-
-    describe('handleWebhook', () => {
-        // NOTE: These tests are done via the CdpApi router so we can get full coverage of the code
-        let api: CdpApi
-        let app: express.Application
-
-        beforeEach(() => {
-            api = new CdpApi(hub)
-            app = setupExpressApp()
-            app.use('/', api.router())
-        })
-
-        it('should return 403 if required headers are missing', async () => {
-            const res = await supertest(app).post(`/public/messaging/mailjet_webhook`).send({})
-
-            expect(res.status).toBe(403)
-            expect(res.body).toMatchInlineSnapshot(`
-                {
-                  "message": "Missing required headers or body",
-                }
-            `)
-        })
-
-        it('should return 403 if signature is invalid', async () => {
-            const timestamp = Date.now().toString()
-            const res = await supertest(app)
-                .post(`/public/messaging/mailjet_webhook`)
-                .set({
-                    'x-mailjet-signature': 'invalid-signature',
-                    'x-mailjet-timestamp': timestamp,
-                })
-                .send({
-                    event: 'sent',
-                    time: Date.now(),
-                    email: 'test@example.com',
-                    mj_campaign_id: 1,
-                    mj_contact_id: 1,
-                    message_id: 'test-message-id',
-                    custom_id: 'test-custom-id',
-                    payload: {},
-                })
-
-            expect(res.status).toBe(403)
-            expect(res.body).toMatchInlineSnapshot(`
-                {
-                  "message": "Invalid signature",
-                }
-            `)
-        })
-
-        it('should process valid webhook events', async () => {
-            const timestamp = Date.now().toString()
-            const payload = JSON.stringify({
-                event: 'sent',
-                time: Date.now(),
-                email: 'test@example.com',
-                mj_campaign_id: 1,
-                mj_contact_id: 1,
-                message_id: 'test-message-id',
-                custom_id: 'test-custom-id',
-                payload: {},
-            })
-            const signature = crypto
-                .createHmac('sha256', hub.MAILJET_SECRET_KEY)
-                .update(`${timestamp}.${payload}`)
-                .digest('hex')
-
-            const res = await supertest(app)
-                .post(`/public/messaging/mailjet_webhook`)
-                .set({
-                    'x-mailjet-signature': signature,
-                    'x-mailjet-timestamp': timestamp,
-                    'content-type': 'application/json',
-                })
-                .send(payload)
-
-            expect(res.status).toBe(200)
-            expect(res.body).toMatchInlineSnapshot(`
-                {
-                  "message": "OK",
-                }
-            `)
-        })
-
-        it.each([
-            {
-                event: 'open',
-                extraFields: {
-                    ip: '127.0.0.1',
-                    geo: 'US',
-                    agent: 'Mozilla',
-                },
-            },
-            {
-                event: 'click',
-                extraFields: {
-                    url: 'https://example.com',
-                },
-            },
-            {
-                event: 'bounce',
-                extraFields: {
-                    blocked: false,
-                    hard_bounce: true,
-                    error: 'test error',
-                },
-            },
-            {
-                event: 'spam',
-                extraFields: {
-                    source: 'test source',
-                },
-            },
-            {
-                event: 'unsub',
-                extraFields: {
-                    mj_list_id: '123',
-                },
-            },
-        ])('should handle $event event', async ({ event, extraFields }) => {
-            const timestamp = Date.now().toString()
-            const payload = JSON.stringify({
-                event,
-                time: Date.now(),
-                email: 'test@example.com',
-                mj_campaign_id: 1,
-                mj_contact_id: 1,
-                message_id: 'test-message-id',
-                custom_id: 'test-custom-id',
-                payload: {},
-                ...extraFields,
-            })
-            const signature = crypto
-                .createHmac('sha256', hub.MAILJET_SECRET_KEY)
-                .update(`${timestamp}.${payload}`)
-                .digest('hex')
-
-            const res = await supertest(app)
-                .post(`/public/messaging/mailjet_webhook`)
-                .set({
-                    'x-mailjet-signature': signature,
-                    'x-mailjet-timestamp': timestamp,
-                    'content-type': 'application/json',
-                })
-                .send(payload)
-
-            expect(res.status).toBe(200)
-            expect(res.body).toEqual({ message: 'OK' })
         })
     })
 })

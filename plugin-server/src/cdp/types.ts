@@ -177,7 +177,7 @@ export type MinimalAppMetric = {
     team_id: number
     app_source_id: string // The main item (like the hog function or hog flow ID)
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
-    metric_kind: 'failure' | 'success' | 'other'
+    metric_kind: 'failure' | 'success' | 'other' | 'email'
     metric_name:
         | 'succeeded'
         | 'failed'
@@ -194,7 +194,12 @@ export type MinimalAppMetric = {
         | 'dropped'
         | 'email_sent'
         | 'email_failed'
-        | 'email_delivered'
+        | 'email_opened'
+        | 'email_clicked'
+        | 'email_bounced'
+        | 'email_blocked'
+        | 'email_spam'
+        | 'email_unsubscribed'
     count: number
 }
 
