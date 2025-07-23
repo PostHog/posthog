@@ -34,7 +34,7 @@ const mockBilling: BillingType = {
         current_period_start: dayjs('2024-01-01'),
         current_period_end: dayjs('2024-01-31'),
         interval: 'month',
-    } as any,
+    },
     custom_limits_usd: {
         product_analytics: 50,
         session_replay: 30,
