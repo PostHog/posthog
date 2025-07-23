@@ -722,7 +722,7 @@ class TestRootNodeTools(BaseTest):
             mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
-            mock_tools.return_value = lambda *args: mock_navigate_tool
+            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
@@ -761,7 +761,7 @@ class TestRootNodeTools(BaseTest):
             mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
                 content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
             )
-            mock_tools.return_value = lambda *args: mock_search_session_recordings
+            mock_tools.return_value = lambda *args, **kwargs: mock_search_session_recordings
 
             # This should not raise NodeInterrupt
             result = await node.arun(

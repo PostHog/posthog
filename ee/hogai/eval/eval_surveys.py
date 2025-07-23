@@ -16,7 +16,7 @@ def call_surveys_max_tool(demo_org_team_user):
     # Extract team and user from the demo fixture
     _, team, user = demo_org_team_user
 
-    max_tool = CreateSurveyTool(team, user)
+    max_tool = CreateSurveyTool(team=team, user=user)
     max_tool._context = {"user_id": str(user.uuid)}  # Additional context
 
     async def call_max_tool(instructions: str) -> dict:

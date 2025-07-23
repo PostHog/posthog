@@ -397,7 +397,7 @@ class Assistant:
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
-                    content=ToolClass(self._team, self._user).thinking_message
+                    content=ToolClass(team=self._team, user=self._user).thinking_message
                     if ToolClass
                     else f"Running tool {tool_call.name}"
                 )

@@ -304,7 +304,7 @@ class RootNode(RootNodeUIContextMixin):
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)(self._team, self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
@@ -386,7 +386,7 @@ class RootNode(RootNodeUIContextMixin):
             ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass(self._team, self._user))  # type: ignore
+            available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -533,7 +533,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(self._team, self._user, state)
+            tool_class = ToolClass(team=self._team, user=self._user, state=state)
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")

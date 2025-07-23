@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -11,10 +11,8 @@ from pydantic import BaseModel, Field
 import products
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from posthog.models import Team, User
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
-
-if TYPE_CHECKING:
-    from posthog.models import Team, User
 
 
 # Lower casing matters here. Do not change it.
@@ -118,7 +116,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, team: "Team", user: "User", state: AssistantState | None = None, **kwargs):
+    def __init__(self, *, team: Team, user: User, state: AssistantState | None = None, **kwargs):
         super().__init__(**kwargs)
         self._team = team
         self._user = user
