@@ -208,7 +208,7 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'native', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
