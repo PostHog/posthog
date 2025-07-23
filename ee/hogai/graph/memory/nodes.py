@@ -109,13 +109,6 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
         return "continue"
 
 
-def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> str:
-    """
-    No longer automatically triggers memory onboarding. Memory onboarding must be explicitly requested with /init command.
-    """
-    return "continue"
-
-
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
