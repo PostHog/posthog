@@ -70,7 +70,7 @@ class TestHogQLAggregationIntegration(BaseTest):
         query_sum = ExperimentQuery(experiment_id=experiment.id, metric=metric_sum)
         runner_sum = ExperimentQueryRunner(query=query_sum, team=self.team)
 
-        agg_expr_sum = get_metric_aggregation_expr(runner_sum.metric, runner_sum.team)
+        agg_expr_sum = get_metric_aggregation_expr(experiment, runner_sum.metric, runner_sum.team)
 
         # Should be a sum() call
         self.assertIsInstance(agg_expr_sum, ast.Call)
@@ -86,7 +86,7 @@ class TestHogQLAggregationIntegration(BaseTest):
         query_avg = ExperimentQuery(experiment_id=experiment.id, metric=metric_avg)
         runner_avg = ExperimentQueryRunner(query=query_avg, team=self.team)
 
-        agg_expr_avg = get_metric_aggregation_expr(runner_avg.metric, runner_avg.team)
+        agg_expr_avg = get_metric_aggregation_expr(experiment, runner_avg.metric, runner_avg.team)
 
         # Should be an avg() call
         self.assertIsInstance(agg_expr_avg, ast.Call)
@@ -102,7 +102,7 @@ class TestHogQLAggregationIntegration(BaseTest):
         query_no_agg = ExperimentQuery(experiment_id=experiment.id, metric=metric_no_agg)
         runner_no_agg = ExperimentQueryRunner(query=query_no_agg, team=self.team)
 
-        agg_expr_no_agg = get_metric_aggregation_expr(runner_no_agg.metric, runner_no_agg.team)
+        agg_expr_no_agg = get_metric_aggregation_expr(experiment, runner_no_agg.metric, runner_no_agg.team)
 
         # Should default to sum()
         self.assertIsInstance(agg_expr_no_agg, ast.Call)

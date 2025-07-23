@@ -1,5 +1,6 @@
 from typing import Literal, Union, cast
 from zoneinfo import ZoneInfo
+import structlog
 
 from posthog.models import Experiment
 from posthog.models.team.team import Team
@@ -32,6 +33,10 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql.errors import InternalHogQLError, ExposedHogQLError
+from rest_framework.exceptions import ValidationError
+
+logger = structlog.get_logger(__name__)
 
 
 def get_data_warehouse_metric_source(
@@ -464,34 +469,49 @@ def get_metric_events_query(
             raise ValueError(f"Unsupported metric: {metric}")
 
 
-def get_metric_aggregation_expr(metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric], team: Team) -> ast.Expr:
+def get_metric_aggregation_expr(
+    experiment: Experiment, metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric], team: Team
+) -> ast.Expr:
     """
     Returns the aggregation expression for the metric.
     """
-    match metric:
-        case ExperimentMeanMetric() as metric:
-            match metric.source.math:
-                case ExperimentMetricMathType.UNIQUE_SESSION:
-                    return parse_expr("toFloat(count(distinct metric_events.value))")
-                case ExperimentMetricMathType.MIN:
-                    return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
-                case ExperimentMetricMathType.MAX:
-                    return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
-                case ExperimentMetricMathType.AVG:
-                    return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
-                case ExperimentMetricMathType.HOGQL:
-                    # For HogQL expressions, extract the aggregation function if present
-                    if metric.source.math_hogql is not None:
-                        aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
-                        if aggregation_function:
-                            # Use the extracted aggregation function
-                            return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
-                    # Default to sum if no aggregation function is found
-                    return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
-                case _:
-                    return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
-        case ExperimentFunnelMetric():
-            return funnel_evaluation_expr(team, metric, events_alias="metric_events")
+    try:
+        match metric:
+            case ExperimentMeanMetric() as metric:
+                match metric.source.math:
+                    case ExperimentMetricMathType.UNIQUE_SESSION:
+                        return parse_expr("toFloat(count(distinct metric_events.value))")
+                    case ExperimentMetricMathType.MIN:
+                        return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+                    case ExperimentMetricMathType.MAX:
+                        return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+                    case ExperimentMetricMathType.AVG:
+                        return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+                    case ExperimentMetricMathType.HOGQL:
+                        # For HogQL expressions, extract the aggregation function if present
+                        if metric.source.math_hogql is not None:
+                            aggregation_function, _ = extract_aggregation_and_inner_expr(metric.source.math_hogql)
+                            if aggregation_function:
+                                # Use the extracted aggregation function
+                                return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+                        # Default to sum if no aggregation function is found
+                        return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+                    case _:
+                        return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            case ExperimentFunnelMetric():
+                return funnel_evaluation_expr(team, metric, events_alias="metric_events")
+    except InternalHogQLError as e:
+        logger.error(
+            "Internal HogQL error in metric aggregation expression",
+            experiment_id=experiment.id,
+            metric_type=metric.__class__.__name__,
+            metric_math=getattr(getattr(metric, "source", None), "math", None),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
+        raise ValidationError("Invalid metric configuration for experiment analysis.")
+    except ExposedHogQLError:
+        raise
 
 
 def get_winsorized_metric_values_query(

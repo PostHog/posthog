@@ -143,7 +143,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
                 ast.Alias(
-                    expr=get_metric_aggregation_expr(self.metric, self.team),
+                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                     alias="value",
                 ),
             ],

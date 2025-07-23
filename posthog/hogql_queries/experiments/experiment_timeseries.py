@@ -136,7 +136,7 @@ class ExperimentTimeseries:
                     ),
                 ),
                 ast.Alias(
-                    expr=get_metric_aggregation_expr(self.metric, self.team),
+                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                     alias="value",
                 ),
             ],
