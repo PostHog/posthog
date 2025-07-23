@@ -457,4 +457,3 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Subclass of "list[tuple[str, ...]]" and "int" cannot exist: would have incompatible method signatures  [unreachable]
-products/data_warehouse/backend/api/fix_hogql.py:0: error: Unused "type: ignore" comment  [unused-ignore]
