@@ -46,7 +46,7 @@ export function SceneDescription({
                     onChange={(e) => {
                         setLocalValue(e.target.value)
                     }}
-                    placeholder={optional ? "Description (optional)" : "Description"}
+                    placeholder={optional ? 'Description (optional)' : 'Description'}
                     id="page-description-input"
                     data-attr={`${dataAttrKey}-description-input`}
                     autoFocus
