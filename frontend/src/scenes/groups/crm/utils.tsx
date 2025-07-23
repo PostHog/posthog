@@ -36,10 +36,10 @@ export function getCRMColumns(groupTypeName: string, groupTypeIndex: GroupTypeIn
         mrr: {
             render: renderCurrency,
         },
-        forecasted_mrr: {
+        'forecasted mrr': {
             render: renderCurrency,
         },
-        owner_name: {
+        owner: {
             render: renderPerson,
         },
         'survey responses': {
