@@ -73,10 +73,7 @@ export function MetricsTable({
                         const result = results[metricIndex]
                         const error = errors[metricIndex]
 
-                        const hasResult = !!result
-                        const hasError = !!error
-                        const hasExperimentStarted = !!experiment.start_date
-                        const isLoading = !hasResult && !hasError && hasExperimentStarted
+                        const isLoading = !result && !error && !!experiment.start_date
 
                         return (
                             <MetricRowGroup
