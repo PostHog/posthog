@@ -2990,7 +2990,7 @@ export enum SurveyPartialResponses {
 }
 
 export interface SurveyDisplayConditions {
-    url: string
+    url?: string
     selector?: string
     seenSurveyWaitPeriodInDays?: number
     urlMatchType?: SurveyMatchType
