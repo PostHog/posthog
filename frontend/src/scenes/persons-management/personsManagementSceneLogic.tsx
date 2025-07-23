@@ -165,16 +165,23 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             if (!tabUrl) {
                 return values.tabs[0].url
             }
-            // Preserve existing search params when changing tabs
-            return [tabUrl, router.values.searchParams, router.values.hashParams, { replace: true }]
+            const newSearchParams = new URLSearchParams(router.values.searchParams)
+            newSearchParams.delete('search')
+            return [tabUrl, newSearchParams, router.values.hashParams, { replace: false }]
         },
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const urlToAction = {
             [urls.persons()]: () => {
+                if (values.activeTab?.key === 'persons') {
+                    return
+                }
                 actions.setTabKey('persons')
             },
             [urls.cohorts()]: () => {
+                if (values.activeTab?.key === 'cohorts') {
+                    return
+                }
                 actions.setTabKey('cohorts')
             },
         } as Record<string, (...args: any[]) => void>
