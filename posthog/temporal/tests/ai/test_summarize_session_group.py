@@ -43,7 +43,10 @@ from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryCon
 from posthog.temporal.ai.session_summary.activities.patterns import (
     split_session_summaries_into_chunks_for_patterns_extraction,
 )
-from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummaryPatternsExtractionChunksInputs,
+)
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 pytestmark = pytest.mark.django_db
@@ -520,18 +523,17 @@ class TestSummarizeSessionGroupWorkflow:
         session_ids = [f"{mock_session_id}-{i}-chunking" for i in range(35)]
         workflow_id = f"test_workflow_chunking_{uuid.uuid4()}"
         workflow_input = mock_session_group_summary_inputs(session_ids, "test_chunking_base")
-        
+
         # Mock chunking to return 2 chunks
         async def mock_split_chunks(inputs, redis_client, model=None):
             # Force chunking into 2 groups
             session_ids = [input.session_id for input in inputs.single_session_summaries_inputs]
             mid_point = len(session_ids) // 2
             return [session_ids[:mid_point], session_ids[mid_point:]]
-        
+
         # Set up spies to track Redis operations
-        spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
-        
+
         # Need to provide combined pattern result for combination activity
         mock_combined_patterns = RawSessionGroupSummaryPatternsList(
             patterns=[
@@ -544,16 +546,21 @@ class TestSummarizeSessionGroupWorkflow:
                 }
             ]
         )
-        
-        with patch("posthog.temporal.ai.session_summary.activities.patterns.split_session_summaries_into_chunks_for_patterns_extraction", side_effect=mock_split_chunks):
+
+        with patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.split_session_summaries_into_chunks_for_patterns_extraction",
+            side_effect=mock_split_chunks,
+        ):
             # Setup extra mock for pattern combination
             call_llm_side_effects = (
                 [mock_call_llm() for _ in range(len(session_ids))]  # Single-session summaries
-                + [mock_call_llm(custom_content=mock_patterns_extraction_yaml_response) for _ in range(2)]  # Pattern extraction for 2 chunks
+                + [
+                    mock_call_llm(custom_content=mock_patterns_extraction_yaml_response) for _ in range(2)
+                ]  # Pattern extraction for 2 chunks
                 + [mock_call_llm(custom_content=mock_combined_patterns.model_dump_json())]  # Pattern combination
                 + [mock_call_llm(custom_content=mock_patterns_assignment_yaml_response)]  # Pattern assignment
             )
-            
+
             async with self.temporal_workflow_test_environment(
                 session_ids,
                 mock_call_llm,
@@ -756,20 +763,41 @@ async def test_combine_patterns_from_chunks_activity(
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
     # Mock the LLM combination function
     with (
-        patch("posthog.temporal.ai.session_summary.activities.patterns.get_llm_session_group_patterns_combination") as mock_combine,
+        patch(
+            "posthog.temporal.ai.session_summary.activities.patterns.get_llm_session_group_patterns_combination"
+        ) as mock_combine,
         patch("temporalio.activity.info") as mock_activity_info,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
-        # Mock returns combined patterns (placeholder for now)
-        mock_combine.return_value = RawSessionGroupSummaryPatternsList(patterns=[])
+        # Mock returns combined patterns
+        combined_patterns = RawSessionGroupSummaryPatternsList(
+            patterns=[
+                {
+                    "pattern_id": 1,
+                    "pattern_name": "Login Flow",
+                    "pattern_description": "User login pattern",
+                    "severity": "low",
+                    "indicators": ["clicked login", "entered credentials"],
+                },
+                {
+                    "pattern_id": 2,
+                    "pattern_name": "Error Pattern",
+                    "pattern_description": "Multiple errors occurred",
+                    "severity": "high",
+                    "indicators": ["error message", "retry attempt"],
+                },
+            ]
+        )
+        mock_combine.return_value = combined_patterns
         # Execute the activity
-        await combine_patterns_from_chunks_activity(
-            chunk_redis_keys=[chunk_key_1, chunk_key_2],
+        inputs = SessionGroupSummaryPatternsExtractionChunksInputs(
+            redis_keys_of_chunks_to_combine=[chunk_key_1, chunk_key_2],
             redis_key_base=redis_key_base,
             session_ids=session_ids,
             user_id=user_id,
             extra_summary_context=None,
         )
+        await combine_patterns_from_chunks_activity(inputs)
         # Verify Redis operations
         # 1 get for checking if combined patterns exist + 2 gets for chunk patterns
         assert spy_get.call_count == 3
@@ -779,7 +807,7 @@ async def test_combine_patterns_from_chunks_activity(
         mock_combine.assert_called_once()
 
 
-@pytest.mark.asyncio 
+@pytest.mark.asyncio
 async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
     mock_session_id: str,
     redis_test_setup: AsyncRedisTestContext,
@@ -824,13 +852,14 @@ async def test_combine_patterns_from_chunks_activity_fails_with_missing_chunks(
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
         # Should raise ValueError when a chunk is missing
         with pytest.raises(ValueError):
-            await combine_patterns_from_chunks_activity(
-                chunk_redis_keys=[chunk_key_1, chunk_key_2],
+            inputs = SessionGroupSummaryPatternsExtractionChunksInputs(
+                redis_keys_of_chunks_to_combine=[chunk_key_1, chunk_key_2],
                 redis_key_base=redis_key_base,
                 session_ids=session_ids,
                 user_id=user_id,
                 extra_summary_context=None,
             )
+            await combine_patterns_from_chunks_activity(inputs)
 
 
 @pytest.mark.asyncio
@@ -853,15 +882,16 @@ async def test_combine_patterns_from_chunks_activity_fails_when_no_chunks(
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id="non-existent-2",
     )
-    
+
     with patch("temporalio.activity.info") as mock_activity_info:
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
         # Should raise ValueError when chunks are missing
         with pytest.raises(ValueError):
-            await combine_patterns_from_chunks_activity(
-                chunk_redis_keys=[chunk_key_1, chunk_key_2],
+            inputs = SessionGroupSummaryPatternsExtractionChunksInputs(
+                redis_keys_of_chunks_to_combine=[chunk_key_1, chunk_key_2],
                 redis_key_base=redis_key_base,
                 session_ids=session_ids,
                 user_id=user_id,
                 extra_summary_context=None,
             )
+            await combine_patterns_from_chunks_activity(inputs)
