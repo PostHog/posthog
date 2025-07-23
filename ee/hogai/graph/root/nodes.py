@@ -18,7 +18,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 
 # Import moved inside functions to avoid circular imports
@@ -61,6 +60,8 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
 }
+
+SLASH_COMMAND_INIT = "/init"
 
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
@@ -579,12 +580,11 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
+
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
             if state.root_tool_insight_plan:
-                if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
-                    return "memory_onboarding"
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"
