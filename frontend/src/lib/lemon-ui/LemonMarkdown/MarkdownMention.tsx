@@ -12,18 +12,11 @@ export interface MarkdownMentionProps {
 export function MarkdownMention({ userId, displayName }: MarkdownMentionProps): JSX.Element {
     const { meFirstMembers } = useValues(membersLogic)
 
-    const member = userId
-        ? meFirstMembers.find((member) => member.user.uuid === userId)
-        : displayName
-        ? meFirstMembers.find((member) => {
-              const firstName = member.user.first_name
-              return firstName.toLowerCase() === displayName.toLowerCase()
-          })
-        : null
+    const member = userId ? meFirstMembers.find((member) => member.user.uuid === userId) : null
 
     const name = member?.user.first_name || displayName || '(Member)'
 
-    return (
+    return member ? (
         <Tooltip
             title={
                 member ? (
@@ -48,5 +41,7 @@ export function MarkdownMention({ userId, displayName }: MarkdownMentionProps): 
                 @{name}
             </span>
         </Tooltip>
+    ) : (
+        <span>{displayName}</span>
     )
 }
