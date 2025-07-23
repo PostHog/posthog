@@ -9,6 +9,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
+import { createRedis } from '~/utils/db/redis'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
@@ -34,7 +35,6 @@ import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
-import { createRedis } from '~/utils/db/redis'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
