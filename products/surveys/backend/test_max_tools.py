@@ -7,36 +7,31 @@ from unittest.mock import patch
 
 import pytest
 from asgiref.sync import sync_to_async
+from langchain_core.runnables import RunnableConfig
 
-from posthog.models import User, OrganizationMembership, Survey
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from .max_tools import CreateSurveyTool
+from posthog.models import Survey
 from posthog.schema import (
     SurveyCreationSchema,
     SurveyQuestionSchema,
     SurveyQuestionType,
     SurveyType,
 )
+from posthog.test.base import BaseTest
+
+from .max_tools import CreateSurveyTool
 
 
-class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
+class TestSurveyCreatorTool(BaseTest):
     def setUp(self):
         super().setUp()
         # Set mock OpenAI API key for tests
         os.environ["OPENAI_API_KEY"] = "test-api-key"
-
-        # Create a test user for survey creation
-        self._user = User.objects.create_user(
-            email="test@posthog.com", password="testpass", first_name="Test", last_name="User"
-        )
-
-        # Add user to the team's organization
-        OrganizationMembership.objects.create(
-            organization=self.team.organization, user=self._user, level=OrganizationMembership.Level.ADMIN
-        )
-
-        self._team = self.team
+        self._config: RunnableConfig = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+            },
+        }
 
     def tearDown(self):
         super().tearDown()
@@ -49,9 +44,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         tool = CreateSurveyTool()
 
         # Mock the internal state required by MaxTool
-        tool._team = self._team
-        tool._user = self._user
-        tool._context = {"user_id": str(self._user.uuid)}
+        tool._init_run(self._config)
 
         return tool
 
@@ -73,11 +66,11 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         # Create a test survey
         await sync_to_async(Survey.objects.create)(
-            team=self._team,
+            team=self.team,
             name="Existing Survey",
             type="popover",
             questions=[{"type": "open", "question": "Test?"}],
-            created_by=self._user,
+            created_by=self.user,
         )
 
         summary = await tool._get_existing_surveys_summary()
@@ -89,7 +82,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         """Test team survey configuration retrieval"""
         tool = self._setup_tool()
 
-        config = tool._get_team_survey_config(self._team)
+        config = tool._get_team_survey_config(self.team)
 
         assert "appearance" in config
         assert "default_settings" in config

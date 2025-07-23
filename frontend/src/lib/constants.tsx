@@ -197,7 +197,7 @@ export const FEATURE_FLAGS = {
     MESSAGING: 'messaging', // owner @haven #team-messaging
     INVITE_PROJECT_ACCESS: 'invite-project-access', // owner: @team-platform-features
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
-    ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen #team-platform
+    ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -285,6 +285,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_AI_SUMMARY: 'experiments-ai-summary', // owner: @rodrigoi #team-experiments
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     EXPERIMENTS_NEW_METRICS_TABLE: 'experiments-new-metrics-table', // owner: @andehen #team-experiments
+    MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
