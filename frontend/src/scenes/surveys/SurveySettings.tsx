@@ -125,7 +125,7 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
             <LemonDivider className="m-0" />
 
             <div className="flex items-center gap-1 flex-1 justify-between">
-                <LemonField.Pure label="Appearance" className="text-base gap-1">
+                <LemonField.Pure label="Default appearance" className="text-base gap-1">
                     <span className="text-sm">These settings apply to new surveys in this organization.</span>
                 </LemonField.Pure>
                 {globalSurveyAppearanceConfigAvailable && (

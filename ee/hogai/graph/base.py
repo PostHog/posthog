@@ -1,9 +1,8 @@
 from collections.abc import Sequence
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -14,10 +13,14 @@ from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
 from posthog.sync import database_sync_to_async
 
-from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
-
-StateType = TypeVar("StateType", bound=BaseModel)
-PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
+from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
+from ..utils.types import (
+    AssistantMessageUnion,
+    AssistantState,
+    PartialAssistantState,
+    PartialStateType,
+    StateType,
+)
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
@@ -99,3 +102,4 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
+FilterOptionsBaseNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

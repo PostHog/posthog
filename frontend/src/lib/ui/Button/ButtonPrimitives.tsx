@@ -40,6 +40,8 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+    // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
+    inert?: boolean
 } & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
@@ -166,6 +168,10 @@ export const buttonPrimitiveVariants = cva({
             true: 'disabled:opacity-50',
             false: '',
         },
+        inert: {
+            true: 'cursor-default hover:bg-inherit',
+            false: '',
+        },
         hasSideActionRight: {
             true: 'rounded',
             false: '',
@@ -224,6 +230,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltipPlacement,
         tooltipDocLink,
         autoHeight,
+        inert,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -245,6 +252,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     hasSideActionRight,
                     isSideActionRight,
                     autoHeight,
+                    inert,
                     className,
                 })
             ),

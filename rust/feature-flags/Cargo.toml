@@ -51,6 +51,10 @@ rust_decimal = "1.37.1"
 rayon = "1.10.0"
 percent-encoding = "2.3.1"
 md5 = "0.7.0"
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 [lints]
 workspace = true
