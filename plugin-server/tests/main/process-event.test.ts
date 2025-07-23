@@ -34,6 +34,7 @@ import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
+import { createRedis } from '~/utils/db/redis'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
@@ -158,10 +159,10 @@ describe('process-event', () => {
         team = await getFirstTeam(hub)
 
         // clear the webhook redis cache
-        const redis = await hub.redisPool.acquire()
+        const redis = await createRedis(hub, 'ingestion')
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
-        await hub.redisPool.release(redis)
+        await redis.quit()
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
@@ -275,7 +276,7 @@ describe('process-event', () => {
         expect(person.created_at.toISO()).toEqual(DateTime.fromISO('2019-07-01T00:00:00Z').setZone('UTC').toISO())
     })
 
-    test.only('capture new person', async () => {
+    test('capture new person', async () => {
         console.log('capture new person', 'start')
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -286,7 +287,6 @@ describe('process-event', () => {
             'testTag'
         )
         team = await getFirstTeam(hub)
-
 
         const properties = personInitialAndUTMProperties({
             distinct_id: 2,
