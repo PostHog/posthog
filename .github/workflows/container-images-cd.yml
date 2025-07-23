@@ -195,7 +195,7 @@ jobs:
             - name: Check for changes that affect Max AI Temporal worker
               id: check_changes_max_ai_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai|^ee/hogai|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Max AI Temporal worker cloud deployment
               if: steps.check_changes_max_ai_temporal_worker.outputs.changed == 'true'
