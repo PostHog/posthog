@@ -18,6 +18,7 @@ import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 import { captureIngestionWarning } from '../utils'
+import { BasePersonRepository } from './base-person-repository'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -33,6 +34,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { PersonRepository } from './person-repository'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
@@ -100,7 +102,7 @@ export class BatchWritingPersonsStore implements PersonsStore {
     }
 
     forBatch(): PersonsStoreForBatch {
-        return new BatchWritingPersonsStoreForBatch(this.db, this.options)
+        return new BatchWritingPersonsStoreForBatch(this.db, new BasePersonRepository(this.db.postgres), this.options)
     }
 }
 
@@ -122,7 +124,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     private cacheMetrics: CacheMetrics
     private options: BatchWritingPersonsStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingPersonsStoreOptions>) {
+    constructor(
+        private db: DB,
+        private personRepository: PersonRepository,
+        options?: Partial<BatchWritingPersonsStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.distinctIdToPersonId = new Map()
         this.personUpdateCache = new Map()
@@ -324,7 +330,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
                     const start = performance.now()
-                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, { useReadReplica: true })
                     observeLatencyByVersion(person, start, 'fetchForChecking')
                     this.setCheckCachedPerson(teamId, distinctId, person ?? null)
                     return person ?? null
@@ -355,7 +361,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
-                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, {
+                        useReadReplica: false,
+                    })
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
                     if (person !== undefined) {
                         const personUpdate = fromInternalPerson(person, distinctId)
@@ -905,7 +913,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         // Fetch latest person data to get current version and properties
         this.incrementDatabaseOperation('fetchPerson', personUpdate.distinct_id)
-        const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
+        const latestPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (latestPerson) {
             // Use fine-grained merge: start with latest properties from DB and apply our specific changes
@@ -1046,7 +1054,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * @returns updated PersonUpdate with new person ID if found, null if person no longer exists
      */
     private async refreshPersonIdAfterMerge(personUpdate: PersonUpdate): Promise<PersonUpdate | null> {
-        const currentPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
+        const currentPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (!currentPerson) {
             // Person truly doesn't exist anymore
