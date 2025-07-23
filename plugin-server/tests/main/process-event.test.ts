@@ -276,6 +276,7 @@ describe('process-event', () => {
     })
 
     test('capture new person', async () => {
+        console.log('capture new person', 'start')
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team
@@ -285,6 +286,7 @@ describe('process-event', () => {
             'testTag'
         )
         team = await getFirstTeam(hub)
+
 
         const properties = personInitialAndUTMProperties({
             distinct_id: 2,
@@ -305,6 +307,8 @@ describe('process-event', () => {
         })
 
         const uuid = new UUIDT().toString()
+        console.log('capture new person', 'processEvent 1')
+
         await processEvent(
             '2',
             '127.0.0.1',
@@ -318,6 +322,7 @@ describe('process-event', () => {
             uuid
         )
 
+        console.log('capture new person', 'fetchPersons 1')
         let persons = await hub.db.fetchPersons()
         expect(persons[0].version).toEqual(0)
         expect(persons[0].created_at).toEqual(now)
@@ -344,13 +349,17 @@ describe('process-event', () => {
         }
         expect(persons[0].properties).toEqual(expectedProps)
 
+        console.log('capture new person', 'delayUntilEventIngested 1')
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
+        console.log('capture new person', 'delayUntilEventIngested 2')
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
+        console.log('capture new person', 'fetchPersons 2')
         const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
         expect(chPeople.length).toEqual(1)
         expect(parseJSON(chPeople[0].properties)).toEqual(expectedProps)
         expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
 
+        console.log('capture new person', 'fetchEvents 1')
         let events = await hub.db.fetchEvents()
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
@@ -389,6 +398,7 @@ describe('process-event', () => {
             $referring_domain: 'https://google.com',
         })
 
+        console.log('capture new person', 'processEvent 2')
         // capture a second time to verify e.g. event_names is not ['$autocapture', '$autocapture']
         // Also pass new utm params in to override
         await processEvent(
@@ -419,7 +429,9 @@ describe('process-event', () => {
             new UUIDT().toString()
         )
 
+        console.log('capture new person', 'fetchEvents 2')
         events = await hub.db.fetchEvents()
+        console.log('capture new person', 'fetchPersons 3')
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
@@ -448,6 +460,7 @@ describe('process-event', () => {
         }
         expect(persons[0].properties).toEqual(expectedProps)
 
+        console.log('capture new person', 'delayUntilEventIngested 3')
         const chPeople2 = await delayUntilEventIngested(async () =>
             (
                 await hub.db.fetchPersons(Database.ClickHouse)
@@ -471,6 +484,7 @@ describe('process-event', () => {
         })
 
         const [person] = persons
+        console.log('capture new person', 'fetchDistinctIdValues')
         const distinctIds = await hub.db.fetchDistinctIdValues(person)
 
         const [event] = events as ClickHouseEvent[]
@@ -484,6 +498,7 @@ describe('process-event', () => {
         expect(elements[1].order).toEqual(1)
         expect(elements[1].text).toEqual('💻')
 
+        console.log('capture new person', 'processEvent 3')
         // Don't update any props, set and set_once should be what was sent
         await processEvent(
             '2',
@@ -512,7 +527,9 @@ describe('process-event', () => {
             new UUIDT().toString()
         )
 
+        console.log('capture new person', 'fetchEvents 3')
         events = await hub.db.fetchEvents()
+        console.log('capture new person', 'fetchPersons 4')
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(3)
         expect(persons.length).toEqual(1)
@@ -535,10 +552,12 @@ describe('process-event', () => {
         // check that person properties didn't change
         expect(persons[0].properties).toEqual(expectedProps)
 
+        console.log('capture new person', 'fetchPersons 5')
         const chPeople3 = await hub.db.fetchPersons(Database.ClickHouse)
         expect(chPeople3.length).toEqual(1)
         expect(parseJSON(chPeople3[0].properties)).toEqual(expectedProps)
 
+        console.log('capture new person', 'done')
         team = await getFirstTeam(hub)
     })
 
