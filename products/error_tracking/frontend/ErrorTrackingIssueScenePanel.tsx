@@ -31,7 +31,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             <SceneDescription
                 defaultValue={issue.description ?? ''}
                 onSave={updateDescription}
-                dataAttr="insight-description"
+                dataAttr="issue-description"
             />
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
