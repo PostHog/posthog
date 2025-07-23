@@ -25,6 +25,7 @@ from posthog.models.web_preaggregated.sql import (
     DROP_PARTITION_SQL,
 )
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
@@ -186,7 +187,8 @@ def export_web_analytics_data_by_team(
     if not team_ids:
         dict_query = f"""
         SELECT team_id
-        FROM {WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}
+        FROM {CLICKHOUSE_DATABASE}.{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}
+        WHERE enabled_at IS NOT NULL
         """
         try:
             result = sync_execute(dict_query)
