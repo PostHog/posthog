@@ -1,4 +1,5 @@
-import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonTipTapMarkdownWrapper } from 'lib/lemon-ui/LemonTipTap'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -43,7 +44,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     </div>
                     <div>
                         <LemonField name="content">
-                            <LemonTextAreaMarkdown
+                            <LemonTipTapMarkdownWrapper
                                 placeholder="Comment on this recording?"
                                 data-attr="create-annotation-input"
                                 maxLength={400}

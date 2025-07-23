@@ -1,0 +1,160 @@
+// Base LemonTipTap styles - matching LemonMarkdown.scss exactly
+.LemonTipTap {
+    > * {
+        margin: 0 0 0.5em;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    ol,
+    ul,
+    dl {
+        padding-left: 1.5em;
+    }
+
+    ol {
+        list-style-type: decimal;
+    }
+
+    ul {
+        list-style-type: disc;
+    }
+
+    strong[level] {
+        // Low-key headings
+        display: block;
+    }
+
+    p {
+        margin-bottom: 0.5em;
+    }
+
+    hr {
+        margin: 1em 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+        margin-bottom: 0.375em;
+        font-weight: 600;
+        line-height: 1.2;
+    }
+
+    h1,
+    h2 {
+        padding-bottom: 0.375em;
+        border-bottom-width: 1px;
+
+        &:not(:first-child) {
+            margin-top: 0.75em;
+        }
+    }
+
+    h1 {
+        font-size: 1.375rem;
+    }
+
+    h2 {
+        font-size: 1.125rem;
+    }
+
+    h3 {
+        font-size: 1rem;
+    }
+
+    h4 {
+        font-size: 0.875rem;
+    }
+
+    img {
+        max-width: 100%;
+    }
+
+    // TipTap specific overrides to match LemonMarkdown behavior
+    .ProseMirror {
+        outline: none;
+
+        // Ensure editor content matches markdown styling
+        > * {
+            margin: 0 0 0.5em;
+
+            &:last-child {
+                margin-bottom: 0;
+            }
+        }
+    }
+}
+
+// Styles for the TipTap markdown editor
+.ProseMirror-tiptap-editor {
+    .ProseMirror {
+        min-height: 5rem;
+        padding: 0.5rem;
+        outline: none;
+
+        &:focus {
+            outline: none;
+        }
+
+        // Match LemonTextArea styling
+        p {
+            margin: 0;
+            line-height: 1.5;
+
+            &:not(:last-child) {
+                margin-bottom: 0.5em;
+            }
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            margin: 0.75em 0 0.375em;
+            font-weight: 600;
+            line-height: 1.2;
+
+            &:first-child {
+                margin-top: 0;
+            }
+        }
+
+        ul,
+        ol {
+            padding-left: 1.5em;
+            margin: 0.5em 0;
+        }
+
+        blockquote {
+            padding-left: 1rem;
+            margin: 1rem 0;
+            color: var(--muted);
+            border-left: 3px solid var(--border-light);
+        }
+
+        code {
+            padding: 0.125rem 0.25rem;
+            font-family: var(--font-mono);
+            background: var(--bg-light);
+            border-radius: 0.25rem;
+        }
+
+        pre {
+            padding: 1rem;
+            overflow-x: auto;
+            background: var(--bg-light);
+            border-radius: 0.5rem;
+
+            code {
+                padding: 0;
+                background: none;
+            }
+        }
+    }
+}
