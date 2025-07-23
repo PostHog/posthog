@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             model_name="messagetemplate",
             name="message_category",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.messagecategory"
+                blank=True, null=True, on_delete=django.db.models.deletion.RESTRICT, to="posthog.messagecategory"
             ),
         ),
     ]
