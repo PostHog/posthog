@@ -78,7 +78,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const variables =
                         props.sourceQuery?.kind === NodeKind.HogQLQuery
                             ? props.sourceQuery.variables ?? undefined
-                            : undefined
+                            : (props.sourceQuery as any)?.source?.variables ?? undefined
 
                     const response = await performQuery<HogQLMetadata>(
                         setLatestVersionsOnQuery(
@@ -170,7 +170,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
         if (
             props.query !== oldProps.query ||
             props.language !== oldProps.language ||
-            props.editor !== oldProps.editor
+            props.editor !== oldProps.editor ||
+            props.sourceQuery !== oldProps.sourceQuery
         ) {
             actions.reloadMetadata()
         }

@@ -118,6 +118,112 @@ const setStorageItem = async (key: string, value: string): Promise<void> => {
     }
 }
 
+const performComprehensiveMigration = async (key: string): Promise<QueryTab[] | null> => {
+    try {
+        console.log('🔄 Starting comprehensive migration for key:', key)
+        
+        const keaLogicPath = ['data-warehouse', 'editor', 'multitabEditorLogic', key].join('.')
+        const keaPersistedKey = `kea.logic.${keaLogicPath}.allTabs`
+        const newFormatKey = `${keaLogicPath}.allTabs`
+        const indexedDbKey = allTabsStateKey(key)
+        
+        let tabsToProcess: QueryTab[] = []
+        let migrationSource = 'none'
+        
+        let localStorageValue = localStorage.getItem(keaPersistedKey)
+        if (localStorageValue) {
+            tabsToProcess = JSON.parse(localStorageValue) as QueryTab[]
+            migrationSource = 'localStorage-kea'
+        } else {
+            localStorageValue = localStorage.getItem(newFormatKey)
+            if (localStorageValue) {
+                tabsToProcess = JSON.parse(localStorageValue) as QueryTab[]
+                migrationSource = 'localStorage-new'
+            }
+        }
+        
+        if (tabsToProcess.length === 0) {
+            const existingIndexedDbData = await getStorageItem(indexedDbKey)
+            if (existingIndexedDbData) {
+                tabsToProcess = JSON.parse(existingIndexedDbData) as QueryTab[]
+                migrationSource = 'indexeddb-existing'
+            }
+        }
+        
+        if (tabsToProcess.length === 0) {
+            return null
+        }
+        
+        const processedTabs = tabsToProcess.map((tab) => {
+            // extract variables from query if they exist
+            if (tab.sourceQuery?.source?.query && tab.sourceQuery.source.query.includes('{variables.')) {
+                const variableMatches = tab.sourceQuery.source.query.match(/\{variables\.([^}]+)\}/g)
+                if (variableMatches) {
+                    const existingVariables = tab.sourceQuery.source.variables || {}
+                    const variables: Record<string, any> = { ...existingVariables }
+                    
+                    variableMatches.forEach(match => {
+                        const varName = match.replace('{variables.', '').replace('}', '')
+                        
+                        if (!variables[varName]) {
+                            const uuid = crypto.randomUUID()
+                            variables[varName] = {
+                                variableId: uuid,
+                                code_name: varName,
+                                value: null,
+                                isNull: false
+                            }
+                        } else {
+                            if (!variables[varName].variableId || typeof variables[varName].variableId !== 'string' || variables[varName].variableId.length !== 36) {
+                                variables[varName].variableId = crypto.randomUUID()
+                            }
+                        }
+                    })
+                
+                    return {
+                        ...tab,
+                        sourceQuery: {
+                            ...tab.sourceQuery,
+                            source: {
+                                ...tab.sourceQuery.source,
+                                variables
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If no variables to extract, return tab as-is
+            console.log('tab', tab)
+            return tab
+        })
+        
+        await setStorageItem(indexedDbKey, JSON.stringify(processedTabs))
+        
+        if (migrationSource.startsWith('localStorage')) {
+            if (migrationSource === 'localStorage-kea') {
+                localStorage.removeItem(keaPersistedKey)
+            } else {
+                localStorage.removeItem(newFormatKey)
+            }
+        }
+        
+        posthog.capture('sql-editor-comprehensive-migration-completed', {
+            tabCount: processedTabs.length,
+            key,
+            migrationSource,
+            hasVariables: processedTabs.some(tab => 
+                tab.sourceQuery?.source?.variables && Object.keys(tab.sourceQuery.source.variables).length > 0
+            )
+        })
+        return processedTabs
+        
+    } catch (error) {
+        posthog.captureException(new Error('sql-editor-comprehensive-migration-failure'), { error, key })
+        return null
+    }
+}
+
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
@@ -663,7 +769,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             actions.updateState()
         },
-        selectTab: ({ tab }) => {
+        selectTab: async ({ tab }) => {
             if (props.monaco) {
                 const model = props.monaco.editor.getModel(tab.uri)
                 props.editor?.setModel(model)
@@ -671,7 +777,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const path = tab.uri.path.split('/').pop()
             if (path) {
-                actions.setLocalState(activeModelStateKey(props.key), path)
+                actions.setLocalState(activeModelStateKey(props.key), path)         
+                if (values.activeModelUri && values.sourceQuery?.source?.variables) {
+                    const currentPath = values.activeModelUri.uri.path.split('/').pop()
+                    if (currentPath) {
+                        actions.setLocalState(
+                            `${activeModelVariablesStateKey(props.key)}_${currentPath}`,
+                            JSON.stringify(values.sourceQuery.source.variables)
+                        )
+                    }
+                }
+                
                 actions.updateQueryTabState()
             }
 
@@ -756,19 +872,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             await setStorageItem(key, value)
         },
         initialize: async () => {
+           const migratedTabs = await performComprehensiveMigration(props.key)
             // TODO: replace with queryTabState
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
-            const storedAllTabs = await getStorageItem(allTabsStateKey(props.key))
             const storedInProgressViewEdits = await getStorageItem(inProgressViewEditsStateKey(props.key))
 
-            if (storedAllTabs) {
-                try {
-                    const parsedTabs = JSON.parse(storedAllTabs) as QueryTab[]
-                    actions.setTabs(parsedTabs)
-                } catch (error) {
-                    posthog.captureException(new Error('sql-editor-alltabs-parse-failure'), { error })
-                }
+            if (migratedTabs && migratedTabs.length > 0) {
+                actions.setTabs(migratedTabs)
             }
 
             if (storedInProgressViewEdits) {
@@ -777,7 +888,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         DataWarehouseSavedQuery['id'],
                         string
                     >
-                    // Restore inProgressViewEdits by setting each one
                     Object.entries(parsedEdits).forEach(([viewId, historyId]) => {
                         actions.setInProgressViewEdit(viewId, historyId)
                     })
@@ -801,6 +911,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
 
                 const models = JSON.parse(allModelQueries || '[]')
+
                 const newModels: QueryTab[] = []
 
                 models.forEach((model: Record<string, any>) => {
@@ -838,6 +949,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     const activeTab = newModels.find((tab) => tab.uri.path.split('/').pop() === activeModelUri)
+
                     const activeView = activeTab?.view
                     const activeInsight = activeTab?.insight
 
@@ -850,6 +962,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             sourceQuery: activeTab.sourceQuery,
                             response: activeTab.response,
                         })
+                    } else {
                     }
                 } else if (newModels.length) {
                     actions.selectTab({
@@ -908,14 +1021,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
-            const newSource = {
+            // Check if variables exist in the database by trying to create a simple query first
+            const variables = Object.fromEntries(
+                Object.entries(values.sourceQuery.source.variables ?? {}).filter(([_, variable]) =>
+                    query.includes(`{variables.${variable.code_name}}`)
+                )
+            )
+
+            // If we have variables but they might not exist in the database, try without variables first
+            let newSource = {
                 ...values.sourceQuery.source,
                 query,
-                variables: Object.fromEntries(
-                    Object.entries(values.sourceQuery.source.variables ?? {}).filter(([_, variable]) =>
-                        query.includes(`{variables.${variable.code_name}}`)
-                    )
-                ),
+                variables,
             }
 
             actions.setSourceQuery({
@@ -926,15 +1043,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.sourceQuery,
                 source: newSource,
             })
-            dataNodeLogic({
-                key: values.dataLogicKey,
-                query: newSource,
-            }).mount()
 
-            dataNodeLogic({
+            const dataNode = dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async')
+            })
+            dataNode.mount()
+
+            dataNode.actions.loadData(!switchTab ? 'force_async' : 'async')
         },
         saveAsView: async ({ materializeAfterSave = false }) => {
             LemonDialog.openForm({
@@ -1192,29 +1308,78 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
             }
         },
-        activeModelUri: (activeModelUri) => {
-            if (props.monaco) {
-                const _model = props.monaco.editor.getModel(activeModelUri.uri)
-                const val = _model?.getValue()
-                actions.setQueryInput(val ?? '')
-                if (activeModelUri.sourceQuery) {
-                    actions.setSourceQuery({
-                        ...activeModelUri.sourceQuery,
-                        source: {
-                            ...activeModelUri.sourceQuery.source,
-                            query: val ?? '',
-                        },
-                    })
-                } else {
-                    actions.setSourceQuery({
-                        kind: NodeKind.DataVisualizationNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: val ?? '',
-                        },
-                        display: ChartDisplayType.ActionsLineGraph,
+        activeModelUri: async (activeModelUri) => {
+            if (!activeModelUri || !props.monaco) {
+                return
+            }
+
+            const _model = props.monaco.editor.getModel(activeModelUri.uri)
+            const val = _model?.getValue()
+            actions.setQueryInput(val ?? '')
+
+            const path = activeModelUri.uri.path.split('/').pop()
+            let storedVariables = {}
+            if (path) {
+                const storedVariablesString = await getStorageItem(`${activeModelVariablesStateKey(props.key)}_${path}`)
+                if (storedVariablesString) {
+                    try {
+                        storedVariables = JSON.parse(storedVariablesString)
+                    } catch (error) {
+                        posthog.captureException(new Error('sql-editor-variables-parse-failure'), { error, key })
+                    }
+                }
+            }
+
+            // Fix stored variables to ensure they have proper UUIDs
+            const fixedStoredVariables: Record<string, any> = {}
+            Object.entries(storedVariables).forEach(([key, variable]) => {
+                if (variable && typeof variable === 'object') {
+                    const varObj = variable as any
+                    if (!varObj.variableId || typeof varObj.variableId !== 'string' || varObj.variableId.length !== 36) {
+                        fixedStoredVariables[key] = { ...varObj, variableId: crypto.randomUUID() }
+                    } else {
+                        fixedStoredVariables[key] = varObj
+                    }
+                }
+            })
+
+            // Extract variables from query if they exist
+            if (val && val.includes('{variables.')) {
+                const variableMatches = val.match(/\{variables\.([^}]+)\}/g)
+                if (variableMatches) {
+                    variableMatches.forEach((match) => {
+                        const codeName = match.replace('{variables.', '').replace('}', '')
+                        if (!fixedStoredVariables[codeName]) {
+                            fixedStoredVariables[codeName] = {
+                                variableId: crypto.randomUUID(),
+                                code_name: codeName,
+                                value: null,
+                                isNull: false,
+                            }
+                        }
                     })
                 }
+            }
+
+            if (activeModelUri.sourceQuery) {
+                actions.setSourceQuery({
+                    ...activeModelUri.sourceQuery,
+                    source: {
+                        ...activeModelUri.sourceQuery.source,
+                        query: val ?? '',
+                        variables: { ...activeModelUri.sourceQuery.source.variables, ...fixedStoredVariables },
+                    },
+                })
+            } else {
+                actions.setSourceQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: val ?? '',
+                        variables: fixedStoredVariables,
+                    },
+                    display: ChartDisplayType.ActionsLineGraph,
+                })
             }
         },
         allTabs: (allTabs: QueryTab[]) => {
