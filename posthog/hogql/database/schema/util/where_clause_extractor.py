@@ -379,6 +379,7 @@ class HasTombstoneVisitor(TraversingVisitor):
         if node.value == self.tombstone_string:
             self.has_tombstone = True
 
+
 def rewrite_timestamp_field(expr: ast.Expr, timestamp_field: ast.Expr, context: HogQLContext) -> ast.Expr:
     return RewriteTimestampFieldVisitor(context, timestamp_field).visit(expr)
 
