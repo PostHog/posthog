@@ -930,6 +930,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
+
+            actions.updateState()
         },
         saveAsView: async ({ materializeAfterSave = false }) => {
             LemonDialog.openForm({
@@ -1140,6 +1142,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     response,
                 })
             }
+            actions.updateState()
         },
         updateView: async ({ view }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
