@@ -27,11 +27,11 @@ from ee.hogai.session_summaries.session_group.patterns import (
 )
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
-    PatternsPrompt,
     SingleSessionSummaryLlmInputs,
 )
 from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
+    generate_session_group_patterns_combination_prompt,
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
@@ -421,17 +421,14 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
                 f"No chunk patterns could be retrieved for sessions {inputs.session_ids} "
                 f"for user {inputs.user_id}. All chunks may be missing or corrupted."
             )
-        # TODO: Create proper prompt for pattern combination
-        # For now, just merge all patterns from chunks (placeholder logic)
-        all_patterns = []
-        for chunk in chunk_patterns:
-            all_patterns.extend(chunk.patterns)
-        # Use LLM to intelligently combine and deduplicate patterns
-        # This is a placeholder - actual implementation will call the LLM
-        combined_patterns_prompt = PatternsPrompt(
-            patterns_prompt="Combine the following patterns...",  # TODO: proper prompt
-            system_prompt="You are an AI assistant that combines patterns...",  # TODO: proper prompt
+
+        # Generate prompt for combining patterns from chunks
+        combined_patterns_prompt = generate_session_group_patterns_combination_prompt(
+            patterns_chunks=chunk_patterns,
+            extra_summary_context=inputs.extra_summary_context,
         )
+
+        # Use LLM to intelligently combine and deduplicate patterns
         combined_patterns = await get_llm_session_group_patterns_combination(
             prompt=combined_patterns_prompt,
             user_id=inputs.user_id,

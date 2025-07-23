@@ -104,3 +104,35 @@ def generate_session_group_patterns_assignment_prompt(
         patterns_prompt=patterns_prompt,
         system_prompt=system_prompt,
     )
+
+
+def generate_session_group_patterns_combination_prompt(
+    patterns_chunks: list[RawSessionGroupSummaryPatternsList],
+    extra_summary_context: ExtraSummaryContext | None,
+) -> PatternsPrompt:
+    if extra_summary_context is None:
+        extra_summary_context = ExtraSummaryContext()
+
+    # Convert all pattern chunks to YAML format for the prompt
+    patterns_chunks_yaml = []
+    for chunk in patterns_chunks:
+        patterns_chunks_yaml.append(chunk.model_dump_json(exclude_none=True))
+    combined_patterns_chunks = "\n---\n".join(patterns_chunks_yaml)
+
+    # Render templates
+    template_dir = Path(__file__).parent / "templates" / "patterns_combining"
+    system_prompt = load_custom_template(template_dir, "system-prompt.djt")
+    patterns_example = load_custom_template(template_dir, "example.yml")
+    patterns_prompt = load_custom_template(
+        template_dir,
+        "prompt.djt",
+        {
+            "PATTERNS_CHUNKS": combined_patterns_chunks,
+            "PATTERNS_COMBINING_EXAMPLE": patterns_example,
+            "FOCUS_AREA": extra_summary_context.focus_area,
+        },
+    )
+    return PatternsPrompt(
+        patterns_prompt=patterns_prompt,
+        system_prompt=system_prompt,
+    )

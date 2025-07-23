@@ -13,7 +13,6 @@ from django.conf import settings
 from ee.hogai.session_summaries.constants import (
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
-    PATTERNS_EXTRACTION_MAX_TOKENS,
 )
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
 from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary
@@ -480,6 +479,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 session_ids=session_ids_with_patterns_extracted,
                 user_id=inputs.user_id,
                 redis_key_base=inputs.redis_key_base,
+                extra_summary_context=inputs.extra_summary_context,
             ),
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),

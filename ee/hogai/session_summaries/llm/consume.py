@@ -163,9 +163,22 @@ async def get_llm_session_group_patterns_combination(
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to combine patterns from multiple chunks."""
     sessions_identifier = ",".join(session_ids)
-    # TODO: Implement LLM logic to combine patterns from chunks
-    # For now, return empty patterns list as a placeholder
-    return RawSessionGroupSummaryPatternsList(patterns=[])
+    result = await call_llm(
+        input_prompt=prompt.patterns_prompt,
+        user_key=user_id,
+        session_id=sessions_identifier,
+        system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
+        trace_id=trace_id,
+    )
+    raw_content = _get_raw_content(result)
+    if not raw_content:
+        raise ValueError(
+            f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
+        )
+    patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+    return patterns
 
 
 async def get_llm_single_session_summary(

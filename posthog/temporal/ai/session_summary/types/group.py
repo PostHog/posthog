@@ -45,3 +45,4 @@ class SessionGroupSummaryPatternsExtractionChunksInputs:
     session_ids: list[str]
     user_id: int
     redis_key_base: str
+    extra_summary_context: ExtraSummaryContext | None = None
