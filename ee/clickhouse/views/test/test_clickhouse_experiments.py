@@ -2419,6 +2419,105 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_duplicate_experiment(self) -> None:
+        """Test that experiments can be duplicated with the same settings and metrics"""
+        ff_key = "duplicate-test-flag"
+
+        # Create original experiment
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "description": "Original description",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ]
+                },
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
+                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "stats_config": {"method": "bayesian"},
+                "exposure_criteria": {"filterTestAccounts": True},
+            },
+        )
+
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Duplicate the experiment
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+        duplicate_experiment = duplicate_response.json()
+
+        # Verify duplicate has correct properties
+        self.assertEqual(duplicate_experiment["name"], "Original Experiment (Copy)")
+        self.assertEqual(duplicate_experiment["description"], original_experiment["description"])
+        self.assertEqual(duplicate_experiment["type"], original_experiment["type"])
+        self.assertEqual(duplicate_experiment["parameters"], original_experiment["parameters"])
+        self.assertEqual(duplicate_experiment["filters"], original_experiment["filters"])
+        self.assertEqual(duplicate_experiment["metrics"], original_experiment["metrics"])
+        self.assertEqual(duplicate_experiment["metrics_secondary"], original_experiment["metrics_secondary"])
+        self.assertEqual(duplicate_experiment["stats_config"], original_experiment["stats_config"])
+        self.assertEqual(duplicate_experiment["exposure_criteria"], original_experiment["exposure_criteria"])
+
+        # Verify feature flag is reused
+        self.assertEqual(duplicate_experiment["feature_flag_key"], original_experiment["feature_flag_key"])
+
+        # Verify reset fields
+        self.assertIsNone(duplicate_experiment["start_date"])
+        self.assertIsNone(duplicate_experiment["end_date"])
+        self.assertFalse(duplicate_experiment["archived"])
+        self.assertFalse(duplicate_experiment["deleted"])
+
+        # Verify different IDs
+        self.assertNotEqual(duplicate_experiment["id"], original_experiment["id"])
+
+    def test_duplicate_experiment_name_conflict_resolution(self) -> None:
+        """Test that duplicate experiment names are handled with incremental suffixes"""
+        ff_key = "name-conflict-test-flag"
+
+        # Create original experiment
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Conflict Test",
+                "feature_flag_key": ff_key,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+            },
+        )
+
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Create first duplicate
+        first_duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(first_duplicate_response.status_code, status.HTTP_201_CREATED)
+        first_duplicate = first_duplicate_response.json()
+        self.assertEqual(first_duplicate["name"], "Conflict Test (Copy)")
+
+        # Create second duplicate to test name conflict resolution
+        second_duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(second_duplicate_response.status_code, status.HTTP_201_CREATED)
+        second_duplicate = second_duplicate_response.json()
+        self.assertEqual(second_duplicate["name"], "Conflict Test (Copy) 1")
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):

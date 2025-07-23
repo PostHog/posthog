@@ -546,6 +546,60 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         return Response({"result": warning})
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        # Generate a unique name for the duplicate
+        base_name = f"{source_experiment.name} (Copy)"
+        duplicate_name = base_name
+        counter = 1
+        while Experiment.objects.filter(team_id=self.team_id, name=duplicate_name, deleted=False).exists():
+            duplicate_name = f"{base_name} {counter}"
+            counter += 1
+
+        # Prepare saved metrics data for the serializer
+        saved_metrics_data = []
+        for experiment_to_saved_metric in source_experiment.experimenttosavedmetric_set.all():
+            saved_metrics_data.append(
+                {
+                    "id": experiment_to_saved_metric.saved_metric.id,
+                    "metadata": experiment_to_saved_metric.metadata,
+                }
+            )
+
+        # Prepare data for duplication
+        duplicate_data = {
+            "name": duplicate_name,
+            "description": source_experiment.description,
+            "type": source_experiment.type,
+            "parameters": source_experiment.parameters,
+            "filters": source_experiment.filters,
+            "metrics": source_experiment.metrics,
+            "metrics_secondary": source_experiment.metrics_secondary,
+            "stats_config": source_experiment.stats_config,
+            "exposure_criteria": source_experiment.exposure_criteria,
+            "saved_metrics_ids": saved_metrics_data,
+            "feature_flag_key": source_experiment.feature_flag.key,  # Reuse existing flag
+            # Reset fields for new experiment
+            "start_date": None,
+            "end_date": None,
+            "archived": False,
+            "deleted": False,
+        }
+
+        # Create the duplicate experiment using the serializer
+        duplicate_serializer = ExperimentSerializer(
+            data=duplicate_data,
+            context=self.get_serializer_context(),
+        )
+        duplicate_serializer.is_valid(raise_exception=True)
+        duplicate_experiment = duplicate_serializer.save()
+
+        return Response(
+            ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
+        )
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         flag = getattr(experiment, "feature_flag", None)
