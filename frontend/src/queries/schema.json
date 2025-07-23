@@ -21860,6 +21860,9 @@
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
+                "series": {
+                    "$ref": "#/definitions/integer"
+                },
                 "source": {
                     "$ref": "#/definitions/StickinessQuery"
                 },

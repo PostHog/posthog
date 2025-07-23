@@ -2577,6 +2577,7 @@ export interface StickinessActorsQuery extends InsightActorsQueryBase {
     source: StickinessQuery
     operator?: StickinessOperator
     day?: string | Day
+    series?: integer
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {

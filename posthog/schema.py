@@ -11935,6 +11935,7 @@ class StickinessActorsQuery(BaseModel):
     )
     operator: Optional[StickinessOperator] = None
     response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
     source: StickinessQuery
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
