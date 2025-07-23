@@ -156,7 +156,7 @@ import {
     UserType,
 } from '~/types'
 
-import { MaxBillingContext, MaxUIContext } from '../scenes/max/maxTypes'
+import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,
@@ -172,6 +172,7 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports

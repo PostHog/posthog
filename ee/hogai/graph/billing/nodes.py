@@ -55,7 +55,7 @@ class BillingNode(AssistantNode):
             "billing_plan": billing_context.billing_plan,
             "has_active_subscription": billing_context.has_active_subscription,
             "is_deactivated": billing_context.is_deactivated,
-            "organization_teams_count": len(self._teams_map.keys()),
+            "organization_teams_count": len(self._get_teams_map().keys()),
             "current_team_name": self._team.name,
             "current_team_id": self._team.id,
         }
@@ -80,17 +80,17 @@ class BillingNode(AssistantNode):
         if billing_context.total_current_amount_usd:
             template_data["total_current_amount_usd"] = billing_context.total_current_amount_usd
         if billing_context.projected_total_amount_usd:
-            template_data["projected_total_amount_usd"] = billing_context.projected_total_amount_usd
+            template_data["total_projected_amount_usd"] = billing_context.projected_total_amount_usd
         if billing_context.projected_total_amount_usd_after_discount:
-            template_data["projected_total_amount_usd_after_discount"] = (
+            template_data["total_projected_amount_usd_after_discount"] = (
                 billing_context.projected_total_amount_usd_after_discount
             )
         if billing_context.projected_total_amount_usd_with_limit:
-            template_data["projected_total_amount_usd_with_limit"] = (
+            template_data["total_projected_amount_usd_with_limit"] = (
                 billing_context.projected_total_amount_usd_with_limit
             )
         if billing_context.projected_total_amount_usd_with_limit_after_discount:
-            template_data["projected_total_amount_usd_with_limit_after_discount"] = (
+            template_data["total_projected_amount_usd_with_limit_after_discount"] = (
                 billing_context.projected_total_amount_usd_with_limit_after_discount
             )
 
@@ -111,23 +111,24 @@ class BillingNode(AssistantNode):
                     "docs_url": product.docs_url,
                     "projected_amount_usd": product.projected_amount_usd,
                     "projected_amount_usd_with_limit": product.projected_amount_usd_with_limit,
+                    "addons": [],
                 }
+                # Add a flag to check if this product has addons
+                if product.addons:
+                    product_data["has_addons"] = True
+                    product_data["product_name"] = product.name
+                for addon in product.addons:
+                    addon_data = {
+                        "name": addon.name,
+                        "type": addon.type,
+                        "description": addon.description,
+                        "current_usage": int(addon.current_usage) if addon.current_usage else None,
+                        "usage_limit": int(addon.usage_limit) if addon.usage_limit else None,
+                        "docs_url": addon.docs_url,
+                        "projected_amount_usd": addon.projected_amount_usd,
+                    }
+                    product_data["addons"].append(addon_data)
                 template_data["products"].append(product_data)
-
-        # Add addons information
-        if billing_context.addons:
-            template_data["addons"] = []
-            for addon in billing_context.addons:
-                addon_data = {
-                    "name": addon.name,
-                    "type": addon.type,
-                    "description": addon.description,
-                    "current_usage": int(addon.current_usage) if addon.current_usage else None,
-                    "usage_limit": int(addon.usage_limit) if addon.usage_limit else None,
-                    "docs_url": addon.docs_url,
-                    "projected_amount_usd": addon.projected_amount_usd,
-                }
-                template_data["addons"].append(addon_data)
 
         # Add trial information
         if billing_context.trial:
@@ -183,7 +184,7 @@ class BillingNode(AssistantNode):
             if item.breakdown_value and isinstance(item.breakdown_value, list):
                 # Search for team ID in any position of breakdown_value
                 for value in item.breakdown_value:
-                    if value in [str(team_id) for team_id in self._teams_map.keys()]:
+                    if value in [str(team_id) for team_id in self._get_teams_map().keys()]:
                         team_id_found = value
                         break
 
@@ -196,7 +197,7 @@ class BillingNode(AssistantNode):
 
         # Create tables for each team
         for team_id, items in team_items.items():
-            team_name = self._teams_map.get(int(team_id), f"Project ID: {team_id}")
+            team_name = self._get_teams_map().get(int(team_id), f"Project ID: {team_id}")
             table = self._format_single_team_table(items, team_name)
             tables.append(table)
 

@@ -9,6 +9,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     BillingPeriod,
     Interval,
+    MaxAddonInfo,
     MaxBillingContext,
     MaxProductInfo,
     Settings1,
@@ -43,7 +44,6 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             is_deactivated=False,
             settings=Settings1(autocapture_on=True, active_destinations=2),
             products=[],
-            addons=[],
         )
         with (
             patch.object(self.node, "_get_billing_context", return_value=billing_context),
@@ -78,9 +78,9 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                     percentage_usage=0.5,
                     has_exceeded_limit=False,
                     is_used=True,
+                    addons=[],
                 )
             ],
-            addons=[],
             trial=Trial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
             settings=Settings1(autocapture_on=True, active_destinations=2),
         )
@@ -149,3 +149,355 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             top_events = self.node._get_top_events_by_usage()
             self.assertEqual(top_events, [])
             mock_sync_execute.assert_called_once()
+
+    def test_format_billing_context_with_addons(self):
+        """Test that addons are properly nested within products in the formatted output"""
+        billing_context = MaxBillingContext(
+            subscription_level=SubscriptionLevel.PAID,
+            billing_plan="startup",
+            has_active_subscription=True,
+            is_deactivated=False,
+            startup_program_label="YC W21",
+            billing_period=BillingPeriod(
+                current_period_start="2023-01-01",
+                current_period_end="2023-01-31",
+                interval=Interval.MONTH,
+            ),
+            total_current_amount_usd="500.00",
+            projected_total_amount_usd="1000.00",
+            projected_total_amount_usd_after_discount="900.00",
+            projected_total_amount_usd_with_limit="800.00",
+            projected_total_amount_usd_with_limit_after_discount="700.00",
+            products=[
+                MaxProductInfo(
+                    name="Product Analytics",
+                    type="analytics",
+                    description="Track and analyze product metrics",
+                    current_usage=50000,
+                    usage_limit=100000,
+                    percentage_usage=0.5,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    custom_limit_usd=500.0,
+                    next_period_custom_limit_usd=600.0,
+                    projected_amount_usd="400.0",
+                    projected_amount_usd_with_limit="350.0",
+                    docs_url="https://posthog.com/docs/product-analytics",
+                    addons=[
+                        MaxAddonInfo(
+                            name="Group Analytics",
+                            type="addon",
+                            description="Analyze by groups",
+                            current_usage=1000.0,
+                            usage_limit=5000,
+                            has_exceeded_limit=False,
+                            is_used=True,
+                            percentage_usage=0.2,
+                            projected_amount_usd="50.0",
+                            docs_url="https://posthog.com/docs/group-analytics",
+                        ),
+                        MaxAddonInfo(
+                            name="Data Pipelines",
+                            type="addon",
+                            description="Export data to destinations",
+                            current_usage=2000.0,
+                            has_exceeded_limit=False,
+                            is_used=True,
+                            projected_amount_usd="100.0",
+                        ),
+                    ],
+                ),
+                MaxProductInfo(
+                    name="Session Replay",
+                    type="replay",
+                    description="Record and replay user sessions",
+                    current_usage=1000,
+                    usage_limit=5000,
+                    percentage_usage=0.2,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    addons=[],
+                ),
+            ],
+            trial=None,
+            settings=Settings1(autocapture_on=True, active_destinations=3),
+        )
+
+        with patch.object(
+            self.node,
+            "_get_top_events_by_usage",
+            return_value=[
+                {"event": "$pageview", "count": 50000, "formatted_count": "50,000"},
+                {"event": "$autocapture", "count": 30000, "formatted_count": "30,000"},
+            ],
+        ):
+            formatted_string = self.node._format_billing_context(billing_context)
+
+            # Check basic info
+            self.assertIn("paid subscription (startup)", formatted_string)
+            self.assertIn("Startup program: YC W21", formatted_string)
+
+            # Check billing period
+            self.assertIn("Period: 2023-01-01 to 2023-01-31", formatted_string)
+
+            # Check cost projections with corrected field names
+            self.assertIn("Current period cost: $500.00", formatted_string)
+            self.assertIn("Projected period cost: $1000.00", formatted_string)
+            self.assertIn("Projected period cost after discount: $900.00", formatted_string)
+            self.assertIn("Projected period cost with spending limit: $800.00", formatted_string)
+            self.assertIn("Projected period cost with spending limit after discount: $700.00", formatted_string)
+
+            # Check products
+            self.assertIn("### Product Analytics", formatted_string)
+            self.assertIn("Current usage: 50000 of 100000 limit", formatted_string)
+            self.assertIn("Custom spending limit: $500.0", formatted_string)
+            self.assertIn("Next period custom spending limit: $600.0", formatted_string)
+
+            # Check addons are nested within products
+            self.assertIn("#### Add-ons for Product Analytics", formatted_string)
+            self.assertIn("##### Group Analytics", formatted_string)
+            self.assertIn("Current usage: 1000 of 5000 limit", formatted_string)
+            self.assertIn("##### Data Pipelines", formatted_string)
+
+            # Check Session Replay exists but has no addons section
+            self.assertIn("### Session Replay", formatted_string)
+            # Since Session Replay has empty addons array, no add-ons section should appear
+            self.assertNotIn("#### Add-ons for Session Replay", formatted_string)
+
+            # Check top events
+            self.assertIn("$pageview", formatted_string)
+            self.assertIn("50,000 events", formatted_string)
+
+    def test_format_billing_context_no_subscription(self):
+        """Test formatting when user has no active subscription (free plan)"""
+        billing_context = MaxBillingContext(
+            subscription_level=SubscriptionLevel.FREE,
+            billing_plan=None,
+            has_active_subscription=False,
+            is_deactivated=False,
+            products=[],
+            settings=Settings1(autocapture_on=False, active_destinations=0),
+            trial=Trial(is_active=True, expires_at="2023-02-01", target="teams"),
+        )
+
+        with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
+            formatted_string = self.node._format_billing_context(billing_context)
+
+            self.assertIn("free subscription", formatted_string)
+            self.assertIn("Active subscription: No (Free plan)", formatted_string)
+            self.assertIn("Active trial", formatted_string)
+            self.assertIn("expires: 2023-02-01", formatted_string)
+
+    def test_format_history_table_with_team_breakdown(self):
+        """Test that history tables properly group by team when breakdown includes team IDs"""
+        # Mock the teams map
+        self.node._teams_map = {
+            1: "Team Alpha (ID: 1)",
+            2: "Team Beta (ID: 2)",
+        }
+
+        usage_history = [
+            UsageHistoryItem(
+                id=1,
+                label="event_count_in_period",
+                dates=["2023-01-01", "2023-01-02"],
+                data=[1000, 2000],
+                breakdown_type="team",
+                breakdown_value=["1"],  # Team ID 1
+            ),
+            UsageHistoryItem(
+                id=2,
+                label="recording_count_in_period",
+                dates=["2023-01-01", "2023-01-02"],
+                data=[100, 200],
+                breakdown_type="team",
+                breakdown_value=["1"],  # Team ID 1
+            ),
+            UsageHistoryItem(
+                id=3,
+                label="event_count_in_period",
+                dates=["2023-01-01", "2023-01-02"],
+                data=[500, 750],
+                breakdown_type="team",
+                breakdown_value=["2"],  # Team ID 2
+            ),
+            UsageHistoryItem(
+                id=4,
+                label="billable_feature_flag_requests_count_in_period",
+                dates=["2023-01-01", "2023-01-02"],
+                data=[50, 100],
+                breakdown_type=None,
+                breakdown_value=None,  # No team breakdown
+            ),
+        ]
+
+        table = self.node._format_history_table(usage_history)
+
+        # Check team-specific tables
+        self.assertIn("### Team Alpha (ID: 1)", table)
+        self.assertIn("### Team Beta (ID: 2)", table)
+        self.assertIn("### Overall (all projects)", table)
+
+        # Check data is properly grouped
+        self.assertIn("| Events | 1,000.00 | 2,000.00 |", table)
+        self.assertIn("| Recordings | 100.00 | 200.00 |", table)
+        self.assertIn("| Feature Flags | 50.00 | 100.00 |", table)
+
+    def test_format_billing_context_edge_cases(self):
+        """Test edge cases and potential security issues"""
+        billing_context = MaxBillingContext(
+            subscription_level=SubscriptionLevel.CUSTOM,
+            billing_plan="enterprise",
+            has_active_subscription=True,
+            is_deactivated=True,  # Deactivated account
+            startup_program_label=None,
+            startup_program_label_previous="YC W20",  # Previous program but no current
+            products=[
+                MaxProductInfo(
+                    name="Product <script>alert('xss')</script>",  # XSS attempt in name
+                    type="malicious",
+                    description="Desc with }} mustache {{injection",  # Mustache injection attempt
+                    current_usage=None,  # No usage
+                    usage_limit=None,  # No limit
+                    percentage_usage=1.5,  # Over 100%
+                    has_exceeded_limit=True,
+                    is_used=False,
+                    addons=[],
+                ),
+            ],
+            settings=Settings1(autocapture_on=True, active_destinations=0),
+        )
+
+        with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
+            formatted_string = self.node._format_billing_context(billing_context)
+
+            # Check deactivated status
+            self.assertIn("Status: Account is deactivated", formatted_string)
+
+            # Check previous startup program
+            self.assertIn("Previous startup program: YC W20", formatted_string)
+
+            # Check XSS attempts are properly escaped
+            self.assertIn("Product &lt;script&gt;alert('xss')&lt;/script&gt;", formatted_string)
+            self.assertIn("Desc with }} mustache {{injection", formatted_string)
+
+            # Check None values are handled - when current_usage is None, it shows empty
+            self.assertIn("Current usage:  (1.5% of limit)", formatted_string)
+
+            # Check exceeded limit warning
+            self.assertIn("⚠️ Usage limit exceeded", formatted_string)
+
+    def test_format_billing_context_complete_template_coverage(self):
+        """Test all possible template variables are covered"""
+        billing_context = MaxBillingContext(
+            subscription_level=SubscriptionLevel.PAID,
+            billing_plan="scale",
+            has_active_subscription=True,
+            is_deactivated=False,
+            startup_program_label="Techstars 2023",
+            startup_program_label_previous=None,
+            billing_period=BillingPeriod(
+                current_period_start="2023-01-01",
+                current_period_end="2023-01-31",
+                interval=Interval.YEAR,
+            ),
+            total_current_amount_usd="5000.00",
+            projected_total_amount_usd="10000.00",
+            projected_total_amount_usd_after_discount="9000.00",
+            projected_total_amount_usd_with_limit="8000.00",
+            projected_total_amount_usd_with_limit_after_discount="7200.00",
+            products=[
+                MaxProductInfo(
+                    name="Feature Flags",
+                    type="flags",
+                    description="Control feature rollouts",
+                    current_usage=100000,
+                    usage_limit=500000,
+                    percentage_usage=0.2,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    custom_limit_usd=1000.0,
+                    next_period_custom_limit_usd=1500.0,
+                    projected_amount_usd="800.0",
+                    projected_amount_usd_with_limit="750.0",
+                    docs_url="https://posthog.com/docs/feature-flags",
+                    addons=[
+                        MaxAddonInfo(
+                            name="Local Evaluation",
+                            type="addon",
+                            description="Evaluate flags locally",
+                            current_usage=50000.0,
+                            usage_limit=100000,
+                            has_exceeded_limit=False,
+                            is_used=True,
+                            percentage_usage=0.5,
+                            projected_amount_usd="200.0",
+                            docs_url="https://posthog.com/docs/feature-flags/local-evaluation",
+                        ),
+                    ],
+                ),
+            ],
+            trial=Trial(
+                is_active=False,
+                expires_at="2022-12-31",
+                target="enterprise",
+            ),
+            settings=Settings1(autocapture_on=True, active_destinations=5),
+            usage_history=[
+                UsageHistoryItem(
+                    id=1,
+                    label="event_count_in_period",
+                    dates=["2023-01-29", "2023-01-30", "2023-01-31"],
+                    data=[1000, 1500, 2000],
+                    breakdown_type="team",
+                    breakdown_value=["1"],
+                ),
+            ],
+            spend_history=[
+                SpendHistoryItem(
+                    id=1,
+                    label="event_count_in_period",
+                    dates=["2023-01-29", "2023-01-30", "2023-01-31"],
+                    data=[50.0, 75.0, 100.0],
+                    breakdown_type="team",
+                    breakdown_value=["1"],
+                ),
+            ],
+        )
+
+        # Mock teams map for history table
+        self.node._teams_map = {1: "Main Team (ID: 1)"}
+
+        with patch.object(
+            self.node,
+            "_get_top_events_by_usage",
+            return_value=[{"event": "$identify", "count": 10000, "formatted_count": "10,000"}],
+        ):
+            formatted_string = self.node._format_billing_context(billing_context)
+
+            # Verify all template sections are present
+            self.assertIn("<billing_context>", formatted_string)
+            self.assertIn("</billing_context>", formatted_string)
+            self.assertIn("<organization_billing_info>", formatted_string)
+            self.assertIn("</organization_billing_info>", formatted_string)
+            self.assertIn("<products_info>", formatted_string)
+            self.assertIn("</products_info>", formatted_string)
+            self.assertIn("<usage_history_table>", formatted_string)
+            self.assertIn("</usage_history_table>", formatted_string)
+            self.assertIn("<spend_history_table>", formatted_string)
+            self.assertIn("</spend_history_table>", formatted_string)
+            self.assertIn("<settings>", formatted_string)
+            self.assertIn("</settings>", formatted_string)
+            self.assertIn("<top_events_for_current_project>", formatted_string)
+            self.assertIn("</top_events_for_current_project>", formatted_string)
+            self.assertIn("<cost_reduction_strategies>", formatted_string)
+            self.assertIn("</cost_reduction_strategies>", formatted_string)
+            self.assertIn("<upselling>", formatted_string)
+            self.assertIn("</upselling>", formatted_string)
+
+            # Check yearly interval
+            self.assertIn("(yearly billing)", formatted_string)
+
+            # Check settings values
+            self.assertIn("Autocapture: True", formatted_string)
+            self.assertIn("Active destinations: 5", formatted_string)
