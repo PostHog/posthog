@@ -14,10 +14,10 @@ from .mongodb.source import MongoDBSource
 from .mssql.source import MSSQLSource
 from .mysql.source import MySQLSource
 from .redshift.source import RedshiftSource
-from .postgres import PostgresSource
+from .postgres.source import PostgresSource
 from .salesforce.source import SalesforceSource
 from .snowflake.source import SnowflakeSource
-from .stripe import StripeSource
+from .stripe.source import StripeSource
 from .temporalio.source import TemporalIOSource
 from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
