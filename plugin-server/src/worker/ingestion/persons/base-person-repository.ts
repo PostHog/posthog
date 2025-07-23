@@ -1,5 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { QueryResult } from 'pg'
 
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../config/kafka-topics'
 import { TopicMessage } from '../../../kafka/producer'
@@ -10,8 +11,11 @@ import {
     PropertiesLastUpdatedAt,
     RawPerson,
 } from '../../../types'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { moveDistinctIdsCountHistogram } from '../../../utils/db/metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue } from '../../../utils/db/utils'
+import { logger } from '../../../utils/logger'
 import { PersonRepository } from './person-repository'
 
 export class BasePersonRepository implements PersonRepository {
@@ -231,5 +235,82 @@ export class BasePersonRepository implements PersonRepository {
         ]
 
         return messages
+    }
+
+    async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult> {
+        let movedDistinctIdResult: QueryResult<any> | null = null
+        try {
+            movedDistinctIdResult = await this.postgres.query(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `
+                    UPDATE posthog_persondistinctid
+                    SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
+                    WHERE person_id = $2
+                      AND team_id = $3
+                    RETURNING *
+                `,
+                [target.id, source.id, target.team_id],
+                'updateDistinctIdPerson'
+            )
+        } catch (error) {
+            if (
+                (error as Error).message.includes(
+                    'insert or update on table "posthog_persondistinctid" violates foreign key constraint'
+                )
+            ) {
+                // this is caused by a race condition where the _target_ person was deleted after fetching but
+                // before the update query ran and will trigger a retry with updated persons
+                logger.warn('😵', 'Target person no longer exists', {
+                    team_id: target.team_id,
+                    person_id: target.id,
+                })
+                // Track 0 moved IDs for failed merges
+                moveDistinctIdsCountHistogram.observe(0)
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
+            }
+
+            throw error
+        }
+
+        // this is caused by a race condition where the _source_ person was deleted after fetching but
+        // before the update query ran and will trigger a retry with updated persons
+        if (movedDistinctIdResult.rows.length === 0) {
+            logger.warn('😵', 'Source person no longer exists', {
+                team_id: source.team_id,
+                person_id: source.id,
+            })
+            // Track 0 moved IDs for failed merges
+            moveDistinctIdsCountHistogram.observe(0)
+            return {
+                success: false,
+                error: 'SourceNotFound',
+            }
+        }
+
+        const kafkaMessages = []
+        for (const row of movedDistinctIdResult.rows) {
+            const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+            const version = Number(versionStr || 0)
+            kafkaMessages.push({
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
+                    },
+                ],
+            })
+        }
+
+        // Track the number of distinct IDs moved in this merge operation
+        moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
+
+        return { success: true, messages: kafkaMessages }
     }
 }

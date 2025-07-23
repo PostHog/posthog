@@ -428,6 +428,87 @@ describe('BasePersonRepository', () => {
             expect(messages).toHaveLength(0)
         })
     })
+
+    describe('moveDistinctIds()', () => {
+        it('should move distinct IDs from source to target person', async () => {
+            const team = await getFirstTeam(hub)
+            const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
+            const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
+
+            // Add another distinct ID to source person
+            await repository.addDistinctId(sourcePerson, 'source-distinct-id-2', 1)
+
+            const result = await repository.moveDistinctIds(sourcePerson, targetPerson)
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                expect(result.messages).toHaveLength(2) // Two distinct IDs moved
+
+                // Verify the messages have the correct structure
+                for (const message of result.messages) {
+                    expect(message.topic).toBe('clickhouse_person_distinct_id_test')
+                    expect(message.messages).toHaveLength(1)
+
+                    const messageValue = parseJSON(message.messages[0].value as string)
+                    expect(messageValue).toMatchObject({
+                        person_id: targetPerson.uuid,
+                        team_id: team.id,
+                        is_deleted: 0,
+                    })
+                    expect(messageValue).toHaveProperty('distinct_id')
+                    expect(messageValue).toHaveProperty('version')
+                }
+            }
+        })
+
+        it('should handle target person not found', async () => {
+            const team = await getFirstTeam(hub)
+            const sourcePerson = await createTestPerson(team.id, 'source-distinct-id', { name: 'Source Person' })
+            const nonExistentTargetPerson = {
+                id: '999999',
+                uuid: new UUIDT().toString(),
+                created_at: TIMESTAMP,
+                team_id: team.id,
+                properties: {},
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                is_user_id: null,
+                version: 0,
+                is_identified: false,
+            }
+
+            const result = await repository.moveDistinctIds(sourcePerson, nonExistentTargetPerson)
+
+            expect(result.success).toBe(false)
+            if (!result.success) {
+                expect(result.error).toBe('TargetNotFound')
+            }
+        })
+
+        it('should handle source person not found', async () => {
+            const team = await getFirstTeam(hub)
+            const targetPerson = await createTestPerson(team.id, 'target-distinct-id', { name: 'Target Person' })
+            const nonExistentSourcePerson = {
+                id: '888888',
+                uuid: new UUIDT().toString(),
+                created_at: TIMESTAMP,
+                team_id: team.id,
+                properties: {},
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                is_user_id: null,
+                version: 0,
+                is_identified: false,
+            }
+
+            const result = await repository.moveDistinctIds(nonExistentSourcePerson, targetPerson)
+
+            expect(result.success).toBe(false)
+            if (!result.success) {
+                expect(result.error).toBe('SourceNotFound')
+            }
+        })
+    })
 })
 
 // Helper function from the original test file

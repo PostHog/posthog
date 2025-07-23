@@ -93,6 +93,7 @@ describe('BatchWritingPersonStore', () => {
             createPerson: jest.fn().mockResolvedValue([person, []]),
             deletePerson: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
+            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
         }
         return mockRepo
     }
@@ -924,7 +925,9 @@ describe('BatchWritingPersonStore', () => {
 
     describe('moveDistinctIds', () => {
         it('should preserve cached merged properties when moving distinct IDs', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             // Create target person with some initial properties
             const targetPerson: InternalPerson = {
@@ -985,6 +988,9 @@ describe('BatchWritingPersonStore', () => {
             // Step 3: moveDistinctIds - this should preserve the merged cache
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+
             // Step 4: Verify that cached merged properties are preserved
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMove?.properties).toEqual({
@@ -1008,7 +1014,9 @@ describe('BatchWritingPersonStore', () => {
         })
 
         it('should create fresh cache when no existing cache exists', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             const targetPerson: InternalPerson = {
                 ...person,
@@ -1034,6 +1042,9 @@ describe('BatchWritingPersonStore', () => {
             // Move distinct IDs
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+
             // Should create fresh cache from target person
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMove?.properties).toEqual({
@@ -1044,7 +1055,9 @@ describe('BatchWritingPersonStore', () => {
         })
 
         it('should clear source person cache', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             const targetPerson: InternalPerson = {
                 ...person,
@@ -1073,12 +1086,17 @@ describe('BatchWritingPersonStore', () => {
             // Move distinct IDs
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+
             // Verify source cache is cleared
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
         })
 
         it('should handle complex merge scenario with multiple properties', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             const targetPerson: InternalPerson = {
                 ...person,
@@ -1137,6 +1155,9 @@ describe('BatchWritingPersonStore', () => {
 
             // Step 3: moveDistinctIds
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
 
             // Step 4: Verify all merged properties are preserved
             const finalCache = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
