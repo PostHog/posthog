@@ -366,7 +366,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                     "operator": "not_icontains",
                     "type": "person",
                 },
-                None,
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
             ],
             ###
             # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
@@ -410,8 +415,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 {
                     "control_success": 8,
                     "control_failure": 5,
-                    "test_success": 1,
-                    "test_failure": 13,
+                    "test_success": 6,
+                    "test_failure": 7,
                 },
             ],
         ]
@@ -475,22 +480,29 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 properties={"email": f"person_id_{i}@earlierevent.com"},
                 team_id=self.team.pk,
             )
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"person_id_{i}_distinct_id_1",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={
-                    "$feature_flag": feature_flag.key,
-                    feature_flag_property: "test",
-                    "$feature_flag_response": "test",
-                },
-            )
+            # Only create feature flag events for distinct_id_1 in modes that use person ID overrides
+            if "no_override" not in name:
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"person_id_{i}_distinct_id_1",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        "$feature_flag": feature_flag.key,
+                        feature_flag_property: "test",
+                        "$feature_flag_response": "test",
+                    },
+                )
 
             # Create the "later" person with email based on test scenario
-            if "laterevent" in name:
-                # For laterevent filter tests: most users get @laterevent.com (will be filtered out)
-                # Only one user gets different email (won't be filtered) - this creates 1 success, 12 failures
+            if "laterevent" in name and "properties_joined" in name:
+                # For JOINED mode with laterevent filter: all users get @otherevent.com to pass filter
+                email = f"person_id_{i}@otherevent.com"
+            elif "laterevent" in name and "no_override" in name:
+                # For NO_OVERRIDE mode with laterevent filter: all 13 users get @otherevent.com to pass filter
+                email = f"person_id_{i}@otherevent.com"
+            elif "laterevent" in name:
+                # For OVERRIDE mode with laterevent filter: only 1 user passes filter
                 email = f"person_id_{i}@otherevent.com" if i == 0 else f"person_id_{i}@laterevent.com"
             else:
                 # For other tests: use @laterevent.com consistently
@@ -514,9 +526,28 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             )
 
             # Create purchase events based on test scenario
-            if "laterevent" in name:
-                # For laterevent filter tests: only the first user (with @otherevent.com) should make a purchase
-                # This creates 1 success (not filtered) and 12 failures (filtered out)
+            if "laterevent" in name and "properties_joined" in name:
+                # For JOINED mode with laterevent filter: first 8 users make purchases (8 successes, 5 failures)
+                if i < 8:  # First 8 users make purchases, remaining 5 don't
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"person_id_{i}_distinct_id_2",
+                        timestamp="2020-01-02T12:02:00Z",
+                        properties={feature_flag_property: "test"},
+                    )
+            elif "laterevent" in name and "no_override" in name:
+                # For NO_OVERRIDE mode with laterevent filter: first 6 users make purchases (6 successes, 7 failures)
+                if i < 6:  # First 6 users make purchases, remaining 7 don't
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"person_id_{i}_distinct_id_2",
+                        timestamp="2020-01-02T12:02:00Z",
+                        properties={feature_flag_property: "test"},
+                    )
+            elif "laterevent" in name:
+                # For OVERRIDE mode with laterevent filter: only first user makes purchase (1 success)
                 if i == 0:  # Only user with @otherevent.com makes purchase
                     _create_event(
                         team=self.team,
