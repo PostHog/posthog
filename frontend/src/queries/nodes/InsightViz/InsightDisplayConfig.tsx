@@ -83,7 +83,8 @@ export function InsightDisplayConfig(): JSX.Element {
     const showMultipleYAxesConfig = isTrends || isStickiness
     const showAlertThresholdLinesConfig = isTrends
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
-    const showConfidenceIntervals = isLineGraph && !!trendsFilter?.showConfidenceIntervals
+    const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+    const showConfidenceIntervals = isLineGraph && !!trendsFilter?.showConfidenceIntervals && isLinearScale
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -148,6 +149,8 @@ export function InsightDisplayConfig(): JSX.Element {
                                       disabledReason={
                                           !isLineGraph
                                               ? 'Confidence intervals are only available for line graphs'
+                                              : !isLinearScale
+                                              ? 'Confidence intervals are only supported for linear scale.'
                                               : undefined
                                       }
                                       onChange={(checked) => {
