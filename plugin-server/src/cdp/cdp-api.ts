@@ -2,6 +2,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import express from 'express'
 import { DateTime } from 'luxon'
 
+import { ModifiedRequest } from '~/router'
+
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
@@ -478,7 +480,7 @@ export class CdpApi {
 
     private postMailjetWebhook =
         () =>
-        async (req: express.Request & { rawBody?: Buffer }, res: express.Response): Promise<any> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
                 const { status, message } = await this.emailService.handleWebhook(req)
                 return res.status(status).json({ message })
