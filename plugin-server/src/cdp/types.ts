@@ -412,27 +412,19 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'mapping_templates'> & {
-    actions: Record<
-        string,
-        {
-            perform: (
-                request: (
-                    url: string,
-                    options: {
-                        method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
-                        headers: Record<string, any>
-                        json?: any
-                        body?: string | URLSearchParams
-                        throwHttpErrors?: boolean
-                        searchParams?: Record<string, any>
-                    }
-                ) => Promise<Response>,
-                inputs: Record<string, any>
-            ) => Promise<any> | any
-        }
-    >
-    mapping_templates: (HogFunctionMappingTemplate & {
-        associated_action: string
-    })[]
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
+    perform: (
+        request: (
+            url: string,
+            options: {
+                method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
+                headers: Record<string, any>
+                json?: any
+                body?: string | URLSearchParams
+                throwHttpErrors?: boolean
+                searchParams?: Record<string, any>
+            }
+        ) => Promise<Response>,
+        inputs: Record<string, any>
+    ) => Promise<any> | any
 }

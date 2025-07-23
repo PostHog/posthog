@@ -18,7 +18,6 @@ describe(`${template.name} template`, () => {
 
     it('should handle a failing request', async () => {
         const inputs = generateTestData(template.id, template.inputs_schema)
-        const mappingInputs = generateTestData(template.id, template.mapping_templates[0].inputs_schema ?? [])
 
         tester.mockFetchResponse({
             status: 400,
@@ -26,18 +25,13 @@ describe(`${template.name} template`, () => {
             headers: { 'content-type': 'application/json' },
         })
 
-        const response = await tester.invokeMapping(
-            template.mapping_templates[0].name,
-            SAMPLE_GLOBALS,
-            { ...inputs, debug_mode: true },
-            mappingInputs
-        )
+        const response = await tester.invoke(SAMPLE_GLOBALS, { ...inputs, debug_mode: true })
 
         expect(response.logs).toMatchInlineSnapshot(`
             [
               {
                 "level": "debug",
-                "message": "config, {"debug_mode":true,"apiKey":"0wayUUN$Z5","url":"http://jaj.mu/iroti","method":"POST","body":{"event":"test","person":"person-id"},"internal_associated_mapping":"send"}",
+                "message": "config, {"method":"POST","body":{"event":{"uuid":"uuid","event":"test","distinct_id":"distinct_id","properties":{"email":"test@posthog.com"},"timestamp":"","elements_chain":"","url":""},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"headers":{"Content-Type":"application/json"},"debug":false,"debug_mode":true,"url":"http://jaj.mu/iroti"}",
                 "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {
@@ -47,12 +41,12 @@ describe(`${template.name} template`, () => {
               },
               {
                 "level": "debug",
-                "message": "options, {"method":"POST","headers":{"Content-Type":"application/json"},"json":{"event":"test","person":"person-id"}}",
+                "message": "options, {"method":"POST","headers":{"Content-Type":"application/json"},"json":{"event":{"uuid":"uuid","event":"test","distinct_id":"distinct_id","properties":{"email":"test@posthog.com"},"timestamp":"","elements_chain":"","url":""},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}}",
                 "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {
                 "level": "debug",
-                "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json"},"body":"{\\"event\\":\\"test\\",\\"person\\":\\"person-id\\"}"}",
+                "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json"},"body":"{\\"event\\":{\\"uuid\\":\\"uuid\\",\\"event\\":\\"test\\",\\"distinct_id\\":\\"distinct_id\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\"},\\"timestamp\\":\\"\\",\\"elements_chain\\":\\"\\",\\"url\\":\\"\\"},\\"person\\":{\\"id\\":\\"person-id\\",\\"name\\":\\"person-name\\",\\"properties\\":{\\"email\\":\\"example@posthog.com\\"},\\"url\\":\\"https://us.posthog.com/projects/1/persons/1234\\"}}"}",
                 "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {

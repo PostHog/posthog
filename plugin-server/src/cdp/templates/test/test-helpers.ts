@@ -328,53 +328,11 @@ export class DestinationTester {
         jest.useRealTimers()
     }
 
-    async invokeMapping(
-        mapping_name: string,
-        globals: HogFunctionInvocationGlobals,
-        inputs: Record<string, any>,
-        mapping_inputs: Record<string, any>
-    ) {
-        if (!this.template.mapping_templates) {
-            throw new Error('No mapping templates found')
-        }
-
+    async invoke(globals: HogFunctionInvocationGlobals, inputs: Record<string, any>) {
         const compiledInputs = await compileInputs(this.template, inputs)
-
-        const compiledMappingInputs = {
-            ...this.template.mapping_templates.find((mapping) => mapping.name === mapping_name),
-            inputs: mapping_inputs,
-        }
-
-        if (!compiledMappingInputs.inputs_schema) {
-            throw new Error('No inputs schema found for mapping')
-        }
-
-        const processedInputs = await Promise.all(
-            compiledMappingInputs.inputs_schema
-                .filter((input) => mapping_inputs?.[input.key] !== undefined || typeof input.default !== 'undefined')
-                .map(async (input) => {
-                    const value = mapping_inputs?.[input.key] ?? input.default
-                    return {
-                        key: input.key,
-                        value,
-                        bytecode: await compileObject(value),
-                    }
-                })
-        )
-
-        const inputsObj = processedInputs.reduce((acc, item) => {
-            acc[item.key] = {
-                value: item.value,
-                bytecode: item.bytecode,
-            }
-            return acc
-        }, {} as Record<string, CyclotronInputType>)
-
-        compiledMappingInputs.inputs = inputsObj
 
         const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(globals), {
             ...compiledInputs,
-            ...compiledMappingInputs.inputs,
         })
         const invocation = createInvocation(globalsWithInputs, {
             ...this.template,
@@ -387,7 +345,6 @@ export class DestinationTester {
             updated_at: '2024-01-01T00:00:00Z',
             deleted: false,
             inputs: compiledInputs,
-            mappings: [compiledMappingInputs],
             is_addon_required: false,
         })
 

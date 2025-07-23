@@ -61,22 +61,6 @@ export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [posthogTemplate, nativeWe
             default: false,
         },
     ],
-    mapping_templates: plugin.mapping_templates.map((mapping) => ({
-        ...mapping,
-        inputs_schema: [
-            ...(mapping.inputs_schema || []),
-            {
-                key: 'internal_associated_mapping',
-                label: 'Associated Mapping',
-                hidden: true,
-                type: 'string',
-                default: mapping.associated_action,
-                description: 'The associated mapping to use',
-                required: true,
-                secret: false,
-            },
-        ],
-    })),
 }))
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
