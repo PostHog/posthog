@@ -20,7 +20,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             "products.data_warehouse.backend.max_tools.HogQLGeneratorTool._model",
             return_value={"query": "SELECT AVG(properties.$session_length) FROM events"},
         ):
-            tool = HogQLGeneratorTool(AssistantState(messages=[]))
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
