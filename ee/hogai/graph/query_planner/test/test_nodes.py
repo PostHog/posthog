@@ -181,10 +181,6 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Final Question", final_msg.prompt.template)
 
 
-# Removed all the tests testing the old format_events_prompt function as it is no longer in the query planner node
-# as it is now handled in the utils.helpers.format_events_prompt function
-
-
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
