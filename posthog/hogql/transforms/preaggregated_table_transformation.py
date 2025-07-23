@@ -243,8 +243,8 @@ def _get_supported_field(field: ast.Field) -> tuple[str, ast.Field] | None:
             return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle team_id and events.team_id
-    elif (
-        len(field.chain) == 1 and field.chain[0] == "team_id" or (len(field.chain) == 2 and field.chain[1] == "team_id")
+    elif (len(field.chain) == 1 and field.chain[0] == "team_id") or (
+        len(field.chain) == 2 and field.chain[1] == "team_id"
     ):
         return ("team_id", ast.Field(chain=["team_id"]))
 
