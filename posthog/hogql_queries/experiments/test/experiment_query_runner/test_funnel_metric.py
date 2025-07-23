@@ -632,119 +632,70 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User completes both steps within default conversion window (experiment duration)
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-08T11:00:00",  # Within default conversion window (experiment duration)
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User completes first step but second step is outside conversion window
-                "user_control_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-16T14:00:00",  # Outside default conversion window (experiment duration)
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # Test variant: completes both steps within window
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-08T12:30:00",  # Within default conversion window (experiment duration)
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # Test variant: completes first step but second step outside window
-                "user_test_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T13:00:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-16T15:00:00",  # Outside default conversion window (experiment duration)
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Create test data with sufficient sample sizes - tests conversion window functionality
+        # Control: 8 successes (within window), 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T13:00:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete funnel within window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-08T11:00:00Z",  # Within conversion window
+                    properties={ff_property: "control"},
+                )
+
+        # Test: 6 successes (within window), 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T13:00:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete funnel within window
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-08T12:30:00Z",  # Within conversion window
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -778,10 +729,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Only events within the conversion window should be counted as successes
-        self.assertEqual(control_variant.sum, 1)  # success_count
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 1)  # failure_count
-        self.assertEqual(test_variant.sum, 1)  # success_count
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)  # failure_count
+        self.assertEqual(control_variant.sum, 8)  # success_count
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # failure_count
+        self.assertEqual(test_variant.sum, 6)  # success_count
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # failure_count
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -947,143 +898,69 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User with first step only
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with first and second step completed
-                "user_control_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with second step only
-                "user_control_3": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with only first step completed
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # User with whole funnel completed
-                "user_test_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # User with only feature flag and purchase, no pageview. Should be excluded.
-                "user_test_3": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -1117,10 +994,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 1)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 2)
-        self.assertEqual(test_variant.sum, 1)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 2)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1132,178 +1009,66 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User with two pageviews and second step completed, should be included.
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:05:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:06:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with all duplicated events, should be included.
-                "user_control_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:00:30",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:03:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:04:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:05:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:06:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with wrong order completed. Should be excluded.
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # User with duplicate events in wrong order. Should be excluded.
-                "user_test_3": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:03:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:04:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Create test data with sufficient sample sizes for statistics
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -1337,10 +1102,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 2)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 2)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1348,147 +1113,69 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User with events out of order but with complete funnel. Should be included.
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:03:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with events out of order but complete funnel. Should be included.
-                "user_control_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:03:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:04:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with wrong order completed. Should be excluded.
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # User with experiment exposure after completing the funnel. Should be excluded.
-                "user_test_2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:00:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-03T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-03T12:03:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -1522,10 +1209,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 2)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 2)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1533,88 +1220,62 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User with first step only
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "add to cart",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "checkout started",
-                        "timestamp": "2024-01-02T12:03:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "checkout completed",
-                        "timestamp": "2024-01-02T12:04:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "survey submitted",
-                        "timestamp": "2024-01-02T12:05:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "referral",
-                        "timestamp": "2024-01-02T12:06:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with only first step completed
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Event sequence for the 6-step funnel
+        events = ["$pageview", "add to cart", "checkout started", "checkout completed", "survey submitted", "referral"]
+
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create all 6 steps for successful users (first 8), only partial steps for failures
+            steps_to_complete = len(events) if i < 8 else min(3, len(events))  # Failures complete only first 3 steps
+            for step_idx, event in enumerate(events[:steps_to_complete]):
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id=f"user_control_{i}",
+                    timestamp=f"2024-01-02T12:0{step_idx + 1}:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create all 6 steps for successful users (first 6), only partial steps for failures
+            steps_to_complete = len(events) if i < 6 else min(2, len(events))  # Failures complete only first 2 steps
+            for step_idx, event in enumerate(events[:steps_to_complete]):
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id=f"user_test_{i}",
+                    timestamp=f"2024-01-02T12:0{step_idx + 1}:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -1649,10 +1310,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 1)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1660,63 +1321,73 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User with complete funnel, should be included.
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                            "wizard_step": "step_1",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                            "wizard_step": "step_2",
-                        },
-                    },
-                ],
-                # User with incomplete funnel. Should be excluded.
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                            "wizard_step": "step_1",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # First step: $pageview with wizard_step=step_1
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control", "wizard_step": "step_1"},
+            )
+            if i < 8:  # First 8 users complete the funnel
+                # Second step: $pageview with wizard_step=step_2
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control", "wizard_step": "step_2"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # First step: $pageview with wizard_step=step_1
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test", "wizard_step": "step_1"},
+            )
+            if i < 6:  # First 6 users complete the funnel
+                # Second step: $pageview with wizard_step=step_2
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test", "wizard_step": "step_2"},
+                )
 
         flush_persons_and_events()
 
@@ -1764,10 +1435,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 1)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1775,74 +1446,107 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User with complete funnel, should be included.
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-03T12:05:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:06:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User with only a single purchase. Should be excluded.
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # First step: $pageview
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete the full 3-step funnel
+                # Second step: first purchase
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+                # Third step: second purchase
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:03:00Z",
+                    properties={ff_property: "control"},
+                )
+            else:
+                # Failures only get first purchase (not second)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # First step: $pageview
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete the full 3-step funnel
+                # Second step: first purchase
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
+                # Third step: second purchase
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:03:00Z",
+                    properties={ff_property: "test"},
+                )
+            else:
+                # Failures only get first purchase (not second)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -1874,10 +1578,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        self.assertEqual(control_variant.sum, 1)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1885,126 +1589,71 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data using journeys
-        journeys_for(
-            {
-                # User completes steps in reverse order - should succeed with unordered funnel
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User completes steps in mixed order - should succeed with unordered funnel
-                "user_control_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "add_to_cart",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:03:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # User completes only first step - should fail
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-                # User completes steps out of order - should succeed with unordered funnel
-                "user_test_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "add_to_cart",
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2024-01-02T12:03:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Control group: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create both $pageview and purchase events (order doesn't matter for unordered funnel)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control"},
+            )
+            if i < 8:  # First 8 users complete the funnel (have both events)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "control"},
+                )
+
+        # Test group: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create both $pageview and purchase events (order doesn't matter for unordered funnel)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test"},
+            )
+            if i < 6:  # First 6 users complete the funnel (have both events)
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={ff_property: "test"},
+                )
 
         flush_persons_and_events()
 
@@ -2037,13 +1686,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
         assert test_variant is not None
 
-        # With unordered 2-step funnel ($pageview + purchase), both control users should succeed
-        # (completed both steps in any order) and test user 2 should succeed (completed both steps),
-        # test user 1 should fail (only has $pageview, missing purchase)
-        self.assertEqual(control_variant.sum, 2)
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 0)
-        self.assertEqual(test_variant.sum, 1)
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 1)
+        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
+        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -2052,67 +1698,73 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
-        # Create test data where events occur in reverse order
-        journeys_for(
-            {
-                # Control user completes steps in reverse order
-                "user_control_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "control",
-                            ff_property: "control",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",  # step 2 happens first
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                    {
-                        "event": "$pageview",  # step 1 happens second
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "control",
-                        },
-                    },
-                ],
-                # Test user completes steps in reverse order
-                "user_test_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2024-01-02T12:00:00",
-                        "properties": {
-                            "$feature_flag_response": "test",
-                            ff_property: "test",
-                            "$feature_flag": feature_flag.key,
-                        },
-                    },
-                    {
-                        "event": "purchase",  # step 2 happens first
-                        "timestamp": "2024-01-02T12:01:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                    {
-                        "event": "$pageview",  # step 1 happens second
-                        "timestamp": "2024-01-02T12:02:00",
-                        "properties": {
-                            ff_property: "test",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
+        # Create test data with events in reverse order (purchase before pageview)
+        # For ordered funnel: this should fail (0 successes)
+        # For unordered funnel: this should succeed
+
+        # Control group: create events in reverse order
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    ff_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create events in REVERSE order: purchase first, then pageview
+            _create_event(
+                team=self.team,
+                event="purchase",  # Wrong order for ordered funnel
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "control"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",  # Should come first for ordered funnel
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:02:00Z",
+                properties={ff_property: "control"},
+            )
+
+        # Test group: create events in reverse order
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    ff_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create events in REVERSE order: purchase first, then pageview
+            _create_event(
+                team=self.team,
+                event="purchase",  # Wrong order for ordered funnel
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={ff_property: "test"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",  # Should come first for ordered funnel
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:02:00Z",
+                properties={ff_property: "test"},
+            )
 
         flush_persons_and_events()
 
@@ -2170,13 +1822,13 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         assert unordered_test is not None
 
         # Ordered should fail (0 success) because events are out of order
-        self.assertEqual(ordered_control.sum, 0)
-        self.assertEqual(ordered_control.number_of_samples - ordered_control.sum, 1)
-        self.assertEqual(ordered_test.sum, 0)
-        self.assertEqual(ordered_test.number_of_samples - ordered_test.sum, 1)
+        self.assertEqual(ordered_control.sum, 0)  # No successes due to wrong order
+        self.assertEqual(ordered_control.number_of_samples - ordered_control.sum, 13)  # All 13 are failures
+        self.assertEqual(ordered_test.sum, 0)  # No successes due to wrong order
+        self.assertEqual(ordered_test.number_of_samples - ordered_test.sum, 13)  # All 13 are failures
 
-        # Unordered should succeed (1 success) because order doesn't matter
-        self.assertEqual(unordered_control.sum, 1)
-        self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 0)
-        self.assertEqual(unordered_test.sum, 1)
-        self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 0)
+        # Unordered should succeed because order doesn't matter - all users have both events
+        self.assertEqual(unordered_control.sum, 13)  # All 13 successes (both events present)
+        self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 0)  # No failures
+        self.assertEqual(unordered_test.sum, 13)  # All 13 successes (both events present)
+        self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 0)  # No failures
