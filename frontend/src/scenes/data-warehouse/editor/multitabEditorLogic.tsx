@@ -65,6 +65,10 @@ export const deprecatedAllTabsStateKey = (key: string | number): string =>
     `data-warehouse.editor.multitabEditorLogic.${key}.allTabs`
 export const allTabsStateKey = (key: string | number): string => `${key}/allTabs`
 
+export const deprecatedInProgressViewEditStateKey = (key: string | number): string =>
+    `data-warehouse.editor.multitabEditorLogic.${key}.inProgressViewEdits`
+export const inProgressViewEditStateKey = (key: string | number): string => `${key}/inProgressViewEdits`
+
 export const NEW_QUERY = 'Untitled'
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
@@ -225,6 +229,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         openHistoryModal: true,
         closeHistoryModal: true,
         setInProgressViewEdit: (viewId: string, historyId: string) => ({ viewId, historyId }),
+        setInProgressViewEdits: (inProgressViewEdits: Record<DataWarehouseSavedQuery['id'], string>) => ({
+            inProgressViewEdits,
+        }),
         deleteInProgressViewEdit: (viewId: string) => ({ viewId }),
         updateView: (
             view: Partial<DatabaseSchemaViewTable> & {
@@ -394,7 +401,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         // if a view edit starts, store the historyId in the state
         inProgressViewEdits: [
             {} as Record<DataWarehouseSavedQuery['id'], string>,
-            { persist: true },
             {
                 setInProgressViewEdit: (state, { viewId, historyId }) => ({
                     ...state,
@@ -405,6 +411,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     delete newInProgressViewEdits[viewId]
                     return newInProgressViewEdits
                 },
+                setInProgressViewEdits: (_, { inProgressViewEdits }) => inProgressViewEdits,
             },
         ],
         fixErrorsError: [
@@ -754,8 +761,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
             const allTabs = await getStorageItem(deprecatedAllTabsStateKey(props.key), allTabsStateKey(props.key))
+            const inProgressViewEdit = await getStorageItem(
+                deprecatedInProgressViewEditStateKey(props.key),
+                inProgressViewEditStateKey(props.key)
+            )
 
             const allTabsParsed = allTabs ? JSON.parse(allTabs) : []
+            const inProgressViewEditParsed = inProgressViewEdit ? JSON.parse(inProgressViewEdit) : {}
+            actions.setInProgressViewEdits(inProgressViewEditParsed)
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -875,6 +888,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
             actions.updateQueryTabState(skipBreakpoint)
+
+            actions.setLocalState(allTabsStateKey(props.key), JSON.stringify(values.allTabs))
+            actions.setLocalState(inProgressViewEditStateKey(props.key), JSON.stringify(values.inProgressViewEdits))
         },
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
