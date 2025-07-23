@@ -875,10 +875,8 @@ def background_delete_model_task(
         app_label, model_label = model_name.split(".")
         model = apps.get_model(app_label, model_label)
 
-        # Determine team field name and validate it's safe for SQL
+        # Determine team field name
         team_field = "team_id" if hasattr(model, "team_id") else "team"
-        if team_field not in ["team_id", "team"]:
-            raise ValueError(f"Unsafe team field: {team_field}")
 
         # Get total count for logging - use raw SQL for better performance
         with connection.cursor() as cursor:
