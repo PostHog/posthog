@@ -625,10 +625,9 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "id": StringDatabaseField(name="id"),
         "object": StringDatabaseField(name="object"),
         "amount": IntegerDatabaseField(name="amount"),
-        "currency": StringDatabaseField(name="currency"),
-        "customer_id": StringDatabaseField(name="customer"),
+        "created": IntegerDatabaseField(name="date"),
         "__date": IntegerDatabaseField(name="date", hidden=True),
-        "date": ast.ExpressionField(
+        "created_at": ast.ExpressionField(
             isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
@@ -639,7 +638,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
                     )
                 ],
             ),
-            name="date",
+            name="created_at",
         ),
         "description": StringDatabaseField(name="description"),
         "discountable": BooleanDatabaseField(name="discountable"),
