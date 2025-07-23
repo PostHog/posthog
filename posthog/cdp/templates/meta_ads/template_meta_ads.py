@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send conversion events to Meta Ads",
     icon_url="/static/services/meta-ads.png",
     category=["Advertisement"],
+    code_language="hog",
     hog="""
 let body := {
     'data': [

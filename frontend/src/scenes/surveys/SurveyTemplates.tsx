@@ -13,7 +13,6 @@ import { Survey } from '~/types'
 import { defaultSurveyAppearance, defaultSurveyTemplates, errorTrackingSurvey } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -27,9 +26,8 @@ export function SurveyTemplates(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
-    const { surveysEventsAvailable } = useValues(surveysLogic)
 
-    const templates = surveysEventsAvailable ? [...defaultSurveyTemplates, errorTrackingSurvey] : defaultSurveyTemplates
+    const templates = [...defaultSurveyTemplates, errorTrackingSurvey]
 
     return (
         <>

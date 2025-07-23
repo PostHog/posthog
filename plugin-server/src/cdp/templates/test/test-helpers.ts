@@ -9,7 +9,8 @@ import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
+import { HogExecutorService } from '../../services/hog-executor.service'
+import { HogInputsService } from '../../services/hog-inputs.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -152,8 +153,6 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.hog),
         }
 
-        this.mockHub = { mmdb: undefined } as any
-
         this.executor = new HogExecutorService(this.mockHub)
     }
 
@@ -185,7 +184,7 @@ export class TemplateTester {
             deleted: false,
         }
 
-        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
@@ -244,11 +243,7 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(_globals), {
-            ...compiledInputs,
-            ...compiledMappingInputs.inputs,
-        })
-        const invocation = createInvocation(globalsWithInputs, {
+        const hogFunction: HogFunctionType = {
             ...this.template,
             team_id: 1,
             enabled: true,
@@ -258,7 +253,15 @@ export class TemplateTester {
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
             is_addon_required: false,
-        })
+        }
+
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(
+            hogFunction,
+            this.createGlobals(_globals),
+            compiledMappingInputs.inputs
+        )
+
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         return this.executor.execute(invocation)
     }
@@ -280,11 +283,13 @@ export class TemplateTester {
 
 export class DestinationTester {
     private executor: NativeDestinationExecutorService
+    private inputsService: HogInputsService
     private mockFetch = jest.fn()
 
     constructor(private template: NativeTemplate) {
         this.template = template
         this.executor = new NativeDestinationExecutorService({} as any)
+        this.inputsService = new HogInputsService({} as any)
 
         this.executor.fetch = this.mockFetch
 
@@ -328,54 +333,16 @@ export class DestinationTester {
         jest.useRealTimers()
     }
 
-    async invokeMapping(
-        mapping_name: string,
-        globals: HogFunctionInvocationGlobals,
-        inputs: Record<string, any>,
-        mapping_inputs: Record<string, any>
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        if (!this.template.mapping_templates) {
-            throw new Error('No mapping templates found')
-        }
-
+    async invoke(globals: HogFunctionInvocationGlobals, inputs: Record<string, any>) {
         const compiledInputs = await compileInputs(this.template, inputs)
 
-        const compiledMappingInputs = {
-            ...this.template.mapping_templates.find((mapping) => mapping.name === mapping_name),
-            inputs: mapping_inputs,
-        }
-
-        if (!compiledMappingInputs.inputs_schema) {
-            throw new Error('No inputs schema found for mapping')
-        }
-
-        const processedInputs = await Promise.all(
-            compiledMappingInputs.inputs_schema
-                .filter((input) => mapping_inputs?.[input.key] !== undefined || typeof input.default !== 'undefined')
-                .map(async (input) => {
-                    const value = mapping_inputs?.[input.key] ?? input.default
-                    return {
-                        key: input.key,
-                        value,
-                        bytecode: await compileObject(value),
-                    }
-                })
+        const globalsWithInputs = await this.inputsService.buildInputsWithGlobals(
+            {
+                ...this.template,
+                inputs: compiledInputs,
+            } as unknown as HogFunctionType,
+            this.createGlobals(globals)
         )
-
-        const inputsObj = processedInputs.reduce((acc, item) => {
-            acc[item.key] = {
-                value: item.value,
-                bytecode: item.bytecode,
-            }
-            return acc
-        }, {} as Record<string, CyclotronInputType>)
-
-        compiledMappingInputs.inputs = inputsObj
-
-        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(globals), {
-            ...compiledInputs,
-            ...compiledMappingInputs.inputs,
-        })
         const invocation = createInvocation(globalsWithInputs, {
             ...this.template,
             template_id: this.template.id,
@@ -387,7 +354,6 @@ export class DestinationTester {
             updated_at: '2024-01-01T00:00:00Z',
             deleted: false,
             inputs: compiledInputs,
-            mappings: [compiledMappingInputs],
             is_addon_required: false,
         })
 

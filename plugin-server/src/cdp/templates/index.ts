@@ -6,7 +6,6 @@ import { template as devCenterTemplate } from './_destinations/dev-center/dev-ce
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as nativeWebhookTemplate } from './_destinations/native-webhook/webhook.template'
-import { template as posthogTemplate } from './_destinations/posthog/posthog.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
@@ -49,38 +48,21 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [posthogTemplate, nativeWebhookTemplate, devCenterTemplate].map(
-    (plugin) => ({
-        ...plugin,
-        hog: 'return event;',
-        inputs_schema: [
-            ...plugin.inputs_schema,
-            {
-                key: 'debug_mode',
-                label: 'Debug Mode',
-                type: 'boolean',
-                description: 'Will log configuration and request details',
-                default: false,
-            },
-        ],
-        mapping_templates: plugin.mapping_templates.map((mapping) => ({
-            ...mapping,
-            inputs_schema: [
-                ...(mapping.inputs_schema || []),
-                {
-                    key: 'internal_associated_mapping',
-                    label: 'Associated Mapping',
-                    hidden: true,
-                    type: 'string',
-                    default: mapping.associated_action,
-                    description: 'The associated mapping to use',
-                    required: true,
-                    secret: false,
-                },
-            ],
-        })),
-    })
-)
+export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhookTemplate].map((plugin) => ({
+    ...plugin,
+    code_language: 'javascript',
+    hog: 'return event;',
+    inputs_schema: [
+        ...plugin.inputs_schema,
+        {
+            key: 'debug_mode',
+            label: 'Debug Mode',
+            type: 'boolean',
+            description: 'Will log configuration and request details',
+            default: false,
+        },
+    ],
+}))
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 

@@ -15,25 +15,13 @@ for (const template of NATIVE_HOG_FUNCTIONS) {
             testDestination.afterEach()
         })
 
-        for (const mapping of template.mapping_templates) {
-            it.each(['required fields', 'all fields'])(`${mapping.name} mapping - %s`, async (required) => {
-                const seedName = `${template.id}#${mapping.name}`
-                const inputs = generateTestData(seedName, template.inputs_schema, required === 'required fields')
-                const mappingInputs = generateTestData(
-                    seedName,
-                    mapping.inputs_schema ?? [],
-                    required === 'required fields'
-                )
+        it.each(['required fields', 'all fields'])(`%s`, async (required) => {
+            const seedName = template.id
+            const inputs = generateTestData(seedName, template.inputs_schema, required === 'required fields')
 
-                const responses = await testDestination.invokeMapping(
-                    mapping.name,
-                    SAMPLE_GLOBALS,
-                    { ...inputs, debug_mode: true },
-                    mappingInputs
-                )
+            const responses = await testDestination.invoke(SAMPLE_GLOBALS, { ...inputs, debug_mode: true })
 
-                expect(responses).toMatchSnapshot()
-            })
-        }
+            expect(responses).toMatchSnapshot()
+        })
     })
 }

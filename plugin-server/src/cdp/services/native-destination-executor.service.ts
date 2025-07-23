@@ -88,13 +88,7 @@ export class NativeDestinationExecutorService {
                 addLog('debug', 'config', config)
             }
 
-            const action = nativeDestination.actions[config.internal_associated_mapping]
-
-            if (!action) {
-                throw new Error(`Action ${config.internal_associated_mapping} not found`)
-            }
-
-            await action.perform(
+            await nativeDestination.perform(
                 async (endpoint, options) => {
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
@@ -237,7 +231,7 @@ export class NativeDestinationExecutorService {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
                     result.finished = false
-                    result.invocation.queue = 'native'
+                    result.invocation.queue = 'hog'
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result

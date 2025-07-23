@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator, Callable
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.tests.conftest import *
+from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
+from ee.hogai.session_summaries.tests.conftest import *
 from posthog.redis import TEST_clear_clients
 from unittest.mock import MagicMock
 import pytest
@@ -75,6 +75,8 @@ def mock_session_group_summary_inputs(
             user_id=mock_user.id,
             team_id=mock_team.id,
             redis_key_base=redis_key_base,
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
         )
 
     return _create_inputs

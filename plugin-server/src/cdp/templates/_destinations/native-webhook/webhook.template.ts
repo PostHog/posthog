@@ -6,105 +6,87 @@ export const template: NativeTemplate = {
     type: 'destination',
     id: 'native-webhook',
     name: 'Native HTTP Webhook',
-    description: 'Sends events to a native HTTP webhook',
-    icon_url: '/static/webhook-icon.svg',
-    category: ['Analytics'],
+    description: 'Sends a native webhook templated by the incoming event data',
+    icon_url: '/static/posthog-icon.svg',
+    category: ['Custom'],
+    perform: (request, { payload }) => {
+        try {
+            return request(payload.url, {
+                method: payload.method,
+                headers: payload.headers,
+                json: payload.body,
+            })
+        } catch (error) {
+            throw new Error(error.message)
+        }
+    },
     inputs_schema: [
         {
-            key: 'apiKey',
+            key: 'url',
             type: 'string',
-            label: 'API Key',
+            label: 'Webhook URL',
             secret: false,
             required: true,
-            description: 'API Key to authenticate the request.',
+            description: 'Endpoint URL to send event data to.',
+            format: 'uri',
         },
-    ],
-    mapping_templates: [
         {
-            name: 'Send a request',
-            include_by_default: true,
-            filters: {
-                events: [
-                    {
-                        id: null,
-                        name: 'All events',
-                        order: 0,
-                        type: 'events',
-                    },
-                ],
-            },
-            associated_action: 'send',
-            inputs_schema: [
+            key: 'method',
+            type: 'choice',
+            label: 'Method',
+            secret: false,
+            choices: [
                 {
-                    key: 'url',
-                    type: 'string',
-                    label: 'URL',
-                    secret: false,
-                    required: true,
-                    description: 'The URL to send the request to.',
-                    format: 'uri',
+                    label: 'POST',
+                    value: 'POST',
                 },
                 {
-                    key: 'method',
-                    type: 'string',
-                    label: 'Method',
-                    secret: false,
-                    required: true,
-                    default: 'POST',
-                    choices: [
-                        {
-                            label: 'POST',
-                            value: 'POST',
-                        },
-                        {
-                            label: 'GET',
-                            value: 'GET',
-                        },
-                        {
-                            label: 'PUT',
-                            value: 'PUT',
-                        },
-                        {
-                            label: 'DELETE',
-                            value: 'DELETE',
-                        },
-                        {
-                            label: 'PATCH',
-                            value: 'PATCH',
-                        },
-                    ],
-                    description: 'The HTTP method to use.',
+                    label: 'PUT',
+                    value: 'PUT',
                 },
                 {
-                    key: 'body',
-                    type: 'dictionary',
-                    label: 'Body',
-                    secret: false,
-                    default: {
-                        event: '{event.event}',
-                        person: '{person.id}',
-                    },
-                    required: false,
-                    description: 'The body of the request.',
+                    label: 'PATCH',
+                    value: 'PATCH',
+                },
+                {
+                    label: 'GET',
+                    value: 'GET',
+                },
+                {
+                    label: 'DELETE',
+                    value: 'DELETE',
                 },
             ],
+            default: 'POST',
+            required: false,
+            description: 'HTTP method to use for the request.',
+        },
+        {
+            key: 'body',
+            type: 'json',
+            label: 'JSON Body',
+            default: { event: '{event}', person: '{person}' },
+            secret: false,
+            required: false,
+            description: 'JSON payload to send in the request body.',
+        },
+        {
+            key: 'headers',
+            type: 'dictionary',
+            label: 'Headers',
+            secret: false,
+            required: false,
+            default: { 'Content-Type': 'application/json' },
+            description: 'HTTP headers to send in the request.',
+        },
+        {
+            key: 'debug',
+            type: 'boolean',
+            label: 'Log responses',
+            description: 'Logs the response of http calls for debugging.',
+            secret: false,
+            required: false,
+            default: false,
         },
     ],
-    actions: {
-        send: {
-            perform: (request, { payload }) => {
-                try {
-                    return request(payload.url, {
-                        method: payload.method,
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        json: payload.body,
-                    })
-                } catch (error) {
-                    throw new Error(error.message)
-                }
-            },
-        },
-    },
 }
