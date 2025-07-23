@@ -222,7 +222,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.breakdownSortOrder, s.hiddenLegendBreakdowns],
+            (s) => [
+                s.stepsWithConversionMetrics,
+                s.flattenedBreakdowns,
+                s.breakdownSortOrder,
+                s.hiddenLegendBreakdowns,
+            ],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
@@ -232,9 +237,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const isOnlySeries = flattenedBreakdowns.length <= 1
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => {
-                    let nested = (baseLineSteps?.steps
-                        ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
-                        : step?.nested_breakdown
+                    let nested = (
+                        baseLineSteps?.steps
+                            ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
+                            : step?.nested_breakdown
                     )
                         ?.map((b, breakdownIndex) => ({
                             ...b,
@@ -242,18 +248,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         }))
                         ?.filter(
                             (b) =>
-                                isOnlySeries ||
-                                !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                                isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
                         )
                     // Sort by breakdownSortOrder if present
                     if (breakdownSortOrder && breakdownSortOrder.length > 0 && nested) {
-                        nested = [...nested].sort(
-                            (a, b) => {
-                                const aValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[0] : a.breakdown_value
-                                const bValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
-                                return breakdownSortOrder.indexOf(aValue ?? '') - breakdownSortOrder.indexOf(bValue ?? '')
-                            }
-                        )
+                        nested = [...nested].sort((a, b) => {
+                            const aValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[0] : a.breakdown_value
+                            const bValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[0] : b.breakdown_value
+                            return breakdownSortOrder.indexOf(aValue ?? '') - breakdownSortOrder.indexOf(bValue ?? '')
+                        })
                     }
                     return {
                         ...step,
