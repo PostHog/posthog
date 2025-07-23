@@ -44,6 +44,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
     } as QueryContext['columns']
     if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
         columns = getCRMColumns(groupTypeName, groupTypeIndex)
+        query['hiddenColumns'] = ['key']
     }
 
     return (
