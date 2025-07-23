@@ -334,7 +334,7 @@ def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
     if node.sample:
         sample_value = node.sample.sample_value
         if not _is_constant_one(sample_value.left) or not (
-            _is_constant_one(sample_value.right) or sample_value.right is None
+            sample_value.right is None or _is_constant_one(sample_value.right)
         ):
             return False
     return True
