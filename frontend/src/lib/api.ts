@@ -1320,6 +1320,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
     }
 
+    public messagingOptOuts(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_opt_outs')
+    }
+
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
         return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
     }
@@ -3535,9 +3539,6 @@ const api = {
         },
         async updateCategory(categoryId: string, data: any): Promise<any> {
             return await new ApiRequest().messagingCategory(categoryId).update({ data })
-        },
-        async deleteCategory(categoryId: string): Promise<void> {
-            return await new ApiRequest().messagingCategory(categoryId).delete()
         },
 
         // Marketing Opt-outs

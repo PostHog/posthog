@@ -7,7 +7,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet, MarketingOptOutViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
 from posthog.api.wizard import http as wizard
@@ -752,6 +752,13 @@ environments_router.register(
     r"messaging_categories",
     MessageCategoryViewSet,
     "environment_messaging_categories",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"marketing_opt_outs",
+    MarketingOptOutViewSet,
+    "environment_marketing_opt_outs",
     ["team_id"],
 )
 
