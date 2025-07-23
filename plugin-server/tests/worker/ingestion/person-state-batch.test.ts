@@ -18,6 +18,7 @@ import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
+import { BasePersonRepository } from '../../../src/worker/ingestion/persons/base-person-repository'
 import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
@@ -149,7 +150,10 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(customHub ? customHub.db : hub.db)
+        const personsStore = new BatchWritingPersonsStoreForBatch(
+            customHub ? customHub.db : hub.db,
+            new BasePersonRepository((customHub ? customHub.db : hub.db).postgres)
+        )
 
         const context = new PersonContext(
             fullEvent as any,
@@ -183,7 +187,10 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(customHub ? customHub.db : hub.db)
+        const personsStore = new BatchWritingPersonsStoreForBatch(
+            customHub ? customHub.db : hub.db,
+            new BasePersonRepository((customHub ? customHub.db : hub.db).postgres)
+        )
 
         const context = new PersonContext(
             fullEvent as PluginEvent,
@@ -212,7 +219,10 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(customHub ? customHub.db : hub.db)
+        const personsStore = new BatchWritingPersonsStoreForBatch(
+            customHub ? customHub.db : hub.db,
+            new BasePersonRepository((customHub ? customHub.db : hub.db).postgres)
+        )
 
         const context = new PersonContext(
             fullEvent as any,

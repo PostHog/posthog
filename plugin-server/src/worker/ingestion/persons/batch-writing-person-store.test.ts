@@ -64,14 +64,6 @@ describe('BatchWritingPersonStore', () => {
                     return await transaction(transaction)
                 }),
             },
-            fetchPerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve(person)
-            }),
-            createPerson: jest.fn().mockImplementation(() => {
-                dbCounter++
-                const personCopy = { ...person, version: dbCounter }
-                return Promise.resolve([personCopy, []])
-            }),
             updatePerson: jest.fn().mockImplementation(() => {
                 dbCounter++
                 const personCopy = { ...person, version: dbCounter }
@@ -89,7 +81,7 @@ describe('BatchWritingPersonStore', () => {
             }),
         } as unknown as DB
 
-        personStore = new BatchWritingPersonsStore(db)
+        personStore = new BatchWritingPersonsStore(db, createMockRepository())
     })
 
     afterEach(() => {
@@ -97,6 +89,14 @@ describe('BatchWritingPersonStore', () => {
     })
 
     const getBatchStoreForBatch = () => personStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+    const createMockRepository = () => {
+        const mockRepo = {
+            fetchPerson: jest.fn().mockResolvedValue(person),
+            createPerson: jest.fn().mockResolvedValue([person, []]),
+        }
+        return mockRepo
+    }
 
     it('should update person in cache', async () => {
         const personStoreForBatch = getBatchStoreForBatch()
@@ -218,7 +218,8 @@ describe('BatchWritingPersonStore', () => {
 
     it('should fallback to direct update when optimistic update fails', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const mockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
 
         // Mock optimistic update to fail (version mismatch)
@@ -237,7 +238,7 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         expect(db.updatePersonAssertVersion).toHaveBeenCalled()
-        expect(db.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
+        expect(mockRepo.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
         expect(db.updatePerson).toHaveBeenCalled() // Fallback
     })
 
@@ -290,26 +291,30 @@ describe('BatchWritingPersonStore', () => {
         })
 
         it('should handle cache hits for both checking and updating', async () => {
-            const personStoreForBatch = personStore.forBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch()
 
             // First fetch should hit the database
             await personStoreForBatch.fetchForChecking(teamId, 'test-distinct')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
             // Second fetch should hit the cache
             await personStoreForBatch.fetchForChecking(teamId, 'test-distinct')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1) // No additional call
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1) // No additional call
 
             // Similar for update cache
             await personStoreForBatch.fetchForUpdate(teamId, 'test-distinct2')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(2)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2)
 
             await personStoreForBatch.fetchForUpdate(teamId, 'test-distinct2')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(2) // No additional call
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2) // No additional call
         })
 
         it('should prefer update cache over check cache in fetchForChecking', async () => {
-            const personStoreForBatch = personStore.forBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch()
 
             // First populate update cache
             await personStoreForBatch.fetchForUpdate(teamId, 'test-distinct')
@@ -320,12 +325,14 @@ describe('BatchWritingPersonStore', () => {
             // fetchForChecking should use the cached PersonUpdate instead of hitting DB
             const result = await personStoreForBatch.fetchForChecking(teamId, 'test-distinct')
             expect(result).toBeDefined()
-            expect(db.fetchPerson).not.toHaveBeenCalled()
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
 
         it('should handle null results from database', async () => {
-            const personStoreForBatch = personStore.forBatch()
-            db.fetchPerson = jest.fn().mockResolvedValue(undefined)
+            const mockRepo = createMockRepository()
+            mockRepo.fetchPerson = jest.fn().mockResolvedValue(undefined)
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch()
 
             const checkResult = await personStoreForBatch.fetchForChecking(teamId, 'nonexistent')
             expect(checkResult).toBeNull()
@@ -337,7 +344,8 @@ describe('BatchWritingPersonStore', () => {
 
     it('should retry optimistic updates with exponential backoff', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const mockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
         let callCount = 0
 
@@ -360,13 +368,15 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(3)
-        expect(db.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
+        expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
         expect(db.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
     })
 
     it('should fallback to direct update after max retries', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const assertVersionStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+            dbWriteMode: 'ASSERT_VERSION',
+        })
         const personStoreForBatch = assertVersionStore.forBatch()
 
         // Mock to always fail optimistic updates
@@ -388,7 +398,8 @@ describe('BatchWritingPersonStore', () => {
 
     it('should merge properties during conflict resolution', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const mockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
         const latestPerson = {
             ...person,
@@ -397,7 +408,7 @@ describe('BatchWritingPersonStore', () => {
         }
 
         db.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []]) // Always fail, but we don't care about the version
-        db.fetchPerson = jest.fn().mockResolvedValue(latestPerson)
+        mockRepo.fetchPerson = jest.fn().mockResolvedValue(latestPerson)
 
         // Update with new properties
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -561,7 +572,9 @@ describe('BatchWritingPersonStore', () => {
     describe('dbWriteMode functionality', () => {
         describe('flush with NO_ASSERT mode', () => {
             it('should call updatePersonNoAssert directly without retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'NO_ASSERT' })
+                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                    dbWriteMode: 'NO_ASSERT',
+                })
                 const personStoreForBatch = personStore.forBatch()
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -579,7 +592,7 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should fallback with NO_ASSERT mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, {
+                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
                     dbWriteMode: 'NO_ASSERT',
                     maxOptimisticUpdateRetries: 5,
                 })
@@ -603,7 +616,9 @@ describe('BatchWritingPersonStore', () => {
 
         describe('flush with ASSERT_VERSION mode', () => {
             it('should call updatePersonAssertVersion with retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
                 const personStoreForBatch = personStore.forBatch()
 
                 db.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []]) // success
@@ -623,7 +638,7 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should retry on version conflicts and eventually fallback', async () => {
-                const personStore = new BatchWritingPersonsStore(db, {
+                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
                     dbWriteMode: 'ASSERT_VERSION',
                     maxOptimisticUpdateRetries: 2,
                 })
@@ -646,7 +661,9 @@ describe('BatchWritingPersonStore', () => {
             })
 
             it('should handle MessageSizeTooLarge in ASSERT_VERSION mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
                 const personStoreForBatch = personStore.forBatch()
 
                 db.updatePersonAssertVersion = jest
@@ -678,8 +695,12 @@ describe('BatchWritingPersonStore', () => {
 
         describe('concurrent updates with different dbWriteModes', () => {
             it('should handle multiple updates with different modes correctly', async () => {
-                const noAssertStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'NO_ASSERT' })
-                const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+                const noAssertStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                    dbWriteMode: 'NO_ASSERT',
+                })
+                const assertVersionStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
 
                 const noAssertBatch = noAssertStore.forBatch()
                 const assertVersionBatch = assertVersionStore.forBatch()
@@ -716,7 +737,8 @@ describe('BatchWritingPersonStore', () => {
 
     it('should handle concurrent updates with ASSERT_VERSION mode and preserve both properties', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, {
+        const mockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStoreForBatch = assertVersionStore.forBatch()
@@ -750,7 +772,7 @@ describe('BatchWritingPersonStore', () => {
             .mockResolvedValueOnce([3, []]) // Second call succeeds with new version
 
         // Mock fetchPerson to return the updated person when called during conflict resolution
-        db.fetchPerson = jest.fn().mockResolvedValue(updatedByOtherPod)
+        mockRepo.fetchPerson = jest.fn().mockResolvedValue(updatedByOtherPod)
 
         // Process an event that will override one of the properties
         // We pass the initial person directly, so no initial fetch is needed
@@ -769,7 +791,7 @@ describe('BatchWritingPersonStore', () => {
         expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(2)
 
         // Verify fetchPerson was called once during conflict resolution
-        expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
         // Since the second retry succeeds, there should be no fallback to updatePerson
         expect(db.updatePerson).not.toHaveBeenCalled()
@@ -793,8 +815,6 @@ describe('BatchWritingPersonStore', () => {
     it('should consolidate updates for same person via different distinct IDs', async () => {
         // This test validates that when two distinct IDs point to the same person,
         // updates via both distinct IDs should be merged into a single person update
-        const personStoreForBatch = getBatchStoreForBatch()
-
         const distinctId1 = 'user-email@example.com'
         const distinctId2 = 'user-device-abc123'
 
@@ -807,9 +827,12 @@ describe('BatchWritingPersonStore', () => {
         }
 
         // Mock fetchPerson to return the same person for both distinct IDs
-        db.fetchPerson = jest.fn().mockImplementation(() => {
+        const mockRepo = createMockRepository()
+        mockRepo.fetchPerson = jest.fn().mockImplementation(() => {
             return Promise.resolve(sharedPerson)
         })
+        const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
         // Update via first distinct ID
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(

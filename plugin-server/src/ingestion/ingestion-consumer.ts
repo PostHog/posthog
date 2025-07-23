@@ -35,6 +35,7 @@ import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populat
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
+import { BasePersonRepository } from '../worker/ingestion/persons/base-person-repository'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
@@ -150,12 +151,16 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const batchWritingPersonStore = new BatchWritingPersonsStore(this.hub.db, {
-            dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-            maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
+        const batchWritingPersonStore = new BatchWritingPersonsStore(
+            this.hub.db,
+            new BasePersonRepository(this.hub.db.postgres),
+            {
+                dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+                maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            }
+        )
         const measuringPersonStore = new MeasuringPersonsStore(this.hub.db, {
             personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
             personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,

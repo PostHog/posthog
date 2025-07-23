@@ -4,6 +4,7 @@ import { Hub, InternalPerson, PersonBatchWritingMode, TeamId } from '~/types'
 import { DB } from '~/utils/db/db'
 import { UUID7 } from '~/utils/utils'
 
+import { BasePersonRepository } from './base-person-repository'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { PersonStoreManager, PersonStoreManagerForBatch } from './person-store-manager'
@@ -102,7 +103,7 @@ describe('PersonStoreManager', () => {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
-        batchStore = new BatchWritingPersonsStore(db)
+        batchStore = new BatchWritingPersonsStore(db, new BasePersonRepository(db.postgres))
         manager = new PersonStoreManager(hub, measuringStore, batchStore)
     })
 
@@ -239,7 +240,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
-        const batchStore = new BatchWritingPersonsStore(db)
+        const batchStore = new BatchWritingPersonsStore(db, new BasePersonRepository(db.postgres))
         measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
         batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
         shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
@@ -878,7 +879,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })
-            const batchStore = new BatchWritingPersonsStore(db)
+            const batchStore = new BatchWritingPersonsStore(db, new BasePersonRepository(db.postgres))
             const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
             const batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
             const shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)

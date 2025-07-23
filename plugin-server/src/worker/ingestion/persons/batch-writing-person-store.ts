@@ -97,12 +97,16 @@ interface CacheMetrics {
 export class BatchWritingPersonsStore implements PersonsStore {
     private options: BatchWritingPersonsStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingPersonsStoreOptions>) {
+    constructor(
+        private db: DB,
+        private personRepository: PersonRepository = new BasePersonRepository(db.postgres),
+        options?: Partial<BatchWritingPersonsStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
     forBatch(): PersonsStoreForBatch {
-        return new BatchWritingPersonsStoreForBatch(this.db, new BasePersonRepository(this.db.postgres), this.options)
+        return new BatchWritingPersonsStoreForBatch(this.db, this.personRepository, this.options)
     }
 }
 
