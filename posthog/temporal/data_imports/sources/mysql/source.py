@@ -1,7 +1,17 @@
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    Type4,
+    Option,
+    Converter,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
@@ -25,6 +35,45 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         from posthog.warehouse.models import ExternalDataSource
 
         return ExternalDataSource.Type.MYSQL
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.MY_SQL,
+            caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="host", label="Host", type=Type4.TEXT, required=True, placeholder="localhost"
+                    ),
+                    SourceFieldInputConfig(
+                        name="port", label="Port", type=Type4.NUMBER, required=True, placeholder="3306"
+                    ),
+                    SourceFieldInputConfig(
+                        name="database", label="Database", type=Type4.TEXT, required=True, placeholder="mysql"
+                    ),
+                    SourceFieldInputConfig(
+                        name="user", label="User", type=Type4.TEXT, required=True, placeholder="mysql"
+                    ),
+                    SourceFieldInputConfig(
+                        name="password", label="Password", type=Type4.PASSWORD, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
+                    ),
+                    SourceFieldSelectConfig(
+                        name="using_ssl",
+                        label="Use SSL?",
+                        required=True,
+                        defaultValue="true",
+                        converter=Converter.STR_TO_BOOL,
+                        options=[Option(label="Yes", value="true"), Option(label="No", value="false")],
+                    ),
+                    SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
+                ],
+            ),
+        )
 
     def get_schemas(self, config: MySQLSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []

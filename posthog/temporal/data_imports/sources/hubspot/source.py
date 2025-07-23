@@ -1,7 +1,13 @@
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldOauthConfig,
+)
 from posthog.temporal.data_imports.pipelines.hubspot import hubspot
 from posthog.temporal.data_imports.pipelines.hubspot.auth import hubspot_refresh_access_token
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -25,6 +31,21 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
     @property
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.HUBSPOT
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.HUBSPOT,
+            caption="Select an existing Hubspot account to link to PostHog or create a new connection",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldOauthConfig(
+                        name="hubspot_integration_id", label="Hubspot account", required=True, kind="hubspot"
+                    )
+                ],
+            ),
+        )
 
     # TODO: clean up hubspot job inputs to not have two auth config options
     def parse_config(self, job_inputs: dict) -> HubspotSourceConfig | HubspotSourceOldConfig:

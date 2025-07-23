@@ -1,7 +1,15 @@
+from typing import cast
 from typing import TYPE_CHECKING
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSSHTunnelConfig,
+    Type4,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
@@ -31,6 +39,36 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         from posthog.warehouse.models import ExternalDataSource
 
         return ExternalDataSource.Type.MSSQL
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.MSSQL,
+            label="Microsoft SQL Server",
+            caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="host", label="Host", type=Type4.TEXT, required=True, placeholder="localhost"
+                    ),
+                    SourceFieldInputConfig(
+                        name="port", label="Port", type=Type4.NUMBER, required=True, placeholder="1433"
+                    ),
+                    SourceFieldInputConfig(
+                        name="database", label="Database", type=Type4.TEXT, required=True, placeholder="msdb"
+                    ),
+                    SourceFieldInputConfig(name="user", label="User", type=Type4.TEXT, required=True, placeholder="sa"),
+                    SourceFieldInputConfig(
+                        name="password", label="Password", type=Type4.PASSWORD, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="dbo"
+                    ),
+                    SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
+                ],
+            ),
+        )
 
     def get_schemas(self, config: MSSQLSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []

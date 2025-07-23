@@ -1,5 +1,15 @@
 from datetime import datetime
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldSwitchGroupConfig,
+    Type4,
+    SourceFieldFileUploadJsonFormatConfig,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.bigquery import (
@@ -130,3 +140,63 @@ class BigQuerySource(BaseSource[BigQuerySourceConfig]):
                 token_uri=config.key_file.token_uri,
             )
             inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.BIG_QUERY,
+            caption="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldFileUploadConfig(
+                        name="key_file",
+                        label="Google Cloud JSON key file",
+                        fileFormat=SourceFieldFileUploadJsonFormatConfig(
+                            format=".json",
+                            keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
+                        ),
+                        required=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="dataset_id", label="Dataset ID", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="temporary-dataset",
+                        label="Use a different dataset for the temporary tables?",
+                        caption="We have to create and delete temporary tables when querying your data, this is a requirement of querying large BigQuery tables. We can use a different dataset if you'd like to limit the permissions available to the service account provided.",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name="temporary_dataset_id",
+                                    label="Dataset ID for temporary tables",
+                                    type=Type4.TEXT,
+                                    required=True,
+                                    placeholder="",
+                                )
+                            ],
+                        ),
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="dataset_project",
+                        label="Use a different project for the dataset than your service account project?",
+                        caption="If the dataset you're wanting to sync exists in a different project than that of your service account, use this to provide the project ID of the BigQuery dataset.",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name="dataset_project_id",
+                                    label="Project ID for dataset",
+                                    type=Type4.TEXT,
+                                    required=True,
+                                    placeholder="",
+                                )
+                            ],
+                        ),
+                    ),
+                ],
+            ),
+        )

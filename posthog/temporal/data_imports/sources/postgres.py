@@ -1,13 +1,20 @@
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSSHTunnelConfig,
+    Type4,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.pipelines.postgres.postgres import (
+from posthog.temporal.data_imports.pipelines.postgres import (
     postgres_source,
     get_schemas as get_postgres_schemas,
     get_postgres_row_count,
@@ -36,6 +43,44 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
         from posthog.warehouse.models import ExternalDataSource
 
         return ExternalDataSource.Type.POSTGRES
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.POSTGRES,
+            caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=Type4.TEXT,
+                        required=False,
+                        placeholder="postgresql://user:password@localhost:5432/database",
+                    ),
+                    SourceFieldInputConfig(
+                        name="host", label="Host", type=Type4.TEXT, required=True, placeholder="localhost"
+                    ),
+                    SourceFieldInputConfig(
+                        name="port", label="Port", type=Type4.NUMBER, required=True, placeholder="5432"
+                    ),
+                    SourceFieldInputConfig(
+                        name="database", label="Database", type=Type4.TEXT, required=True, placeholder="postgres"
+                    ),
+                    SourceFieldInputConfig(
+                        name="user", label="User", type=Type4.TEXT, required=True, placeholder="postgres"
+                    ),
+                    SourceFieldInputConfig(
+                        name="password", label="Password", type=Type4.PASSWORD, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
+                    ),
+                    SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
+                ],
+            ),
+        )
 
     def get_schemas(self, config: PostgresSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []

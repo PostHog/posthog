@@ -1,5 +1,14 @@
 import re
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    Type4,
+    Option,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.vitally import (
@@ -57,4 +66,48 @@ class VitallySource(BaseSource[VitallySourceConfig]):
                 if inputs.should_use_incremental_field
                 else None,
             )
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.VITALLY,
+            caption="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="secret_token",
+                        label="Secret token",
+                        type=Type4.TEXT,
+                        required=True,
+                        placeholder="sk_live_...",
+                    ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Vitally region",
+                        required=True,
+                        defaultValue="EU",
+                        options=[
+                            Option(label="EU", value="EU"),
+                            Option(
+                                label="US",
+                                value="US",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="subdomain",
+                                            label="Vitally subdomain",
+                                            type=Type4.TEXT,
+                                            required=True,
+                                            placeholder="",
+                                        )
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
         )

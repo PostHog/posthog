@@ -15,7 +15,6 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.models.user import User
 from posthog.temporal.data_imports.pipelines.source.config import Config
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
 from posthog.warehouse.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
@@ -612,7 +611,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
+        sources = SourceRegistry.get_all_sources()
+        configs = {name: source.get_source_config for name, source in sources.items()}
+
         return Response(
             status=status.HTTP_200_OK,
-            data={str(key): value.model_dump() for key, value in AVAILABLE_SOURCES.items()},
+            data={str(key): value.model_dump() for key, value in configs.items()},
         )

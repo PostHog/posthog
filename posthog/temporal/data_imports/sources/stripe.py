@@ -1,4 +1,6 @@
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from typing import cast
+from posthog.schema import ExternalDataSourceType, SourceConfig, SourceFieldInputConfig, Type4
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
@@ -21,6 +23,40 @@ class StripeSource(BaseSource[StripeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.STRIPE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.STRIPE,
+            caption="""Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+
+You can find your account ID [in your Stripe dashboard](https://dashboard.stripe.com/settings/account), and create a secret key [here](https://dashboard.stripe.com/apikeys/create).
+
+Currently, **read permissions are required** for the following resources:
+
+- Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customer**, **Product**, **Disputes**, and **Payouts**
+- Under the **Billing** resource type, select *read* for **Invoice**, **Price**, **Subscription**, and **Credit notes**
+- Under the **Connected** resource type, select *read* for the **entire resource**""",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="stripe_account_id",
+                        label="Account id",
+                        type=Type4.TEXT,
+                        required=False,
+                        placeholder="stripe_account_id",
+                    ),
+                    SourceFieldInputConfig(
+                        name="stripe_secret_key",
+                        label="API key",
+                        type=Type4.PASSWORD,
+                        required=True,
+                        placeholder="rk_live_...",
+                    ),
+                ],
+            ),
+        )
 
     def get_schemas(self, config: StripeSourceConfig, team_id: int) -> list[SourceSchema]:
         return [

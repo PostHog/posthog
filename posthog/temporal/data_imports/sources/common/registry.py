@@ -8,15 +8,14 @@ if TYPE_CHECKING:
 class SourceRegistry:
     """Registry for all available data warehouse sources"""
 
-    _sources: dict["ExternalDataSource.Type", type["BaseSource"]] = {}
+    _sources: dict["ExternalDataSource.Type", "BaseSource"] = {}
 
     @classmethod
     def register(cls, source_class: type["BaseSource"]):
-        source_type = getattr(source_class, "source_type", None)
-        if source_type is None:
-            raise ValueError(f"{source_class} must have a 'source_type' attribute")
+        source_class_instance = source_class()
+        source_type = source_class_instance.source_type
 
-        cls._sources[source_type] = source_class
+        cls._sources[source_type] = source_class_instance
 
         return source_class
 
@@ -26,13 +25,13 @@ class SourceRegistry:
 
         if source_type not in cls._sources:
             raise ValueError(f"Unknown source type: {source_type}")
-        return cls._sources[source_type]()
+        return cls._sources[source_type]
 
     @classmethod
     def get_all_sources(cls) -> dict["ExternalDataSource.Type", "BaseSource"]:
         """Get all registered sources"""
 
-        return {k: v() for k, v in cls._sources.items()}
+        return cls._sources
 
     @classmethod
     def is_registered(cls, source_type: "ExternalDataSource.Type") -> bool:

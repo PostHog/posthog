@@ -1,4 +1,12 @@
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldOauthConfig,
+    Type4,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -62,4 +70,24 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.GOOGLE_ADS,
+            label="Google Ads",
+            caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
+            betaSource=True,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="customer_id", label="Customer ID", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                    SourceFieldOauthConfig(
+                        name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
+                    ),
+                ],
+            ),
         )

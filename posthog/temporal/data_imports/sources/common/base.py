@@ -1,6 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, TypeVar, Generic
-from posthog.schema import SourceConfig
+from typing import TYPE_CHECKING, TypeVar, Generic, Union
+from posthog.schema import (
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSwitchGroupConfig,
+    SourceFieldSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldSSHTunnelConfig,
+)
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 from posthog.temporal.data_imports.pipelines.source.config import Config
@@ -10,6 +18,15 @@ if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSource
 
 ConfigType = TypeVar("ConfigType", bound=Config)
+
+FieldType = Union[
+    SourceFieldInputConfig,
+    SourceFieldSwitchGroupConfig,
+    SourceFieldSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldFileUploadConfig,
+    SourceFieldSSHTunnelConfig,
+]
 
 
 class BaseSource(ABC, Generic[ConfigType]):
@@ -28,23 +45,20 @@ class BaseSource(ABC, Generic[ConfigType]):
 
         return config
 
-    @abstractmethod
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         raise NotImplementedError()
 
     def get_schemas(self, config: ConfigType, team_id: int) -> list[SourceSchema]:
         raise NotImplementedError()
 
-    def get_source_config(self) -> SourceConfig:
-        from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
-
-        return AVAILABLE_SOURCES[self.source_type]
-
+    @property
     @abstractmethod
+    def get_source_config(self) -> SourceConfig:
+        raise NotImplementedError()
+
     def parse_config(self, job_inputs: dict) -> ConfigType:
         return self._config_class.from_dict(job_inputs)
 
-    @abstractmethod
     def validate_credentials(self, config: ConfigType, team_id: int) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None

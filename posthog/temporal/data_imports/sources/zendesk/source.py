@@ -1,6 +1,13 @@
 import re
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    Type4,
+)
 from posthog.temporal.data_imports.pipelines.zendesk import validate_credentials
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
@@ -43,6 +50,31 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
             return True, None
 
         return False, "Invalid credentials"
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.ZENDESK,
+            caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="subdomain", label="Zendesk subdomain", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="api_key", label="API key", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="email_address",
+                        label="Zendesk email address",
+                        type=Type4.EMAIL,
+                        required=True,
+                        placeholder="",
+                    ),
+                ],
+            ),
+        )
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return dlt_source_to_source_response(

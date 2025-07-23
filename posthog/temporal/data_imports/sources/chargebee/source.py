@@ -1,5 +1,12 @@
 import re
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    Type4,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.chargebee import (
@@ -53,4 +60,22 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
                 if inputs.should_use_incremental_field
                 else None,
             )
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.CHARGEBEE,
+            caption="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key", label="API key", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="site_name", label="Site name (subdomain)", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                ],
+            ),
         )

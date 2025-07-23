@@ -1,5 +1,13 @@
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldOauthConfig,
+    Type4,
+)
 from posthog.temporal.data_imports.pipelines.meta_ads.source import meta_ads_source
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
@@ -36,4 +44,31 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.META_ADS,
+            label="Meta Ads",
+            caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="account_id",
+                        label="Account ID",
+                        type=Type4.TEXT,
+                        required=True,
+                        placeholder="",
+                    ),
+                    SourceFieldOauthConfig(
+                        name="meta_ads_integration_id",
+                        label="Meta Ads account",
+                        required=True,
+                        kind="meta-ads",
+                    ),
+                ],
+            ),
+            betaSource=True,
         )

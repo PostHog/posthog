@@ -1,5 +1,11 @@
+from typing import cast
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldOauthConfig,
+)
 from posthog.temporal.data_imports.pipelines.salesforce.auth import salesforce_refresh_access_token
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -29,6 +35,21 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
             )
             for endpoint in ENDPOINTS
         ]
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.SALESFORCE,
+            caption="Select an existing Salesforce account to link to PostHog or create a new connection",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldOauthConfig(
+                        name="salesforce_integration_id", label="Salesforce account", required=True, kind="salesforce"
+                    )
+                ],
+            ),
+        )
 
     def source_for_pipeline(self, config: SalesforceSourceConfig, inputs: SourceInputs) -> SourceResponse:
         integration = self.get_oauth_integration(config.salesforce_integration_id, inputs.team_id)

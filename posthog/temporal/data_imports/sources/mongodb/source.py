@@ -1,9 +1,15 @@
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    Type4,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.mongo.mongo import (
     get_schemas as get_mongo_schemas,
@@ -12,6 +18,7 @@ from posthog.temporal.data_imports.pipelines.mongo.mongo import (
     mongo_source,
 )
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from posthog.warehouse.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSource
@@ -88,4 +95,25 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             incremental_field=inputs.incremental_field,
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.MONGO_DB,
+            label="MongoDB",
+            caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
+            betaSource=True,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection String",
+                        type=Type4.TEXT,
+                        required=True,
+                        placeholder="mongodb://username:password@host:port/database?authSource=admin",
+                    )
+                ],
+            ),
         )

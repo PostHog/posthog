@@ -1,7 +1,15 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.base import BaseSource
+from posthog.schema import (
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    Type4,
+    Option,
+)
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -12,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
 )
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from posthog.warehouse.types import IncrementalField
+from posthog.warehouse.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import ExternalDataSource
@@ -32,6 +41,106 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
         from posthog.warehouse.models import ExternalDataSource
 
         return ExternalDataSource.Type.SNOWFLAKE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.SNOWFLAKE,
+            caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="account_id", label="Account id", type=Type4.TEXT, required=True, placeholder=""
+                    ),
+                    SourceFieldInputConfig(
+                        name="database",
+                        label="Database",
+                        type=Type4.TEXT,
+                        required=True,
+                        placeholder="snowflake_sample_data",
+                    ),
+                    SourceFieldInputConfig(
+                        name="warehouse",
+                        label="Warehouse",
+                        type=Type4.TEXT,
+                        required=True,
+                        placeholder="COMPUTE_WAREHOUSE",
+                    ),
+                    SourceFieldSelectConfig(
+                        name="auth_type",
+                        label="Authentication type",
+                        required=True,
+                        defaultValue="password",
+                        options=[
+                            Option(
+                                label="Password",
+                                value="password",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="user",
+                                            label="Username",
+                                            type=Type4.TEXT,
+                                            required=True,
+                                            placeholder="User1",
+                                        ),
+                                        SourceFieldInputConfig(
+                                            name="password",
+                                            label="Password",
+                                            type=Type4.PASSWORD,
+                                            required=True,
+                                            placeholder="",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            Option(
+                                label="Key pair",
+                                value="keypair",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="user",
+                                            label="Username",
+                                            type=Type4.TEXT,
+                                            required=True,
+                                            placeholder="User1",
+                                        ),
+                                        SourceFieldInputConfig(
+                                            name="private_key",
+                                            label="Private key",
+                                            type=Type4.TEXTAREA,
+                                            required=True,
+                                            placeholder="",
+                                        ),
+                                        SourceFieldInputConfig(
+                                            name="passphrase",
+                                            label="Passphrase",
+                                            type=Type4.PASSWORD,
+                                            required=False,
+                                            placeholder="",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
+                    ),
+                    SourceFieldInputConfig(
+                        name="role",
+                        label="Role (optional)",
+                        type=Type4.TEXT,
+                        required=False,
+                        placeholder="ACCOUNTADMIN",
+                    ),
+                    SourceFieldInputConfig(
+                        name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
+                    ),
+                ],
+            ),
+        )
 
     def get_schemas(self, config: SnowflakeSourceConfig, team_id: int) -> list[SourceSchema]:
         schemas = []
