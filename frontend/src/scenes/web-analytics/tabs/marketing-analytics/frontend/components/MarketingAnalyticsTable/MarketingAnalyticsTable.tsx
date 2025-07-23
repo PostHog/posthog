@@ -32,7 +32,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                     query={query}
                     readOnly={false}
                     context={marketingAnalyticsContext}
-                    columnFeatures={[ColumnFeature.canSort]}
+                    columnFeatures={[ColumnFeature.canSort, ColumnFeature.canRemove]}
                     setQuery={setQuery}
                 />
             </div>
