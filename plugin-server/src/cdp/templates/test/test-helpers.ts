@@ -10,6 +10,7 @@ import { GeoIp, GeoIPService } from '~/utils/geoip'
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { HogExecutorService } from '../../services/hog-executor.service'
+import { HogInputsService } from '../../services/hog-inputs.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -282,11 +283,13 @@ export class TemplateTester {
 
 export class DestinationTester {
     private executor: NativeDestinationExecutorService
+    private inputsService: HogInputsService
     private mockFetch = jest.fn()
 
     constructor(private template: NativeTemplate) {
         this.template = template
         this.executor = new NativeDestinationExecutorService({} as any)
+        this.inputsService = new HogInputsService({} as any)
 
         this.executor.fetch = this.mockFetch
 
@@ -333,9 +336,13 @@ export class DestinationTester {
     async invoke(globals: HogFunctionInvocationGlobals, inputs: Record<string, any>) {
         const compiledInputs = await compileInputs(this.template, inputs)
 
-        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(globals), {
-            ...compiledInputs,
-        })
+        const globalsWithInputs = await this.inputsService.buildInputsWithGlobals(
+            {
+                ...this.template,
+                inputs: compiledInputs,
+            } as unknown as HogFunctionType,
+            this.createGlobals(globals)
+        )
         const invocation = createInvocation(globalsWithInputs, {
             ...this.template,
             template_id: this.template.id,
