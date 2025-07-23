@@ -459,9 +459,10 @@ export function HogFunctionConfiguration({
                                                     setConfigurationValue(`inputs.${key}`, input)
                                                 }}
                                                 showSource={showSource}
+                                                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                             />
                                             {oldInputs && newInputs && (
-                                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
                                                     <div className="flex-1 text-center">
                                                         <span className="text-sm font-medium">Suggested by Max</span>
                                                     </div>
@@ -556,6 +557,7 @@ export function HogFunctionConfiguration({
                                                 setConfigurationValue(`inputs.${key}`, input)
                                             }}
                                             showSource={showSource}
+                                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                         />
                                         {showSource && canEditSource ? (
                                             <LemonButton

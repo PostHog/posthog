@@ -26,7 +26,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsOverlay } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
     return breadcrumbs.length || projectTreeRefEntry ? (
@@ -66,10 +66,14 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         </ScrollableShadows>
                     )}
 
-                    <div className="flex gap-1 items-center shrink-0">
+                    <div
+                        className={cn('flex gap-1 items-center shrink-0', {
+                            'pr-px': !scenePanelIsOverlay,
+                        })}
+                    >
                         <div className="contents" ref={setActionsContainer} />
 
-                        {scenePanelIsPresent && (
+                        {scenePanelIsPresent && scenePanelIsOverlay && (
                             <LemonButton
                                 onClick={() => setScenePanelOpen(!scenePanelOpen)}
                                 icon={<IconInfo className="text-primary" />}

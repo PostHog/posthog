@@ -20,6 +20,9 @@ import { urls } from 'scenes/urls'
 import { cn } from 'lib/utils/css-classes'
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature, TeamBasicType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { EnvironmentSwitcherOverlay } from '../navigation/EnvironmentSwitcher'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -40,6 +43,11 @@ export function ProjectDropdownMenu({
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
+        return <EnvironmentSwitcherOverlay buttonProps={buttonProps} />
+    }
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>

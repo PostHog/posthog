@@ -79,14 +79,12 @@ describe('deduplicateEvents', () => {
         expect(metrics.duplicateBreakdownTotal.inc).toHaveBeenCalledTimes(2)
         expect(metrics.duplicateBreakdownTotal.inc).toHaveBeenCalledWith(
             {
-                team_id: 123,
                 source: 'web',
             },
             1
         )
         expect(metrics.duplicateBreakdownTotal.inc).toHaveBeenCalledWith(
             {
-                team_id: 456,
                 source: 'python',
             },
             1
