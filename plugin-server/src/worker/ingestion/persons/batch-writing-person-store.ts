@@ -504,7 +504,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     }
 
     async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
-        return await this.db.personPropertiesSize(teamId, distinctId)
+        return await this.personRepository.personPropertiesSize(teamId, distinctId)
     }
 
     reportBatch(): void {

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { resetTestDatabase } from '../../../../tests/helpers/sql'
+import { createTeam, resetTestDatabase } from '../../../../tests/helpers/sql'
 import { Hub, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
@@ -556,7 +556,7 @@ describe('BasePersonRepository', () => {
 
         it('should handle different team IDs correctly', async () => {
             const team1 = await getFirstTeam(hub)
-            const team2 = await getFirstTeam(hub) // Get another team
+            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
             const distinctId = 'shared-distinct-id'
 
             // Insert for team 1
@@ -564,7 +564,7 @@ describe('BasePersonRepository', () => {
             expect(result1).toBe(false)
 
             // Insert for team 2 (should work since it's a different team)
-            const result2 = await repository.addPersonlessDistinctId(team2.id, distinctId)
+            const result2 = await repository.addPersonlessDistinctId(team2Id, distinctId)
             expect(result2).toBe(false)
 
             // Verify both records exist
@@ -578,7 +578,7 @@ describe('BasePersonRepository', () => {
             const selectResult2 = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
-                [team2.id, distinctId],
+                [team2Id, distinctId],
                 'verifyTeam2'
             )
 
@@ -670,6 +670,88 @@ describe('BasePersonRepository', () => {
             )
             expect(selectResult.rows).toHaveLength(1)
             expect(selectResult.rows[0].is_merged).toBe(true)
+        })
+    })
+
+    describe('personPropertiesSize', () => {
+        it('should return properties size for existing person', async () => {
+            const team = await getFirstTeam(hub)
+            await createTestPerson(team.id, 'test-distinct', {
+                name: 'John Doe',
+                email: 'john@example.com',
+                age: 30,
+                preferences: {
+                    theme: 'dark',
+                    notifications: true,
+                },
+            })
+
+            const size = await repository.personPropertiesSize(team.id, 'test-distinct')
+
+            expect(size).toBeGreaterThan(0)
+            expect(typeof size).toBe('number')
+        })
+
+        it('should return 0 for non-existent person', async () => {
+            const team = await getFirstTeam(hub)
+            const size = await repository.personPropertiesSize(team.id, 'non-existent-distinct')
+
+            expect(size).toBe(0)
+        })
+
+        it('should handle different team IDs correctly', async () => {
+            const team1 = await getFirstTeam(hub)
+            const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
+
+            // Create person in team 1
+            await createTestPerson(team1.id, 'shared-distinct', { name: 'Team 1 Person' })
+
+            // Check size in team 1
+            const size1 = await repository.personPropertiesSize(team1.id, 'shared-distinct')
+            expect(size1).toBeGreaterThan(0)
+
+            // Check size in team 2 (should be 0 since person doesn't exist there)
+            const size2 = await repository.personPropertiesSize(team2Id, 'shared-distinct')
+            expect(size2).toBe(0)
+        })
+
+        it('should return larger size for person with more properties', async () => {
+            const team = await getFirstTeam(hub)
+
+            // Create person with minimal properties
+            await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
+            const minimalSize = await repository.personPropertiesSize(team.id, 'minimal-person')
+
+            // Create person with extensive properties
+            const extensiveProperties = {
+                name: 'Extensive Person',
+                email: 'extensive@example.com',
+                age: 25,
+                address: {
+                    street: '123 Main St',
+                    city: 'New York',
+                    state: 'NY',
+                    zip: '10001',
+                    country: 'USA',
+                },
+                preferences: {
+                    theme: 'light',
+                    notifications: true,
+                    privacy: {
+                        shareData: false,
+                        marketingEmails: true,
+                    },
+                },
+                metadata: {
+                    source: 'web',
+                    campaign: 'summer2024',
+                    tags: ['premium', 'active'],
+                },
+            }
+            await createTestPerson(team.id, 'extensive-person', extensiveProperties)
+            const extensiveSize = await repository.personPropertiesSize(team.id, 'extensive-person')
+
+            expect(extensiveSize).toBeGreaterThan(minimalSize)
         })
     })
 })

@@ -96,6 +96,7 @@ describe('BatchWritingPersonStore', () => {
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
             addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+            personPropertiesSize: jest.fn().mockResolvedValue(1024),
         }
         return mockRepo
     }
@@ -1228,6 +1229,31 @@ describe('BatchWritingPersonStore', () => {
 
             expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct', undefined)
             expect(result).toBe(false)
+        })
+    })
+
+    describe('personPropertiesSize', () => {
+        it('should call repository method and return result', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.personPropertiesSize(teamId, 'test-distinct')
+
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(1024)
+        })
+
+        it('should handle repository returning 0', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.personPropertiesSize = jest.fn().mockResolvedValue(0)
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.personPropertiesSize(teamId, 'test-distinct')
+
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(0)
         })
     })
 })

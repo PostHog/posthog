@@ -11,7 +11,7 @@ import {
     PropertiesLastUpdatedAt,
     RawPerson,
 } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../utils/db/db'
 import { moveDistinctIdsCountHistogram } from '../../../utils/db/metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue } from '../../../utils/db/utils'
@@ -365,5 +365,32 @@ export class BasePersonRepository implements PersonRepository {
         )
 
         return result.rows[0].inserted
+    }
+
+    async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
+        const values = [teamId, distinctId]
+        const queryString = `
+            SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = $2`
+
+        const { rows } = await this.postgres.query<PersonPropertiesSize>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            values,
+            'personPropertiesSize'
+        )
+
+        // the returned value from the DB query can be NULL if the record
+        // specified by the team and distinct ID inputs doesn't exist
+        if (rows.length > 0) {
+            return Number(rows[0].total_props_bytes)
+        }
+
+        return 0
     }
 }
