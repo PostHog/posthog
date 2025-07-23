@@ -706,7 +706,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
         this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
-        const [person, messages] = await this.db.createPerson(
+        const [person, messages] = await this.personRepository.createPerson(
             createdAt,
             properties,
             propertiesLastUpdatedAt,

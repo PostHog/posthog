@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { resetTestDatabase } from '../../../../tests/helpers/sql'
 import { Hub, Team } from '../../../types'
-import { DB } from '../../../utils/db/db'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { UUIDT } from '../../../utils/utils'
@@ -12,20 +11,18 @@ jest.mock('../../../utils/logger')
 
 describe('BasePersonRepository', () => {
     let hub: Hub
-    let db: DB
     let postgres: PostgresRouter
     let repository: BasePersonRepository
 
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        db = hub.db
-        postgres = db.postgres
+        postgres = hub.db.postgres
         repository = new BasePersonRepository(postgres)
 
         const redis = await hub.redisPool.acquire()
         await redis.flushdb()
-        await db.redisPool.release(redis)
+        await hub.redisPool.release(redis)
     })
 
     afterEach(async () => {
@@ -38,7 +35,7 @@ describe('BasePersonRepository', () => {
     // Helper function to create a person with all the necessary setup
     async function createTestPerson(teamId: number, distinctId: string, properties: Record<string, any> = {}) {
         const uuid = new UUIDT().toString()
-        const [createdPerson, kafkaMessages] = await db.createPerson(
+        const [createdPerson, kafkaMessages] = await repository.createPerson(
             TIMESTAMP,
             properties,
             {},
@@ -179,6 +176,146 @@ describe('BasePersonRepository', () => {
                 [team.id, 'some_id'],
                 'fetchPerson'
             )
+        })
+    })
+
+    describe('createPerson()', () => {
+        it('creates a person with basic properties', async () => {
+            const team = await getFirstTeam(hub)
+            const uuid = new UUIDT().toString()
+            const properties = { name: 'John Doe', email: 'john@example.com' }
+
+            const [person, kafkaMessages] = await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                [{ distinctId: 'test-distinct-id' }]
+            )
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: uuid,
+                    team_id: team.id,
+                    properties: properties,
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                    version: 0,
+                })
+            )
+
+            expect(kafkaMessages).toHaveLength(2) // One for person, one for distinct ID
+            expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
+            expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
+        })
+
+        it('creates a person with multiple distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const uuid = new UUIDT().toString()
+            const properties = { name: 'Jane Doe' }
+
+            const [person, kafkaMessages] = await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                [
+                    { distinctId: 'distinct-1', version: 0 },
+                    { distinctId: 'distinct-2', version: 1 },
+                ]
+            )
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: uuid,
+                    team_id: team.id,
+                    properties: properties,
+                    is_identified: false,
+                    created_at: TIMESTAMP,
+                    version: 0,
+                })
+            )
+
+            expect(kafkaMessages).toHaveLength(3) // One for person, two for distinct IDs
+            expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
+            expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
+            expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
+        })
+
+        it('creates a person without distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const uuid = new UUIDT().toString()
+            const properties = { name: 'Anonymous' }
+
+            const [person, kafkaMessages] = await repository.createPerson(
+                TIMESTAMP,
+                properties,
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid
+            )
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: uuid,
+                    team_id: team.id,
+                    properties: properties,
+                    is_identified: false,
+                    created_at: TIMESTAMP,
+                    version: 0,
+                })
+            )
+
+            expect(kafkaMessages).toHaveLength(1) // Only person message, no distinct ID messages
+            expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
+        })
+
+        it('throws error when trying to create a person with the same distinct ID twice', async () => {
+            const team = await getFirstTeam(hub)
+            const distinctId = 'duplicate-distinct-id'
+            const uuid1 = new UUIDT().toString()
+            const uuid2 = new UUIDT().toString()
+
+            // Create first person successfully
+            const [person1, kafkaMessages1] = await repository.createPerson(
+                TIMESTAMP,
+                { name: 'First Person' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid1,
+                [{ distinctId }]
+            )
+
+            expect(person1).toBeDefined()
+            expect(kafkaMessages1).toHaveLength(2)
+
+            // Try to create second person with same distinct ID - should fail
+            await expect(
+                repository.createPerson(TIMESTAMP, { name: 'Second Person' }, {}, {}, team.id, null, true, uuid2, [
+                    { distinctId },
+                ])
+            ).rejects.toThrow()
+
+            // Verify the first person still exists and can be fetched
+            const fetchedPerson = await repository.fetchPerson(team.id, distinctId)
+            expect(fetchedPerson).toEqual(person1)
         })
     })
 })

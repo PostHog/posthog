@@ -1,4 +1,9 @@
-import { InternalPerson } from '../../../types'
+import { Properties } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
+
+import { TopicMessage } from '../../../kafka/producer'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '../../../types'
+import { TransactionClient } from '../../../utils/db/postgres'
 
 export interface PersonRepository {
     fetchPerson(
@@ -6,4 +11,17 @@ export interface PersonRepository {
         distinctId: string,
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined>
+
+    createPerson(
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        teamId: number,
+        isUserId: number | null,
+        isIdentified: boolean,
+        uuid: string,
+        distinctIds?: { distinctId: string; version?: number }[],
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]>
 }
