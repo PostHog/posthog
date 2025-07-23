@@ -79,13 +79,24 @@ def stripe_source(
         incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
         incremental_field_label = incremental_field_config[0]["label"] if incremental_field_config else "created"
 
+        is_invoice_item_endpoint = endpoint == INVOICE_ITEM_RESOURCE_NAME
+        # This is the actual field name on the Stripe object
+        object_incremental_field = "date" if is_invoice_item_endpoint else "created"
+
+        def _process_iterator(iterator):
+            for obj in iterator:
+                if object_incremental_field != incremental_field_label:
+                    # To satisfy dlt which expects a column with `incremental_field_label` as a name for partitioning
+                    obj[incremental_field_label] = obj[object_incremental_field]
+                yield obj
+
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Stripe: iterating all objects from resource")
 
             stripe_objects = resource.method(params={**default_params, **resource.params})
-            yield from stripe_objects.auto_paging_iter()
+            yield from _process_iterator(stripe_objects.auto_paging_iter())
             return
 
         # check for any objects less than the minimum object we already have
@@ -101,7 +112,7 @@ def stripe_source(
                     f"{incremental_field_name}[lt]": db_incremental_field_earliest_value,
                 }
             )
-            yield from stripe_objects.auto_paging_iter()
+            yield from _process_iterator(stripe_objects.auto_paging_iter())
 
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
@@ -116,8 +127,10 @@ def stripe_source(
                     f"{incremental_field_name}[gt]": db_incremental_field_last_value,
                 }
             )
-            for obj in stripe_objects.auto_paging_iter():
-                if obj[incremental_field_label] <= db_incremental_field_last_value:
+            for obj in _process_iterator(stripe_objects.auto_paging_iter()):
+                # For invoice items, we are filtering by 'created' but the incremental field is 'date'.
+                # The result is sorted by 'created' descending, so we can't break early.
+                if not is_invoice_item_endpoint and obj[object_incremental_field] <= db_incremental_field_last_value:
                     break
 
                 yield obj

@@ -62,7 +62,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
     BALANCE_TRANSACTION_RESOURCE_NAME: [
         {
-            "label": "created",
+            "label": "created_at",
             "type": IncrementalFieldType.DateTime,
             "field": "created",
             "field_type": IncrementalFieldType.Integer,
@@ -126,9 +126,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
     INVOICE_ITEM_RESOURCE_NAME: [
         {
-            "label": "date",  # On the object (response field)
+            "label": "date",
             "type": IncrementalFieldType.DateTime,
-            "field": "created",  # On the API filter (API parameter)
+            "field": "created",
             "field_type": IncrementalFieldType.Integer,
         }
     ],
