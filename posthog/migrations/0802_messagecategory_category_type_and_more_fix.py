@@ -33,26 +33,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            database_operations=[
-                # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
-                migrations.RunSQL(
-                    """
-                    ALTER TABLE "posthog_messagetemplate" ADD COLUMN "message_category_id" uuid NULL CONSTRAINT "posthog_messagetempl_message_category_id_3a1fda4d_fk_posthog_m" REFERENCES "posthog_messagecategory"("id") DEFERRABLE INITIALLY DEFERRED;
-                    SET CONSTRAINTS "posthog_messagetempl_message_category_id_3a1fda4d_fk_posthog_m" IMMEDIATE;
-                    """,
-                    reverse_sql="""
-                        ALTER TABLE "posthog_messagetemplate" DROP COLUMN IF EXISTS "message_category_id";
-                    """,
-                ),
-                # We add CONCURRENTLY to the create command
-                migrations.RunSQL(
-                    """
-                    CREATE INDEX "posthog_messagetemplate_message_category_id_3a1fda4d" ON "posthog_messagetemplate" ("message_category_id");
-                    """,
-                    reverse_sql="""
-                        DROP INDEX IF EXISTS "posthog_messagetemplate_message_category_id_3a1fda4d";
-                    """,
-                ),
-            ],
+            database_operations=[],
         ),
     ]
