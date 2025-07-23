@@ -13,12 +13,12 @@ from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsI
 
 logger = structlog.get_logger(__name__)
 
-BATCH_EXPORTS_HISTOGRAM_METRICS = (
+BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_execution_latency",
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
-BATCH_EXPORTS_HISTOGRAM_BUCKETS = [
+BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     30_000.0,  # 30 seconds
     60_000.0,  # 1 minute
@@ -82,8 +82,12 @@ async def create_worker(
                 # given that the `duration_as_seconds` is `False`.
                 # But in Python we still need to pass floats due to type hints.
                 histogram_bucket_overrides=dict(
-                    zip(BATCH_EXPORTS_HISTOGRAM_METRICS, itertools.repeat(BATCH_EXPORTS_HISTOGRAM_BUCKETS))
-                ),
+                    zip(
+                        BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0]},
             ),
         )
     )
