@@ -59,25 +59,6 @@ async function main() {
     if (!hogFunction) {
         throw new Error('You must select a destination. Exiting...')
     }
-    const { mapping: mappingName } = await inquirer.prompt([
-        {
-            type: 'list',
-            name: 'mapping',
-            message: 'Select a mapping:',
-            choices: hogFunction.mapping_templates.map((mapping) => ({
-                name: mapping.name,
-                value: mapping.name,
-            })),
-        },
-    ])
-
-    const mapping = hogFunction.mapping_templates.find((mapping) => mapping.name === mappingName)
-
-    if (!mapping) {
-        throw new Error('You must select a mapping. Exiting...')
-    }
-
-    console.log(`You selected: ${hogFunctionId} / ${mapping.name}`)
 
     const app = express()
 
@@ -96,10 +77,7 @@ async function main() {
     app.use(express.json())
 
     app.get('/local-hog-function', (req, res) => {
-        res.status(200).json({
-            ...hogFunction,
-            mapping_templates: hogFunction.mapping_templates.filter((m) => m.name === mapping.name),
-        })
+        res.status(200).json(hogFunction)
     })
 
     app.post('/local-hog-function/invoke', async (req, res) => {
@@ -121,9 +99,8 @@ async function main() {
         }
 
         const inputs = convertInputs(configuration.inputs)
-        const mappingInputs = convertInputs(mapping.inputs ?? {})
 
-        const result = await tester.invokeMapping(mapping.name, globals, inputs, mappingInputs)
+        const result = await tester.invoke(globals, inputs)
 
         res.json({
             result: result,
