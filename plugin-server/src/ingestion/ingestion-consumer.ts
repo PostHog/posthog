@@ -3,10 +3,11 @@ import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { MessageSizeTooLarge } from '~/utils/db/error'
+import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
-import { KafkaProducerWrapper, TopicMessage } from '../kafka/producer'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import {
     eventDroppedCounter,
@@ -36,7 +37,7 @@ import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/ev
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import { MemoryRateLimiter } from './utils/overflow-detector'
@@ -361,22 +362,31 @@ export class IngestionConsumer {
         }
     }
 
-    private async producePersonsStoreMessages(personsStoreMessages: TopicMessage[]): Promise<void> {
+    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
         await Promise.all(
             personsStoreMessages.map((record) => {
                 return Promise.all(
-                    record.messages.map(async (message) => {
+                    record.topicMessage.messages.map(async (message) => {
                         try {
                             return await this.kafkaProducer!.produce({
-                                topic: record.topic,
+                                topic: record.topicMessage.topic,
                                 key: message.key ? Buffer.from(message.key) : null,
                                 value: message.value ? Buffer.from(message.value) : null,
                                 headers: message.headers,
                             })
                         } catch (error) {
                             if (error instanceof MessageSizeTooLarge) {
+                                await captureIngestionWarning(
+                                    this.kafkaProducer!,
+                                    record.teamId,
+                                    'message_size_too_large',
+                                    {
+                                        eventUuid: record.uuid,
+                                        distinctId: record.distinctId,
+                                    }
+                                )
                                 logger.warn('🪣', `Message size too large`, {
-                                    topic: record.topic,
+                                    topic: record.topicMessage.topic,
                                     key: message.key,
                                     headers: message.headers,
                                 })

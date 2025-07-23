@@ -1137,10 +1137,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const responseInBytes = sizeOfInBytes(response)
 
+            const existingTab = values.allTabs.find((tab) => tab.uri.path === currentTab.uri.path)
+
             // Store in local storage if the response is less than 1 MB
-            if (responseInBytes <= 1024 * 1024) {
+            if (responseInBytes <= 1024 * 1024 && existingTab) {
                 actions.updateTab({
-                    ...currentTab,
+                    ...existingTab,
                     response,
                 })
             }
