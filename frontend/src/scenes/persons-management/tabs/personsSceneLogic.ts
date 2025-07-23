@@ -83,17 +83,17 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             if (values.query.source.kind !== NodeKind.ActorsQuery) {
                 return
             }
-            const currentSearch = values.query.source.search
-            if (searchInUrl !== currentSearch) {
-                const newSource: ActorsQuery = {
-                    ...values.query.source,
-                    search: searchInUrl,
-                }
-                actions.setQuery({
-                    ...values.query,
-                    source: newSource,
-                })
+            if (searchInUrl == null) {
+                return
             }
+            const newSource: ActorsQuery = {
+                ...values.query.source,
+                search: searchInUrl,
+            }
+            actions.setQuery({
+                ...values.query,
+                source: newSource,
+            })
         },
     })),
 
