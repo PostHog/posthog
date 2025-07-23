@@ -22,7 +22,6 @@ from posthog.schema import (
     StickinessQuery,
     LifecycleQuery,
     CalendarHeatmapQuery,
-    DataVisualizationNode,
     DataTableNode,
     ActorsQuery,
     InsightActorsQuery,
@@ -76,8 +75,6 @@ class QueryEventsExtractor:
             events = self.extract_events(self._ensure_model_instance(query, InsightVizNode).source)
         elif kind == "DataTableNode":
             events = self.extract_events(self._ensure_model_instance(query, DataTableNode).source)
-        elif kind == "DataVisualizationNode":
-            events = self.extract_events(self._ensure_model_instance(query, DataVisualizationNode).source)
         elif kind == "ActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, ActorsQuery).source)
         elif kind == "InsightActorsQuery":
@@ -88,8 +85,6 @@ class QueryEventsExtractor:
             events = self.extract_events(self._ensure_model_instance(query, FunnelCorrelationActorsQuery).source)
         elif kind == "StickinessActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, StickinessActorsQuery).source)
-        elif kind == "FunnelCorrelationQuery":
-            events = self.extract_events(self._ensure_model_instance(query, FunnelCorrelationQuery).source)
 
         elif kind == "TrendsQuery":
             events = self._extract_events_from_series(self._ensure_model_instance(query, TrendsQuery).series)
@@ -99,6 +94,11 @@ class QueryEventsExtractor:
             events = self._extract_events_from_series(self._ensure_model_instance(query, LifecycleQuery).series)
         elif kind == "CalendarHeatmapQuery":
             events = self._extract_events_from_series(self._ensure_model_instance(query, CalendarHeatmapQuery).series)
+
+        elif kind == "FunnelCorrelationQuery":
+            events = self._extract_events_from_funnels_correlation_query(
+                self._ensure_model_instance(query, FunnelCorrelationQuery)
+            )
 
         elif kind == "EventsQuery":
             events = self._extract_events_from_events_query(self._ensure_model_instance(query, EventsQuery))
@@ -111,6 +111,9 @@ class QueryEventsExtractor:
 
         elif kind == "PathsQuery":
             events = self._extract_events_from_paths_query(self._ensure_model_instance(query, PathsQuery))
+
+        elif kind == "EventsNode":
+            events = self._get_series_events(self._ensure_model_instance(query, EventsNode))
 
         return list(set(events))
 
@@ -143,6 +146,17 @@ class QueryEventsExtractor:
         excluded_events = [event for event in query.pathsFilter.excludeEvents if not self._is_valid_url(event)]
 
         return list(set(included_events + excluded_events))
+
+    def _extract_events_from_funnels_correlation_query(self, query: FunnelCorrelationQuery) -> list[str]:
+        events = self.extract_events(query.source)
+
+        if query.funnelCorrelationEventNames:
+            events.extend(query.funnelCorrelationEventNames)
+
+        if query.funnelCorrelationExcludeEventNames:
+            events.extend(query.funnelCorrelationExcludeEventNames)
+
+        return list(set(events))
 
     @staticmethod
     def _is_valid_url(url: str) -> bool:
