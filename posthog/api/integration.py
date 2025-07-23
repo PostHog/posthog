@@ -209,6 +209,33 @@ class IntegrationViewSet(
         cache.set(key, response, 60 * 60)  # one hour
         return Response(response)
 
+    @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
+    def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        twilio = TwilioIntegration(instance)
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
+
+        key = f"twilio/{instance.integration_id}/phone_numbers"
+        data = cache.get(key)
+
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "phone_numbers": [
+                {
+                    "sid": phone_number["sid"],
+                    "phone_number": phone_number["phone_number"],
+                    "friendly_name": phone_number["friendly_name"],
+                }
+                for phone_number in twilio.list_twilio_phone_numbers()
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
+
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

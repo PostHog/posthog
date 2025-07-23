@@ -1197,6 +1197,18 @@ class TwilioIntegration:
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
+    def list_twilio_phone_numbers(self) -> list[dict]:
+        twilio_provider = TwilioProvider(
+            account_sid=self.integration.config["account_sid"],
+            auth_token=self.integration.sensitive_config["auth_token"],
+        )
+        twilio_phone_numbers = twilio_provider.get_phone_numbers()
+
+        if not twilio_phone_numbers:
+            raise Exception(f"There was an internal error")
+
+        return twilio_phone_numbers
+
     @classmethod
     def integration_from_keys(
         cls, account_sid: str, auth_token: str, phone_number: str, team_id: int, created_by: Optional[User] = None

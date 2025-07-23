@@ -1,3 +1,4 @@
+from posthoganalytics import capture_exception
 import requests
 import logging
 
@@ -23,6 +24,18 @@ class TwilioProvider:
         except requests.exceptions.RequestException as e:
             logger.exception(f"Twilio API error: {e}")
             raise
+
+    def get_phone_numbers(self) -> list[dict]:
+        """
+        Get all phone numbers owned by the account.
+        """
+        try:
+            endpoint = "/IncomingPhoneNumbers.json"
+            response = self._make_request("GET", endpoint)
+            return response.get("incoming_phone_numbers", [])
+        except requests.exceptions.HTTPError as e:
+            capture_exception(Exception(f"TwilioIntegration: Failed to list twilio phone numbers: {e}"))
+            return []
 
     def verify_phone_number(self, phone_number: str) -> bool:
         """
