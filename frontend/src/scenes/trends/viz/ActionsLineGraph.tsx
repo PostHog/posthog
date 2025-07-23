@@ -105,6 +105,9 @@ export function ActionsLineGraph({
                 pointRadius: 0,
                 borderWidth: 0,
                 hideTooltip: true,
+                datalabels: {
+                    display: false,
+                },
             })
             finalDatasets.push({
                 ...originalDataset,
@@ -120,6 +123,9 @@ export function ActionsLineGraph({
                 borderWidth: 0,
                 fill: '-1',
                 hideTooltip: true,
+                datalabels: {
+                    display: false,
+                },
             })
         })
     }

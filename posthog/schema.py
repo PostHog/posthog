@@ -4347,7 +4347,7 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
-    confidence_level: Optional[float] = None
+    confidenceLevel: Optional[float] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
@@ -4367,12 +4367,12 @@ class TrendsFilter(BaseModel):
         Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
     ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showAlertThresholdLines: Optional[bool] = False
+    showConfidenceIntervals: Optional[bool] = None
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
     showMultipleYAxes: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
-    show_confidence_intervals: Optional[bool] = None
     smoothingIntervals: Optional[int] = 1
     yAxisScaleType: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
 

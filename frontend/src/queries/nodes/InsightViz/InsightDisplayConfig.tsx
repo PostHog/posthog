@@ -83,7 +83,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const showMultipleYAxesConfig = isTrends || isStickiness
     const showAlertThresholdLinesConfig = isTrends
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
-    const showConfidenceIntervals = isLineGraph && !!trendsFilter?.show_confidence_intervals
+    const showConfidenceIntervals = isLineGraph && !!trendsFilter?.showConfidenceIntervals
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -155,7 +155,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                               const newQuery = { ...querySource }
                                               newQuery.trendsFilter = {
                                                   ...trendsFilter,
-                                                  show_confidence_intervals: checked,
+                                                  showConfidenceIntervals: checked,
                                               }
                                               updateQuerySource(newQuery)
                                           }

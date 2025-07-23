@@ -1,4 +1,4 @@
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,7 +9,7 @@ import { useState, useEffect } from 'react'
 
 export function ConfidenceLevelInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { confidenceLevel } = useValues(trendsDataLogic(insightProps))
+    const { confidenceLevel, showConfidenceIntervals } = useValues(trendsDataLogic(insightProps))
     const { querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const trendsFilter = isTrendsQuery(querySource) ? querySource.trendsFilter : undefined
@@ -23,28 +23,32 @@ export function ConfidenceLevelInput(): JSX.Element {
     const debouncedUpdate = useDebouncedCallback((value: number) => {
         if (isTrendsQuery(querySource)) {
             const newQuery = { ...querySource }
-            newQuery.trendsFilter = { ...trendsFilter, confidence_level: value }
+            newQuery.trendsFilter = { ...trendsFilter, confidenceLevel: value }
             updateQuerySource(newQuery)
         }
     }, 500)
 
     return (
-        <div className="flex items-center justify-between w-full min-h-8 px-2 pb-2">
-            <span>Confidence level</span>
+        <div className="flex items-center justify-between w-full px-2 pb-2">
+            <Tooltip title="A 95% confidence level means that for each data point, we are 95% confident that the true value is within the confidence interval.">
+                <span>Confidence level</span>
+            </Tooltip>
             <LemonInput
                 type="number"
-                min={0}
-                max={100}
-                step={1}
+                className="w-20"
                 value={localValue}
                 onChange={(value) => {
                     const numValue = value ?? 95
                     setLocalValue(numValue)
                     debouncedUpdate(numValue)
                 }}
+                min={0}
+                max={100}
+                step={1}
                 suffix={<span>%</span>}
-                size="small"
-                className="w-20"
+                disabledReason={
+                    !showConfidenceIntervals ? 'Confidence intervals are only available for line graphs' : undefined
+                }
             />
         </div>
     )
