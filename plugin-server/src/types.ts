@@ -20,7 +20,7 @@ import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
-import { CyclotronJobQueueSource } from './cdp/types'
+import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
@@ -75,8 +75,6 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
-    cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
-    cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
     cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
@@ -111,6 +109,7 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
@@ -428,10 +427,7 @@ export interface PluginServerCapabilities {
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerPlugins?: boolean
-    cdpCyclotronWorkerSegment?: boolean
     cdpBehaviouralEvents?: boolean
-    cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }

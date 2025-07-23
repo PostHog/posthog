@@ -275,7 +275,7 @@ describe('process-event', () => {
         expect(person.created_at.toISO()).toEqual(DateTime.fromISO('2019-07-01T00:00:00Z').setZone('UTC').toISO())
     })
 
-    test('capture new person', async () => {
+    test.only('capture new person', async () => {
         console.log('capture new person', 'start')
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,

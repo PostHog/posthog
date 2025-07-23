@@ -79,8 +79,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
-
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "fetch_and_locally_cache_all_relevant_properties".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
@@ -393,7 +399,16 @@ pub async fn get_feature_flag_hash_key_overrides(
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "get_feature_flag_hash_key_overrides".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let mut conn = reader.as_ref().get_connection().await?;
+    conn_timer.fin();
 
     let person_and_distinct_id_query = r#"
             SELECT person_id, distinct_id 
@@ -573,9 +588,18 @@ pub async fn should_write_hash_key_override(
 
     for retry in 0..MAX_RETRIES {
         let result = timeout(QUERY_TIMEOUT, async {
+            let labels = [
+                ("pool".to_string(), "reader".to_string()),
+                (
+                    "operation".to_string(),
+                    "should_write_hash_key_override".to_string(),
+                ),
+            ];
+            let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
             let mut conn = reader.get_connection().await.map_err(|e| {
                 FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
             })?;
+            conn_timer.fin();
 
             let rows = sqlx::query(query)
                 .bind(team_id)

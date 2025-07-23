@@ -11,16 +11,16 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.session_recordings.session_summary import ExceptionToRetry
-from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries import ExceptionToRetry
+from ee.hogai.session_summaries.llm.consume import stream_llm_single_session_summary
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
     get_session_data_from_db,
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
 )
-from ee.session_recordings.session_summary.utils import serialize_to_sse_event
+from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.redis import get_client

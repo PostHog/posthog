@@ -1,15 +1,7 @@
 import { initKeaTests } from '~/test/init'
-import { CreateGroupParams, GroupTypeIndex } from '~/types'
+import {} from '~/types'
 
 import { flattenProperties, groupsNewLogic, GroupsNewLogicProps } from './groupsNewLogic'
-
-const MOCK_CREATE_PARAMS: CreateGroupParams = {
-    group_key: 'test-group-key',
-    group_type_index: 0 as GroupTypeIndex,
-    group_properties: {
-        name: 'Test Group',
-    },
-}
 
 describe('groupsNewLogic', () => {
     let logic: ReturnType<typeof groupsNewLogic.build>
@@ -30,7 +22,6 @@ describe('groupsNewLogic', () => {
 
             expect(logic.values.logicProps).toEqual(props)
             expect(logic.values.createdGroup).toBeNull()
-            expect(logic.values.customProperties).toEqual([])
             expect(logic.values.group).toEqual({})
         })
 
@@ -48,40 +39,22 @@ describe('groupsNewLogic', () => {
         })
     })
 
-    describe('form management', () => {
+    describe('form logic', () => {
         beforeEach(() => {
-            logic = groupsNewLogic({ groupTypeIndex: 0 })
+            const props: GroupsNewLogicProps = { groupTypeIndex: 1 }
+            logic = groupsNewLogic(props)
             logic.mount()
         })
 
-        it('validates required fields correctly', () => {
-            logic.actions.setGroupValue('name', '')
-            logic.actions.setGroupValue('group_key', '')
-
-            expect(logic.values.groupHasErrors).toBe(true)
-
-            logic.actions.submitGroup()
-
-            expect(logic.values.groupErrors.name).toBe('Group name cannot be empty')
-            expect(logic.values.groupErrors.group_key).toBe('Group key cannot be empty')
-        })
-
-        it('validates whitespace-only values as invalid', () => {
-            logic.actions.setGroupValue('name', '   ')
-            logic.actions.setGroupValue('group_key', '\t\n  ')
-
+        it('handles form validation correctly', () => {
             logic.actions.submitGroup()
 
             expect(logic.values.groupHasErrors).toBe(true)
             expect(logic.values.groupErrors.name).toBe('Group name cannot be empty')
             expect(logic.values.groupErrors.group_key).toBe('Group key cannot be empty')
-        })
 
-        it('accepts valid form data', () => {
             logic.actions.setGroupValue('name', 'Valid Name')
             logic.actions.setGroupValue('group_key', 'valid-key')
-
-            logic.actions.submitGroup()
 
             expect(logic.values.groupHasErrors).toBe(false)
             expect(logic.values.groupErrors).toEqual({})
@@ -89,189 +62,207 @@ describe('groupsNewLogic', () => {
 
         it('resets form state', () => {
             logic.actions.setGroupValue('name', 'Test Name')
-            logic.actions.addProperty()
+            logic.actions.addFormProperty()
 
             expect(logic.values.group.name).toBe('Test Name')
-            expect(logic.values.customProperties).toHaveLength(1)
+            expect(logic.values.group.customProperties).toHaveLength(1)
 
             logic.actions.resetGroup()
 
             expect(logic.values.createdGroup).toBeNull()
-            expect(logic.values.customProperties).toEqual([])
+            expect(logic.values.group.customProperties).toBe(undefined)
         })
     })
 
     describe('custom properties management', () => {
         beforeEach(() => {
-            logic = groupsNewLogic({ groupTypeIndex: 0 })
+            const props: GroupsNewLogicProps = { groupTypeIndex: 1 }
+            logic = groupsNewLogic(props)
             logic.mount()
         })
 
-        it('adds properties correctly', () => {
-            expect(logic.values.customProperties).toEqual([])
+        it('should add a new property', () => {
+            expect(logic.values.group.customProperties).toBe(undefined)
 
-            logic.actions.addProperty()
-            expect(logic.values.customProperties).toEqual([{ name: '', value: '' }])
+            logic.actions.addFormProperty()
 
-            logic.actions.addProperty()
-            expect(logic.values.customProperties).toEqual([
-                { name: '', value: '' },
-                { name: '', value: '' },
+            expect(logic.values.group.customProperties).toEqual([{ name: '', type: 'string', value: '' }])
+        })
+
+        it('should add multiple properties', () => {
+            logic.actions.addFormProperty()
+
+            expect(logic.values.group.customProperties).toEqual([{ name: '', type: 'string', value: '' }])
+
+            logic.actions.addFormProperty()
+
+            expect(logic.values.group.customProperties).toEqual([
+                { name: '', type: 'string', value: '' },
+                { name: '', type: 'string', value: '' },
             ])
         })
 
-        it('updates property name and value', () => {
-            logic.actions.addProperty()
+        it('should update property name and value', () => {
+            logic.actions.addFormProperty()
 
-            logic.actions.updateProperty(0, 'name', 'test-property')
-            expect(logic.values.customProperties[0]).toEqual({ name: 'test-property', value: '' })
+            logic.actions.setGroupValue('customProperties', [{ name: 'test-property', type: 'string', value: '' }])
 
-            logic.actions.updateProperty(0, 'value', 'test-value')
-            expect(logic.values.customProperties[0]).toEqual({ name: 'test-property', value: 'test-value' })
-        })
+            expect(logic.values.group.customProperties[0]).toMatchObject({
+                name: 'test-property',
+                type: 'string',
+                value: '',
+            })
 
-        it('removes properties by index', () => {
-            logic.actions.addProperty()
-            logic.actions.addProperty()
-            logic.actions.addProperty()
-            logic.actions.updateProperty(0, 'name', 'zero')
-            logic.actions.updateProperty(1, 'name', 'one')
-            logic.actions.updateProperty(2, 'name', 'two')
-
-            logic.actions.removeProperty(1)
-            expect(logic.values.customProperties).toEqual([
-                { name: 'zero', value: '' },
-                { name: 'two', value: '' },
+            logic.actions.setGroupValue('customProperties', [
+                { name: 'test-property', type: 'string', value: 'test-value' },
             ])
 
-            logic.actions.removeProperty(0)
-            expect(logic.values.customProperties).toEqual([{ name: 'two', value: '' }])
+            expect(logic.values.group.customProperties[0]).toMatchObject({
+                name: 'test-property',
+                type: 'string',
+                value: 'test-value',
+            })
         })
 
-        it('handles out-of-bounds removal gracefully', () => {
-            logic.actions.addProperty()
+        it('should handle multiple properties with updates', () => {
+            logic.actions.setGroupValue('customProperties', [
+                { name: 'zero', type: 'string', value: '' },
+                { name: 'one', type: 'string', value: '' },
+                { name: 'two', type: 'string', value: '' },
+            ])
 
-            logic.actions.removeProperty(5)
-            expect(logic.values.customProperties).toHaveLength(1)
-
-            logic.actions.removeProperty(-1)
-            expect(logic.values.customProperties).toHaveLength(1)
+            expect(logic.values.group.customProperties).toEqual([
+                { name: 'zero', type: 'string', value: '' },
+                { name: 'one', type: 'string', value: '' },
+                { name: 'two', type: 'string', value: '' },
+            ])
         })
 
-        it('handles invalid property updates gracefully', () => {
-            logic.actions.addProperty()
-            const originalProperties = [...logic.values.customProperties]
+        it('should remove a property', () => {
+            // Add some properties first
+            logic.actions.setGroupValue('customProperties', [
+                { name: 'prop1', type: 'string', value: 'value1' },
+                { name: 'prop2', type: 'string', value: 'value2' },
+            ])
 
-            logic.actions.updateProperty(5, 'name', 'test')
-            expect(logic.values.customProperties).toEqual(originalProperties)
+            expect(logic.values.group.customProperties).toHaveLength(2)
 
-            logic.actions.updateProperty(-1, 'value', 'test')
-            expect(logic.values.customProperties).toEqual(originalProperties)
+            // Remove the first property
+            logic.actions.removeFormProperty(0)
+
+            expect(logic.values.group.customProperties).toEqual([{ name: 'prop2', type: 'string', value: 'value2' }])
+        })
+
+        it('should handle edge cases for property updates gracefully', () => {
+            logic.actions.addFormProperty()
+            // Test bounds - trying to update non-existent property
+            const currentProps = logic.values.group.customProperties || []
+            logic.actions.setGroupValue('customProperties', currentProps)
+            expect(logic.values.group.customProperties?.[5]).toBeUndefined()
         })
     })
 
-    describe('action dispatch and state management', () => {
+    describe('form validation', () => {
         beforeEach(() => {
-            logic = groupsNewLogic({ groupTypeIndex: 1 })
+            const props: GroupsNewLogicProps = { groupTypeIndex: 1 }
+            logic = groupsNewLogic(props)
             logic.mount()
         })
 
-        it('dispatches saveGroup action correctly', () => {
-            expect(() => {
-                logic.actions.saveGroup(MOCK_CREATE_PARAMS)
-            }).not.toThrow()
-        })
-
-        it('initializes with correct loading states', () => {
-            expect(logic.values.createdGroupLoading).toBe(false)
-            expect(logic.values.createdGroup).toBeNull()
-        })
-    })
-
-    describe('form validation and submission', () => {
-        beforeEach(() => {
-            logic = groupsNewLogic({ groupTypeIndex: 0 })
-            logic.mount()
-        })
-
-        it('prevents submission with validation errors', () => {
-            logic.actions.setGroupValue('name', '')
-            logic.actions.setGroupValue('group_key', '')
+        it('should validate empty custom property names', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.addFormProperty()
 
             logic.actions.submitGroup()
 
             expect(logic.values.groupHasErrors).toBe(true)
+            expect(logic.values.groupErrors?.customProperties?.[0]?.name).toBe('Property name cannot be empty')
         })
 
-        it('accepts valid form data for submission', () => {
-            logic.actions.setGroupValue('name', 'Valid Group')
-            logic.actions.setGroupValue('group_key', 'valid-group')
+        it('should validate duplicate custom property names', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.setGroupValue('customProperties', [
+                { name: 'duplicate', type: 'string', value: '' },
+                { name: 'duplicate', type: 'string', value: '' },
+            ])
+
+            logic.actions.submitGroup()
+
+            expect(logic.values.groupHasErrors).toBe(true)
+            expect(logic.values.groupErrors?.customProperties?.[0]?.name).toBe('Property name must be unique')
+            expect(logic.values.groupErrors?.customProperties?.[1]?.name).toBe('Property name must be unique')
+        })
+
+        it('should validate reserved property name "name"', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.setGroupValue('customProperties', [{ name: 'name', type: 'string', value: '' }])
+
+            logic.actions.submitGroup()
+
+            expect(logic.values.groupHasErrors).toBe(true)
+            expect(logic.values.groupErrors?.customProperties?.[0]?.name).toBe('Property name "name" is reserved')
+        })
+
+        it('should pass validation with valid custom properties', () => {
+            logic.actions.setGroupValue('name', 'Valid Name')
+            logic.actions.setGroupValue('group_key', 'valid-key')
+            logic.actions.setGroupValue('customProperties', [
+                { name: 'company', type: 'string', value: 'PostHog' },
+                { name: 'industry', type: 'string', value: 'Analytics' },
+            ])
 
             expect(logic.values.groupHasErrors).toBe(false)
-            expect(logic.values.group.name).toBe('Valid Group')
-            expect(logic.values.group.group_key).toBe('valid-group')
+            expect(logic.values.groupErrors?.customProperties).toBeUndefined()
         })
     })
 
-    describe('cleanup and lifecycle', () => {
-        it('resets state on unmount', () => {
-            logic = groupsNewLogic({ groupTypeIndex: 0 })
+    describe('form submission', () => {
+        beforeEach(() => {
+            const props: GroupsNewLogicProps = { groupTypeIndex: 1 }
+            logic = groupsNewLogic(props)
             logic.mount()
-
-            logic.actions.setGroupValue('name', 'Test')
-            logic.actions.addProperty()
-
-            expect(logic.values.group.name).toBe('Test')
-            expect(logic.values.customProperties).toHaveLength(1)
-
-            logic.unmount()
-            logic.mount()
-
-            expect(logic.values.createdGroup).toBeNull()
-            expect(logic.values.customProperties).toEqual([])
         })
 
-        it('resets custom properties when resetGroup is called', () => {
-            logic = groupsNewLogic({ groupTypeIndex: 0 })
-            logic.mount()
+        it('should submit form with custom properties', () => {
+            const saveGroupSpy = jest.spyOn(logic.actions, 'saveGroup')
 
             logic.actions.setGroupValue('name', 'Test Group')
-            logic.actions.addProperty()
-            logic.actions.updateProperty(0, 'name', 'test-prop')
+            logic.actions.setGroupValue('group_key', 'test-key')
+            logic.actions.setGroupValue('customProperties', [{ name: 'test-prop', type: 'string', value: '' }])
 
-            expect(logic.values.customProperties).toHaveLength(1)
-            expect(logic.values.customProperties[0].name).toBe('test-prop')
+            logic.actions.submitGroup()
 
-            logic.actions.resetGroup()
-
-            expect(logic.values.customProperties).toEqual([])
-            expect(logic.values.createdGroup).toBeNull()
+            expect(saveGroupSpy).toHaveBeenCalledWith({
+                group_key: 'test-key',
+                group_type_index: 1,
+                group_properties: {
+                    name: 'Test Group',
+                },
+            })
         })
     })
 
-    describe('edge cases and error scenarios', () => {
+    describe('property handling edge cases', () => {
         beforeEach(() => {
-            logic = groupsNewLogic({ groupTypeIndex: 0 })
+            const props: GroupsNewLogicProps = { groupTypeIndex: 1 }
+            logic = groupsNewLogic(props)
             logic.mount()
         })
 
-        it('handles special characters in property names and values', () => {
-            logic.actions.addProperty()
-            logic.actions.updateProperty(0, 'name', 'special-chars!@#$%')
-            logic.actions.updateProperty(0, 'value', 'value with spaces & symbols')
+        it('should handle special characters in property names and values', () => {
+            logic.actions.setGroupValue('customProperties', [
+                { name: 'special-chars!@#$%', type: 'string', value: 'value with spaces & symbols' },
+            ])
 
-            expect(logic.values.customProperties[0]).toEqual({
+            const customProperties = logic.values.group.customProperties
+            expect(customProperties?.[0]).toEqual({
                 name: 'special-chars!@#$%',
+                type: 'string',
                 value: 'value with spaces & symbols',
             })
-        })
-
-        it('handles unicode characters in form fields', () => {
-            logic.actions.setGroupValue('name', 'Group with émojis 🎉')
-            logic.actions.setGroupValue('group_key', 'group-key-with-dashes')
-
-            expect(logic.values.group.name).toBe('Group with émojis 🎉')
-            expect(logic.values.group.group_key).toBe('group-key-with-dashes')
         })
     })
 })
@@ -279,16 +270,49 @@ describe('groupsNewLogic', () => {
 describe('flattenProperties', () => {
     it('filters out empty properties during form submission', () => {
         const rawProperties = [
-            { name: '', value: '' },
-            { name: '  ', value: '' },
-            { name: 'my value is a whitespace', value: ' ' },
-            { name: 'empty-value-prop', value: '' },
-            { name: 'valid-prop', value: 'valid-value' },
-            { name: ' another-valid-prop', value: 'valid-value ' },
+            { name: '', type: 'string' as const, value: '' },
+            { name: ' ', type: 'string' as const, value: ' ' },
+            { name: 'valid-prop', type: 'string' as const, value: 'valid-value' },
+            { name: 'another-valid-prop', type: 'string' as const, value: 'valid-value ' },
+            { name: '', type: 'string' as const, value: 'orphaned-value' },
         ]
 
         const flattenedProperties = flattenProperties(rawProperties)
 
         expect(flattenedProperties).toEqual({ 'valid-prop': 'valid-value', 'another-valid-prop': 'valid-value ' })
+    })
+
+    it('handles boolean properties correctly', () => {
+        const rawProperties = [
+            { name: 'is_active', type: 'boolean' as const, value: 'true' },
+            { name: 'has_subscription', type: 'boolean' as const, value: 'false' },
+            { name: 'is_null', type: 'boolean' as const, value: 'null' },
+        ]
+
+        const flattenedProperties = flattenProperties(rawProperties)
+
+        expect(flattenedProperties).toEqual({
+            is_active: true,
+            has_subscription: false,
+            is_null: null,
+        })
+    })
+
+    it('converts numeric strings to numbers for string type properties', () => {
+        const rawProperties = [
+            { name: 'count', type: 'string' as const, value: '42' },
+            { name: 'price', type: 'string' as const, value: '19.99' },
+            { name: 'name', type: 'string' as const, value: 'PostHog' },
+            { name: 'zero', type: 'string' as const, value: '0' },
+        ]
+
+        const flattenedProperties = flattenProperties(rawProperties)
+
+        expect(flattenedProperties).toEqual({
+            count: 42,
+            price: 19.99,
+            name: 'PostHog',
+            zero: 0,
+        })
     })
 })
