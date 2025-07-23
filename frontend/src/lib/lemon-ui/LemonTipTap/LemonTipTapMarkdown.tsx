@@ -17,8 +17,9 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
-import { marked } from 'marked'
-import { LemonTipTap } from './LemonTipTap'
+import Typography from '@tiptap/extension-typography'
+import Placeholder from '@tiptap/extension-placeholder'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea'
 
 interface RichContentPreviewProps {
     richContent: any
@@ -33,6 +34,7 @@ function RichContentPreview({ richContent }: RichContentPreviewProps): JSX.Eleme
                     inline: true,
                     allowBase64: true,
                 }),
+                Typography,
             ],
             content: richContent,
             editable: false,
@@ -92,9 +94,12 @@ export const LemonTipTapMarkdown = React.forwardRef<HTMLDivElement, LemonTipTapM
         const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
             onUpload: (url, fileName) => {
                 if (editor) {
-                    // Insert image directly into the rich editor
-                    const imageHtml = `<img src="${url}" alt="${fileName}" style="max-width: 100%;" />`
-                    editor.commands.insertContent(imageHtml)
+                    // Use TipTap's native image command - more idiomatic!
+                    editor.commands.setImage({
+                        src: url,
+                        alt: fileName,
+                        title: fileName,
+                    })
 
                     // Update rich content
                     const newRichContent = editor.getJSON()
@@ -123,6 +128,10 @@ export const LemonTipTapMarkdown = React.forwardRef<HTMLDivElement, LemonTipTapM
                     inline: true,
                     allowBase64: true,
                 }),
+                Typography,
+                Placeholder.configure({
+                    placeholder: editAreaProps.placeholder || 'Start typing...',
+                }),
             ],
             content: '',
             editable: true,
@@ -143,16 +152,12 @@ export const LemonTipTapMarkdown = React.forwardRef<HTMLDivElement, LemonTipTapM
             onCreate: ({ editor }) => {
                 // Priority: richContent > value (markdown/text)
                 if (richContent) {
-                    // Load from rich content JSON
+                    // Load from rich content JSON (TipTap native format)
                     editor.commands.setContent(richContent)
                 } else if (value) {
-                    // Parse legacy markdown/text content
-                    try {
-                        const html = marked(value)
-                        editor.commands.setContent(html)
-                    } catch {
-                        editor.commands.setContent(value)
-                    }
+                    // For legacy content, treat as plain text and let TipTap handle markdown shortcuts
+                    // This is more idiomatic than parsing markdown externally
+                    editor.commands.setContent(`<p>${value.replace(/\n/g, '</p><p>')}</p>`)
                 }
             },
         })
@@ -166,15 +171,15 @@ export const LemonTipTapMarkdown = React.forwardRef<HTMLDivElement, LemonTipTapM
                     // Update from rich content JSON
                     editor.commands.setContent(richContent, false)
                 } else if (value !== undefined) {
-                    // Update from legacy markdown/text
+                    // Update from legacy text content
                     const currentContent = editor.getText()
                     if (currentContent !== value) {
-                        try {
-                            const html = marked(value || '')
-                            editor.commands.setContent(html, false)
-                        } catch {
-                            editor.commands.setContent(value || '', false)
-                        }
+                        // Convert plain text to paragraphs, let TipTap handle formatting
+                        const paragraphs = (value || '')
+                            .split('\n')
+                            .map((line) => (line.trim() ? `<p>${line}</p>` : '<p></p>'))
+                            .join('')
+                        editor.commands.setContent(paragraphs || '<p></p>', false)
                     }
                 }
 
@@ -299,7 +304,7 @@ export const LemonTipTapMarkdown = React.forwardRef<HTMLDivElement, LemonTipTapM
                                     <RichContentPreview richContent={richContent} />
                                 ) : (
                                     // Fallback to markdown rendering for legacy content
-                                    <LemonTipTap className="LemonTextArea--preview">{value}</LemonTipTap>
+                                    <LemonTextAreaMarkdown className="LemonTextArea--preview" value={value} />
                                 )
                             ) : (
                                 <i>Nothing to preview</i>

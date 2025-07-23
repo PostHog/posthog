@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
-import { marked } from 'marked'
+import Typography from '@tiptap/extension-typography'
 import React, { memo, useMemo, useEffect } from 'react'
 
 interface LemonTipTapContainerProps {
@@ -37,6 +37,7 @@ const LemonTipTapRenderer = memo(function LemonTipTapRenderer({
                 inline: true,
                 allowBase64: true,
             }),
+            Typography,
         ]
     }, [lowKeyHeadings])
 
@@ -49,15 +50,13 @@ const LemonTipTapRenderer = memo(function LemonTipTapRenderer({
     // Update content when children changes
     useEffect(() => {
         if (editor && children) {
-            try {
-                // Parse markdown to HTML using marked
-                const html = marked(children)
-                editor.commands.setContent(html)
-            } catch (error) {
-                console.error('Failed to parse markdown:', error)
-                // Fallback to plain text
-                editor.commands.setContent(`<p>${children}</p>`)
-            }
+            // More idiomatic: let TipTap handle content parsing
+            // Convert plain text/markdown to basic HTML structure
+            const paragraphs = children
+                .split('\n')
+                .map((line) => (line.trim() ? `<p>${line}</p>` : '<p></p>'))
+                .join('')
+            editor.commands.setContent(paragraphs || '<p></p>')
         }
     }, [editor, children])
 

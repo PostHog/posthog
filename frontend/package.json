@@ -112,6 +112,7 @@
         "@tiptap/extension-table-of-contents": "^2.25.0",
         "@tiptap/extension-task-item": "^2.1.16",
         "@tiptap/extension-task-list": "^2.1.16",
+        "@tiptap/extension-typography": "^2.1.16",
         "@tiptap/pm": "^2.1.16",
         "@tiptap/react": "^2.1.16",
         "@tiptap/starter-kit": "^2.1.16",

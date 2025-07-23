@@ -676,6 +676,9 @@ importers:
       '@tiptap/extension-task-list':
         specifier: ^2.1.16
         version: 2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))
+      '@tiptap/extension-typography':
+        specifier: ^2.1.16
+        version: 2.26.1(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))
       '@tiptap/pm':
         specifier: ^2.1.16
         version: 2.1.16
@@ -7510,6 +7513,11 @@ packages:
     resolution: {integrity: sha512-XzSJmAj32uYpaL/9FX3tRSU52DwZ9w+3yEffIcSN9MSwioqLsSolXOz7TuJfW6lSTar1ml9UPlRqX4dpayUTDQ==}
     peerDependencies:
       '@tiptap/core': ^2.0.0
+
+  '@tiptap/extension-typography@2.26.1':
+    resolution: {integrity: sha512-1zwKWfy7Tjutert1Vn/unN+98E0JFr5C2jx1xuesAEf4X405cQMb/zNMI44ON3xBG+aXZoTRlJuXNoYodeVSAg==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
 
   '@tiptap/pm@2.1.16':
     resolution: {integrity: sha512-yibLkjtgbBSnWCXbDyKM5kgIGLfMvfbRfFzb8T0uz4PI/L54o0a4fiWSW5Fg10B5+o+NAXW2wMxoId8/Tw91lQ==}
@@ -24652,6 +24660,10 @@ snapshots:
       '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
 
   '@tiptap/extension-text@2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))':
+    dependencies:
+      '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
+
+  '@tiptap/extension-typography@2.26.1(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))':
     dependencies:
       '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
 
