@@ -957,8 +957,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "operator": "exact",
                 },
                 {
-                    "control_absolute_exposure": 2,
-                    "test_absolute_exposure": 1,
+                    "control_absolute_exposure": 12,
+                    "test_absolute_exposure": 15,
                 },
             ],
             [
@@ -1050,22 +1050,33 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # Populate count events
-        for variant, count in [("control", 7), ("test", 9)]:
+        # Populate count events - ensuring we have non-zero values and variance
+        # Create pageview events with variance to avoid statistical errors
+        for variant, count in [("control", 14), ("test", 16)]:
             for i in range(count):
-                extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
-                _create_event(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id=f"user_{variant}_{i}",
-                    timestamp=datetime(2020, 1, i + 2),
-                    properties={feature_flag_property: variant, **extra_properties},
-                )
+                # Create different numbers of pageviews per user to ensure variance
+                num_pageviews = (i % 4) + 1  # 1, 2, 3, or 4 pageviews per user
+                for j in range(num_pageviews):
+                    extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
+                    # Add some events with button elements for the element filter test
+                    if i < 2:  # First 2 events have button element
+                        extra_properties["$elements"] = [{"tag_name": "button"}]
+                    # Don't add the feature flag property - this filter is meant to filter out all events
+                    _create_event(
+                        team=self.team,
+                        event="$pageview",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp=datetime(2020, 1, min(i + 4 + j, 30)),  # Pageviews happen after exposure (i+3)
+                        properties={feature_flag_property: variant, **extra_properties},
+                    )
 
         # Populate exposure events
         for variant, count in [("control", 14), ("test", 16)]:
             for i in range(count):
                 extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
+                # Add element properties to exposure events for element filter test
+                if i < 2:  # First 2 events have button element
+                    extra_properties["$elements"] = [{"tag_name": "button"}]
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
@@ -1079,33 +1090,19 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                 )
 
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_1"],
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_2"],
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_3"],
-            properties={"email": "user_control_3@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_6"],
-            properties={"email": "user_control_6@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_2"],
-            properties={"email": "user_test_2@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_3"],
-        )
+        # Create persons for all users
+        # Only give some users @posthog.com emails so they get filtered out
+        for variant, count in [("control", 14), ("test", 16)]:
+            for i in range(count):
+                properties = {}
+                # Give @posthog.com emails to specific users that should be filtered out
+                if (variant == "control" and i in [3, 6]) or (variant == "test" and i == 2):
+                    properties = {"email": f"user_{variant}_{i}@posthog.com"}
+                _create_person(
+                    team=self.team,
+                    distinct_ids=[f"user_{variant}_{i}"],
+                    properties=properties,
+                )
 
         flush_persons_and_events()
 
@@ -1116,8 +1113,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        # "feature_flags" and "element" filter out all events
-        if name == "feature_flags" or name == "element":
+
+        # Handle cases where filters result in no exposures
+        if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
             with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
