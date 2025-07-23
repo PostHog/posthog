@@ -148,8 +148,6 @@ export class EmailTrackingService {
 
             await this.trackMetric(event)
 
-            // TODO: Move this function to a dedicated email webhook service - makes more sense...
-            // NOTE: Here we need to try and load the fn or flow for the ID to track the metric for it...
             return okResponse
         } catch (error) {
             mailjetWebhookErrorsCounter.inc({ error_type: error.name || 'unknown' })
