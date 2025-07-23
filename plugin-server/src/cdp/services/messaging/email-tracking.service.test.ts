@@ -18,7 +18,8 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { generateMailjetCustomId } from './email-tracking.service'
 import { MailjetEventBase, MailjetWebhookEvent } from './types'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
-import { HogFlowType, HogFunctionType } from '~/cdp/types'
+import { HogFunctionType } from '~/cdp/types'
+import { HogFlow } from '~/schema/hogflow'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -44,7 +45,7 @@ describe('EmailTrackingService', () => {
         let api: CdpApi
         let app: express.Application
         let hogFunction: HogFunctionType
-        let hogFlow: HogFlowType
+        let hogFlow: HogFlow
         const invocationId = 'invocation-id'
 
         let exampleEvent: MailjetWebhookEvent
@@ -138,6 +139,28 @@ describe('EmailTrackingService', () => {
             expect(res.body).toEqual({ message: 'OK' })
             const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
             expect(messages).toHaveLength(0)
+        })
+
+        it('should track a hog flow if given', async () => {
+            const mailjetEvent: MailjetEventBase = {
+                ...exampleEvent,
+                CustomID: generateMailjetCustomId({ functionId: hogFlow.id, id: invocationId }),
+            }
+            const res = await sendValidEvent(mailjetEvent)
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ message: 'OK' })
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            expect(messages).toHaveLength(1)
+            expect(messages[0].value).toMatchObject({
+                app_source: 'hog_flow',
+                app_source_id: hogFlow.id,
+                count: 1,
+                instance_id: invocationId,
+                metric_kind: 'email',
+                metric_name: 'email_sent',
+                team_id: team.id,
+            })
         })
 
         it.each([
