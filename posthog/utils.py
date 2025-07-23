@@ -1152,7 +1152,7 @@ def variables_override_requested_by_client(
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
 
-    raw_variables_override_param = request.query_params.get("variables_override")
+    raw_variables_override_param = request.query_params.get("variables_override") if request else None
 
     request_variables = {}
     dashboard_variables = dashboard.variables if dashboard else {}

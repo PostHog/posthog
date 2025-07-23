@@ -487,7 +487,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         return dashboard.filters
 
-    def get_variables(self, dashboard: Dashboard) -> dict:
+    def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
         return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
 
