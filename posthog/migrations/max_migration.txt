@@ -1,1 +1,1 @@
-0801_messagecategory_category_type_and_more
+0800_add_sharing_token_rotation_fields

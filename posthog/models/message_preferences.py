@@ -17,15 +17,6 @@ class PreferenceStatus(str, Enum):
         return [(status.value, status.name) for status in cls]
 
 
-class MessageCategoryType(str, Enum):
-    MARKETING = "marketing"
-    TRANSACTIONAL = "transactional"
-
-    @classmethod
-    def choices(cls):
-        return [(status.value, status.name) for status in cls]
-
-
 class MessageCategory(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -36,9 +27,6 @@ class MessageCategory(UUIDModel):
     name = models.CharField(max_length=128)
     description = models.TextField(blank=True, default="")
     public_description = models.TextField(blank=True, default="")
-    category_type = models.CharField(
-        max_length=32, choices=MessageCategoryType.choices(), default=MessageCategoryType.MARKETING.value
-    )
 
     class Meta:
         unique_together = (

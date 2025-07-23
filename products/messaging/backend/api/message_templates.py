@@ -35,7 +35,6 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             "content",
             "created_by",
             "type",
-            "message_category",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
