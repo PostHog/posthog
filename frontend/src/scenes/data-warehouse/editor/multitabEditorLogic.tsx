@@ -61,6 +61,10 @@ export const editorModelsStateKey = (key: string | number): string => `${key}/ed
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
+export const deprecatedAllTabsStateKey = (key: string | number): string =>
+    `data-warehouse.editor.multitabEditorLogic.${key}.allTabs`
+export const allTabsStateKey = (key: string | number): string => `${key}/allTabs`
+
 export const NEW_QUERY = 'Untitled'
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
@@ -85,7 +89,9 @@ const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     return untitledNumbers.length + 1
 }
 
-const getStorageItem = async (key: string): Promise<string | null> => {
+const getStorageItem = async (key: string, newKey?: string): Promise<string | null> => {
+    // If we're migrating from a deprecated key, we need to get the value from the old key and set it to the new key
+
     const dbValue = await get(key)
 
     if (dbValue) {
@@ -95,7 +101,7 @@ const getStorageItem = async (key: string): Promise<string | null> => {
     const lsValue = localStorage.getItem(key)
 
     if (lsValue) {
-        await set(key, lsValue)
+        await set(newKey || key, lsValue)
         localStorage.removeItem(key)
         return lsValue
     }
@@ -332,7 +338,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         allTabs: [
             [] as QueryTab[],
-            { persist: true },
             {
                 addTab: (state, { tab }) => {
                     return [...state, tab]
@@ -748,6 +753,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             // TODO: replace with queryTabState
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
+            const allTabs = await getStorageItem(deprecatedAllTabsStateKey(props.key), allTabsStateKey(props.key))
+
+            const allTabsParsed = allTabs ? JSON.parse(allTabs) : []
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -772,7 +780,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         const newModel = props.monaco.editor.createModel(model.query, 'hogQL', uri)
                         props.editor?.setModel(newModel)
 
-                        const existingTab = values.allTabs.find((tab) => tab.uri.path === uri.path)
+                        const existingTab = allTabsParsed.find((tab: QueryTab) => tab.uri.path === uri.path)
 
                         newModels.push({
                             uri,
