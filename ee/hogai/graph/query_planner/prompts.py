@@ -73,6 +73,12 @@ Sources:
 - data warehouse table 3
     - how it will be used + conditions
 - repeat for each event/action/data warehouse table...
+
+Query kind:
+- reasons for choosing the query kind
+
+Tradeoffs:
+- tradeoffs made while making this plan
 </plan_format>
 
 At every level, the plan must specify any filters necessary to answer the question. Make sure not to miss conditions mentioned by the user, but also don't add redundant unnecessary ones.
