@@ -313,12 +313,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             null as Node | null,
             {
                 setPreviousQuery: (_, { previousQuery }) => previousQuery,
+                saveInsight: () => null,
             },
         ],
         suggestedQuery: [
             null as Node | null,
             {
                 setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
+                saveInsight: () => null,
             },
         ],
     })),
