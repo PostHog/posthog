@@ -901,7 +901,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         const start = performance.now()
 
-        const [actualVersion, kafkaMessages] = await this.db.updatePersonAssertVersion(personUpdate)
+        const [actualVersion, kafkaMessages] = await this.personRepository.updatePersonAssertVersion(personUpdate)
         this.recordUpdateLatency(
             'updatePersonAssertVersion',
             (performance.now() - start) / 1000,

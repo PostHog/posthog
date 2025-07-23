@@ -18,6 +18,7 @@ import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPart
 import { logger } from '../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../utils/utils'
 import { PersonRepository } from './person-repository'
+import { PersonUpdate } from './person-update-batch'
 
 export class BasePersonRepository implements PersonRepository {
     constructor(private postgres: PostgresRouter) {}
@@ -456,5 +457,41 @@ export class BasePersonRepository implements PersonRepository {
         )
 
         return [updatedPerson, [kafkaMessage], versionDisparity > 0]
+    }
+
+    async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
+        const { rows } = await this.postgres.query<RawPerson>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_person SET
+                properties = $1,
+                properties_last_updated_at = $2,
+                properties_last_operation = $3,
+                is_identified = $4,
+                version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $5 AND uuid = $6 AND version = $7
+            RETURNING *
+            `,
+            [
+                JSON.stringify(personUpdate.properties),
+                JSON.stringify(personUpdate.properties_last_updated_at),
+                JSON.stringify(personUpdate.properties_last_operation),
+                personUpdate.is_identified,
+                personUpdate.team_id,
+                personUpdate.uuid,
+                personUpdate.version,
+            ],
+            'updatePersonAssertVersion'
+        )
+
+        if (rows.length === 0) {
+            return [undefined, []]
+        }
+
+        const updatedPerson = this.toPerson(rows[0])
+
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        return [updatedPerson.version, [kafkaMessage]]
     }
 }

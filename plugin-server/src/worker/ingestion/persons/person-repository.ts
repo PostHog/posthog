@@ -5,6 +5,7 @@ import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
+import { PersonUpdate } from './person-update-batch'
 
 export interface PersonRepository {
     fetchPerson(
@@ -32,6 +33,8 @@ export interface PersonRepository {
         tx?: TransactionClient,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
+
+    updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
 

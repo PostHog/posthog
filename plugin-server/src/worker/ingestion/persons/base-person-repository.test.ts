@@ -861,6 +861,102 @@ describe('BasePersonRepository', () => {
             const update = { properties: { name: 'Jane' } }
             await expect(repository.updatePerson(nonExistentPerson, update)).rejects.toThrow(NoRowsUpdatedError)
         })
+
+        it('should handle updatePersonAssertVersion with optimistic concurrency control', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            // Create a PersonUpdate object
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-distinct',
+                properties: { name: 'Jane', age: 30 },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version,
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: { name: 'Jane', age: 30 },
+                properties_to_unset: [],
+            }
+
+            // First update should succeed
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+
+            // Verify the person was actually updated
+            const updatedPerson = await repository.fetchPerson(team.id, 'test-distinct')
+            expect(updatedPerson?.properties).toEqual({ name: 'Jane', age: 30 })
+            expect(updatedPerson?.version).toBe(person.version + 1)
+        })
+
+        it('should handle updatePersonAssertVersion with version mismatch', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            // Create a PersonUpdate with an outdated version
+            const personUpdate = {
+                id: person.id,
+                team_id: person.team_id,
+                uuid: person.uuid,
+                distinct_id: 'test-distinct',
+                properties: { name: 'Jane', age: 30 },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: person.created_at,
+                version: person.version - 1, // Outdated version
+                is_identified: person.is_identified,
+                is_user_id: person.is_user_id,
+                needs_write: true,
+                properties_to_set: { name: 'Jane', age: 30 },
+                properties_to_unset: [],
+            }
+
+            // Update should fail due to version mismatch
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBeUndefined()
+            expect(messages).toHaveLength(0)
+
+            // Verify the person was not updated
+            const unchangedPerson = await repository.fetchPerson(team.id, 'test-distinct')
+            expect(unchangedPerson?.properties).toEqual({ name: 'John' })
+            expect(unchangedPerson?.version).toBe(person.version)
+        })
+
+        it('should handle updatePersonAssertVersion with non-existent person', async () => {
+            const team = await getFirstTeam(hub)
+
+            // Create a PersonUpdate for a non-existent person
+            const personUpdate = {
+                id: '999999',
+                team_id: team.id,
+                uuid: '00000000-0000-0000-0000-000000000000',
+                distinct_id: 'test-distinct',
+                properties: { name: 'Jane' },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: DateTime.now(),
+                version: 0,
+                is_identified: false,
+                is_user_id: null,
+                needs_write: true,
+                properties_to_set: { name: 'Jane' },
+                properties_to_unset: [],
+            }
+
+            // Update should fail because person doesn't exist
+            const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
+
+            expect(actualVersion).toBeUndefined()
+            expect(messages).toHaveLength(0)
+        })
     })
 })
 

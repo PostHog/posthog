@@ -82,7 +82,7 @@ describe('PersonStoreManager', () => {
             }),
             updatePersonAssertVersion: jest.fn().mockImplementation(() => {
                 dbCounter++
-                return Promise.resolve(dbCounter)
+                return Promise.resolve([dbCounter, []])
             }),
             deletePerson: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
@@ -223,7 +223,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             }),
             updatePersonAssertVersion: jest.fn().mockImplementation(() => {
                 dbCounter++
-                return Promise.resolve(dbCounter)
+                return Promise.resolve([dbCounter, []])
             }),
             deletePerson: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
