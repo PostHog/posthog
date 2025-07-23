@@ -92,7 +92,7 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: string[]
+    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
 }
 
 export class HogExecutorService {
@@ -330,7 +330,7 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
                 const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
                     acc[fn] = async () => Promise.resolve()
                     return acc

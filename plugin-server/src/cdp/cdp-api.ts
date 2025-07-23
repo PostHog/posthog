@@ -227,7 +227,7 @@ export class CdpApi {
                     invocation.id = invocationID
 
                     const options: HogExecutorExecuteOptions = {
-                        asyncFunctionsNames: mock_async_functions ? ['fetch'] : undefined,
+                        asyncFunctionsNames: mock_async_functions ? ['fetch', 'sendEmail'] : undefined,
                         functions: mock_async_functions
                             ? {
                                   fetch: (...args: any[]) => {
@@ -245,6 +245,22 @@ export class CdpApi {
                                       return {
                                           status: 200,
                                           body: {},
+                                      }
+                                  },
+                                  sendEmail: (...args: any[]) => {
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `Async function 'sendEmail' was mocked with arguments:`,
+                                      })
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `sendEmail('${JSON.stringify(args[0], null, 2)})`,
+                                      })
+
+                                      return {
+                                          success: true,
                                       }
                                   },
                               }
