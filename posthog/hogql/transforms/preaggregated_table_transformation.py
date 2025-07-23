@@ -319,21 +319,6 @@ class ExprTransformer(CloningVisitor):
         return super().visit_alias(node)
 
 
-def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
-    """Transform a GROUP BY expression to use preaggregated fields."""
-    if isinstance(expr, ast.Field):
-        # Transform properties.x to the corresponding field in the preaggregated table
-        property_result = _get_supported_field(expr)
-        if property_result is not None:
-            property_name, field_name = property_result
-            return ast.Field(chain=[field_name])
-        # Pass through other fields unchanged
-        return expr
-    else:
-        # Pass through other expressions unchanged
-        return expr
-
-
 def _is_constant_one(expr: ast.Expr) -> bool:
     """Check if an expression is a constant with value 1."""
     return isinstance(expr, ast.Constant) and expr.value == 1
