@@ -127,6 +127,8 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
+            CASSANDRA_HOST: 'localhost'
+            CASSANDRA_KEYSPACE: 'posthog'
 
         steps:
             - name: Code check out
@@ -206,10 +208,10 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis & Kafka
+            - name: Wait for Clickhouse, Redis, Kafka & Cassandra
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse cassandra -d --wait
                   bin/check_kafka_clickhouse_up
 
             - name: Set up databases
@@ -219,6 +221,8 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  CASSANDRA_HOST: 'localhost'
+                  CASSANDRA_KEYSPACE: 'posthog'
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
@@ -232,6 +236,8 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
+                  CASSANDRA_HOST: 'localhost'
+                  CASSANDRA_KEYSPACE: 'posthog'
               run: bin/turbo run test --filter=@posthog/plugin-server
 
     posthog-analytics:
