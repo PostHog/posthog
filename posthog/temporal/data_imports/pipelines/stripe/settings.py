@@ -128,7 +128,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         {
             "label": "date",
             "type": IncrementalFieldType.DateTime,
-            "field": "date",
+            "field": "created",
             "field_type": IncrementalFieldType.Integer,
         }
     ],
