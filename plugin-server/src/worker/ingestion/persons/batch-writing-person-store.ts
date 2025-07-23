@@ -876,7 +876,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
 
-        const [_, messages] = await this.db.updatePerson(person, updateFields, undefined, 'updatePersonNoAssert')
+        const [_, messages] = await this.personRepository.updatePerson(
+            person,
+            updateFields,
+            undefined,
+            'updatePersonNoAssert'
+        )
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')
 

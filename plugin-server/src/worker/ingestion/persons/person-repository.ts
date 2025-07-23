@@ -26,6 +26,13 @@ export interface PersonRepository {
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]>
 
+    updatePerson(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient,
+        tag?: string
+    ): Promise<[InternalPerson, TopicMessage[], boolean]>
+
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
 
     addDistinctId(

@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, resetTestDatabase } from '../../../../tests/helpers/sql'
-import { Hub, Team } from '../../../types'
+import { Hub, InternalPerson, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { parseJSON } from '../../../utils/json-parse'
-import { UUIDT } from '../../../utils/utils'
+import { NoRowsUpdatedError, UUIDT } from '../../../utils/utils'
 import { BasePersonRepository } from './base-person-repository'
 
 jest.mock('../../../utils/logger')
@@ -752,6 +752,114 @@ describe('BasePersonRepository', () => {
             const extensiveSize = await repository.personPropertiesSize(team.id, 'extensive-person')
 
             expect(extensiveSize).toBeGreaterThan(minimalSize)
+        })
+    })
+
+    describe('updatePerson', () => {
+        it('should update person properties successfully', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John', age: 25 })
+
+            const update = { properties: { name: 'Jane', age: 30, city: 'New York' } }
+            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(person, update)
+
+            expect(updatedPerson.properties).toEqual({ name: 'Jane', age: 30, city: 'New York' })
+            expect(updatedPerson.version).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+            expect(versionDisparity).toBe(false)
+
+            // Verify the update was actually persisted
+            const fetchedPerson = await repository.fetchPerson(team.id, 'test-distinct')
+            expect(fetchedPerson?.properties).toEqual({ name: 'Jane', age: 30, city: 'New York' })
+            expect(fetchedPerson?.version).toBe(person.version + 1)
+        })
+
+        it('should handle empty update gracefully', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            const [updatedPerson, messages, versionDisparity] = await repository.updatePerson(person, {})
+
+            expect(updatedPerson).toEqual(person)
+            expect(messages).toHaveLength(0)
+            expect(versionDisparity).toBe(false)
+        })
+
+        it('should update is_identified field', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            const update = { is_identified: true }
+            const [updatedPerson, messages] = await repository.updatePerson(person, update)
+
+            expect(updatedPerson.is_identified).toBe(true)
+            expect(updatedPerson.version).toBe(person.version + 1)
+            expect(messages).toHaveLength(1)
+        })
+
+        it('should handle version conflicts correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            // First update
+            const update1 = { properties: { name: 'Jane' } }
+            const [updatedPerson1, _messages1] = await repository.updatePerson(person, update1)
+
+            // Second update with the updated person (should succeed since we're using the latest version)
+            const update2 = { properties: { age: 30 } }
+            const [updatedPerson2, messages2] = await repository.updatePerson(updatedPerson1, update2)
+
+            // updatePerson replaces properties entirely, so we expect only the age property
+            expect(updatedPerson2.properties).toEqual({ age: 30 })
+            expect(updatedPerson2.version).toBe(updatedPerson1.version + 1)
+            expect(messages2).toHaveLength(1)
+        })
+
+        it('should handle transaction parameter correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
+                const update = { properties: { name: 'Jane' } }
+                const [updatedPerson, messages] = await repository.updatePerson(person, update, tx)
+
+                expect(updatedPerson.properties).toEqual({ name: 'Jane' })
+                expect(messages).toHaveLength(1)
+            })
+
+            // Verify after transaction commits
+            const fetchedPerson = await repository.fetchPerson(team.id, 'test-distinct')
+            expect(fetchedPerson?.properties).toEqual({ name: 'Jane' })
+        })
+
+        it('should handle tag parameter correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
+
+            const update = { properties: { name: 'Jane' } }
+            const [updatedPerson, messages] = await repository.updatePerson(person, update, undefined, 'test-tag')
+
+            expect(updatedPerson.properties).toEqual({ name: 'Jane' })
+            expect(messages).toHaveLength(1)
+        })
+
+        it('should throw NoRowsUpdatedError when person does not exist', async () => {
+            const team = await getFirstTeam(hub)
+            const nonExistentPerson: InternalPerson = {
+                id: '1234567890',
+                team_id: team.id,
+                uuid: 'non-existent-uuid',
+                created_at: DateTime.now(),
+                properties: {},
+                is_identified: false,
+                version: 0,
+                is_user_id: null,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+            }
+
+            const update = { properties: { name: 'Jane' } }
+            await expect(repository.updatePerson(nonExistentPerson, update)).rejects.toThrow(NoRowsUpdatedError)
         })
     })
 })

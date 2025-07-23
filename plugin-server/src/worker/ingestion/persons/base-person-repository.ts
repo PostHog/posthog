@@ -12,10 +12,11 @@ import {
     RawPerson,
 } from '../../../types'
 import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../utils/db/db'
-import { moveDistinctIdsCountHistogram } from '../../../utils/db/metrics'
+import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter } from '../../../utils/db/metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/db/postgres'
-import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue } from '../../../utils/db/utils'
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
+import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../utils/utils'
 import { PersonRepository } from './person-repository'
 
 export class BasePersonRepository implements PersonRepository {
@@ -392,5 +393,68 @@ export class BasePersonRepository implements PersonRepository {
         }
 
         return 0
+    }
+
+    async updatePerson(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        tx?: TransactionClient,
+        tag?: string
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        let versionString = 'COALESCE(version, 0)::numeric + 1'
+        if (update.version) {
+            versionString = update.version.toString()
+            delete update['version']
+        }
+
+        const updateValues = Object.values(unparsePersonPartial(update))
+
+        // short circuit if there are no updates to be made
+        if (updateValues.length === 0) {
+            return [person, [], false]
+        }
+
+        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
+
+        // Potentially overriding values badly if there was an update to the person after computing updateValues above
+        const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${Object.values(update).length + 1}
+        RETURNING *
+        /* operation='updatePerson',purpose='${tag || 'update'}' */`
+
+        const { rows } = await this.postgres.query<RawPerson>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            queryString,
+            values,
+            `updatePerson${tag ? `-${tag}` : ''}`
+        )
+        if (rows.length == 0) {
+            throw new NoRowsUpdatedError(
+                `Person with id="${person.id}", team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
+            )
+        }
+        const updatedPerson = this.toPerson(rows[0])
+
+        // Track the disparity between the version on the database and the version of the person we have in memory
+        // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
+        const versionDisparity = updatedPerson.version - person.version - 1
+        if (versionDisparity > 0) {
+            logger.info('🧑‍🦰', 'Person update version mismatch', {
+                team_id: updatedPerson.team_id,
+                person_id: updatedPerson.id,
+                version_disparity: versionDisparity,
+            })
+            personUpdateVersionMismatchCounter.inc()
+        }
+
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        logger.debug(
+            '🧑‍🦰',
+            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
+        )
+
+        return [updatedPerson, [kafkaMessage], versionDisparity > 0]
     }
 }

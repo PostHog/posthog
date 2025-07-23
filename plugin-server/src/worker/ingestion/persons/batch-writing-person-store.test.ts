@@ -37,6 +37,7 @@ jest.mock('./metrics', () => ({
 describe('BatchWritingPersonStore', () => {
     let db: DB
     let personStore: BatchWritingPersonsStore
+    let mockRepo: any
     let teamId: TeamId
     let person: InternalPerson
 
@@ -78,7 +79,8 @@ describe('BatchWritingPersonStore', () => {
             }),
         } as unknown as DB
 
-        personStore = new BatchWritingPersonsStore(db, createMockRepository())
+        mockRepo = createMockRepository()
+        personStore = new BatchWritingPersonsStore(db, mockRepo)
     })
 
     afterEach(() => {
@@ -91,6 +93,7 @@ describe('BatchWritingPersonStore', () => {
         const mockRepo = {
             fetchPerson: jest.fn().mockResolvedValue(person),
             createPerson: jest.fn().mockResolvedValue([person, []]),
+            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
@@ -165,7 +168,7 @@ describe('BatchWritingPersonStore', () => {
 
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 properties: { test: 'test' },
             }),
@@ -225,13 +228,12 @@ describe('BatchWritingPersonStore', () => {
         // Flush should call updatePerson (NO_ASSERT default mode)
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
         expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
     })
 
     it('should fallback to direct update when optimistic update fails', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const mockRepo = createMockRepository()
         const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
 
@@ -252,7 +254,7 @@ describe('BatchWritingPersonStore', () => {
 
         expect(db.updatePersonAssertVersion).toHaveBeenCalled()
         expect(mockRepo.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
-        expect(db.updatePerson).toHaveBeenCalled() // Fallback
+        expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback
     })
 
     it('should merge multiple updates for same person', async () => {
@@ -357,8 +359,8 @@ describe('BatchWritingPersonStore', () => {
 
     it('should retry optimistic updates with exponential backoff', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const mockRepo = createMockRepository()
-        const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, { dbWriteMode: 'ASSERT_VERSION' })
+        const testMockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(db, testMockRepo, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
         let callCount = 0
 
@@ -381,13 +383,13 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(3)
-        expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
-        expect(db.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
+        expect(testMockRepo.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
+        expect(testMockRepo.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
     })
 
     it('should fallback to direct update after max retries', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+        const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStoreForBatch = assertVersionStore.forBatch()
@@ -406,12 +408,11 @@ describe('BatchWritingPersonStore', () => {
 
         // Should try optimistic update multiple times based on config (1 initial + 5 retries = 6 total)
         expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(6) // default max retries
-        expect(db.updatePerson).toHaveBeenCalledTimes(1) // fallback
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
     })
 
     it('should merge properties during conflict resolution', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const mockRepo = createMockRepository()
         const assertVersionStore = new BatchWritingPersonsStore(db, mockRepo, { dbWriteMode: 'ASSERT_VERSION' })
         const personStoreForBatch = assertVersionStore.forBatch()
         const latestPerson = {
@@ -435,7 +436,7 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         // Verify the direct update was called with merged properties
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 version: 3, // Should use latest version
             }),
@@ -454,7 +455,7 @@ describe('BatchWritingPersonStore', () => {
     it('should handle database errors gracefully during flush', async () => {
         const personStoreForBatch = personStore.forBatch()
 
-        db.updatePerson = jest.fn().mockRejectedValue(new Error('Database connection failed'))
+        mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database connection failed'))
 
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
             person,
@@ -477,7 +478,7 @@ describe('BatchWritingPersonStore', () => {
 
         // Mock first update to succeed, second to fail
         let callCount = 0
-        db.updatePerson = jest.fn().mockImplementation(() => {
+        mockRepo.updatePerson = jest.fn().mockImplementation(() => {
             callCount++
             if (callCount === 1) {
                 return Promise.resolve([person, []]) // success for first person
@@ -551,7 +552,7 @@ describe('BatchWritingPersonStore', () => {
 
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 properties: { null_prop: null, undefined_prop: undefined, test: 'test' },
             }),
@@ -565,7 +566,7 @@ describe('BatchWritingPersonStore', () => {
         const personStoreForBatch = personStore.forBatch()
 
         // Mock NO_ASSERT update to fail with MessageSizeTooLarge
-        db.updatePerson = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+        mockRepo.updatePerson = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
         // Add a person update to cache
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -579,7 +580,7 @@ describe('BatchWritingPersonStore', () => {
         // Flush should handle the error and capture warning
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalled()
+        expect(mockRepo.updatePerson).toHaveBeenCalled()
         expect(captureIngestionWarning).toHaveBeenCalledWith(
             db.kafkaProducer,
             teamId,
@@ -594,10 +595,10 @@ describe('BatchWritingPersonStore', () => {
     describe('dbWriteMode functionality', () => {
         describe('flush with NO_ASSERT mode', () => {
             it('should call updatePersonNoAssert directly without retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const testPersonStore = new BatchWritingPersonsStore(db, mockRepo, {
                     dbWriteMode: 'NO_ASSERT',
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -608,19 +609,19 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStoreForBatch.flush()
 
-                expect(db.updatePerson).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
                 expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
             it('should fallback with NO_ASSERT mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const testPersonStore = new BatchWritingPersonsStore(db, mockRepo, {
                     dbWriteMode: 'NO_ASSERT',
                     maxOptimisticUpdateRetries: 5,
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
-                db.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
+                mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -631,17 +632,17 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStoreForBatch.flush()).rejects.toThrow('Database error')
-                expect(db.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
                 expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })
 
         describe('flush with ASSERT_VERSION mode', () => {
             it('should call updatePersonAssertVersion with retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const testPersonStore = new BatchWritingPersonsStore(db, mockRepo, {
                     dbWriteMode: 'ASSERT_VERSION',
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
                 db.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []]) // success
 
@@ -655,16 +656,16 @@ describe('BatchWritingPersonStore', () => {
                 await personStoreForBatch.flush()
 
                 expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(1)
-                expect(db.updatePerson).not.toHaveBeenCalled()
+                expect(mockRepo.updatePerson).not.toHaveBeenCalled()
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
             it('should retry on version conflicts and eventually fallback', async () => {
-                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const testPersonStore = new BatchWritingPersonsStore(db, mockRepo, {
                     dbWriteMode: 'ASSERT_VERSION',
                     maxOptimisticUpdateRetries: 2,
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
                 // Mock to always fail optimistic updates
                 db.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
@@ -679,14 +680,14 @@ describe('BatchWritingPersonStore', () => {
                 await personStoreForBatch.flush()
 
                 expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
-                expect(db.updatePerson).toHaveBeenCalledTimes(1) // fallback
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
             })
 
             it('should handle MessageSizeTooLarge in ASSERT_VERSION mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const testPersonStore = new BatchWritingPersonsStore(db, mockRepo, {
                     dbWriteMode: 'ASSERT_VERSION',
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
                 db.updatePersonAssertVersion = jest
                     .fn()
@@ -711,16 +712,19 @@ describe('BatchWritingPersonStore', () => {
                         distinctId: 'test',
                     }
                 )
-                expect(db.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
+                expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
             })
         })
 
         describe('concurrent updates with different dbWriteModes', () => {
             it('should handle multiple updates with different modes correctly', async () => {
-                const noAssertStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const noAssertMockRepo = createMockRepository()
+                const assertVersionMockRepo = createMockRepository()
+
+                const noAssertStore = new BatchWritingPersonsStore(db, noAssertMockRepo, {
                     dbWriteMode: 'NO_ASSERT',
                 })
-                const assertVersionStore = new BatchWritingPersonsStore(db, createMockRepository(), {
+                const assertVersionStore = new BatchWritingPersonsStore(db, assertVersionMockRepo, {
                     dbWriteMode: 'ASSERT_VERSION',
                 })
 
@@ -751,7 +755,7 @@ describe('BatchWritingPersonStore', () => {
 
                 await Promise.all([noAssertBatch.flush(), assertVersionBatch.flush()])
 
-                expect(db.updatePerson).toHaveBeenCalledTimes(1) // NO_ASSERT mode
+                expect(noAssertMockRepo.updatePerson).toHaveBeenCalledTimes(1) // NO_ASSERT mode
                 expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode
             })
         })
@@ -816,7 +820,7 @@ describe('BatchWritingPersonStore', () => {
         expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
         // Since the second retry succeeds, there should be no fallback to updatePerson
-        expect(db.updatePerson).not.toHaveBeenCalled()
+        expect(mockRepo.updatePerson).not.toHaveBeenCalled()
 
         // Verify the second call to updatePersonAssertVersion had the merged properties
         expect(db.updatePersonAssertVersion).toHaveBeenLastCalledWith(
@@ -903,8 +907,8 @@ describe('BatchWritingPersonStore', () => {
         // expect(db.updatePerson).toHaveBeenCalledTimes(1)
 
         // The updatePerson call should have the correct properties
-        expect(db.updatePerson).toHaveBeenCalledTimes(1)
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 id: sharedPerson.id,
                 properties: {
