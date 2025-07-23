@@ -24,10 +24,10 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    capture,
     decide,
     hog_function_template,
     remote_config,
+    report,
     router,
     sharing,
     signup,
@@ -52,6 +52,7 @@ from .views import (
     login_required,
     preflight_check,
     redis_values_view,
+    api_key_search_view,
     robots_txt,
     security_txt,
     stats,
@@ -166,6 +167,7 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
+    re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -221,7 +223,7 @@ urlpatterns = [
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
+    opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth

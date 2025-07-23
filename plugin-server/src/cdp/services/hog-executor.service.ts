@@ -47,10 +47,14 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
 
     if (error) {
-        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+        if (
+            error instanceof SecureRequestError ||
+            error instanceof InvalidRequestError ||
+            error.name === 'ResponseContentLengthMismatchError'
+        ) {
             canRetry = false
         } else {
-            canRetry = true // Only retry on general errors, not security or validation errors
+            canRetry = true // Only retry on general errors, not security, validation, or response parsing errors
         }
     }
 
@@ -580,14 +584,20 @@ export class HogExecutorService {
         // Reset the attempts as we are done
         result.invocation.state.attempts = 0
 
-        let body = await fetchResponse?.text()
+        let body: unknown = undefined
+        try {
+            body = await fetchResponse?.text()
 
-        if (typeof body === 'string') {
-            try {
-                body = parseJSON(body)
-            } catch (e) {
-                // Pass through the error
+            if (typeof body === 'string') {
+                try {
+                    body = parseJSON(body)
+                } catch (e) {
+                    // Pass through the error
+                }
             }
+        } catch (e) {
+            addLog('error', `Failed to parse response body: ${e.message}`)
+            body = undefined
         }
 
         const hogVmResponse: {

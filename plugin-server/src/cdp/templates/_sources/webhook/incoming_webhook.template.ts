@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Capture an event via a custom incoming webhook',
     icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 
 if(inputs.debug) {

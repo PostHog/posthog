@@ -3,7 +3,6 @@ from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
-from langchain_perplexity import ChatPerplexity
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     AIMessageChunk,
@@ -14,34 +13,13 @@ from langchain_core.messages import (
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.llm import MaxChatOpenAI
+from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
-from .prompts import (
-    ENQUIRY_INITIAL_MESSAGE,
-    ONBOARDING_COMPRESSION_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
-    INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
-    MEMORY_COLLECTOR_PROMPT,
-    MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
-    MEMORY_ONBOARDING_ENQUIRY_PROMPT,
-    ONBOARDING_INITIAL_MESSAGE,
-    SCRAPING_CONFIRMATION_MESSAGE,
-    SCRAPING_INITIAL_MESSAGE,
-    SCRAPING_MEMORY_SAVED_MESSAGE,
-    SCRAPING_REJECTION_MESSAGE,
-    SCRAPING_SUCCESS_MESSAGE,
-    SCRAPING_TERMINATION_MESSAGE,
-    SCRAPING_VERIFICATION_MESSAGE,
-    TOOL_CALL_ERROR_PROMPT,
-)
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
-from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -56,6 +34,29 @@ from posthog.schema import (
     EventTaxonomyQuery,
     HumanMessage,
     VisualizationMessage,
+)
+
+from ..base import AssistantNode
+from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
+from .prompts import (
+    ENQUIRY_INITIAL_MESSAGE,
+    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
+    INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
+    MEMORY_COLLECTOR_PROMPT,
+    MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
+    MEMORY_ONBOARDING_ENQUIRY_PROMPT,
+    ONBOARDING_COMPRESSION_PROMPT,
+    ONBOARDING_INITIAL_MESSAGE,
+    SCRAPING_CONFIRMATION_MESSAGE,
+    SCRAPING_INITIAL_MESSAGE,
+    SCRAPING_MEMORY_SAVED_MESSAGE,
+    SCRAPING_REJECTION_MESSAGE,
+    SCRAPING_SUCCESS_MESSAGE,
+    SCRAPING_TERMINATION_MESSAGE,
+    SCRAPING_VERIFICATION_MESSAGE,
+    TOOL_CALL_ERROR_PROMPT,
 )
 
 
@@ -85,12 +86,16 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
     def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+        If no messages are to be found in the AssistantState, do not run onboarding.
         If the conversation starts with the onboarding initial message, start the onboarding process.
         """
         core_memory = self.core_memory
 
         if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
             # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
+            return "continue"
+
+        if not state.messages:
             return "continue"
 
         last_message = state.messages[-1]
@@ -174,7 +179,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         retrieved_properties = self._retrieve_context()
         # No host or app bundle ID found, continue.
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
-            return PartialAssistantState(messages=[])
+            return None
 
         retrieved_prop = retrieved_properties[0]
         if retrieved_prop.property == "$host":
@@ -288,7 +293,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
                 question = self._format_question(response)
                 core_memory.append_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question="")
+        return PartialAssistantState(onboarding_question=None)
 
     @property
     def _model(self):
@@ -328,7 +333,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
             raise ValueError("No onboarding question found.")
         if last_assistant_message and last_assistant_message.content != state.onboarding_question:
             raise NodeInterrupt(AssistantMessage(content=state.onboarding_question, id=str(uuid4())))
-        return PartialAssistantState(messages=[], onboarding_question="")
+        return PartialAssistantState(onboarding_question=None)
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
@@ -340,11 +345,11 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", ONBOARDING_COMPRESSION_PROMPT),
-                ("human", core_memory.initial_text),
+                ("human", "{memory_content}"),
             ]
         )
         chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({}, config=config))
+        compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         core_memory.set_core_memory(compressed_memory)
         return PartialAssistantState(
@@ -418,7 +423,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
                 config=config,
             )
         except MemoryCollectionCompleted:
-            return PartialAssistantState(memory_updated=len(node_messages) > 0, memory_collection_messages=[])
+            return PartialAssistantState(memory_updated=len(node_messages) > 0, memory_collection_messages=None)
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
     def router(self, state: AssistantState) -> Literal["tools", "next"]:

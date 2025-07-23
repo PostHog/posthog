@@ -11,7 +11,6 @@ import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyF
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 function doesSurveyHaveDisplayConditions(survey: Pick<Survey, 'conditions'>): boolean {
     return !!(
@@ -78,11 +77,6 @@ function AlwaysScheduleBanner({
 function SurveyIterationOptions(): JSX.Element {
     const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
-
-    const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
-        ? undefined
-        : 'Upgrade your plan to use repeating surveys'
 
     return (
         <>
@@ -112,7 +106,6 @@ function SurveyIterationOptions(): JSX.Element {
                             value: SurveySchedule.Recurring,
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
-                            disabledReason: surveysRecurringScheduleDisabledReason,
                             description: showSurveyRepeatSchedule ? (
                                 <div className="flex flex-row gap-2 items-center text-secondary">
                                     Repeat this survey{' '}
