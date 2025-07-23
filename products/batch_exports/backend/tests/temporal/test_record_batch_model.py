@@ -52,7 +52,7 @@ class TestSessionsRecordBatchModel:
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -81,3 +81,7 @@ class TestSessionsRecordBatchModel:
             "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
             in printed_query
         )
+
+        # check that we have a log_comment set (we pass this in as a query parameter)
+        assert "log_comment={log_comment}" in printed_query
+        assert "log_comment" in query_parameters

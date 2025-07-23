@@ -68,36 +68,34 @@ export class HogInputsService {
     }
 
     private async loadIntegrationInputs(hogFunction: HogFunctionType): Promise<Record<string, any>> {
-        const inputs: Record<
-            string,
-            {
-                value: number | Record<string, any>
-            }
-        > = {}
+        const inputsToLoad: Record<string, number> = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
             if (schema.type === 'integration') {
                 const input = hogFunction.inputs?.[schema.key]
                 const value = input?.value?.integrationId ?? input?.value
                 if (value && typeof value === 'number') {
-                    inputs[schema.key] = { value }
+                    inputsToLoad[schema.key] = value
                 }
             }
         })
 
-        if (Object.keys(inputs).length === 0) {
+        if (Object.keys(inputsToLoad).length === 0) {
             return {}
         }
 
-        const integrations = await this.hub.integrationManager.getMany(
-            Object.values(inputs).map((x) => x.value.toString())
-        )
+        const integrations = await this.hub.integrationManager.getMany(Object.values(inputsToLoad))
+        const returnInputs: Record<string, { value: Record<string, any> | null }> = {}
 
-        Object.entries(inputs).forEach(([key, value]) => {
-            const integration = integrations[value.value.toString()]
+        Object.entries(inputsToLoad).forEach(([key, value]) => {
+            returnInputs[key] = {
+                value: null,
+            }
+
+            const integration = integrations[value]
             // IMPORTANT: Check the team ID is correct
             if (integration && integration.team_id === hogFunction.team_id) {
-                inputs[key] = {
+                returnInputs[key] = {
                     value: {
                         ...integration.config,
                         ...integration.sensitive_config,
@@ -106,7 +104,7 @@ export class HogInputsService {
             }
         })
 
-        return inputs
+        return returnInputs
     }
 }
 

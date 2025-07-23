@@ -159,6 +159,54 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
     )
 }
 
+function NewCollectionModal(): JSX.Element {
+    const { isNewCollectionDialogOpen, selectedRecordingsIds, newCollectionName } =
+        useValues(sessionRecordingsPlaylistLogic)
+    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
+        useActions(sessionRecordingsPlaylistLogic)
+    const { loadPlaylists } = useActions(savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }))
+
+    const handleClose = (): void => {
+        setIsNewCollectionDialogOpen(false)
+        setNewCollectionName('')
+    }
+
+    return (
+        <LemonModal isOpen={isNewCollectionDialogOpen} onClose={handleClose} title="Create collection" maxWidth="500px">
+            <div className="space-y-4">
+                <p>
+                    Collections help you organize and save recordings for later analysis. This will create a new
+                    collection with the {selectedRecordingsIds.length} selected recording
+                    {selectedRecordingsIds.length > 1 ? 's' : ''}.
+                </p>
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Collection name</label>
+                    <LemonInput
+                        value={newCollectionName}
+                        onChange={setNewCollectionName}
+                        placeholder="e.g., Bug reports, User onboarding, Feature usage"
+                        className="w-full"
+                        autoFocus
+                    />
+                </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-8">
+                <LemonButton type="secondary" onClick={handleClose}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
+                    onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
+                >
+                    Create collection
+                </LemonButton>
+            </div>
+        </LemonModal>
+    )
+}
+
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -182,13 +230,20 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkDeleteFromPlaylist,
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
+        setIsNewCollectionDialogOpen,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
-        const menuItems = []
+        const menuItems: LemonMenuItem[] = [
+            {
+                label: 'Add to new collection...',
+                onClick: () => setIsNewCollectionDialogOpen(true),
+                'data-attr': 'add-to-new-collection',
+            },
+        ]
 
         const collections =
             type === 'collection' && shortId
@@ -208,10 +263,7 @@ export function SessionRecordingsPlaylistTopSettings({
                       label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
                       onClick: () => handleBulkAddToPlaylist(playlist.short_id),
                   })),
-            disabledReason:
-                collections.length === 0
-                    ? 'There are no collections. You have to make a collection before you can bulk add recordings to it'
-                    : undefined,
+            disabledReason: collections.length === 0 ? 'There are no collections' : undefined,
             'data-attr': 'add-to-collection',
         })
 
@@ -293,6 +345,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
+            <NewCollectionModal />
         </SettingsBar>
     )
 }

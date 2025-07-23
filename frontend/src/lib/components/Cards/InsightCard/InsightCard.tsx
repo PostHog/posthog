@@ -204,7 +204,6 @@ function InsightCardInternal(
                             refreshEnabled={refreshEnabled}
                             loadingQueued={loadingQueued}
                             loading={loading}
-                            hasResults={hasResults}
                             rename={rename}
                             duplicate={duplicate}
                             moveToDashboard={moveToDashboard}

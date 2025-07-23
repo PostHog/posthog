@@ -30,7 +30,7 @@ type SnippetOption = {
     comment?: string
 }
 
-export function useJsSnippet(indent = 0, arrayJs?: string): string {
+export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -61,8 +61,10 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
         },
     }
 
+    const scriptTag = scriptAttributes ? `<script ${scriptAttributes}>` : '<script>'
+
     return [
-        '<script>',
+        scriptTag,
         `    ${snippetFunctions(arrayJs)}`,
         `    posthog.init('${currentTeam?.api_token}', {`,
         ...Object.entries(options)

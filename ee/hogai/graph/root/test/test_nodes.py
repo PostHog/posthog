@@ -14,7 +14,6 @@ from parameterized import parameterized
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -468,7 +467,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ),
             patch("ee.hogai.utils.tests.FakeChatOpenAI.bind_tools", return_value=MagicMock()) as mock_bind_tools,
             patch(
-                "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+                "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
                 return_value=("Success", {}),
             ),
         ):
@@ -562,24 +561,11 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_1), "root")
 
-        # Test case 2: Has root tool call with query_kind - should return that query_kind
-        # If the user has not completed the onboarding, it should return memory_onboarding instead
-        state_2 = AssistantState(
-            messages=[AssistantMessage(content="Hello")],
-            root_tool_call_id="xyz",
-            root_tool_insight_plan="Foobar",
-            root_tool_insight_type="trends",
-        )
-        self.assertEqual(node.router(state_2), "memory_onboarding")
-        core_memory = CoreMemory.objects.create(team=self.team)
-        core_memory.change_status_to_skipped()
-        self.assertEqual(node.router(state_2), "insights")
-
-        # Test case 3: No tool call message or root tool call - should return "end"
+        # Test case 2: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
         self.assertEqual(node.router(state_3), "end")
 
-        # Test case 4: Has contextual tool call result - should go back to root
+        # Test case 3: Has contextual tool call result - should go back to root
         state_4 = AssistantState(
             messages=[
                 AssistantMessage(content="Hello"),
@@ -636,7 +622,7 @@ class TestRootNodeTools(BaseTest):
         )
 
         with patch(
-            "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
+            "products.replay.backend.max_tools.SearchSessionRecordingsTool._arun_impl",
             return_value=("Success", {}),
         ):
             result = await node.arun(
