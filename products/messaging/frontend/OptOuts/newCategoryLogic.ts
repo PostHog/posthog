@@ -2,11 +2,11 @@ import { kea, path, actions, listeners, props, key } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 import type { newCategoryLogicType } from './newCategoryLogicType'
 
-interface CategoryForm {
+type CategoryForm = {
     name: string
     key: string
     description: string
@@ -14,16 +14,7 @@ interface CategoryForm {
     category_type: string
 }
 
-interface MessageCategory {
-    id: string
-    key: string
-    name: string
-    description: string
-    public_description: string
-    category_type: string
-}
-
-interface CategoryLogicProps extends Record<string, unknown> {
+type CategoryLogicProps = {
     category?: MessageCategory | null
     onSuccess?: () => void
 }

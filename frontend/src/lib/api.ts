@@ -3539,24 +3539,6 @@ const api = {
         async deleteCategory(categoryId: string): Promise<void> {
             return await new ApiRequest().messagingCategory(categoryId).delete()
         },
-
-        // Marketing Opt-outs
-        async getMarketingOptOuts(): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest().messagingOptOuts().get()
-        },
-        async getMarketingOptOutsByCategory(categoryId: string): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest()
-                .messagingOptOuts()
-                .withAction('by_category')
-                .withQueryString({ category_id: categoryId })
-                .get()
-        },
-        async getOverallMarketingOptOuts(): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest().messagingOptOuts().withAction('overall').get()
-        },
-        async getMarketingCategories(): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest().messagingOptOuts().withAction('categories').get()
-        },
     },
     oauthApplication: {
         async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {

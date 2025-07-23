@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import type { optOutCategoriesLogicType } from './optOutCategoriesLogicType'
 
-interface MessageCategory {
+export type MessageCategory = {
     id: string
     key: string
     name: string
