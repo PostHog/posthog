@@ -244,9 +244,9 @@ function PayloadWarning(): JSX.Element {
     )
 }
 
-function ZenModeSettings(): JSX.Element | null {
-    const { isZenMode } = useValues(playerSettingsLogic)
-    const { setIsZenMode } = useActions(playerSettingsLogic)
+function CinemaModeSettings(): JSX.Element | null {
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode } = useActions(playerSettingsLogic)
 
     return (
         <div>
@@ -257,10 +257,10 @@ function ZenModeSettings(): JSX.Element | null {
             </p>
             <LemonSwitch
                 data-attr="opt-in-cinema-mode-switch"
-                onChange={setIsZenMode}
+                onChange={setIsCinemaMode}
                 label="Enable cinema mode"
                 bordered
-                checked={isZenMode}
+                checked={isCinemaMode}
             />
         </div>
     )
@@ -670,7 +670,7 @@ export function ReplayGeneral(): JSX.Element {
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />
-            {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <ZenModeSettings />}
+            {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaModeSettings />}
         </div>
     )
 }
