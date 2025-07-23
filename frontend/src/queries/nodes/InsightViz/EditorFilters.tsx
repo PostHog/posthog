@@ -475,8 +475,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {
                                         const changedLabels = compareInsightTopLevelSections(
-                                            suggestedQuery,
-                                            previousQuery
+                                            previousQuery as InsightQueryNode,
+                                            suggestedQuery as InsightQueryNode
                                         )
                                         const diffString = `🔍 ${pluralize(
                                             changedLabels.length,

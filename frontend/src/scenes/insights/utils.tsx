@@ -17,6 +17,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     HogQLQuery,
+    InsightQueryNode,
     InsightVizNode,
     Node,
     NodeKind,
@@ -49,6 +50,8 @@ import {
 
 import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
+import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
+import { removeUndefinedAndNull } from '~/lib/utils'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (
@@ -646,15 +649,21 @@ function isObject(value: any): value is Record<string, any> {
     return value !== null && typeof value === 'object'
 }
 
-export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
+export function compareInsightTopLevelSections(obj1: InsightQueryNode, obj2: InsightQueryNode): string[] {
     const changedLabels: string[] = []
+    const cleanObj1 = cleanInsightQuery(removeUndefinedAndNull(obj1)) as Record<string, any>
+    const cleanObj2 = cleanInsightQuery(removeUndefinedAndNull(obj2)) as Record<string, any>
+
+    if (objectsEqual(cleanObj1, cleanObj2)) {
+        return changedLabels
+    }
 
     // Top-level keys (e.g. kind, source)
-    const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
+    const keys = new Set([...Object.keys(cleanObj1 || {}), ...Object.keys(cleanObj1 || {})])
 
     for (const key of keys) {
-        const val1 = obj1?.[key]
-        const val2 = obj2?.[key]
+        const val1 = cleanObj1?.[key]
+        const val2 = cleanObj2?.[key]
 
         if (!isEqual(val1, val2)) {
             if (key === 'source' && isObject(val1) && isObject(val2)) {

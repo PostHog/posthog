@@ -117,7 +117,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
-const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
+export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
     const dupQuery = JSON.parse(JSON.stringify(query))
 
     // remove undefined values, empty arrays and empty objects
