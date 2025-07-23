@@ -14,6 +14,7 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
+from django.utils import timezone
 
 
 @parameterized.expand(
@@ -358,3 +359,148 @@ class TestSharing(APIBaseTest):
         assert final_asset is not None
         assert original_asset is not None
         assert final_asset.id != original_asset.id
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_refresh_sharing_access_token_for_dashboard(self, patched_exporter_task: Mock):
+        # Enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        initial_data = response.json()
+        initial_token = initial_data["access_token"]
+        assert initial_token
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        refreshed_data = response.json()
+
+        # Token should be different
+        assert refreshed_data["access_token"] != initial_token
+        assert refreshed_data["enabled"] is True
+
+        # Verify the token persists
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        assert response.json()["access_token"] == refreshed_data["access_token"]
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_refresh_sharing_access_token_for_insight(self, patched_exporter_task: Mock):
+        # First enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            {"enabled": True},
+        )
+        initial_data = response.json()
+        initial_token = initial_data["access_token"]
+        assert initial_token
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        refreshed_data = response.json()
+
+        # Token should be different
+        assert refreshed_data["access_token"] != initial_token
+        assert refreshed_data["enabled"] is True
+
+        # Verify activity log was created
+        activity_logs = ActivityLog.objects.filter(activity="access token refreshed")
+        assert activity_logs.count() == 1
+        first = activity_logs.first()
+        assert first is not None
+        assert first.item_id == str(self.insight.id)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_refresh_token_grace_period(self, patched_exporter_task: Mock):
+        # Enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        initial_token = response.json()["access_token"]
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        new_token = response.json()["access_token"]
+        assert new_token != initial_token
+
+        # Old token should still work immediately after refresh
+        response = self.client.get(f"/shared/{initial_token}")
+        assert response.status_code == 200
+
+        # New token should also work
+        response = self.client.get(f"/shared/{new_token}")
+        assert response.status_code == 200
+
+        # Within grace period (4 minutes later), old token should still work
+        # Note: Grace period is 5 minutes (SHARING_TOKEN_GRACE_PERIOD_SECONDS)
+        with freeze_time("2025-01-01 00:04:00"):
+            response = self.client.get(f"/shared/{initial_token}")
+            assert response.status_code == 200
+
+        # After grace period (6 minutes later), old token should not work
+        with freeze_time("2025-01-01 00:06:00"):
+            response = self.client.get(f"/shared/{initial_token}")
+            assert response.status_code == 404
+
+        # New token should still work after grace period
+        with freeze_time("2025-01-01 00:06:00"):
+            response = self.client.get(f"/shared/{new_token}")
+            assert response.status_code == 200
+
+    def test_token_uniqueness_constraints(self):
+        """Test that token uniqueness is enforced at the database level"""
+        from posthog.models.sharing_configuration import SharingConfiguration
+
+        # Create first sharing configuration with a specific token
+        config1 = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+        )
+        # Token should be auto-generated
+        assert config1.access_token is not None
+        original_token = config1.access_token
+
+        # Try to manually set another config with the same token - should fail due to DB constraint
+        config2 = SharingConfiguration(
+            team=self.team,
+            insight=self.insight,
+            enabled=True,
+            access_token=original_token,  # Duplicate token
+        )
+
+        # This should raise IntegrityError due to unique constraint
+        from django.db import IntegrityError
+
+        with self.assertRaises(IntegrityError):
+            config2.save()
+
+    def test_token_rotation_creates_new_config(self):
+        """Test that token rotation creates a new configuration and expires the old one"""
+        from posthog.models.sharing_configuration import SharingConfiguration
+
+        # Enable sharing
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        original_config = SharingConfiguration.objects.get(dashboard=self.dashboard, expires_at__isnull=True)
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+        new_token = response.json()["access_token"]
+
+        # Should have created a new config
+        new_config = SharingConfiguration.objects.get(dashboard=self.dashboard, expires_at__isnull=True)
+        assert new_config.access_token == new_token
+        assert new_config.pk != original_config.pk
+
+        # Old config should be expired
+        original_config.refresh_from_db()
+        assert original_config.expires_at is not None
+        assert original_config.expires_at > timezone.now()  # Should be in the future
