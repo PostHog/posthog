@@ -90,7 +90,7 @@ function CinemaMode(): JSX.Element {
                 }
                 status={isCinemaMode ? 'danger' : 'default'}
                 icon={<IconVideoCamera className="text-2xl" />}
-                data-attr={isCinemaMode ? 'exit-zen-mode' : 'zen-mode'}
+                data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
             />
         </>
     )
