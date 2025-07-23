@@ -45,7 +45,7 @@ def capture_internal(
     distinct_id: str,
     timestamp: Optional[datetime | str],
     properties: dict[str, Any],
-    sent_at: Optional[datetime | str],
+    sent_at: Optional[datetime | str] = None,
     process_person_profile: bool = False,
 ) -> Response:
     """
@@ -60,7 +60,7 @@ def capture_internal(
         distinct_id: the distict ID of the event (optional; required in properties if absent)
         timestamp: the timestamp of the event to be published (optional; will be set to now UTC if absent)
         properties: event properties to submit with the event (required; can be empty)
-        sent_at: time the client submitted this event (optional; set to now UTC by capture_interal if absent)
+        sent_at: time the client submitted this event (optional; typically, let capture_internal set this)
         process_person_profile: if TRUE, process the person profile for the event according to the caller's settings.
                                 if FALSE, disable person processing for this event.
 
@@ -175,7 +175,7 @@ def prepare_capture_internal_payload(
     distinct_id: Optional[str],
     timestamp: Optional[datetime | str],
     properties: dict[str, Any],
-    sent_at: Optional[datetime | str],
+    sent_at: Optional[datetime | str] = None,
     process_person_profile: bool = False,
 ) -> dict[str, Any]:
     # mark event as internal for observability
