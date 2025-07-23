@@ -161,4 +161,34 @@ export class BasePersonRepository implements PersonRepository {
 
         return [person, kafkaMessages]
     }
+
+    async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
+        let rows: { version: string }[] = []
+        try {
+            const result = await this.postgres.query<{ version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
+                [person.team_id, person.id],
+                'deletePerson'
+            )
+            rows = result.rows
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                console.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: person.team_id,
+                    person_id: person.id,
+                })
+            }
+            throw error
+        }
+
+        let kafkaMessages: TopicMessage[] = []
+
+        if (rows.length > 0) {
+            const [row] = rows
+            kafkaMessages = [generateKafkaPersonUpdateMessage({ ...person, version: Number(row.version || 0) }, true)]
+        }
+        return kafkaMessages
+    }
 }

@@ -420,9 +420,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementCount('deletePerson', distinctId)
         this.incrementDatabaseOperation('deletePerson', distinctId)
         const start = performance.now()
-        const personToDelete = this.getCachedPersonForUpdateByPersonId(person.team_id, person.id) || person
+        const cachedPersonUpdate = this.getCachedPersonForUpdateByPersonId(person.team_id, person.id)
+        const personToDelete = cachedPersonUpdate ? toInternalPerson(cachedPersonUpdate) : person
 
-        const response = await this.db.deletePerson(personToDelete, tx)
+        const response = await this.personRepository.deletePerson(personToDelete, tx)
         observeLatencyByVersion(person, start, 'deletePerson')
 
         // Clear ALL caches related to this person id

@@ -73,9 +73,6 @@ describe('BatchWritingPersonStore', () => {
                 dbCounter++
                 return Promise.resolve(dbCounter) // Return new version number
             }),
-            deletePerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
-            }),
             moveDistinctIds: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
@@ -94,6 +91,7 @@ describe('BatchWritingPersonStore', () => {
         const mockRepo = {
             fetchPerson: jest.fn().mockResolvedValue(person),
             createPerson: jest.fn().mockResolvedValue([person, []]),
+            deletePerson: jest.fn().mockResolvedValue([]),
         }
         return mockRepo
     }
@@ -173,7 +171,9 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should remove person from caches when deleted', async () => {
-        const personStoreForBatch = getBatchStoreForBatch()
+        const mockRepo = createMockRepository()
+        const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
         // Add person to cache using the proper PersonUpdate structure
         let updateCache = personStoreForBatch.getUpdateCache()
@@ -189,6 +189,14 @@ describe('BatchWritingPersonStore', () => {
 
         const response = await personStoreForBatch.deletePerson(person, 'test')
         expect(response).toEqual([])
+        // The cached person update should be passed to deletePerson
+        expect(mockRepo.deletePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                ...person,
+                properties: { new_value: 'new_value' },
+            }),
+            undefined
+        )
 
         // Validate cache
         updateCache = personStoreForBatch.getUpdateCache()
@@ -476,7 +484,9 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle clearing cache for different team IDs', async () => {
-        const personStoreForBatch = getBatchStoreForBatch()
+        const mockRepo = createMockRepository()
+        const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
         const person2 = { ...person, id: 'person2-id', uuid: 'person2-uuid', team_id: 2 }
 
         // Add to both caches for different teams
@@ -492,6 +502,13 @@ describe('BatchWritingPersonStore', () => {
 
         // Delete person from team 1
         await personStoreForBatch.deletePerson(person, 'test')
+        expect(mockRepo.deletePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                ...person,
+                properties: { test: 'test' },
+            }),
+            undefined
+        )
 
         // Only team 1 entries should be removed
         expect(updateCache.has(`${person.team_id}:${person.id}`)).toBe(false)

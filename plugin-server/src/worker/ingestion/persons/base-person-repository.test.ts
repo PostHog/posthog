@@ -4,6 +4,7 @@ import { resetTestDatabase } from '../../../../tests/helpers/sql'
 import { Hub, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
+import { parseJSON } from '../../../utils/json-parse'
 import { UUIDT } from '../../../utils/utils'
 import { BasePersonRepository } from './base-person-repository'
 
@@ -318,6 +319,69 @@ describe('BasePersonRepository', () => {
             expect(fetchedPerson).toEqual(person1)
         })
     })
+
+    describe('deletePerson()', () => {
+        it('should delete person from postgres', async () => {
+            const team = await getFirstTeam(hub)
+            // Create person without distinct IDs to keep deletion process simpler
+            const uuid = new UUIDT().toString()
+            const [person, kafkaMessages] = await repository.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                []
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+
+            const deleteMessages = await repository.deletePerson(person)
+
+            // Verify person is deleted from postgres
+            const fetchedPerson = await fetchPersonByPersonId(hub, team.id, person.id)
+            expect(fetchedPerson).toEqual(undefined)
+
+            // Verify kafka messages are generated
+            expect(deleteMessages).toHaveLength(1)
+            expect(deleteMessages[0].topic).toBe('clickhouse_person_test')
+            expect(deleteMessages[0].messages).toHaveLength(1)
+
+            const messageValue = parseJSON(deleteMessages[0].messages[0].value as string)
+            expect(messageValue).toEqual({
+                id: person.uuid,
+                created_at: person.created_at.toFormat('yyyy-MM-dd HH:mm:ss'),
+                properties: JSON.stringify(person.properties),
+                team_id: person.team_id,
+                is_identified: Number(person.is_identified),
+                is_deleted: 1,
+                version: person.version + 100, // version is incremented by 100 for deletions
+            })
+        })
+
+        it('should handle deleting person that does not exist', async () => {
+            const team = await getFirstTeam(hub)
+            const nonExistentPerson = {
+                id: '999999',
+                uuid: new UUIDT().toString(),
+                created_at: TIMESTAMP,
+                team_id: team.id,
+                properties: {},
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                is_user_id: null,
+                version: 0,
+                is_identified: false,
+            }
+
+            const messages = await repository.deletePerson(nonExistentPerson)
+
+            // Should return empty array when person doesn't exist
+            expect(messages).toHaveLength(0)
+        })
+    })
 })
 
 // Helper function from the original test file
@@ -329,4 +393,15 @@ async function getFirstTeam(hub: Hub): Promise<Team> {
         'getFirstTeam'
     )
     return teams.rows[0]
+}
+
+async function fetchPersonByPersonId(hub: Hub, teamId: number, personId: string): Promise<any | undefined> {
+    const selectResult = await hub.db.postgres.query(
+        PostgresUse.PERSONS_WRITE,
+        `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
+        [teamId, personId],
+        'fetchPersonByPersonId'
+    )
+
+    return selectResult.rows[0]
 }
