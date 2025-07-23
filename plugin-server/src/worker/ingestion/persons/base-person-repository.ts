@@ -345,4 +345,25 @@ export class BasePersonRepository implements PersonRepository {
 
         return existingResult.rows[0]['is_merged']
     }
+
+    async addPersonlessDistinctIdForMerge(
+        teamId: number,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<boolean> {
+        const result = await this.postgres.query(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                VALUES ($1, $2, true, now())
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = true
+                RETURNING (xmax = 0) AS inserted
+            `,
+            [teamId, distinctId],
+            'addPersonlessDistinctIdForMerge'
+        )
+
+        return result.rows[0].inserted
+    }
 }

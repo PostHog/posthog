@@ -95,6 +95,7 @@ describe('BatchWritingPersonStore', () => {
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
             addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
+            addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
         }
         return mockRepo
     }
@@ -1201,6 +1202,31 @@ describe('BatchWritingPersonStore', () => {
             const result = await personStoreForBatch.addPersonlessDistinctId(teamId, 'test-distinct')
 
             expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(false)
+        })
+    })
+
+    describe('addPersonlessDistinctIdForMerge', () => {
+        it('should call repository method and return result', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
+
+            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct', undefined)
+            expect(result).toBe(true)
+        })
+
+        it('should handle repository returning false', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.addPersonlessDistinctIdForMerge = jest.fn().mockResolvedValue(false)
+            const testPersonStore = new BatchWritingPersonsStore(db, mockRepo)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
+
+            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct', undefined)
             expect(result).toBe(false)
         })
     })

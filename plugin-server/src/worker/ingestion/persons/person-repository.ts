@@ -42,4 +42,5 @@ export interface PersonRepository {
     ): Promise<MoveDistinctIdsResult>
 
     addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean>
+    addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean>
 }

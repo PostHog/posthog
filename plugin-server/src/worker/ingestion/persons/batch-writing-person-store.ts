@@ -500,7 +500,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         tx?: TransactionClient
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        return await this.db.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
+        return await this.personRepository.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
     }
 
     async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {

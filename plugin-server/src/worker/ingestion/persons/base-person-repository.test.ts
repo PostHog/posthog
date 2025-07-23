@@ -588,6 +588,90 @@ describe('BasePersonRepository', () => {
             expect(selectResult2.rows[0].is_merged).toBe(false)
         })
     })
+
+    describe('addPersonlessDistinctIdForMerge', () => {
+        it('should insert personless distinct ID for merge successfully', async () => {
+            const team = await getFirstTeam(hub)
+            const distinctId = 'test-distinct-merge-new'
+
+            const result = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId)
+
+            expect(result).toBe(true) // inserted should be true for new insert
+
+            // Verify the record was actually inserted with is_merged = true
+            const selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, distinctId],
+                'verifyMergeInsert'
+            )
+
+            expect(selectResult.rows).toHaveLength(1)
+            expect(selectResult.rows[0].is_merged).toBe(true)
+        })
+
+        it('should update existing record to merged when distinct ID already exists', async () => {
+            const team = await getFirstTeam(hub)
+            const distinctId = 'test-distinct-merge-existing'
+
+            // First insert as regular personless distinct ID
+            const firstResult = await repository.addPersonlessDistinctId(team.id, distinctId)
+            expect(firstResult).toBe(false) // is_merged should be false initially
+
+            // Verify initial state
+            let selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, distinctId],
+                'verifyInitialState'
+            )
+            expect(selectResult.rows[0].is_merged).toBe(false)
+
+            // Now mark it for merge
+            const mergeResult = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId)
+            expect(mergeResult).toBe(false) // inserted should be false since record already existed
+
+            // Verify it was updated to merged
+            selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, distinctId],
+                'verifyMergeUpdate'
+            )
+            expect(selectResult.rows[0].is_merged).toBe(true)
+        })
+
+        it('should handle transaction parameter correctly', async () => {
+            const team = await getFirstTeam(hub)
+            const distinctId = 'test-distinct-merge-transaction'
+
+            // Use a transaction
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
+                const result = await repository.addPersonlessDistinctIdForMerge(team.id, distinctId, tx)
+                expect(result).toBe(true)
+
+                // Verify within transaction
+                const selectResult = await postgres.query(
+                    tx,
+                    `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                    [team.id, distinctId],
+                    'verifyInTransaction'
+                )
+                expect(selectResult.rows).toHaveLength(1)
+                expect(selectResult.rows[0].is_merged).toBe(true)
+            })
+
+            // Verify after transaction
+            const selectResult = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2`,
+                [team.id, distinctId],
+                'verifyAfterTransaction'
+            )
+            expect(selectResult.rows).toHaveLength(1)
+            expect(selectResult.rows[0].is_merged).toBe(true)
+        })
+    })
 })
 
 // Helper function from the original test file
