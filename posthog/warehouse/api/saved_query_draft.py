@@ -6,9 +6,11 @@ from rest_framework import viewsets
 
 
 class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
+    saved_query_id = serializers.UUIDField(required=False, allow_null=True)
+
     class Meta:
         model = DataWarehouseSavedQueryDraft
-        fields = ["id", "created_at", "updated_at", "query", "saved_query"]
+        fields = ["id", "created_at", "updated_at", "query", "saved_query_id"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def create(self, validated_data):

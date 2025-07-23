@@ -36,6 +36,13 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
+    const multitabLogic = multitabEditorLogic({
+        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+    })
+    const { allTabs, viewDrafts } = useValues(multitabLogic)
+    const { createTab, selectTab, setTabDraftId } = useActions(multitabLogic)
+    const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
+
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
         setTreeRef(treeRef)
@@ -53,6 +60,40 @@ export const QueryDatabase = (): JSX.Element => {
                 }
             }}
             onItemClick={(item) => {
+                // Handle draft clicks - focus existing tab or create new one
+                if (item && item.record?.type === 'draft') {
+                    const draft = item.record.draft
+
+                    // Look for existing tab with this draft
+                    const existingTab = allTabs.find((tab) => {
+                        const tabUri = tab.uri.toString()
+                        return viewDrafts[tabUri] === draft.id
+                    })
+
+                    if (existingTab) {
+                        // Focus existing tab
+                        selectTab(existingTab)
+                    } else {
+                        // Get the associated view if it exists
+                        const associatedView = draft.saved_query_id
+                            ? dataWarehouseSavedQueryMapById[draft.saved_query_id]
+                            : undefined
+
+                        // Create new tab with draft content
+                        createTab(draft.query.query, associatedView)
+
+                        // Associate the draft ID with the newly created tab
+                        // We need to wait a tick for the tab to be created
+                        setTimeout(() => {
+                            const newTab = allTabs[allTabs.length - 1] // Get the most recently created tab
+                            if (newTab) {
+                                setTabDraftId(newTab.uri.toString(), draft.id)
+                            }
+                        }, 0)
+                    }
+                    return
+                }
+
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)

@@ -147,7 +147,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                             query: queryInput,
                                         },
                                         editingView.id,
-                                        currentDraftId
+                                        currentDraftId || undefined
                                     )
                                 }
                             }}
