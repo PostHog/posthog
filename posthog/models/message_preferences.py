@@ -5,8 +5,10 @@ from posthog.models.utils import UUIDModel
 from enum import Enum
 import uuid
 
+RESERVED_CATEGORY_KEY_ALL = "$all"
+RESERVED_CATEGORY_KEYS = [RESERVED_CATEGORY_KEY_ALL]
 
-# class syntax
+
 class PreferenceStatus(str, Enum):
     OPTED_IN = "OPTED_IN"
     OPTED_OUT = "OPTED_OUT"
@@ -17,38 +19,20 @@ class PreferenceStatus(str, Enum):
         return [(status.value, status.name) for status in cls]
 
 
-class MessageCategoryType(str, Enum):
-    MARKETING = "marketing"
-    TRANSACTIONAL = "transactional"
-
-    @classmethod
-    def choices(cls):
-        return [(status.value, status.name) for status in cls]
+class MessageCategoryPreference:
+    email = models.CharField(max_length=16, choices=PreferenceStatus.choices)
+    sms = models.CharField(max_length=16, choices=PreferenceStatus.choices)
+    push = models.CharField(max_length=16, choices=PreferenceStatus.choices)
 
 
-class MessageCategory(UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted = models.BooleanField(default=False)
-    key = models.CharField(max_length=64)
-    name = models.CharField(max_length=128)
-    description = models.TextField(blank=True, default="")
-    public_description = models.TextField(blank=True, default="")
-    category_type = models.CharField(
-        max_length=32, choices=MessageCategoryType.choices(), default=MessageCategoryType.MARKETING.value
+def get_default_message_preferences() -> dict[str, MessageCategoryPreference]:
+    preferences = {}
+    preferences[RESERVED_CATEGORY_KEY_ALL] = MessageCategoryPreference(
+        email=PreferenceStatus.NO_PREFERENCE,
+        sms=PreferenceStatus.NO_PREFERENCE,
+        push=PreferenceStatus.NO_PREFERENCE,
     )
-
-    class Meta:
-        unique_together = (
-            "team",
-            "key",
-        )
-        verbose_name_plural = "message categories"
-
-    def __str__(self) -> str:
-        return self.name
+    return preferences
 
 
 class MessageRecipientPreference(UUIDModel):
@@ -59,7 +43,8 @@ class MessageRecipientPreference(UUIDModel):
     deleted = models.BooleanField(default=False)
     identifier = models.CharField(max_length=512)
     preferences = models.JSONField(
-        default=dict, help_text="Dictionary mapping MessageCategory UUIDs to preference statuses"
+        default=get_default_message_preferences,
+        help_text="Dictionary mapping MessageCategory UUIDs to preference statuses",
     )
 
     class Meta:
@@ -111,8 +96,12 @@ class MessageRecipientPreference(UUIDModel):
         status = self.preferences.get(str(category_id), PreferenceStatus.NO_PREFERENCE.value)
         return PreferenceStatus(status)
 
-    def get_all_preferences(self) -> dict[uuid.UUID, PreferenceStatus]:
-        """Get all preferences as a dictionary of UUID to PreferenceStatus"""
+    def get_preferences(self) -> PreferenceStatus:
+        """Get all preferences as a dictionary of category_id to PreferenceStatus"""
+        return {uuid.UUID(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
+
+    def get_all_preference(self) -> dict[uuid.UUID, PreferenceStatus]:
+        """Get meta preference for all categories"""
         return {uuid.UUID(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
 
     @classmethod

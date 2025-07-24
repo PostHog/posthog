@@ -1,11 +1,13 @@
-from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference
+from posthog.models.message_preferences import MessageRecipientPreference
+from posthog.models.message_category import MessageCategory
+from posthog.models.message_preferences import PreferenceStatus
+
 from posthog.test.base import BaseTest
 from django.test import Client
 from django.urls import reverse
 from django.db import IntegrityError
 import uuid
 import json
-from posthog.models.message_preferences import PreferenceStatus
 
 
 class TestMessagePreferences(BaseTest):

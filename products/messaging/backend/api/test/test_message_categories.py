@@ -100,6 +100,18 @@ class TestMessageCategoryAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_cant_create_category_with_reserved_key(self):
+        """
+        Tests that creating a category with a reserved key is not allowed.
+        """
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_categories/",
+            {"name": "Reserved Key Category", "key": "$all", "category_type": "marketing"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual("key", response.json()["attr"])
+        self.assertIn("is reserved and cannot be used", response.json()["detail"])
+
     def test_delete_is_forbidden(self):
         """
         Tests that DELETE /messaging_categories/:id is forbidden.
