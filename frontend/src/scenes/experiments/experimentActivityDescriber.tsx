@@ -46,6 +46,13 @@ const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element =
 }
 
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
+    //bail for shared metrics
+    if (logItem.detail.type === 'shared_metric') {
+        return {
+            description: null,
+        }
+    }
+
     return match(logItem.activity)
         .with('created', () => {
             /**
