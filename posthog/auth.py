@@ -196,12 +196,12 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_secret_api_token(
         cls,
         request: Union[HttpRequest, Request],
-    ) -> Optional[str]:
+    ) -> Optional[tuple[str, str]]:
         """Try to find project secret API key in request and return it"""
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                return authorization_match.group(1).strip(), "header"
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -210,19 +210,20 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"]
+            return data["secret_api_key"], "body"
 
         if "secret_api_key" in request.GET:
-            return request.GET["secret_api_key"]
+            return request.GET["secret_api_key"], "query"
 
         return None
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token = self.find_secret_api_token(request)
+        secret_api_token_with_source = self.find_secret_api_token(request)
 
-        if not secret_api_token:
+        if not secret_api_token_with_source:
             return None
 
+        secret_api_token, source = secret_api_token_with_source
         # get the team from the secret api key
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
