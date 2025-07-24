@@ -77,3 +77,8 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         ],
     }),
 ])
+
+// Accept HMR updates for this module to prevent unmounting during development
+if ((import.meta as any).hot) {
+    ;(import.meta as any).hot.accept()
+}
