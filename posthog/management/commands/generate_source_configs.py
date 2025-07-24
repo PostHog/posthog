@@ -29,7 +29,7 @@ logger.setLevel(logging.INFO)
 # For an example, look at posthog/temporal/data_imports/sources/stripe/source.py
 
 # This file shouldn't often need to be updated unless if we extend what fields sources can have.
-# There exists a test file here: posthog/temporal/data_imports/sources/tests/test_generated_configs.py
+# There exists a test file here: posthog/temporal/data_imports/sources/common/test/test_source_config_generator.py
 
 # To start SourceConfigGenerator, run `pnpm generate:source-configs`
 
@@ -37,6 +37,7 @@ logger.setLevel(logging.INFO)
 # - allow custom converter options (see meta ads and google ads source)
 # - define metadata to add fields onto the config that come from settings, e.g:
 #       field: str = config.value(default_factory=config.default_from_settings("ENV_VAR"))
+# - Allow types to be given in `SourceFieldFileUploadJsonFormatConfig`
 
 
 class SourceConfigGenerator:
@@ -47,13 +48,6 @@ class SourceConfigGenerator:
         self.nested_configs: dict[str, str] = {}
 
     def generate_all_configs(self) -> str:
-        self.imports.update(
-            [
-                "from posthog.temporal.data_imports.sources.common import config",
-                "from posthog.warehouse.models import ExternalDataSource",
-            ]
-        )
-
         try:
             sources = SourceRegistry.get_all_sources()
             configs = {name: source.get_source_config for name, source in sources.items()}
@@ -68,6 +62,13 @@ class SourceConfigGenerator:
         return self._build_output()
 
     def generate_source_config(self, source_type: "ExternalDataSource.Type", source_config: SourceConfig) -> None:
+        self.imports.update(
+            [
+                "from posthog.temporal.data_imports.sources.common import config",
+                "from posthog.warehouse.models import ExternalDataSource",
+            ]
+        )
+
         class_name = self._get_config_class_name(source_type)
         fields = []
         nested_classes = []

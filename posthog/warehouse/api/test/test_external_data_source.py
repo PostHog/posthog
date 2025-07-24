@@ -1029,7 +1029,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
             data={
                 "job_inputs": {
-                    "ssh-tunnel": {
+                    "ssh_tunnel": {
                         "enabled": True,
                         "host": "ssh.example.com",
                         "port": 22,

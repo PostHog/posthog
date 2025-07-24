@@ -1,11 +1,11 @@
 from typing import cast
-from unittest import mock
 import pytest
 
 from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.schema import (
     ExternalDataSourceType,
     SourceConfig,
+    SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
@@ -15,16 +15,17 @@ from posthog.schema import (
     SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
 )
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.test.base import ClickhouseTestMixin
-from posthog.warehouse.api.available_sources import FieldType
 from posthog.warehouse.models import ExternalDataSource
 
 
 class TestSourceConfigGenerator(ClickhouseTestMixin):
     def _run(self, sources: dict[ExternalDataSource.Type, SourceConfig]) -> str:
-        with mock.patch("posthog.management.commands.generate_source_configs.AVAILABLE_SOURCES", sources):
-            generator = SourceConfigGenerator()
-            return generator.generate_all_configs()
+        generator = SourceConfigGenerator()
+        for name, config in sources.items():
+            generator.generate_source_config(name, config)
+        return generator._build_output()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_source_config_types(self):
@@ -117,7 +118,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         name="oauth_integration_id", label="oauth account", required=True, kind="source"
                     ),
                     SourceFieldFileUploadConfig(
-                        name="file_upload", label="file upload label", fileFormat=".json", required=True
+                        name="file_upload",
+                        label="file upload label",
+                        fileFormat=SourceFieldFileUploadJsonFormatConfig(keys=["key_1", "key_2"]),
+                        required=True,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="ssh tunnel label"),
                 ],
@@ -221,9 +225,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
         output = self._run({ExternalDataSource.Type.STRIPE: config})
         assert (
-            'switch_group: StripeSwitchGroupConfig | None = config.value(alias="switch-group", default=None)' in output
+            'switch_group: StripeSwitchGroupConfig | None = config.value(alias="switch-group", default_factory=lambda: None)'
+            in output
         )
-        assert 'input_field_1: str | None = config.value(alias="input-field-1", default=None)' in output
+        assert 'input_field_1: str | None = config.value(alias="input-field-1", default_factory=lambda: None)' in output
 
     def test_source_config_file_upload_non_python_identifier(self):
         config = SourceConfig(
@@ -235,7 +240,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                     SourceFieldFileUploadConfig(
                         name="file-upload",  # dashes are not allowed in python identifiers
                         label="file upload label",
-                        fileFormat=".json",
+                        fileFormat=SourceFieldFileUploadJsonFormatConfig(keys=["key_1", "key_2"]),
                         required=True,
                     ),
                 ],
@@ -243,7 +248,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSource.Type.STRIPE: config})
-        assert 'file_upload: dict[str, Any] = config.value(alias="file-upload")' in output
+        assert 'file_upload: StripeFileUploadConfig = config.value(alias="file-upload")' in output
+        assert "class StripeFileUploadConfig" in output
+        assert "key_1: str" in output
+        assert "key_2: str" in output
 
     def test_source_config_oauth_non_python_identifier(self):
         config = SourceConfig(
@@ -263,7 +271,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSource.Type.STRIPE: config})
-        assert 'oauth_integration_id: str = config.value(alias="oauth-integration-id")' in output
+        assert (
+            'oauth_integration_id: int = config.value(alias="oauth-integration-id", converter=config.str_to_int)'
+            in output
+        )
 
     def test_source_config_ssh_tunnel_non_python_identifier(self):
         config = SourceConfig(
@@ -281,7 +292,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSource.Type.STRIPE: config})
-        assert 'ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")' in output
+        assert (
+            'ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)'
+            in output
+        )
 
     def test_source_config_complex_select_non_python_identifier(self):
         config = SourceConfig(
@@ -361,7 +375,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
 
         output = self._run({ExternalDataSource.Type.STRIPE: config})
         assert (
-            'select_with_options: Literal["1", "0"] = config.value(alias="select-with-options", default="1")' in output
+            'select_with_options: Literal["1", "0"] = config.value(default="1", alias="select-with-options")' in output
         )
 
     def test_source_config_ssh_tunnel_reference(self):
