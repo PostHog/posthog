@@ -32,9 +32,9 @@ class Annotation(models.Model):
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)
     # DEPRECATED: moved to the comment model
-    recording_id = models.UUIDField(null=True, blank=True)
+    recording_id = deprecate_field(models.UUIDField(null=True, blank=True))
     # DEPRECATED: moved to the comment model
-    is_emoji = models.BooleanField(default=False, null=True, blank=True)
+    is_emoji = deprecate_field(models.BooleanField(default=False, null=True, blank=True))
 
     @property
     def insight_short_id(self) -> Optional[str]:
