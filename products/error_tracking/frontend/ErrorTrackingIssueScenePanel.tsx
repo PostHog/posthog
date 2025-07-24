@@ -38,7 +38,11 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
             <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            {issue.status === 'active' && <IssueAssigneeSelect assignee={issue.assignee} onChange={updateAssignee} />}
+            <IssueAssigneeSelect
+                assignee={issue.assignee}
+                onChange={updateAssignee}
+                disabled={issue.status != 'active'}
+            />
             <IssueExternalReference />
 
             <ScenePanelDivider />
@@ -107,9 +111,11 @@ const IssueStatusSelect = ({
 
 const IssueAssigneeSelect = ({
     assignee,
+    disabled,
     onChange,
 }: {
     assignee: ErrorTrackingIssueAssignee | null
+    disabled: boolean
     onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
 }): JSX.Element => {
     return (
@@ -119,6 +125,7 @@ const IssueAssigneeSelect = ({
                     <ButtonPrimitive
                         menuItem
                         fullWidth
+                        disabled={disabled}
                         className="flex justify-between"
                         data-state={isOpen ? 'open' : 'closed'}
                     >
@@ -126,7 +133,7 @@ const IssueAssigneeSelect = ({
                             <AssigneeIconDisplay assignee={anyAssignee} size="small" />
                             <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
                         </div>
-                        <DropdownMenuOpenIndicator />
+                        {!disabled && <DropdownMenuOpenIndicator />}
                     </ButtonPrimitive>
                 )}
             </AssigneeSelect>
