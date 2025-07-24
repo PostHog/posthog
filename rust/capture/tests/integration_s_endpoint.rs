@@ -43,7 +43,7 @@ async fn base64_replay_event_payload() {
     let client = TestClient::new(router);
 
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s/?_={}compression=base64", unix_millis_sent_at);
+    let req_path = format!("/s/?_={}&compression=base64", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(base64_payload)
