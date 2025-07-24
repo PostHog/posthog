@@ -12,7 +12,7 @@ from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.person import Person
-from posthog.session_recordings.queries_to_delete.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter

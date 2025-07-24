@@ -47,7 +47,7 @@ from posthog.models.property import (
 )
 from posthog.models.property.property import ValueT
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.session_recordings.queries_to_delete.session_query import SessionQuery
+from posthog.session_recordings.queries_to_replace.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 from posthog.schema import PropertyOperator

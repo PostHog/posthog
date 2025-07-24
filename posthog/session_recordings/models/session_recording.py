@@ -15,7 +15,7 @@ from posthog.session_recordings.models.metadata import (
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_delete.session_replay_events import SessionReplayEvents, ttl_days
+from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.tasks.tasks import ee_persist_single_recording
 
 

@@ -33,7 +33,7 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.schema import EventsQuery
-from posthog.session_recordings.queries_to_delete.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.tasks.usage_report import (
