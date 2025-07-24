@@ -785,8 +785,8 @@ def get_snowflake_fields_from_record_schema(
     return snowflake_schema
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to Snowflake.
 

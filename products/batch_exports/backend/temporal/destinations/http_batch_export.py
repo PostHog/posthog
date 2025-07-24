@@ -155,8 +155,8 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     return response
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")

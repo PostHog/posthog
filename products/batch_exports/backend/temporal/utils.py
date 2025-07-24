@@ -295,8 +295,8 @@ def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str])
         A decorator function that handles exceptions according to the retry policy.
 
     Example:
-        @handle_non_retryable_errors(("ClientError", "ParamValidationError"))
         @activity.defn
+        @handle_non_retryable_errors(("ClientError", "ParamValidationError"))
         async def insert_into_s3_activity(inputs: S3InsertInputs) -> BatchExportResult:
             # Activity implementation here
             return BatchExportResult(records_completed=100)

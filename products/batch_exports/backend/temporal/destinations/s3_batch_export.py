@@ -333,8 +333,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         return
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
     """Activity to batch export data to a customer's S3.
 

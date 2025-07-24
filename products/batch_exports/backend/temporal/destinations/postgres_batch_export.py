@@ -642,8 +642,8 @@ class PostgreSQLConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to Postgres."""
     bind_contextvars(

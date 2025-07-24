@@ -651,8 +651,8 @@ class BigQueryConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to BigQuery."""
     bind_contextvars(

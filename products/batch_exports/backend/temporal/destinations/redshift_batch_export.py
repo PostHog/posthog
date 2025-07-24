@@ -366,8 +366,8 @@ class RedshiftInsertInputs(PostgresInsertInputs):
     properties_data_type: str = "varchar"
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchExportResult:
     """Activity to insert data from ClickHouse to Redshift.
 

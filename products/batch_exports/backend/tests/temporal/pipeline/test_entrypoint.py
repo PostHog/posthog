@@ -157,8 +157,8 @@ class DummyExportWorkflow(PostHogWorkflow):
         return
 
 
-@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn(name="insert_into_dummy_activity_from_stage")
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> BatchExportResult:
     """A mock activity to test the batch export entrypoint."""
     if inputs.exception_to_raise:
