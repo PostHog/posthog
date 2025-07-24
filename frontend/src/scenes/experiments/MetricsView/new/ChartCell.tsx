@@ -62,7 +62,7 @@ export function ChartCell({
                     <svg
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                         preserveAspectRatio="none"
-                        className="h-full w-full max-w-[1000px]"
+                        className="h-full w-full"
                     >
                         {/* Grid lines for all ticks - spans full height */}
                         {showGridLines && (
