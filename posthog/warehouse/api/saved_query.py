@@ -325,6 +325,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         if len(find_placeholders.field_strings) > 0:
             placeholder = find_placeholders.field_strings.pop()
             raise exceptions.ValidationError(detail=f"Variables like {'{'}{placeholder}{'}'} are not allowed in views")
+        elif find_placeholders.has_expr_placeholders or find_placeholders.has_filters:
+            raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
             print_ast(

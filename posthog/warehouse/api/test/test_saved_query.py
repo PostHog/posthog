@@ -120,7 +120,39 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400
 
         response_json = response.json()
-        assert "Invalid query: Unable to resolve field: filters" in response_json["detail"]
+        assert "Filters and placeholder expressions are not allowed in views" in response_json["detail"]
+
+    def test_create_using_placeholders_foo_variable(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "test_1",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select * from events where {variables.foo}",
+                },
+            },
+        )
+        assert response.status_code == 400
+
+        response_json = response.json()
+        assert "Variables like {variables.foo} are not allowed in views" in response_json["detail"]
+
+    def test_create_using_placeholders_custom_expr(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "test_1",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select * from events where {1 + 2}",
+                },
+            },
+        )
+        assert response.status_code == 400
+
+        response_json = response.json()
+        assert "Filters and placeholder expressions are not allowed in views" in response_json["detail"]
 
     def test_delete(self):
         query_name = "test_query"
