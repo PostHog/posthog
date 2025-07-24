@@ -102,6 +102,7 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
 
 const HOG_FUNCTION: HogFunctionType = {
     ...HOG_TEMPLATE,
+    hog: HOG_TEMPLATE.code,
     description: typeof HOG_TEMPLATE.description === 'string' ? HOG_TEMPLATE.description : '',
     created_at: '2021-09-29T14:00:00Z',
     created_by: {} as any,
