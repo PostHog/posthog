@@ -12,13 +12,13 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
 
 # Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -35,8 +35,8 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    MaxUIContext,
     MaxInsightContext,
+    MaxUIContext,
     RetentionQuery,
     TrendsQuery,
 )
@@ -60,6 +60,8 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
 }
+
+SLASH_COMMAND_INIT = "/init"
 
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
@@ -292,11 +294,17 @@ class RootNode(RootNodeUIContextMixin):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    (
+                        "system",
+                        CORE_MEMORY_PROMPT
+                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                        + " If users ask to save, update, or delete the core memory, say you have done it.",
+                    ),
                     *[
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
@@ -346,7 +354,7 @@ class RootNode(RootNodeUIContextMixin):
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
         # only made evals less useful precisely because of the false determinism.
         base_model = MaxChatOpenAI(
-            model="gpt-4o",
+            model="gpt-4.1",
             temperature=0.3,
             streaming=True,
             stream_usage=True,
@@ -378,7 +386,7 @@ class RootNode(RootNodeUIContextMixin):
             ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass())  # type: ignore
+            available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -511,14 +519,11 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_insight_type=tool_call.args["query_kind"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_documentation":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_insights":
@@ -528,7 +533,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(state)
+            tool_class = ToolClass(team=self._team, user=self._user, state=state)
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
@@ -553,12 +558,8 @@ class RootNodeTools(AssistantNode):
             last_message = new_state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
                 return PartialAssistantState(
-                    messages=new_state.messages[
-                        len(state.messages) :
-                    ],  # we send all messages from the tool call onwards
-                    root_tool_call_id=None,  # Tool handled already
-                    root_tool_insight_plan=None,  # No insight plan here
-                    root_tool_insight_type=None,  # No insight type here
+                    # we send all messages from the tool call onwards
+                    messages=new_state.messages[len(state.messages) :],
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
@@ -572,9 +573,6 @@ class RootNodeTools(AssistantNode):
                         visible=True,
                     )
                 ],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
@@ -582,12 +580,11 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
+
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            if state.root_tool_insight_type:
-                if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
-                    return "memory_onboarding"
+            if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"

@@ -2,3 +2,7 @@
 . "$(dirname "$0")/_/husky.sh"
 
 NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged
+echo "PATH in pre-commit: $PATH"
+echo "VIRTUAL_ENV in pre-commit: $VIRTUAL_ENV"
+echo "Node version: $(node --version)"
+which prettier || echo "prettier not found"

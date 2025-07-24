@@ -111,7 +111,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             />
             {hasFooter ? (
                 <div className="flex flex-row gap-x-2 justify-between border-l border-r border-b rounded-b px-1">
-                    <div className="flex flex-row gap-x-1 items-center">{actions}</div>
+                    <div className="flex flex-row items-center">{actions}</div>
                     <div className="flex flex-row gap-x-1 items-center">
                         <div className="flex flex-row gap-x-1 justify-end flex-grow">
                             {rightFooter}

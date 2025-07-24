@@ -23,7 +23,7 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod, Feature
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
-from posthog.exceptions import ClickhouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
@@ -223,7 +223,7 @@ def sync_execute(
                 chargeable=str(tags.chargeable or "0"),
             ).inc()
             err = wrap_query_error(e)
-            if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
+            if isinstance(err, ClickHouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                 workload = Workload.ONLINE
                 tags.clickhouse_exception_type = exception_type
                 tags.workload = str(workload)

@@ -3,7 +3,8 @@ import { DateTime } from 'luxon'
 import { Group, ProjectId, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
-import { BatchWritingGroupStore } from './batch-writing-group-store'
+import { RaceConditionError } from '../../../utils/utils'
+import { BatchWritingGroupStore, BatchWritingGroupStoreForBatch } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
 
 // Mock the utils module
@@ -263,5 +264,50 @@ describe('BatchWritingGroupStore', () => {
         expect(db.updateGroup).toHaveBeenCalledTimes(0)
         expect(db.insertGroup).toHaveBeenCalledTimes(0)
         expect(captureIngestionWarning).toHaveBeenCalledTimes(1)
+    })
+
+    it('should retry on race condition error and clear cache', async () => {
+        // Mock insertGroup to throw RaceConditionError once, then succeed
+        jest.spyOn(db, 'insertGroup').mockImplementation(() => {
+            throw new RaceConditionError('Parallel posthog_group inserts, retry')
+        })
+        let fetchCounter = 0
+        jest.spyOn(db, 'fetchGroup').mockImplementation(() => {
+            fetchCounter++
+            if (fetchCounter === 1) {
+                return Promise.resolve(undefined)
+            } else {
+                return Promise.resolve(group)
+            }
+        })
+
+        const groupStoreForBatch = groupStore.forBatch()
+
+        // track cache delete
+        const groupCache = (groupStoreForBatch as BatchWritingGroupStoreForBatch).getGroupCache()
+        const cacheDeleteSpy = jest.spyOn(groupCache, 'delete')
+
+        // Add to cache to verify it gets cleared on race condition
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+
+        await groupStoreForBatch.flush()
+
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(db.fetchGroup).toHaveBeenCalledTimes(2) // Once for initial fetch, once for retry
+        expect(db.insertGroup).toHaveBeenCalledTimes(1)
+
+        expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 'test')
+
+        // Final call should succeed
+        expect(db.updateGroupOptimistically).toHaveBeenLastCalledWith(
+            teamId,
+            1,
+            'test',
+            1, // version from second fetch
+            { a: 'test', test: 'test' },
+            group.created_at,
+            {},
+            {}
+        )
     })
 })

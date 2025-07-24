@@ -26,6 +26,7 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     EmailIntegration,
     GitHubIntegration,
+    TwilioIntegration,
 )
 
 
@@ -84,6 +85,24 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError("An installation_id must be provided")
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            return instance
+
+        elif validated_data["kind"] == "twilio":
+            config = validated_data.get("config", {})
+            account_sid = config.get("account_sid")
+            auth_token = config.get("auth_token")
+            phone_number = config.get("phone_number")
+
+            if not (account_sid and auth_token and phone_number):
+                raise ValidationError("Account SID, auth token, and phone number must be provided")
+
+            instance = TwilioIntegration.integration_from_keys(
+                account_sid,
+                auth_token,
+                phone_number,
+                team_id,
+                request.user,
+            )
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:

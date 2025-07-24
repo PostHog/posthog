@@ -513,6 +513,15 @@ async def materialize_model(
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
+        elif (
+            "Decimal value does not fit in precision" in error_message
+            or "Rescaling Decimal128 value would cause data loss" in error_message
+        ):
+            error_message = f"Decimal precision issue. Try reducing the precision of the decimal columns, or using toInt() or toFloat() to a cast to a different column type."
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            raise CannotCoerceColumnException(f"Decimal precision error in model {model_label}: {error_message}") from e
         elif "Unknown table" in error_message:
             error_message = (
                 f"Table reference no longer exists for model. This is likely due to a table no longer being available."
@@ -563,6 +572,7 @@ async def materialize_model(
     job.rows_materialized = row_count
     job.status = DataModelingJob.Status.COMPLETED
     job.last_run_at = dt.datetime.now(dt.UTC)
+    job.error = None  # clear any previous error message
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
@@ -973,7 +983,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
         DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
     )(
         status=DataModelingJob.Status.FAILED,
-        error="Job was orphaned when a new data modeling run started",
+        error="Job timed out",
         updated_at=dt.datetime.now(dt.UTC),
     )
 
@@ -1057,21 +1067,53 @@ class CreateTableActivityInputs:
 
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
-    """Activity that creates tables for a list of saved queries."""
+    """Create/attach tables and persist their row-count."""
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+
     for model in inputs.models:
+        try:
+            model_id = uuid.UUID(model)
+        except ValueError:
+            await logger.aerror(
+                f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue"
+            )
+            continue  # Skip this model if it's not a valid UUID
+
         await create_table_from_saved_query(model, inputs.team_id)
+
+        try:
+            saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
+                id=model_id, team_id=inputs.team_id
+            )
+
+            if not saved_query.table:
+                await logger.aerror(
+                    f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue"
+                )
+                continue
+
+            table = saved_query.table
+
+            table.row_count = await database_sync_to_async(table.get_count)()
+            await database_sync_to_async(table.save)()
+        except Exception as err:
+            await logger.aexception(f"Failed to update table row count for {model}: {err}")
 
 
 async def update_saved_query_status(
     label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
 ):
+    logger = await bind_temporal_worker_logger(team_id)
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
     try:
         model_id = uuid.UUID(label)
         filter_params["id"] = model_id
     except ValueError:
+        await logger.awarning(
+            f"Label '{label}' is not a valid UUID, falling back to name lookup - this indicates a data integrity issue"
+        )
         filter_params["name"] = label
 
     saved_query = await database_sync_to_async(

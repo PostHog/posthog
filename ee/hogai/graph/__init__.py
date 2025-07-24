@@ -7,7 +7,7 @@ from .retention.nodes import RetentionGeneratorNode
 from .root.nodes import RootNode, RootNodeTools
 from .schema_generator.nodes import SchemaGeneratorNode
 from .sql.nodes import SQLGeneratorNode
-from .taxonomy_agent.nodes import TaxonomyAgentPlannerNode
+from .query_planner.nodes import QueryPlannerNode
 from .trends.nodes import TrendsGeneratorNode
 from .graph import AssistantGraph, InsightsAssistantGraph
 from .insights.nodes import InsightSearchNode
@@ -23,7 +23,7 @@ __all__ = [
     "RootNodeTools",
     "SchemaGeneratorNode",
     "SQLGeneratorNode",
-    "TaxonomyAgentPlannerNode",
+    "QueryPlannerNode",
     "TrendsGeneratorNode",
     "AssistantGraph",
     "InsightsAssistantGraph",

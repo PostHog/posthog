@@ -224,15 +224,20 @@ columnLambdaExpr:
     ARROW (columnExpr | block)
     ;
 
+hogqlxChildElement
+    : hogqlxTagElement
+    | hogqlxText
+    | LBRACE columnExpr RBRACE;
 
-hogqlxChildElement: hogqlxTagElement | (LBRACE columnExpr RBRACE);
+hogqlxText : HOGQLX_TEXT_TEXT ;
+
 hogqlxTagElement
-    : LT identifier hogqlxTagAttribute* SLASH GT                                          # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT hogqlxChildElement* LT SLASH identifier GT     # HogqlxTagElementNested
+    : LT identifier hogqlxTagAttribute* SLASH_GT                                          # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxChildElement* LT_SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
-    :   identifier '=' string
-    |   identifier '=' LBRACE columnExpr RBRACE
+    :   identifier EQ_SINGLE string
+    |   identifier EQ_SINGLE LBRACE columnExpr RBRACE
     |   identifier
     ;
 

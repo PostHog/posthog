@@ -121,6 +121,7 @@
         --tick-color: var(--text-secondary);
         --tick-width: 3px;
         --emoji-width: 16px;
+        --comment-width: 12px;
 
         position: absolute;
         top: 0;
@@ -157,6 +158,15 @@
             height: 100%;
             margin-left: calc(var(--emoji-width) / 2 * -1);
             opacity: 0.75;
+        }
+
+        .PlayerSeekbarTick__comment {
+            position: absolute;
+            bottom: 5px;
+            width: var(--comment-width);
+            height: 100%;
+            margin-left: calc(var(--comment-width) / 2 * -1);
+            opacity: 0.65;
         }
     }
 }

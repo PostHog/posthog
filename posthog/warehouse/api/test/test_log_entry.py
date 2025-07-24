@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from django.test.client import Client as TestClient
+from django.test.client import Client as DjangoTestClient
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -108,7 +108,9 @@ def external_data_resources(client, organization, team):
     }
 
 
-def get_external_data_schema_run_log_entries(client: TestClient, team_id: int, external_data_schema_id: str, **extra):
+def get_external_data_schema_run_log_entries(
+    client: DjangoTestClient, team_id: int, external_data_schema_id: str, **extra
+):
     return client.get(
         f"/api/environments/{team_id}/external_data_schemas/{external_data_schema_id}/logs",
         data=encode_get_request_params(extra),

@@ -14,6 +14,7 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
             "Enhances events with user agent details. User Agent plugin allows you to populate events with the $browser, $browser_version for PostHog Clients that don't  typically populate these properties",
         icon_url: '/static/transformations/user-agent.png',
         category: ['Transformation'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

@@ -18,6 +18,7 @@ from posthog.schema import (
     FunnelMathType,
     PropertyMathType,
 )
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 
 
 def get_data_warehouse_metric_source(
@@ -68,6 +69,13 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
     elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
         return ast.Field(chain=["$session_id"])
 
+    elif metric.source.math == ExperimentMetricMathType.HOGQL and metric.source.math_hogql is not None:
+        # Extract the inner expression from the HogQL expression
+        # This handles cases like "sum(properties.revenue - properties.expense)"
+        # where we need to return just the inner part for aggregation
+        _, inner_expr = extract_aggregation_and_inner_expr(metric.source.math_hogql)
+        return inner_expr
+
     # Else, we default to count
     # We then just emit 1 so we can easily sum it up
     return ast.Constant(value=1)
@@ -101,6 +109,28 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter
+
+
+def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode) -> ast.Expr:
+    """
+    Returns the filter for a data warehouse node, including all properties and fixedProperties.
+    """
+    # Collect all properties from both properties and fixedProperties
+    all_properties = []
+
+    if node.properties:
+        all_properties.extend(node.properties)
+
+    if node.fixedProperties:
+        all_properties.extend(node.fixedProperties)
+
+    # If no properties, return True (no filtering)
+    if not all_properties:
+        return ast.Constant(value=True)
+
+    # Use property_to_expr to convert properties to HogQL expressions
+    # This follows the same pattern as TrendsQueryBuilder._events_filter()
+    return property_to_expr(all_properties, team)
 
 
 def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:

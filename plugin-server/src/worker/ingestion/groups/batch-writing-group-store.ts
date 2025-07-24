@@ -2,7 +2,6 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { TopicMessage } from '../../../kafka/producer'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
@@ -10,6 +9,7 @@ import { PostgresUse } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
+import { FlushResult } from '../persons/persons-store-for-batch'
 import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
 import { GroupStore } from './group-store'
@@ -142,7 +142,11 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         this.databaseOperationCounts = new Map()
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    getGroupCache(): GroupCache {
+        return this.groupCache
+    }
+
+    async flush(): Promise<FlushResult[]> {
         const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
             const [_, update] = entry
             return update !== null && update.needsWrite
@@ -552,6 +556,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
         if (error instanceof RaceConditionError) {
+            // Remove from cache to prevent retry, the group was already created by another thread
+            this.groupCache.delete(teamId, groupKey)
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error

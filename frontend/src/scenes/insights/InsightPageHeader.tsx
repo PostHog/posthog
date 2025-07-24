@@ -1,6 +1,6 @@
 import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router, combineUrl } from 'kea-router'
+import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -85,6 +85,8 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+
+const RESOURCE_TYPE = 'insight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -265,13 +267,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         if (isDataVisualizationNode(query) && insight.short_id) {
                                             router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
                                         } else if (insight.short_id) {
-                                            push(
-                                                combineUrl(
-                                                    urls.insightEdit(insight.short_id),
-                                                    undefined,
-                                                    queryChanged ? { q: query } : undefined
-                                                ).url
-                                            )
+                                            push(urls.insightEdit(insight.short_id))
                                         } else {
                                             setInsightMode(ItemMode.Edit, null)
                                         }
@@ -586,38 +582,33 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             <ScenePanel>
                 <>
                     <ScenePanelMetaInfo>
-                        {!!(canEditInsight || insight.name) && (
-                            <>
-                                <SceneName
-                                    defaultValue={insight.name || insight.derived_name || ''}
-                                    onSave={(value) => setInsightMetadata({ name: value })}
-                                    dataAttr="insight-name"
-                                />
-                            </>
-                        )}
+                        <SceneName
+                            defaultValue={insight.name || insight.derived_name || ''}
+                            onSave={(value) => setInsightMetadata({ name: value })}
+                            dataAttrKey={RESOURCE_TYPE}
+                            canEdit={canEditInsight}
+                        />
 
-                        {!!(canEditInsight || insight.description) && (
-                            <>
-                                <SceneDescription
-                                    defaultValue={insight.description || ''}
-                                    onSave={(value) => setInsightMetadata({ description: value })}
-                                    dataAttr="insight-description"
-                                />
-                            </>
-                        )}
+                        <SceneDescription
+                            defaultValue={insight.description || ''}
+                            onSave={(value) => setInsightMetadata({ description: value })}
+                            dataAttrKey={RESOURCE_TYPE}
+                            optional
+                            canEdit={canEditInsight}
+                        />
 
-                        {canEditInsight && (
-                            <SceneTags
-                                onSave={(tags) => {
-                                    setInsightMetadata({ tags })
-                                    setTags(tags)
-                                }}
-                                tags={tags}
-                                tagsAvailable={allExistingTags}
-                                dataAttr="insight-tags"
-                            />
-                        )}
-                        <SceneFile />
+                        <SceneTags
+                            onSave={(tags) => {
+                                setInsightMetadata({ tags })
+                                setTags(tags)
+                            }}
+                            tags={tags}
+                            tagsAvailable={allExistingTags}
+                            dataAttrKey={RESOURCE_TYPE}
+                            canEdit={canEditInsight}
+                        />
+
+                        <SceneFile dataAttrKey={RESOURCE_TYPE} />
                         <SceneActivityIndicator
                             at={insight.last_modified_at}
                             by={insight.last_modified_by}
@@ -629,6 +620,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                     <ScenePanelCommonActions>
                         <SceneCommonButtons
+                            dataAttrKey={RESOURCE_TYPE}
                             duplicate={
                                 hasDashboardItemId
                                     ? {
@@ -646,7 +638,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </ScenePanelCommonActions>
 
                     <ScenePanelActions>
-                        {hasDashboardItemId && <SceneMetalyticsSummaryButton />}
+                        {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
                         <SceneAddToDropdownMenu
                             notebook={hasDashboardItemId}
@@ -660,10 +652,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     : undefined
                             }
                             shortId={insight.short_id}
+                            dataAttrKey={RESOURCE_TYPE}
                         />
 
                         {hasDashboardItemId && (
-                            <SceneNotificationDropdownMenu insight={insight} insightLogicProps={insightLogicProps} />
+                            <SceneNotificationDropdownMenu
+                                insight={insight}
+                                insightLogicProps={insightLogicProps}
+                                dataAttrKey={RESOURCE_TYPE}
+                            />
                         )}
 
                         {hasDashboardItemId && (
@@ -673,6 +670,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     onClick: () =>
                                         insight.short_id ? push(urls.insightSharing(insight.short_id)) : null,
                                 }}
+                                dataAttrKey={RESOURCE_TYPE}
                             >
                                 <IconShare />
                                 Share or embed
@@ -725,14 +723,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {
                                         format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        dataAttr: `${RESOURCE_TYPE}-export-png`,
                                     },
                                     {
                                         format: ExporterFormat.CSV,
                                         context: exportContext,
+                                        dataAttr: `${RESOURCE_TYPE}-export-csv`,
                                     },
                                     {
                                         format: ExporterFormat.XLSX,
                                         context: exportContext,
+                                        dataAttr: `${RESOURCE_TYPE}-export-xlsx`,
                                     },
                                 ]}
                             />
@@ -742,7 +743,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
                                 <ButtonPrimitive
-                                    data-attr="edit-insight-sql"
+                                    data-attr={`${RESOURCE_TYPE}-edit-sql`}
                                     onClick={() => {
                                         router.actions.push(urls.sqlEditor(hogQL))
                                     }}
@@ -755,7 +756,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {hogQL && showCohortButton && (
                             <ButtonPrimitive
-                                data-attr="edit-insight-sql"
+                                data-attr={`${RESOURCE_TYPE}-save-as-cohort`}
                                 onClick={() => {
                                     LemonDialog.openForm({
                                         title: 'Save as static cohort',
@@ -772,7 +773,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         content: (
                                             <LemonField name="name">
                                                 <LemonInput
-                                                    data-attr="insight-name"
+                                                    data-attr={`${RESOURCE_TYPE}-save-as-cohort-name`}
                                                     placeholder="Name of the new cohort"
                                                     autoFocus
                                                 />
@@ -797,7 +798,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <ScenePanelDivider />
 
                         <LemonSwitch
-                            data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                            data-attr={`${RESOURCE_TYPE}-${showQueryEditor ? 'hide' : 'show'}-source`}
                             className="px-2 py-1"
                             checked={showQueryEditor}
                             onChange={() => {
@@ -819,7 +820,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {hasDashboardItemId && (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
                             <LemonSwitch
-                                data-attr="toggle-debug-panel"
+                                data-attr={`${RESOURCE_TYPE}-toggle-debug-panel`}
                                 className="px-2 py-1"
                                 checked={showDebugPanel}
                                 onChange={() => {
@@ -843,6 +844,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             variant="danger"
                                             disabled={!!disabledReason}
                                             {...(disabledReason && { tooltip: disabledReason })}
+                                            data-attr={`${RESOURCE_TYPE}-delete`}
                                             onClick={() =>
                                                 void deleteInsightWithUndo({
                                                     object: insight as QueryBasedInsightModel,

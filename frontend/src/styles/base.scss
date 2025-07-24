@@ -1633,6 +1633,11 @@
         padding: var(--spacing);
     }
 
+    .animate-mark {
+        animation: animate-mark 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1643,6 +1648,18 @@
 
         100% {
             background-color: initial;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes animate-mark {
+        0%,
+        100% {
+            background-color: var(--original-bg, initial);
+        }
+
+        50% {
+            background-color: color-mix(in sRGB, var(--mark) 50%, transparent);
         }
     }
 
@@ -1674,5 +1691,70 @@
         100% {
             transform: translateY(0);
         }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .hogqlx-blink {
+        animation: hogqlx-blink 1s steps(1, end) infinite;
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes hogqlx-blink {
+        0% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0;
+        }
+
+        100% {
+            opacity: 1;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes hogqlx-marquee {
+        0% {
+            transform: translateX(0);
+        }
+
+        100% {
+            transform: translateX(-100%);
+        }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .hogqlx-marquee {
+        position: relative;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .hogqlx-marquee span {
+        display: inline-block;
+        padding-left: 100%;
+        animation: hogqlx-marquee 10s linear infinite;
+    }
+
+    .hogqlx-redacted {
+        /* themeable variables */
+        position: relative;
+        display: inline-block;
+        color: transparent; /* hide glyphs under the cover */
+        cursor: pointer;
+        background: var(--bg-primary); /* the “black bar” */
+        border-radius: var(--radius);
+    }
+
+    .hogqlx-redacted:hover,
+    .hogqlx-redacted:focus-visible {
+        color: inherit; /* show the text */
+        background: transparent; /* remove the bar */
+    }
+
+    .hogqlx-redacted:focus-visible {
+        outline: 2px dashed currentColor;
+        outline-offset: 2px;
     }
 }

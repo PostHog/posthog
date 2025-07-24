@@ -115,6 +115,10 @@ class QueryTags(BaseModel):
     cohort_id: Optional[int] = None
     entity_math: Optional[list[str]] = None
 
+    # replays
+    replay_playlist_id: Optional[int] = None
+
+    # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None

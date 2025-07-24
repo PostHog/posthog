@@ -1,10 +1,8 @@
 import { HogFlow } from '~/schema/hogflow'
 import { Hub, Team } from '~/types'
 import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
-import { PubSub } from '~/utils/pubsub'
 
 // TODO: Make sure we only have fields we truly need
 const HOG_FLOW_FIELDS = [
@@ -30,23 +28,8 @@ export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
-    private started: boolean
-    private pubSub: PubSub
 
     constructor(private hub: Hub) {
-        this.started = false
-
-        this.pubSub = new PubSub(this.hub, {
-            'reload-hog-flows': (message) => {
-                const { teamId, hogFlowIds } = parseJSON(message) as {
-                    teamId: Team['id']
-                    hogFlowIds: HogFlow['id'][]
-                }
-                logger.debug('⚡', '[PubSub] Reloading hog flows!', { teamId, hogFlowIds })
-                this.onHogFlowsReloaded(teamId, hogFlowIds)
-            },
-        })
-
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_flow_manager_by_team',
             loader: async (teamIds) => await this.fetchTeamHogFlows(teamIds),
@@ -56,19 +39,12 @@ export class HogFlowManagerService {
             name: 'hog_flow_manager',
             loader: async (ids) => await this.fetchHogFlows(ids),
         })
-    }
 
-    public async start(): Promise<void> {
-        // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
-        if (this.started) {
-            return
-        }
-        this.started = true
-        await this.pubSub.start()
-    }
-
-    public async stop(): Promise<void> {
-        await this.pubSub.stop()
+        this.hub.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
+            const { teamId, hogFlowIds } = message
+            logger.debug('⚡', '[PubSub] Reloading hog flows!', { teamId, hogFlowIds })
+            this.onHogFlowsReloaded(teamId, hogFlowIds)
+        })
     }
 
     public async getHogFlowsForTeams(teamIds: Team['id'][]): Promise<Record<Team['id'], HogFlow[]>> {

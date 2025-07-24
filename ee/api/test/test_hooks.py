@@ -1,4 +1,3 @@
-from typing import cast
 import uuid
 
 from inline_snapshot import snapshot
@@ -29,54 +28,6 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             ],
         )
 
-    def test_create_hook(self):
-        data = {"target": "https://hooks.zapier.com/abcd/", "event": "action_performed"}
-        response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
-        response_data = response.json()
-
-        hook = Hook.objects.get(id=response_data["id"])
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(hook.team, self.team)
-        self.assertEqual(hook.target, data["target"])
-        self.assertEqual(hook.event, data["event"])
-        self.assertEqual(hook.resource_id, None)
-        self.assertDictContainsSubset(
-            {
-                "id": hook.id,
-                "event": data["event"],
-                "target": data["target"],
-                "resource_id": None,
-                "team": self.team.id,
-            },
-            cast(dict, response.json()),
-        )
-
-    def test_create_hook_with_resource_id(self):
-        data = {
-            "target": "https://hooks.zapier.com/abcd/",
-            "event": "action_performed",
-            "resource_id": "66",
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
-        response_data = response.json()
-
-        hook = Hook.objects.get(id=response_data["id"])
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(hook.team, self.team)
-        self.assertEqual(hook.target, data["target"])
-        self.assertEqual(hook.event, data["event"])
-        self.assertEqual(str(hook.resource_id), data["resource_id"])
-        self.assertDictContainsSubset(
-            {
-                "id": hook.id,
-                "event": data["event"],
-                "target": data["target"],
-                "resource_id": int(data["resource_id"]),
-                "team": self.team.id,
-            },
-            cast(dict, response.json()),
-        )
-
     def test_delete_hook(self):
         hook_id = "abc123"
         Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
@@ -98,8 +49,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "resource_id": self.action.id,
         }
 
-        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
-            res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
 
         assert res.status_code == 201, res.json()
         json = res.json()
@@ -217,8 +167,7 @@ if (inputs.debug) {
             "resource_id": self.action.id,
         }
 
-        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
-            res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
 
         hook_id = res.json()["id"]
 

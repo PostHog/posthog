@@ -153,6 +153,26 @@ export function Modifiers<Q extends { response?: Record<string, any>; modifiers?
                     />
                 </LemonLabel>
             )}
+
+            <LemonLabel className={labelClassName}>
+                <div>Use pre-aggregated tables:</div>
+                <LemonSelect
+                    options={[
+                        { value: true, label: 'true' },
+                        { value: false, label: 'false' },
+                    ]}
+                    onChange={(value) =>
+                        setQuery({
+                            ...query,
+                            modifiers: { ...query.modifiers, useWebAnalyticsPreAggregatedTables: value },
+                        })
+                    }
+                    value={
+                        query.modifiers?.useWebAnalyticsPreAggregatedTables ??
+                        response?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    }
+                />
+            </LemonLabel>
         </div>
     )
 }

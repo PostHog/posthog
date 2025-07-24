@@ -535,8 +535,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         source_config: Config = source.parse_config(request.data)
 
-        # TODO: Validate the config object itself? Possible? idk
-
         credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
         if not credentials_valid:
             return Response(
