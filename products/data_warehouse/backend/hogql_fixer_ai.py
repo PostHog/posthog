@@ -1,22 +1,21 @@
 from typing import Any
-from ee.hogai.tool import MaxTool
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.context import HogQLContext
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+
+from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-
+from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.tool import MaxTool
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.warehouse.models import Database
-
 
 _hogql_functions: str | None = None
 
