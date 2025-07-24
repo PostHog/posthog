@@ -3,8 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
-import { BasePersonRepository } from './base-person-repository'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -50,14 +49,10 @@ interface CacheMetrics {
 }
 
 export class MeasuringPersonsStore implements PersonsStore {
-    constructor(
-        private db: DB,
-        private personRepository: PersonRepository = new BasePersonRepository(db.postgres),
-        private options: PersonsStoreOptions
-    ) {}
+    constructor(private personRepository: PersonRepository, private options: PersonsStoreOptions) {}
 
     forBatch(): PersonsStoreForBatch {
-        return new MeasuringPersonsStoreForBatch(this.db, this.personRepository, this.options)
+        return new MeasuringPersonsStoreForBatch(this.personRepository, this.options)
     }
 }
 
@@ -86,7 +81,6 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
 
     constructor(
-        private db: DB,
         private personRepository: PersonRepository,
         private options: PersonsStoreOptions = {
             personCacheEnabledForUpdates: true,

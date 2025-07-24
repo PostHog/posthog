@@ -166,7 +166,7 @@ describe('PersonStoreManager', () => {
             PERSON_BATCH_WRITING_MODE: 'NONE' as PersonBatchWritingMode,
         } as Hub
 
-        measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+        measuringStore = new MeasuringPersonsStore(mockPersonRepository, {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
@@ -352,7 +352,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             },
         } as unknown as DB
 
-        const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+        const measuringStore = new MeasuringPersonsStore(mockPersonRepository, {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
@@ -638,7 +638,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             })
 
             // Recreate the measuring store with the updated mock
-            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+            const measuringStore = new MeasuringPersonsStore(mockPersonRepository, {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })
@@ -1007,7 +1007,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             mockPersonRepository.moveDistinctIds = jest.fn().mockResolvedValue({ success: true, messages: [] })
 
             // Create shadow manager
-            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+            const measuringStore = new MeasuringPersonsStore(mockPersonRepository, {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })
@@ -1104,7 +1104,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             mockPersonRepository.moveDistinctIds = jest.fn().mockResolvedValue({ success: true, messages: [] })
 
             // Recreate the measuring store with the updated mock
-            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+            const measuringStore = new MeasuringPersonsStore(mockPersonRepository, {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })
@@ -1194,7 +1194,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             mockPersonRepository.moveDistinctIds = jest.fn().mockResolvedValue({ success: true, messages: [] })
 
             // Recreate the measuring store with the updated mock
-            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+            const measuringStore = new MeasuringPersonsStore(mockPersonRepository, {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })

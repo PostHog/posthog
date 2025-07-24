@@ -4,6 +4,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BasePersonRepository } from '../../src/worker/ingestion/persons/base-person-repository'
 
 import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -67,7 +68,10 @@ describe('events dead letter queue', () => {
         const teamId = await createTeam(hub.postgres, orgId)
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new BasePersonRepository(hub.db.postgres), {
+            personCacheEnabledForUpdates: true,
+            personCacheEnabledForChecks: true,
+        })
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
