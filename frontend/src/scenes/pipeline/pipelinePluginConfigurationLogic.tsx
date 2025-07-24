@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -19,7 +18,6 @@ import {
 } from './configUtils'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { pipelineDestinationsLogic } from './destinations/destinationsLogic'
-import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
@@ -174,14 +172,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     .findMounted({ types: DESTINATION_TYPES })
                     ?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.SiteApp) {
-                const siteAppsEnabled = !!values.featureFlags[FEATURE_FLAGS.SITE_APP_FUNCTIONS]
-                if (siteAppsEnabled) {
-                    pipelineDestinationsLogic
-                        .findMounted({ types: SITE_APP_TYPES })
-                        ?.actions.updatePluginConfig(pluginConfig)
-                } else {
-                    frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
-                }
+                pipelineDestinationsLogic
+                    .findMounted({ types: SITE_APP_TYPES })
+                    ?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.ImportApp) {
                 importAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             }

@@ -24,8 +24,8 @@ export const eventsProcessedTotal = new Counter({
 // Duplicate breakdown by team and source
 export const duplicateBreakdownTotal = new Counter({
     name: 'deduplication_duplicates_breakdown_total',
-    help: 'Total number of duplicate events broken down by team_id and source',
-    labelNames: ['team_id', 'source'],
+    help: 'Total number of duplicate events broken down by source',
+    labelNames: ['source'],
 })
 
 // Deduplication operation duration

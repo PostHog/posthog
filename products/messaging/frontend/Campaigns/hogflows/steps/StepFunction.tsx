@@ -39,6 +39,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                     inputs_schema: template?.inputs_schema ?? [],
                 }}
                 showSource={false}
+                sampleGlobalsWithInputs={null} // TODO: Load this based on the trigger event
             />
         </Form>
     )
