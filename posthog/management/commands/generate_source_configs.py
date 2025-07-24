@@ -23,7 +23,17 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 
-# TODO:
+
+# Generates `@config.Config` dataclasses to be used by sources to parse inputs from the frontend.
+# The source of the configs come from the sources `get_source_config()` method (inherited from `BaseSource`).
+# For an example, look at posthog/temporal/data_imports/sources/stripe/source.py
+
+# This file shouldn't often need to be updated unless if we extend what fields sources can have.
+# There exists a test file here: posthog/temporal/data_imports/sources/tests/test_generated_configs.py
+
+# To start SourceConfigGenerator, run `pnpm generate:source-configs`
+
+# Leftover TODO:
 # - allow custom converter options (see meta ads and google ads source)
 # - define metadata to add fields onto the config that come from settings, e.g:
 #       field: str = config.value(default_factory=config.default_from_settings("ENV_VAR"))
