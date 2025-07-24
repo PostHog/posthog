@@ -6,6 +6,16 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { SDKKey, OnboardingStepKey } from '~/types'
 
+const platformNames: Partial<Record<SDKKey, string>> = {
+    [SDKKey.ANDROID]: 'Android',
+    [SDKKey.IOS]: 'iOS',
+    [SDKKey.REACT_NATIVE]: 'React Native',
+    [SDKKey.FLUTTER]: 'Flutter',
+    [SDKKey.JS_WEB]: 'JavaScript',
+    [SDKKey.REACT]: 'React',
+    // Add other platforms as needed
+}
+
 export type SDKFeatureAnnouncementBannerProps = {
     context: string
     sdkKey: SDKKey
@@ -36,30 +46,9 @@ export function SDKFeatureAnnouncementBanner({
     linkText = 'Learn how to set it up',
     showDivider = true,
 }: SDKFeatureAnnouncementBannerProps): JSX.Element {
-    let platform = 'Mobile'
-    switch (sdkKey) {
-        case SDKKey.ANDROID:
-            platform = 'Android'
-            break
-        case SDKKey.IOS:
-            platform = 'iOS'
-            break
-        case SDKKey.REACT_NATIVE:
-            platform = 'React Native'
-            break
-        case SDKKey.FLUTTER:
-            platform = 'Flutter'
-            break
-        case SDKKey.JS_WEB:
-            platform = 'JavaScript'
-            break
-        case SDKKey.REACT:
-            platform = 'React'
-            break
-        // Add other platforms as needed
-        default:
-            platform = sdkKey.replace(/_/g, ' ')
-    }
+    let platform =
+        platformNames[sdkKey] ||
+        sdkKey.replace(/_(\w)/g, (_, letter) => ` ${letter.toUpperCase()}`).replace(/^\w/, (c) => c.toUpperCase())
 
     const defaultDescription = `${featureName} is now available for ${platform}.`
 
