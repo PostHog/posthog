@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
-from typing import cast, Literal
+from typing import Literal, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -11,37 +11,15 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import ValidationError, Field, create_model
+from pydantic import Field, ValidationError, create_model
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
+from ee.hogai.utils.helpers import dereference_schema, remove_line_breaks
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-
-from .prompts import (
-    QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
-    ACTIONS_EXPLANATION_PROMPT,
-    EVENT_DEFINITIONS_PROMPT,
-    REACT_HELP_REQUEST_PROMPT,
-    HUMAN_IN_THE_LOOP_PROMPT,
-    PROPERTY_FILTERS_EXPLANATION_PROMPT,
-    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
-    ITERATION_LIMIT_PROMPT,
-)
-from .toolkit import (
-    TaxonomyAgentTool,
-    TaxonomyAgentToolkit,
-    retrieve_event_properties,
-    retrieve_action_properties,
-    retrieve_event_property_values,
-    retrieve_action_property_values,
-    ask_user_for_help,
-    final_answer,
-)
-from ee.hogai.utils.helpers import dereference_schema, remove_line_breaks
-from ..base import AssistantNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -56,6 +34,28 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from ..base import AssistantNode
+from .prompts import (
+    ACTIONS_EXPLANATION_PROMPT,
+    EVENT_DEFINITIONS_PROMPT,
+    HUMAN_IN_THE_LOOP_PROMPT,
+    ITERATION_LIMIT_PROMPT,
+    PROPERTY_FILTERS_EXPLANATION_PROMPT,
+    QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
+    REACT_HELP_REQUEST_PROMPT,
+    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+)
+from .toolkit import (
+    TaxonomyAgentTool,
+    TaxonomyAgentToolkit,
+    ask_user_for_help,
+    final_answer,
+    retrieve_action_properties,
+    retrieve_action_property_values,
+    retrieve_event_properties,
+    retrieve_event_property_values,
+)
 
 
 class QueryPlannerNode(AssistantNode):
@@ -329,8 +329,8 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                 return PartialAssistantState(
                     plan=input.arguments.plan,  # type: ignore
                     root_tool_insight_type=input.arguments.query_kind,  # type: ignore
-                    query_planner_previous_response_id="",
-                    intermediate_steps=[],
+                    query_planner_previous_response_id=None,
+                    intermediate_steps=None,
                 )
 
             # The agent has requested help, so we return a message to the root node.

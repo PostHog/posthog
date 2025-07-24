@@ -50,7 +50,7 @@ describe('DeduplicationRedis Integration Tests', () => {
             })
 
             expect(idsResult.processed).toBe(2)
-            expect(idsResult.duplicates).toEqual([])
+            expect(idsResult.duplicates).toEqual(new Set())
         } finally {
             await deduplicationRedis.destroy()
         }
@@ -515,8 +515,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                     const result = await deduplicationRedis.deduplicateIds(options)
 
                     expect(result.processed).toBe(3)
-                    expect(result.duplicates).toEqual([])
-                    expect(result.duplicates.length).toBe(0)
+                    expect(result.duplicates).toEqual(new Set())
+                    expect(result.duplicates.size).toBe(0)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -537,13 +537,13 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // First call - should be all new
                     const firstResult = await deduplicationRedis.deduplicateIds(options)
                     expect(firstResult.processed).toBe(2)
-                    expect(firstResult.duplicates).toEqual([])
+                    expect(firstResult.duplicates).toEqual(new Set())
 
                     // Second call - should return the duplicate IDs
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
                     expect(secondResult.processed).toBe(2)
-                    expect(secondResult.duplicates).toEqual(deduplicationRedis.prefixKeys(keys))
-                    expect(secondResult.duplicates.length).toBe(2)
+                    expect(secondResult.duplicates).toEqual(new Set(deduplicationRedis.prefixKeys(keys)))
+                    expect(secondResult.duplicates.size).toBe(2)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -568,8 +568,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // Test with mixed keys
                     const result = await deduplicationRedis.deduplicateIds({ keys: mixedKeys, ttl: 60 })
                     expect(result.processed).toBe(2)
-                    expect(result.duplicates).toEqual(deduplicationRedis.prefixKeys([`${testId}:ids:mixed:1`]))
-                    expect(result.duplicates.length).toBe(1)
+                    expect(result.duplicates).toEqual(new Set(deduplicationRedis.prefixKeys([`${testId}:ids:mixed:1`])))
+                    expect(result.duplicates.size).toBe(1)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -585,7 +585,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                 try {
                     const result = await deduplicationRedis.deduplicateIds({ keys: [], ttl: 60 })
                     expect(result.processed).toBe(0)
-                    expect(result.duplicates).toEqual([])
+                    expect(result.duplicates).toEqual(new Set())
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -606,18 +606,18 @@ describe('DeduplicationRedis Integration Tests', () => {
 
                     // First call - should be new
                     const firstResult = await deduplicationRedis.deduplicateIds(options)
-                    expect(firstResult.duplicates).toEqual([])
+                    expect(firstResult.duplicates).toEqual(new Set())
 
                     // Second call - should be duplicate
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
-                    expect(secondResult.duplicates).toEqual(prefixedKeys)
+                    expect(secondResult.duplicates).toEqual(new Set(prefixedKeys))
 
                     // Wait for TTL to expire with buffer time
                     await new Promise((resolve) => setTimeout(resolve, 2500))
 
                     // Third call after TTL expiration - should be new again
                     const thirdResult = await deduplicationRedis.deduplicateIds(options)
-                    expect(thirdResult.duplicates).toEqual([])
+                    expect(thirdResult.duplicates).toEqual(new Set())
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -732,8 +732,8 @@ describe('DeduplicationRedis Integration Tests', () => {
 
                     const result = await deduplicationRedis.deduplicateIds(options)
                     expect(result.processed).toBe(500)
-                    expect(result.duplicates).toEqual([])
-                    expect(result.duplicates.length).toBe(0)
+                    expect(result.duplicates).toEqual(new Set())
+                    expect(result.duplicates.size).toBe(0)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -755,13 +755,13 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // First call - set up the keys
                     const firstResult = await deduplicationRedis.deduplicateIds(options)
                     expect(firstResult.processed).toBe(500)
-                    expect(firstResult.duplicates).toEqual([])
+                    expect(firstResult.duplicates).toEqual(new Set())
 
                     // Second call - should return all 500 keys as duplicates
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
                     expect(secondResult.processed).toBe(500)
-                    expect(secondResult.duplicates).toEqual(prefixedKeys)
-                    expect(secondResult.duplicates.length).toBe(500)
+                    expect(secondResult.duplicates).toEqual(new Set(prefixedKeys))
+                    expect(secondResult.duplicates.size).toBe(500)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -814,8 +814,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // Test with deduplicateIds method
                     const idsResult = await deduplicationRedis.deduplicateIds({ keys: mixedKeys, ttl: 60 })
                     expect(idsResult.processed).toBe(500)
-                    expect(idsResult.duplicates).toEqual(prefixedKeys)
-                    expect(idsResult.duplicates.length).toBe(250)
+                    expect(idsResult.duplicates).toEqual(new Set(prefixedKeys))
+                    expect(idsResult.duplicates.size).toBe(250)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
@@ -874,8 +874,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                     ])
 
                     expect(countResult.processed).toBe(idsResult.processed)
-                    expect(countResult.duplicates).toBe(idsResult.duplicates.length)
-                    expect(idsResult.duplicates).toEqual(prefixedKeys)
+                    expect(countResult.duplicates).toBe(idsResult.duplicates.size)
+                    expect(idsResult.duplicates).toEqual(new Set(prefixedKeys))
                 } finally {
                     await deduplicationRedis.destroy()
                 }

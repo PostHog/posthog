@@ -140,7 +140,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             raise NotFound()
 
     def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
-        group_type_mapping = self.get_group_type_mapping_or_404(group.group_type_index)
+        group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
         properties = {
             "$group_type": group_type_mapping.group_type,
             "$group_key": group.group_key,

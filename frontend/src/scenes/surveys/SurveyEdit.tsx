@@ -2,7 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { IconInfo, IconLock, IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelect,
@@ -61,13 +61,11 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
         useActions(surveyLogic)
-    const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
     const [visible, setVisible] = useState(false)
 
     const surveyLimitOptions: LemonRadioOption<DataCollectionType>[] = [
@@ -88,9 +86,6 @@ function SurveyCompletionConditions(): JSX.Element {
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
             'data-attr': 'survey-collection-until-adaptive-limit',
-            disabledReason: surveysRecurringScheduleAvailable
-                ? undefined
-                : 'Upgrade your plan to use an adaptive limit on survey responses',
         } as unknown as LemonRadioOption<DataCollectionType>)
     }
 
@@ -248,8 +243,6 @@ export default function SurveyEdit(): JSX.Element {
         deleteBranchingLogic,
         setSurveyManualErrors,
     } = useActions(surveyLogic)
-    const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
-        useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
@@ -606,16 +599,6 @@ export default function SurveyEdit(): JSX.Element {
                                                 type="secondary"
                                                 className="w-max"
                                                 icon={<IconPlus />}
-                                                sideIcon={
-                                                    surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-secondary" />
-                                                    )
-                                                }
-                                                disabledReason={
-                                                    surveysMultipleQuestionsAvailable
-                                                        ? null
-                                                        : 'Upgrade your plan to get multiple questions'
-                                                }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
                                                         ...survey.questions,
@@ -626,11 +609,6 @@ export default function SurveyEdit(): JSX.Element {
                                             >
                                                 Add question
                                             </LemonButton>
-                                            {!surveysMultipleQuestionsAvailable && (
-                                                <Link to="/organization/billing" target="_blank" targetBlankIcon>
-                                                    Upgrade
-                                                </Link>
-                                            )}
                                         </div>
                                         {!survey.appearance?.displayThankYouMessage && (
                                             <LemonButton
@@ -694,455 +672,420 @@ export default function SurveyEdit(): JSX.Element {
                                   },
                               ]
                             : []),
-                        ...(survey.type !== SurveyType.ExternalSurvey
-                            ? [
-                                  {
-                                      key: SurveyEditSection.DisplayConditions,
-                                      header: 'Display conditions',
-                                      dataAttr: 'survey-display-conditions',
-                                      content: (
-                                          <LemonField.Pure>
-                                              <LemonSelect
-                                                  onChange={(value) => {
-                                                      if (value) {
-                                                          resetTargeting()
-                                                      } else {
-                                                          // TRICKY: When attempting to set user match conditions
-                                                          // we want a proxy value to be set so that the user
-                                                          // can then edit these, or decide to go back to all user targeting
-                                                          setSurveyValue('conditions', { url: '' })
-                                                      }
-                                                  }}
-                                                  value={!hasTargetingSet}
-                                                  options={[
-                                                      { label: 'All users', value: true },
-                                                      {
-                                                          label: 'Users who match all of the following...',
-                                                          value: false,
-                                                          'data-attr': 'survey-display-conditions-select-users',
-                                                      },
-                                                  ]}
-                                                  data-attr="survey-display-conditions-select"
-                                              />
-                                              {!hasTargetingSet ? (
-                                                  <span className="text-secondary">
-                                                      Survey <b>will be released to everyone</b>
-                                                  </span>
-                                              ) : (
-                                                  <>
-                                                      <LemonField
-                                                          name="linked_flag_id"
-                                                          label="Link feature flag (optional)"
-                                                          info={
-                                                              <>
-                                                                  Connecting to a feature flag will automatically enable
-                                                                  this survey for everyone in the feature flag.
-                                                              </>
-                                                          }
-                                                      >
-                                                          {({ value, onChange }) => (
-                                                              <div
-                                                                  className="flex"
-                                                                  data-attr="survey-display-conditions-linked-flag"
-                                                              >
-                                                                  <FlagSelector value={value} onChange={onChange} />
-                                                                  {value && (
-                                                                      <LemonButton
-                                                                          className="ml-2"
-                                                                          icon={<IconCancel />}
-                                                                          size="small"
-                                                                          onClick={() => onChange(null)}
-                                                                          aria-label="close"
-                                                                      />
-                                                                  )}
-                                                              </div>
-                                                          )}
-                                                      </LemonField>
-                                                      <LemonField name="conditions">
-                                                          {({ value, onChange }) => (
-                                                              <>
-                                                                  <LemonField.Pure
-                                                                      label="URL targeting"
-                                                                      error={urlMatchTypeValidationError}
-                                                                      info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
-                                                                  >
-                                                                      <div className="flex flex-row gap-2 items-center">
-                                                                          URL
-                                                                          <LemonSelect
-                                                                              value={
-                                                                                  value?.urlMatchType ||
-                                                                                  SurveyMatchType.Contains
-                                                                              }
-                                                                              onChange={(matchTypeVal) => {
-                                                                                  onChange({
-                                                                                      ...value,
-                                                                                      urlMatchType: matchTypeVal,
-                                                                                  })
-                                                                              }}
-                                                                              data-attr="survey-url-matching-type"
-                                                                              options={Object.keys(
-                                                                                  SurveyMatchTypeLabels
-                                                                              ).map((key) => ({
-                                                                                  label: SurveyMatchTypeLabels[key],
-                                                                                  value: key,
-                                                                              }))}
-                                                                          />
-                                                                          <LemonInput
-                                                                              value={value?.url}
-                                                                              onChange={(urlVal) =>
-                                                                                  onChange({ ...value, url: urlVal })
-                                                                              }
-                                                                              placeholder="ex: https://app.posthog.com"
-                                                                              fullWidth
-                                                                          />
-                                                                      </div>
-                                                                  </LemonField.Pure>
-                                                                  <LemonField.Pure
-                                                                      label="Device Types"
-                                                                      error={deviceTypesMatchTypeValidationError}
-                                                                      info={
-                                                                          <>
-                                                                              Add the device types to show the survey
-                                                                              on. Possible values: 'Desktop', 'Mobile',
-                                                                              'Tablet'. For the full list and caveats,{' '}
-                                                                              <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
-                                                                                  check the documentation here
-                                                                              </Link>
-                                                                              . Requires at least version 1.214 of
-                                                                              posthog-js
-                                                                          </>
-                                                                      }
-                                                                  >
-                                                                      <div className="flex flex-row gap-2 items-center">
-                                                                          Device Types
-                                                                          <LemonSelect
-                                                                              value={
-                                                                                  value?.deviceTypesMatchType ||
-                                                                                  SurveyMatchType.Contains
-                                                                              }
-                                                                              onChange={(matchTypeVal) => {
-                                                                                  onChange({
-                                                                                      ...value,
-                                                                                      deviceTypesMatchType:
-                                                                                          matchTypeVal,
-                                                                                  })
-                                                                              }}
-                                                                              data-attr="survey-device-types-matching-type"
-                                                                              options={Object.keys(
-                                                                                  SurveyMatchTypeLabels
-                                                                              ).map((key) => ({
-                                                                                  label: SurveyMatchTypeLabels[key],
-                                                                                  value: key,
-                                                                              }))}
-                                                                          />
-                                                                          {[
-                                                                              SurveyMatchType.Regex,
-                                                                              SurveyMatchType.NotRegex,
-                                                                          ].includes(
-                                                                              value?.deviceTypesMatchType ||
-                                                                                  SurveyMatchType.Contains
-                                                                          ) ? (
-                                                                              <LemonInput
-                                                                                  value={value?.deviceTypes?.join('|')}
-                                                                                  onChange={(deviceTypesVal) =>
-                                                                                      onChange({
-                                                                                          ...value,
-                                                                                          deviceTypes: [deviceTypesVal],
-                                                                                      })
-                                                                                  }
-                                                                                  // regex placeholder for device type
-                                                                                  className="flex-1"
-                                                                                  placeholder="ex: Desktop|Mobile"
-                                                                              />
-                                                                          ) : (
-                                                                              <PropertyValue
-                                                                                  propertyKey={getPropertyKey(
-                                                                                      'Device Type',
-                                                                                      TaxonomicFilterGroupType.EventProperties
-                                                                                  )}
-                                                                                  type={PropertyFilterType.Event}
-                                                                                  onSet={(
-                                                                                      deviceTypes: string | string[]
-                                                                                  ) => {
-                                                                                      onChange({
-                                                                                          ...value,
-                                                                                          deviceTypes: Array.isArray(
-                                                                                              deviceTypes
-                                                                                          )
-                                                                                              ? deviceTypes
-                                                                                              : [deviceTypes],
-                                                                                      })
-                                                                                  }}
-                                                                                  operator={PropertyOperator.Exact}
-                                                                                  value={value?.deviceTypes}
-                                                                                  inputClassName="flex-1"
-                                                                              />
-                                                                          )}
-                                                                      </div>
-                                                                  </LemonField.Pure>
-                                                                  <LemonField.Pure label="CSS selector matches:">
-                                                                      <LemonInput
-                                                                          value={value?.selector}
-                                                                          onChange={(selectorVal) =>
-                                                                              onChange({
-                                                                                  ...value,
-                                                                                  selector: selectorVal,
-                                                                              })
-                                                                          }
-                                                                          placeholder="ex: .className or #id"
-                                                                      />
-                                                                  </LemonField.Pure>
-                                                                  <LemonField.Pure
-                                                                      label="Survey wait period"
-                                                                      info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
-                                                                  >
-                                                                      <div className="flex flex-row gap-2 items-center">
-                                                                          <LemonCheckbox
-                                                                              checked={
-                                                                                  !!value?.seenSurveyWaitPeriodInDays
-                                                                              }
-                                                                              onChange={(checked) => {
-                                                                                  if (checked) {
-                                                                                      onChange({
-                                                                                          ...value,
-                                                                                          seenSurveyWaitPeriodInDays:
-                                                                                              value?.seenSurveyWaitPeriodInDays ||
-                                                                                              30,
-                                                                                      })
-                                                                                  } else {
-                                                                                      const {
-                                                                                          seenSurveyWaitPeriodInDays,
-                                                                                          ...rest
-                                                                                      } = value || {}
-                                                                                      onChange(rest)
-                                                                                  }
-                                                                              }}
-                                                                          />
-                                                                          Don't show to users who saw any survey in the
-                                                                          last
-                                                                          <LemonInput
-                                                                              type="number"
-                                                                              size="xsmall"
-                                                                              min={0}
-                                                                              value={
-                                                                                  value?.seenSurveyWaitPeriodInDays ||
-                                                                                  NaN
-                                                                              }
-                                                                              onChange={(val) => {
-                                                                                  if (val !== undefined && val > 0) {
-                                                                                      onChange({
-                                                                                          ...value,
-                                                                                          seenSurveyWaitPeriodInDays:
-                                                                                              val,
-                                                                                      })
-                                                                                  } else {
-                                                                                      onChange({
-                                                                                          ...value,
-                                                                                          seenSurveyWaitPeriodInDays:
-                                                                                              null,
-                                                                                      })
-                                                                                  }
-                                                                              }}
-                                                                              className="w-12"
-                                                                          />{' '}
-                                                                          {value?.seenSurveyWaitPeriodInDays === 1 ? (
-                                                                              <span>day.</span>
-                                                                          ) : (
-                                                                              <span>days.</span>
-                                                                          )}
-                                                                      </div>
-                                                                  </LemonField.Pure>
-                                                              </>
-                                                          )}
-                                                      </LemonField>
-                                                      <LemonField.Pure label="Properties">
-                                                          <BindLogic
-                                                              logic={featureFlagLogic}
-                                                              props={{ id: survey.targeting_flag?.id || 'new' }}
-                                                          >
-                                                              {!targetingFlagFilters && (
-                                                                  <LemonButton
-                                                                      type="secondary"
-                                                                      className="w-max"
-                                                                      onClick={() => {
-                                                                          setSurveyValue('targeting_flag_filters', {
-                                                                              groups: [
-                                                                                  {
-                                                                                      properties: [],
-                                                                                      rollout_percentage: 100,
-                                                                                      variant: null,
-                                                                                  },
-                                                                              ],
-                                                                              multivariate: null,
-                                                                              payloads: {},
-                                                                          })
-                                                                          setSurveyValue('remove_targeting_flag', false)
-                                                                      }}
-                                                                  >
-                                                                      Add property targeting
-                                                                  </LemonButton>
-                                                              )}
-                                                              {targetingFlagFilters && (
-                                                                  <>
-                                                                      <div className="mt-2">
-                                                                          <FeatureFlagReleaseConditions
-                                                                              id={
-                                                                                  String(survey.targeting_flag?.id) ||
-                                                                                  'new'
-                                                                              }
-                                                                              excludeTitle={true}
-                                                                              filters={targetingFlagFilters}
-                                                                              onChange={(filters, errors) => {
-                                                                                  setFlagPropertyErrors(errors)
-                                                                                  setSurveyValue(
-                                                                                      'targeting_flag_filters',
-                                                                                      filters
-                                                                                  )
-                                                                              }}
-                                                                              showTrashIconWithOneCondition
-                                                                              removedLastConditionCallback={
-                                                                                  removeTargetingFlagFilters
-                                                                              }
-                                                                          />
-                                                                      </div>
-                                                                      <LemonButton
-                                                                          type="secondary"
-                                                                          status="danger"
-                                                                          className="w-max"
-                                                                          onClick={removeTargetingFlagFilters}
-                                                                      >
-                                                                          Remove all property targeting
-                                                                      </LemonButton>
-                                                                  </>
-                                                              )}
-                                                          </BindLogic>
-                                                      </LemonField.Pure>
-                                                      {surveysEventsAvailable && (
-                                                          <LemonField.Pure
-                                                              label="User sends events"
-                                                              info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
-                                                          >
-                                                              <>
-                                                                  <EventSelect
-                                                                      filterGroupTypes={[
-                                                                          TaxonomicFilterGroupType.CustomEvents,
-                                                                          TaxonomicFilterGroupType.Events,
-                                                                      ]}
-                                                                      allowNonCapturedEvents
-                                                                      onChange={(includedEvents) => {
-                                                                          setSurveyValue('conditions', {
-                                                                              ...survey.conditions,
-                                                                              events: {
-                                                                                  values: includedEvents.map((e) => {
-                                                                                      return { name: e }
-                                                                                  }),
-                                                                              },
-                                                                          })
-                                                                      }}
-                                                                      selectedEvents={
-                                                                          survey.conditions?.events?.values?.length !=
-                                                                              undefined &&
-                                                                          survey.conditions?.events?.values?.length > 0
-                                                                              ? survey.conditions?.events?.values.map(
-                                                                                    (v) => v.name
-                                                                                )
-                                                                              : []
-                                                                      }
-                                                                      addElement={
-                                                                          <LemonButton
-                                                                              size="small"
-                                                                              type="secondary"
-                                                                              icon={<IconPlus />}
-                                                                              sideIcon={null}
-                                                                          >
-                                                                              Add event
-                                                                          </LemonButton>
-                                                                      }
-                                                                  />
-                                                                  {surveyRepeatedActivationAvailable && (
-                                                                      <div className="flex flex-row gap-2 items-center">
-                                                                          Survey display frequency
-                                                                          <LemonSelect
-                                                                              onChange={(value) => {
-                                                                                  setSurveyValue('conditions', {
-                                                                                      ...survey.conditions,
-                                                                                      events: {
-                                                                                          ...survey.conditions?.events,
-                                                                                          repeatedActivation: value,
-                                                                                      },
-                                                                                  })
-                                                                              }}
-                                                                              value={
-                                                                                  survey.conditions?.events
-                                                                                      ?.repeatedActivation || false
-                                                                              }
-                                                                              options={[
-                                                                                  {
-                                                                                      label: 'Just once',
-                                                                                      value: false,
-                                                                                  },
-                                                                                  {
-                                                                                      label: 'Every time any of the above events are captured',
-                                                                                      value: true,
-                                                                                  },
-                                                                              ]}
-                                                                          />
-                                                                      </div>
-                                                                  )}
-                                                              </>
-                                                          </LemonField.Pure>
-                                                      )}
-                                                      {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] &&
-                                                          surveysActionsAvailable && (
-                                                              <LemonField.Pure
-                                                                  label="User performs actions"
-                                                                  info="Note that these actions are only observed, and activate this survey, in the current user session."
-                                                              >
-                                                                  <EventSelect
-                                                                      filterGroupTypes={[
-                                                                          TaxonomicFilterGroupType.Actions,
-                                                                      ]}
-                                                                      onItemChange={(items: ActionType[]) => {
-                                                                          setSurveyValue('conditions', {
-                                                                              ...survey.conditions,
-                                                                              actions: {
-                                                                                  values: items.map((e) => {
-                                                                                      return { id: e.id, name: e.name }
-                                                                                  }),
-                                                                              },
-                                                                          })
-                                                                      }}
-                                                                      selectedItems={
-                                                                          survey.conditions?.actions?.values &&
-                                                                          survey.conditions?.actions?.values.length > 0
-                                                                              ? survey.conditions?.actions?.values
-                                                                              : []
-                                                                      }
-                                                                      selectedEvents={
-                                                                          survey.conditions?.actions?.values?.map(
-                                                                              (v) => v.name
-                                                                          ) ?? []
-                                                                      }
-                                                                      addElement={
-                                                                          <LemonButton
-                                                                              size="small"
-                                                                              type="secondary"
-                                                                              icon={<IconPlus />}
-                                                                              sideIcon={null}
-                                                                          >
-                                                                              Add action
-                                                                          </LemonButton>
-                                                                      }
-                                                                  />
-                                                              </LemonField.Pure>
-                                                          )}
-                                                  </>
-                                              )}
-                                          </LemonField.Pure>
-                                      ),
-                                  },
-                              ]
-                            : []),
+                        {
+                            key: SurveyEditSection.DisplayConditions,
+                            header: 'Display conditions',
+                            dataAttr: 'survey-display-conditions',
+                            content: (
+                                <LemonField.Pure>
+                                    <LemonSelect
+                                        onChange={(value) => {
+                                            if (value) {
+                                                resetTargeting()
+                                            } else {
+                                                // TRICKY: When attempting to set user match conditions
+                                                // we want a proxy value to be set so that the user
+                                                // can then edit these, or decide to go back to all user targeting
+                                                setSurveyValue('conditions', { url: '' })
+                                            }
+                                        }}
+                                        value={!hasTargetingSet}
+                                        options={[
+                                            { label: 'All users', value: true },
+                                            {
+                                                label: 'Users who match all of the following...',
+                                                value: false,
+                                                'data-attr': 'survey-display-conditions-select-users',
+                                            },
+                                        ]}
+                                        data-attr="survey-display-conditions-select"
+                                    />
+                                    {!hasTargetingSet ? (
+                                        <span className="text-secondary">
+                                            Survey <b>will be released to everyone</b>
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <LemonField
+                                                name="linked_flag_id"
+                                                label="Link feature flag (optional)"
+                                                info={
+                                                    <>
+                                                        Connecting to a feature flag will automatically enable this
+                                                        survey for everyone in the feature flag.
+                                                    </>
+                                                }
+                                            >
+                                                {({ value, onChange }) => (
+                                                    <div
+                                                        className="flex"
+                                                        data-attr="survey-display-conditions-linked-flag"
+                                                    >
+                                                        <FlagSelector value={value} onChange={onChange} />
+                                                        {value && (
+                                                            <LemonButton
+                                                                className="ml-2"
+                                                                icon={<IconCancel />}
+                                                                size="small"
+                                                                onClick={() => onChange(null)}
+                                                                aria-label="close"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </LemonField>
+                                            <LemonField name="conditions">
+                                                {({ value, onChange }) => (
+                                                    <>
+                                                        <LemonField.Pure
+                                                            label="URL targeting"
+                                                            error={urlMatchTypeValidationError}
+                                                            info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
+                                                        >
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                URL
+                                                                <LemonSelect
+                                                                    value={
+                                                                        value?.urlMatchType || SurveyMatchType.Contains
+                                                                    }
+                                                                    onChange={(matchTypeVal) => {
+                                                                        onChange({
+                                                                            ...value,
+                                                                            urlMatchType: matchTypeVal,
+                                                                        })
+                                                                    }}
+                                                                    data-attr="survey-url-matching-type"
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
+                                                                        (key) => ({
+                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            value: key,
+                                                                        })
+                                                                    )}
+                                                                />
+                                                                <LemonInput
+                                                                    value={value?.url}
+                                                                    onChange={(urlVal) =>
+                                                                        onChange({ ...value, url: urlVal })
+                                                                    }
+                                                                    placeholder="ex: https://app.posthog.com"
+                                                                    fullWidth
+                                                                />
+                                                            </div>
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure
+                                                            label="Device Types"
+                                                            error={deviceTypesMatchTypeValidationError}
+                                                            info={
+                                                                <>
+                                                                    Add the device types to show the survey on. Possible
+                                                                    values: 'Desktop', 'Mobile', 'Tablet'. For the full
+                                                                    list and caveats,{' '}
+                                                                    <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
+                                                                        check the documentation here
+                                                                    </Link>
+                                                                    . Requires at least version 1.214 of posthog-js
+                                                                </>
+                                                            }
+                                                        >
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                Device Types
+                                                                <LemonSelect
+                                                                    value={
+                                                                        value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                    }
+                                                                    onChange={(matchTypeVal) => {
+                                                                        onChange({
+                                                                            ...value,
+                                                                            deviceTypesMatchType: matchTypeVal,
+                                                                        })
+                                                                    }}
+                                                                    data-attr="survey-device-types-matching-type"
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
+                                                                        (key) => ({
+                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            value: key,
+                                                                        })
+                                                                    )}
+                                                                />
+                                                                {[
+                                                                    SurveyMatchType.Regex,
+                                                                    SurveyMatchType.NotRegex,
+                                                                ].includes(
+                                                                    value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                ) ? (
+                                                                    <LemonInput
+                                                                        value={value?.deviceTypes?.join('|')}
+                                                                        onChange={(deviceTypesVal) =>
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: [deviceTypesVal],
+                                                                            })
+                                                                        }
+                                                                        // regex placeholder for device type
+                                                                        className="flex-1"
+                                                                        placeholder="ex: Desktop|Mobile"
+                                                                    />
+                                                                ) : (
+                                                                    <PropertyValue
+                                                                        propertyKey={getPropertyKey(
+                                                                            'Device Type',
+                                                                            TaxonomicFilterGroupType.EventProperties
+                                                                        )}
+                                                                        type={PropertyFilterType.Event}
+                                                                        onSet={(deviceTypes: string | string[]) => {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: Array.isArray(deviceTypes)
+                                                                                    ? deviceTypes
+                                                                                    : [deviceTypes],
+                                                                            })
+                                                                        }}
+                                                                        operator={PropertyOperator.Exact}
+                                                                        value={value?.deviceTypes}
+                                                                        inputClassName="flex-1"
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure label="CSS selector matches:">
+                                                            <LemonInput
+                                                                value={value?.selector}
+                                                                onChange={(selectorVal) =>
+                                                                    onChange({ ...value, selector: selectorVal })
+                                                                }
+                                                                placeholder="ex: .className or #id"
+                                                            />
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure
+                                                            label="Survey wait period"
+                                                            info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
+                                                        >
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                <LemonCheckbox
+                                                                    checked={!!value?.seenSurveyWaitPeriodInDays}
+                                                                    onChange={(checked) => {
+                                                                        if (checked) {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays:
+                                                                                    value?.seenSurveyWaitPeriodInDays ||
+                                                                                    30,
+                                                                            })
+                                                                        } else {
+                                                                            const {
+                                                                                seenSurveyWaitPeriodInDays,
+                                                                                ...rest
+                                                                            } = value || {}
+                                                                            onChange(rest)
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                Don't show to users who saw any survey in the last
+                                                                <LemonInput
+                                                                    type="number"
+                                                                    size="xsmall"
+                                                                    min={0}
+                                                                    value={value?.seenSurveyWaitPeriodInDays || NaN}
+                                                                    onChange={(val) => {
+                                                                        if (val !== undefined && val > 0) {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays: val,
+                                                                            })
+                                                                        } else {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays: null,
+                                                                            })
+                                                                        }
+                                                                    }}
+                                                                    className="w-12"
+                                                                />{' '}
+                                                                {value?.seenSurveyWaitPeriodInDays === 1 ? (
+                                                                    <span>day.</span>
+                                                                ) : (
+                                                                    <span>days.</span>
+                                                                )}
+                                                            </div>
+                                                        </LemonField.Pure>
+                                                    </>
+                                                )}
+                                            </LemonField>
+                                            <LemonField.Pure label="Properties">
+                                                <BindLogic
+                                                    logic={featureFlagLogic}
+                                                    props={{ id: survey.targeting_flag?.id || 'new' }}
+                                                >
+                                                    {!targetingFlagFilters && (
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            className="w-max"
+                                                            onClick={() => {
+                                                                setSurveyValue('targeting_flag_filters', {
+                                                                    groups: [
+                                                                        {
+                                                                            properties: [],
+                                                                            rollout_percentage: 100,
+                                                                            variant: null,
+                                                                        },
+                                                                    ],
+                                                                    multivariate: null,
+                                                                    payloads: {},
+                                                                })
+                                                                setSurveyValue('remove_targeting_flag', false)
+                                                            }}
+                                                        >
+                                                            Add property targeting
+                                                        </LemonButton>
+                                                    )}
+                                                    {targetingFlagFilters && (
+                                                        <>
+                                                            <div className="mt-2">
+                                                                <FeatureFlagReleaseConditions
+                                                                    id={String(survey.targeting_flag?.id) || 'new'}
+                                                                    excludeTitle={true}
+                                                                    filters={targetingFlagFilters}
+                                                                    onChange={(filters, errors) => {
+                                                                        setFlagPropertyErrors(errors)
+                                                                        setSurveyValue(
+                                                                            'targeting_flag_filters',
+                                                                            filters
+                                                                        )
+                                                                    }}
+                                                                    showTrashIconWithOneCondition
+                                                                    removedLastConditionCallback={
+                                                                        removeTargetingFlagFilters
+                                                                    }
+                                                                />
+                                                            </div>
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                status="danger"
+                                                                className="w-max"
+                                                                onClick={removeTargetingFlagFilters}
+                                                            >
+                                                                Remove all property targeting
+                                                            </LemonButton>
+                                                        </>
+                                                    )}
+                                                </BindLogic>
+                                            </LemonField.Pure>
+                                            <LemonField.Pure
+                                                label="User sends events"
+                                                info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
+                                            >
+                                                <>
+                                                    <EventSelect
+                                                        filterGroupTypes={[
+                                                            TaxonomicFilterGroupType.CustomEvents,
+                                                            TaxonomicFilterGroupType.Events,
+                                                        ]}
+                                                        allowNonCapturedEvents
+                                                        onChange={(includedEvents) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                events: {
+                                                                    values: includedEvents.map((e) => {
+                                                                        return { name: e }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedEvents={
+                                                            survey.conditions?.events?.values?.length != undefined &&
+                                                            survey.conditions?.events?.values?.length > 0
+                                                                ? survey.conditions?.events?.values.map((v) => v.name)
+                                                                : []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add event
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                    {surveyRepeatedActivationAvailable && (
+                                                        <div className="flex flex-row gap-2 items-center">
+                                                            Survey display frequency
+                                                            <LemonSelect
+                                                                onChange={(value) => {
+                                                                    setSurveyValue('conditions', {
+                                                                        ...survey.conditions,
+                                                                        events: {
+                                                                            ...survey.conditions?.events,
+                                                                            repeatedActivation: value,
+                                                                        },
+                                                                    })
+                                                                }}
+                                                                value={
+                                                                    survey.conditions?.events?.repeatedActivation ||
+                                                                    false
+                                                                }
+                                                                options={[
+                                                                    {
+                                                                        label: 'Just once',
+                                                                        value: false,
+                                                                    },
+                                                                    {
+                                                                        label: 'Every time any of the above events are captured',
+                                                                        value: true,
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </>
+                                            </LemonField.Pure>
+                                            {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
+                                                <LemonField.Pure
+                                                    label="User performs actions"
+                                                    info="Note that these actions are only observed, and activate this survey, in the current user session."
+                                                >
+                                                    <EventSelect
+                                                        filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
+                                                        onItemChange={(items: ActionType[]) => {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                actions: {
+                                                                    values: items.map((e) => {
+                                                                        return { id: e.id, name: e.name }
+                                                                    }),
+                                                                },
+                                                            })
+                                                        }}
+                                                        selectedItems={
+                                                            survey.conditions?.actions?.values &&
+                                                            survey.conditions?.actions?.values.length > 0
+                                                                ? survey.conditions?.actions?.values
+                                                                : []
+                                                        }
+                                                        selectedEvents={
+                                                            survey.conditions?.actions?.values?.map((v) => v.name) ?? []
+                                                        }
+                                                        addElement={
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                icon={<IconPlus />}
+                                                                sideIcon={null}
+                                                            >
+                                                                Add action
+                                                            </LemonButton>
+                                                        }
+                                                    />
+                                                </LemonField.Pure>
+                                            )}
+                                        </>
+                                    )}
+                                </LemonField.Pure>
+                            ),
+                        },
                         {
                             key: SurveyEditSection.CompletionConditions,
                             header: 'Completion conditions',
