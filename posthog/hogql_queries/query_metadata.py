@@ -185,7 +185,7 @@ class QueryEventsExtractor:
 
     def _get_retention_entity_events(self, entity: RetentionEntity) -> list[str]:
         if entity.type == EntityType.EVENTS:
-            return [entity.id] if entity.id else []
+            return [str(entity.id)] if entity.id else []
         elif entity.type == EntityType.ACTIONS:
             return (
                 self._get_action_events(action_id=int(entity.id), project_id=self.team.project_id) if entity.id else []
@@ -205,8 +205,7 @@ class QueryEventsExtractor:
     @cache_for(timedelta(minutes=1))
     def _get_action_events(action_id: int, project_id: int) -> list[str]:
         action = Action.objects.get(pk=action_id, team__project_id=project_id)
-        step_events = action.get_step_events()
-        return step_events if step_events else []
+        return [event for event in action.get_step_events() if event is not None]
 
 
 def extract_query_metadata(
