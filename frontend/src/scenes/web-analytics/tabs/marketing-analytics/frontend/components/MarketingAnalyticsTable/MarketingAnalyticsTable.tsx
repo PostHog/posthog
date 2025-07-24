@@ -170,17 +170,17 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX + 1
 
             // Check if this is the dynamic conversion goal (the one being created/edited)
-            const isDynamicGoal = goal === draftConversionGoal
+            const isDraftConversionGoal = goal === draftConversionGoal
 
             // Add conversion count column
             columns[goalName] = {
-                renderTitle: makeMarketingSortableCell(goalName, goalColumnIndex, isDynamicGoal),
+                renderTitle: makeMarketingSortableCell(goalName, goalColumnIndex, isDraftConversionGoal),
                 align: 'right',
             }
 
             // Add cost per conversion column
             columns[costPerGoalName] = {
-                renderTitle: makeMarketingSortableCell(costPerGoalName, costColumnIndex, isDynamicGoal),
+                renderTitle: makeMarketingSortableCell(costPerGoalName, costColumnIndex, isDraftConversionGoal),
                 align: 'right',
             }
         })
