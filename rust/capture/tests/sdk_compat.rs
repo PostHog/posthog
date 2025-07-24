@@ -33,7 +33,7 @@ const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 // we reuse the "raw" payload fixtures a lot, encoding/compressing them differently in different tests
 const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
 //const SINGLE_REPLAY_JSON: &str = "single_replay_payload.json";
-//const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
+const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 
 pub struct FixedTime {
     pub time: String,
@@ -329,6 +329,283 @@ fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     );
 }
 
+// utility to validate tests/fixtures/batch_events_payload.json
+fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+    let expected_event_count = 2;
+    let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
+
+    assert_eq!(
+        expected_event_count,
+        got_events.len(),
+        "event count: expected {}, got {}",
+        expected_event_count,
+        got_events.len(),
+    );
+
+    // first event should be a $pageview
+    let pageview = got_events[0].to_owned();
+
+    // introspect on extracted event parsing metadata
+    let meta = &pageview.metadata;
+    assert_eq!(
+        DataType::AnalyticsMain,
+        meta.data_type,
+        "mismatched Kafka topic assignment in case: {}",
+        title,
+    );
+    assert_eq!(
+        None,
+        meta.session_id,
+        "wrong session_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event attributes
+    let event = &pageview.event;
+    assert_eq!(
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "mismatched token on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        "someone@example.com", &event.distinct_id,
+        "mismatched distinct_id on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        DEFAULT_TEST_TIME, &event.now,
+        "mismatched 'now' timestamp $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        36_usize,
+        event.uuid.to_string().len(),
+        "invalid UUID on $pageview in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        Some(expected_timestamp),
+        event.sent_at,
+        "mismatched sent_at on $pageview in case: {}",
+        title,
+    );
+    assert!(
+        !event.is_cookieless_mode,
+        "mismatched cookieless flag on $pageview in case: {}",
+        title,
+    );
+
+    // introspect on event data to be processed by plugin-server
+    let event_data_err_msg = format!("failed to hydrate test $pageview event.data in case: {}", title);
+    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+
+    assert_eq!(
+        "$pageview",
+        event["event"].as_str().unwrap(),
+        "mismatched event.event on batch event 1 in case: {}",
+        title,
+    );
+    assert_eq!(
+        "2025-07-01T02:55:00Z",
+        event["timestamp"].as_str().unwrap(),
+        "mismatched event.timestamp on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        "someone@example.com", event["distinct_id"],
+        "mismatched event.distinct_id on $pageview in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties map
+    let err_msg = format!("failed to extract event.properties on $pageview in case: {}", title);
+    let props = event["properties"].as_object().expect(&err_msg);
+
+    assert_eq!(
+        64_usize,
+        props.len(),
+        "mismatched event.properties length on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        "web", props["$lib"],
+        "mismatched event.properties.$lib on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        "1.2.3", props["$lib_version"],
+        "mismatched event.properties.$lib_version on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        "https://posthog.example.com/testing", props["$current_url"],
+        "mismatched event.properties.$current_url in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(&Number::from(138)),
+        props["$browser_version"].as_number(),
+        "mismatched event.properties.$browser_version in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(1753306906004_i64),
+        props["$sdk_debug_session_start"].as_i64(),
+        "mismatched event.properties.$sdk_debug_session_start on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(true),
+        props["$is_identified"].as_bool(),
+        "mismatched event.properties.$is_identified on $pageview in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(1753306906.2_f64),
+        props["$time"].as_f64(),
+        "mismatched event.properties.$time on $pageview in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties.$set_once map
+    let err_msg = format!("failed to extract event.properties.$set_once on $pageview in case: {}", title);
+    let set_once_props = event["properties"]["$set_once"].as_object().expect(&err_msg);
+
+    assert_eq!(
+        58_usize,
+        set_once_props.len(),
+        "mismatched event.properties.$set_once length on $pageview in case: {}",
+        title,
+    );
+
+    // second event should be a $pageleave
+    let pageleave = got_events[1].to_owned();
+
+    // introspect on extracted event parsing metadata
+    let meta = &pageleave.metadata;
+    assert_eq!(
+        DataType::AnalyticsMain,
+        meta.data_type,
+        "mismatched Kafka topic assignment in case: {}",
+        title,
+    );
+    assert_eq!(
+        None,
+        meta.session_id,
+        "mismatched session_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event attributes
+    let event = &pageleave.event;
+    assert_eq!(
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "mismatched token on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        "someone@example.com", &event.distinct_id,
+        "mismatched distinct_id on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        DEFAULT_TEST_TIME, &event.now,
+        "mismatched 'now' timestamp $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        36_usize,
+        event.uuid.to_string().len(),
+        "invalid UUID on $pageleave in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        Some(expected_timestamp),
+        event.sent_at,
+        "mismatched sent_at on $pageleave in case: {}",
+        title,
+    );
+    assert!(
+        !event.is_cookieless_mode,
+        "mismatched cookieless flag on $pageleave in case: {}",
+        title,
+    );
+
+    // introspect on event data to be processed by plugin-server
+    let event_data_err_msg = format!("failed to hydrate test $pageleave event.data in case: {}", title);
+    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+
+    assert_eq!(
+        "$pageleave",
+        event["event"].as_str().unwrap(),
+        "mismatched event.event on batch event 2 in case: {}",
+        title,
+    );
+    assert_eq!(
+        "2025-07-01T03:00:00Z",
+        event["timestamp"].as_str().unwrap(),
+        "mismatched event.timestamp on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        "someone@example.com", event["distinct_id"],
+        "mismatched event.distinct_id on $pageleave in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties map
+    let err_msg = format!("failed to extract event.properties on $pageleave in case: {}", title);
+    let props = event["properties"].as_object().expect(&err_msg);
+
+    assert_eq!(
+        72_usize,
+        props.len(),
+        "mismatched event.properties length on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        "web", props["$lib"],
+        "mismatched event.properties.$lib on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        "1.2.3", props["$lib_version"],
+        "mismatched event.properties.$lib_version on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        "https://posthog.example.com/testing", props["$current_url"],
+        "mismatched event.properties.$current_url in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(&Number::from(138)),
+        props["$browser_version"].as_number(),
+        "mismatched event.properties.$browser_version in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(1753305190397_i64),
+        props["$sdk_debug_session_start"].as_i64(),
+        "mismatched event.properties.$sdk_debug_session_start on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(true),
+        props["$is_identified"].as_bool(),
+        "mismatched event.properties.$is_identified on $pageleave in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(1753305291.695_f64),
+        props["$time"].as_f64(),
+        "mismatched event.properties.$time on $pageleave in case: {}",
+        title,
+    );
+}
+
 #[tokio::test]
 async fn simple_single_event_payload() {
     let title = "simple-single-event-payload";
@@ -445,7 +722,8 @@ async fn post_form_lz64_single_event_payload() {
         title
     );
     let form_payload =
-        serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())]).expect(&err_msg);
+        serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())])
+            .expect(&err_msg);
 
     let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
     let client = TestClient::new(router);
@@ -464,4 +742,28 @@ async fn post_form_lz64_single_event_payload() {
     // extract the processed events from the in-mem sink and validate contents
     let got = sink.events();
     validate_single_event_payload(title, got);
+}
+
+#[tokio::test]
+async fn simple_batch_events_payload() {
+    let title = "simple-batch-events-payload";
+    let raw_payload = load_request_payload(title, BATCH_EVENTS_JSON);
+
+    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/batch/?_={}", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(raw_payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    validate_capture_response(title, res).await;
+
+    // extract the processed events from the in-mem sink and validate contents
+    let got = sink.events();
+    validate_batch_events_payload(title, got);
 }
