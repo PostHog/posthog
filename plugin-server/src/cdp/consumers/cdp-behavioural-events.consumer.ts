@@ -37,6 +37,13 @@ export const counterEventsMatchedTotal = new Counter({
     help: 'Total number of events that matched at least one action filter',
 })
 
+type CounterUpdate = {
+    teamId: number
+    filterHash: string
+    personId: string
+    date: string
+}
+
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     protected kafkaConsumer: KafkaConsumer
@@ -54,9 +61,15 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
             // Track events consumed and matched (absolute numbers)
             let eventsMatched = 0
+            const counterUpdates: CounterUpdate[] = []
 
-            const results = await Promise.all(events.map((event) => this.processEvent(event)))
+            const results = await Promise.all(events.map((event) => this.processEvent(event, counterUpdates)))
             eventsMatched = results.reduce((sum, count) => sum + count, 0)
+
+            // Batch write all counter updates
+            if (counterUpdates.length > 0) {
+                await this.writeBehavioralCounters(counterUpdates)
+            }
 
             // Update metrics with absolute numbers
             counterEventsConsumed.inc(events.length)
@@ -64,7 +77,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         })
     }
 
-    private async processEvent(event: BehavioralEvent): Promise<number> {
+    private async processEvent(event: BehavioralEvent, counterUpdates: CounterUpdate[]): Promise<number> {
         try {
             const actions = await this.loadActionsForTeam(event.teamId)
 
@@ -73,7 +86,9 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 return 0
             }
 
-            const results = await Promise.all(actions.map((action) => this.doesEventMatchAction(event, action)))
+            const results = await Promise.all(
+                actions.map((action) => this.doesEventMatchAction(event, action, counterUpdates))
+            )
 
             return results.filter(Boolean).length
         } catch (error) {
@@ -95,7 +110,11 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    private async doesEventMatchAction(event: BehavioralEvent, action: Action): Promise<boolean> {
+    private async doesEventMatchAction(
+        event: BehavioralEvent,
+        action: Action,
+        counterUpdates: CounterUpdate[]
+    ): Promise<boolean> {
         if (!action.bytecode) {
             return false
         }
@@ -114,9 +133,16 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             const matchedFilter =
                 typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
-            // If matched and we have person info, write to Cassandra
+            // If matched and we have person info, collect counter update
             if (matchedFilter && event.personId) {
-                await this.writeBehavioralCounter(event.teamId, action, event.personId)
+                const filterHash = this.createFilterHash(action.bytecode!)
+                const date = new Date().toISOString().split('T')[0]
+                counterUpdates.push({
+                    teamId: event.teamId,
+                    filterHash,
+                    personId: event.personId,
+                    date,
+                })
             }
 
             return matchedFilter
@@ -129,27 +155,21 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    private async writeBehavioralCounter(teamId: number, action: Action, personId: string): Promise<void> {
+    private async writeBehavioralCounters(updates: CounterUpdate[]): Promise<void> {
         try {
-            // Create filter hash from action bytecode
-            const filterHash = this.createFilterHash(action.bytecode!)
+            const batch = updates.map((update) => ({
+                query: 'UPDATE behavioral_event_counters SET count = count + 1 WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
+                params: [
+                    update.teamId,
+                    update.filterHash,
+                    CassandraTypes.Uuid.fromString(update.personId),
+                    update.date,
+                ],
+            }))
 
-            // Get current date in YYYY-MM-DD format
-            const date = new Date().toISOString().split('T')[0]
-
-            // Update counter in Cassandra
-            await this.hub.cassandra.execute(
-                'UPDATE behavioral_event_counters SET count = count + 1 WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                [teamId, filterHash, CassandraTypes.Uuid.fromString(personId), date],
-                { prepare: true }
-            )
+            await this.hub.cassandra.batch(batch, { prepare: true, logged: false })
         } catch (error) {
-            logger.error('Error writing behavioral counter', {
-                teamId,
-                actionId: action.id,
-                personId,
-                error,
-            })
+            logger.error('Error batch writing behavioral counters', { error, updateCount: updates.length })
         }
     }
 

@@ -80,7 +80,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(actions[0].name).toBe('Test action')
 
             // Test processEvent directly and verify it returns 1 for matching event
-            const result = await (processor as any).processEvent(behavioralEvent)
+            const counterUpdates: any[] = []
+            const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
             expect(result).toBe(1)
         })
 
@@ -131,7 +132,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(actions[0].name).toBe('Test action')
 
             // Test processEvent directly and verify it returns 0 for non-matching event
-            const result = await (processor as any).processEvent(behavioralEvent)
+            const counterUpdates: any[] = []
+            const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
             expect(result).toBe(0)
         })
 
@@ -200,7 +202,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             }
 
             // Test processEvent directly and verify it returns 2 for both matching actions
-            const result = await (processor as any).processEvent(behavioralEvent)
+            const counterUpdates: any[] = []
+            const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
             expect(result).toBe(2)
         })
     })
@@ -251,10 +254,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             }
 
             // Act
-            const result = await (processor as any).processEvent(behavioralEvent)
-
-            // Assert - verify match occurred
-            expect(result).toBe(1)
+            await processor.processBatch([behavioralEvent])
 
             // Assert - check that the counter was written to Cassandra
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
@@ -319,8 +319,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             }
 
             // Act - process event twice
-            await (processor as any).processEvent(behavioralEvent)
-            await (processor as any).processEvent(behavioralEvent)
+            await processor.processBatch([behavioralEvent])
+            await processor.processBatch([behavioralEvent])
 
             // Assert - check that the counter was incremented
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
@@ -386,10 +386,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             }
 
             // Act
-            const result = await (processor as any).processEvent(behavioralEvent)
-
-            // Assert - verify no match occurred
-            expect(result).toBe(0)
+            await processor.processBatch([behavioralEvent])
 
             // Assert - check that no counter was written to Cassandra
             const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
@@ -452,10 +449,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             }
 
             // Act
-            const result = await (processor as any).processEvent(behavioralEvent)
-
-            // Assert - verify match occurred but no counter written
-            expect(result).toBe(1)
+            await processor.processBatch([behavioralEvent])
 
             // Assert - check that no counter was written to Cassandra
             const cassandraResult = await cassandra.execute(
