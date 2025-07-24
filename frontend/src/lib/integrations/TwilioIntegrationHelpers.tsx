@@ -10,9 +10,9 @@ const getTwilioPhoneNumberOptions = (
 ): LemonInputSelectOption[] | null => {
     return twilioPhoneNumbers
         ? twilioPhoneNumbers.map((x) => {
-              const displayLabel = `${x.phone_number} (${x.sid})`
+              const displayLabel = `${x.friendly_name} (${x.sid})`
               return {
-                  key: `${x.sid}|#${x.phone_number}`,
+                  key: x.phone_number,
                   labelComponent: (
                       <span className="flex items-center">
                           <span>{displayLabel}</span>
@@ -50,14 +50,12 @@ export function TwilioPhoneNumberPicker({
         [twilioPhoneNumbers]
     )
 
-    // Sometimes the parent will only store the phone number ID and not the number, so we need to handle that
+    // Sometimes the parent will only store the phone number and not the friendly name, so we need to handle that
     const modifiedValue = useMemo(() => {
-        if (value?.split('|').length === 1) {
-            const phoneNumber = twilioPhoneNumbers.find((x: TwilioPhoneNumberType) => x.sid === value)
+        const phoneNumber = twilioPhoneNumbers.find((x: TwilioPhoneNumberType) => x.phone_number === value)
 
-            if (phoneNumber) {
-                return `${phoneNumber.sid}|#${phoneNumber.phone_number}`
-            }
+        if (phoneNumber) {
+            return `${phoneNumber.friendly_name} (${phoneNumber.sid})`
         }
 
         return value
@@ -73,7 +71,7 @@ export function TwilioPhoneNumberPicker({
         <>
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
-                value={modifiedValue ? [modifiedValue] : []}
+                value={value ? [value] : []}
                 onFocus={() =>
                     !twilioPhoneNumbers.length && !allTwilioPhoneNumbersLoading && loadAllTwilioPhoneNumbers()
                 }
@@ -99,8 +97,8 @@ export function TwilioPhoneNumberPicker({
                     (modifiedValue
                         ? [
                               {
-                                  key: modifiedValue,
-                                  label: modifiedValue?.split('|')[1] ?? modifiedValue,
+                                  key: value ?? modifiedValue,
+                                  label: modifiedValue,
                               },
                           ]
                         : [])
