@@ -14,8 +14,8 @@ posthog/tasks/update_survey_adaptive_sampling @PostHog/team-surveys
 posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 
-# CDP team owns plugin server code
-plugin-server/src/ @PostHog/team-cdp
+# ingestion team owns plugin server code
+plugin-server/src/ @PostHog/team-ingestion
 
 # ClickHouse team owns Clickhouse migrations
 posthog/clickhouse/migrations/** @PostHog/clickhouse
