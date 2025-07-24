@@ -15,7 +15,9 @@ class TestRedis(TestCase):
 
     @patch("fakeredis.FakeRedis")
     def test_redis_client_is_created(self, mock_fakeredis):
-        mock_instance = "test"
+        from unittest.mock import Mock
+
+        mock_instance = Mock()
         mock_fakeredis.return_value = mock_instance
 
         with self.settings(REDIS_URL="redis://mocked:6379"):

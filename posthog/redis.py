@@ -136,5 +136,5 @@ def TEST_clear_clients():
     for key in list(_client_map.keys()):
         del _client_map[key]
     global _loop_clients
-    for key in list(_loop_clients.keys()):
-        del _loop_clients[key]
+    for loop in list(_loop_clients.keys()):
+        del _loop_clients[loop]
