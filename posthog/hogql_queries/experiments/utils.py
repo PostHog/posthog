@@ -9,6 +9,7 @@ from posthog.schema import (
     ExperimentStatsBaseValidated,
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
+    ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
 )
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
@@ -210,11 +211,11 @@ def get_frequentist_experiment_result_new_format(
         metric_variant_to_statistic(metric, control_variant_validated) if not control_variant_validated.errors else None
     )
 
-    variants: list[ExperimentVariantResultBayesian] = []
+    variants: list[ExperimentVariantResultFrequentist] = []
 
     for test_variant_validated in test_variants_validated:
         # Add fields we should always return
-        experiment_variant_result = ExperimentVariantResultBayesian(
+        experiment_variant_result = ExperimentVariantResultFrequentist(
             key=test_variant_validated.key,
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
@@ -230,9 +231,11 @@ def get_frequentist_experiment_result_new_format(
             confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
             # Set stastical analysis fields
-            experiment_variant_result.chance_to_win = result.p_value
-            experiment_variant_result.credible_interval = confidence_interval
+            experiment_variant_result.p_value = result.p_value
+            experiment_variant_result.confidence_interval = confidence_interval
             experiment_variant_result.significant = result.is_significant
+
+        variants.append(experiment_variant_result)
 
     return ExperimentQueryResponse(
         baseline=control_variant_validated,
@@ -289,6 +292,8 @@ def get_bayesian_experiment_result_new_format(
             experiment_variant_result.chance_to_win = result.chance_to_win
             experiment_variant_result.credible_interval = credible_interval
             experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+
+        variants.append(experiment_variant_result)
 
     return ExperimentQueryResponse(
         baseline=control_variant_validated,
