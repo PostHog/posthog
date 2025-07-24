@@ -629,11 +629,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         response = self._run_lifecycle_query(date_from, date_to, IntervalType.DAY, 0)
 
         # Find the "new" status result
-        new_result = None
-        for res in response.results:
-            if res["status"] == "new":
-                new_result = res
-                break
+        new_result = next(res for res in response.results if res["status"] == "new")
 
         self.assertIsNotNone(new_result, "Should have a 'new' result")
 
