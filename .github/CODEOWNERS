@@ -14,8 +14,8 @@ posthog/tasks/update_survey_adaptive_sampling @PostHog/team-surveys
 posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 
-# CDP team owns plugin server code
-plugin-server/src/ @PostHog/team-cdp
+# ingestion team owns plugin server code
+plugin-server/src/ @PostHog/team-ingestion
 
 # ClickHouse team owns Clickhouse migrations
 posthog/clickhouse/migrations/** @PostHog/clickhouse
@@ -28,7 +28,7 @@ posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
-products/revenue_analytics/** @PostHog/revenue-analytics
+products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Replay team...
 posthog/session_recordings/ @PostHog/team-replay
