@@ -199,12 +199,12 @@ class TestBytecodePlaceholders(BaseTest):
 
         # Second SELECT expression: constant 2
         second = replaced.select[1]
-        self.assertIsInstance(second, ast.Constant)
-        self.assertEqual(second.value, 2)
+        assert isinstance(second, ast.Constant)
+        assert second.value == 2
 
         # WHERE clause: constant true
-        self.assertIsInstance(replaced.where, ast.Constant)
-        self.assertTrue(replaced.where.value)
+        assert isinstance(replaced.where, ast.Constant)
+        assert replaced.where.value is True
 
     # --- find_placeholders behaviour -------------------------------------- #
 
