@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0802_messagecategory_category_type_and_more_fix"),
+        ("posthog", "0803_move_recording_annotation_to_comments"),
     ]
 
     operations = [
