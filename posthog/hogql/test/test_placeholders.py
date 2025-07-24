@@ -1,9 +1,9 @@
 from typing import cast
 from common.hogvm.python.utils import HogVMException
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest
 
@@ -62,10 +62,10 @@ class TestParser(BaseTest):
 
     def test_assert_no_placeholders(self):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(QueryError) as context:
+        with self.assertRaises(HogVMException) as context:
             replace_placeholders(expr, None)
         self.assertEqual(
-            "Unresolved placeholder: {foo}",
+            "Global variable not found: foo",
             str(context.exception),
         )
 
@@ -81,3 +81,138 @@ class TestParser(BaseTest):
         assert expr2.ctes is not None and expr2.ctes["test"] is not None
         assert isinstance(expr2.ctes["test"].expr, ast.SelectQuery)
         assert isinstance(expr2.ctes["test"].expr.select[0], ast.Constant)
+
+
+class TestBytecodePlaceholders(BaseTest):
+    """
+    These tests hit the _visit_placeholder_via_bytecode branch in
+    ReplacePlaceholders, ensuring that arbitrary HogVM expressions - including
+    sql() helpers and HogQLX JSX tags – are compiled and substituted correctly.
+    """
+
+    # --- helpers ----------------------------------------------------------- #
+
+    def _first_select_expr(self, select_query: ast.SelectQuery):
+        """Small helper to grab the first expression in the SELECT list."""
+        self.assertGreater(len(select_query.select), 0)
+        return select_query.select[0]
+
+    # --- simple literal / arithmetic -------------------------------------- #
+
+    def test_numeric_arithmetic_placeholder(self):
+        """
+        `select {1 + 2}` → constant 3 in the final AST.
+        """
+        query = cast(ast.SelectQuery, parse_select("SELECT {1 + 2} AS sum"))
+        replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
+
+        first_expr = self._first_select_expr(replaced)
+        self.assertIsInstance(first_expr, ast.Alias)
+        self.assertIsInstance(first_expr.expr, ast.Constant)
+        self.assertEqual(first_expr.expr.value, 3)
+
+        # Finder should report an *expression* placeholder, not a field string.
+        finder = find_placeholders(query)
+        self.assertTrue(finder.has_expr_placeholders)
+        self.assertEqual(len(finder.field_strings), 0)
+
+    def test_string_literal_placeholder(self):
+        """
+        `select {'hello'}` → constant 'hello'.
+        """
+        query = cast(ast.SelectQuery, parse_select("SELECT {'hello'}"))
+        replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
+
+        first_expr = self._first_select_expr(replaced)
+        self.assertIsInstance(first_expr, ast.Constant)
+        self.assertEqual(first_expr.value, "hello")
+
+    # --- sql() helper ------------------------------------------------------ #
+
+    def test_sql_field_placeholder(self):
+        """
+        `select {sql(event)}` should yield an AST Field chain ["event"].
+        """
+        query = cast(
+            ast.SelectQuery,
+            parse_select("SELECT {sql(event)} FROM events"),
+        )
+        replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
+
+        field_expr = self._first_select_expr(replaced)
+        self.assertIsInstance(field_expr, ast.Field)
+        self.assertEqual(field_expr.chain, ["event"])
+
+    def test_sql_expression_placeholder(self):
+        """
+        `select {sql(1 + 2)}` stays an AST *expression* (`1 + 2`),
+        not a Constant, because sql() returns AST, not a value.
+        """
+        query = cast(ast.SelectQuery, parse_select("SELECT {sql(1 + 2)}"))
+        replaced = cast(ast.SelectQuery, replace_placeholders(query, {}))
+
+        expr = self._first_select_expr(replaced)
+        self.assertNotIsInstance(expr, ast.Constant)
+        self.assertEqual(to_printed_hogql(expr, team=self.team), "plus(1, 2)")
+
+    # --- immediately‑executed lambda returning HogQLXTag ------------------- #
+
+    def test_immediate_function_placeholder_with_hogqlx(self):
+        """
+        The complex lambda / JSX example supplied in the prompt should parse
+        and substitute to:
+          * select[0]  -> HogQLXTag(kind="strong", …)
+          * select[1]  -> Constant(2)
+          * where      -> Constant(True)
+        """
+
+        hogql = """
+        SELECT
+            {(() -> {
+                let a := 'fun';
+                return <strong>{sql(event)} ... <blink>{a}</blink></strong>;
+            })()},
+            {2},
+            timestamp
+        FROM events
+        WHERE {(() -> { return sql(true) })()}
+        """
+
+        parsed = cast(ast.SelectQuery, parse_select(hogql))
+        replaced = cast(ast.SelectQuery, replace_placeholders(parsed, {}))
+
+        # First SELECT expression: <strong>...</strong>
+        first = self._first_select_expr(replaced)
+        self.assertIsInstance(first, ast.HogQLXTag)
+        self.assertEqual(first.kind, "strong")
+        self.assertIsInstance(first.attributes, list)
+        self.assertEqual(len(first.attributes), 1)
+        elements = first.attributes[0].value
+        self.assertEqual(len(elements), 3)
+        self.assertIsInstance(elements[0], ast.Field)
+        self.assertEqual(elements[0].chain, ["event"])
+        self.assertEqual(elements[1], " ... ")
+        self.assertIsInstance(elements[0], ast.Field)
+        self.assertIsInstance(elements[2], ast.HogQLXTag)
+        self.assertEqual(elements[2].kind, "blink")
+        self.assertEqual(elements[2].attributes, [ast.HogQLXAttribute(name="children", value=["fun"])])
+
+        # Second SELECT expression: constant 2
+        second = replaced.select[1]
+        self.assertIsInstance(second, ast.Constant)
+        self.assertEqual(second.value, 2)
+
+        # WHERE clause: constant true
+        self.assertIsInstance(replaced.where, ast.Constant)
+        self.assertTrue(replaced.where.value)
+
+    # --- find_placeholders behaviour -------------------------------------- #
+
+    def test_find_placeholders_on_expression(self):
+        """
+        `{1+2}` must be detected as an expression placeholder only.
+        """
+        expr = parse_expr("{1+2}")
+        finder = find_placeholders(expr)
+        self.assertTrue(finder.has_expr_placeholders)
+        self.assertEqual(finder.field_strings, set())

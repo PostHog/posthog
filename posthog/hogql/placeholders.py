@@ -42,7 +42,7 @@ class ReplacePlaceholders(CloningVisitor):
         super().__init__()
         self.placeholders = placeholders
 
-    def _visit_placeholder_via_bytecode(self, node):
+    def visit_placeholder(self, node):
         from common.hogvm.python.execute import execute_bytecode
         from posthog.hogql.compiler.bytecode import create_bytecode
 
@@ -68,23 +68,3 @@ class ReplacePlaceholders(CloningVisitor):
             f"Placeholder {{{node.field}}} returned an unexpected type: {type(response.result).__name__}. "
             "Expected an AST node or a simple value."
         )
-
-    def _visit_placeholder_via_fields(self, node):
-        if not self.placeholders:
-            raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
-        if node.field in self.placeholders and self.placeholders[node.field] is not None:
-            new_node = self.placeholders[node.field]
-            new_node.start = node.start
-            new_node.end = node.end
-            return new_node
-        raise QueryError(
-            f"Placeholder {{{node.field}}} is not available in this context. You can use the following: "
-            + ", ".join(f"{placeholder}" for placeholder in self.placeholders)
-        )
-
-    def visit_placeholder(self, node):
-        # TODO: HOG_PLACEHOLDERS feature flag
-        if len("use a flag here") > 0:
-            return self._visit_placeholder_via_bytecode(node)
-        else:
-            return self._visit_placeholder_via_fields(node)
