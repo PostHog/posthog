@@ -11,7 +11,7 @@
   FROM (((
             (SELECT persons.id AS id
              FROM
-               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$some_prop`,
+               (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), NULL), person.version) AS `properties___$some_prop`,
                        person.id AS id
                 FROM person
                 WHERE and(equals(person.team_id, 99999), in(id,
@@ -19,14 +19,14 @@
                                                                FROM person AS where_optimization
                                                                WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0)))))
                 GROUP BY person.id
-                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                HAVING and(ifNull(equals(argMax(ifNull(person.is_deleted, NULL), person.version), 0), 0), ifNull(less(argMax(ifNull(toTimeZone(person.created_at, 'UTC'), NULL), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
              WHERE ifNull(equals(persons.`properties___$some_prop`, 'something'), 0)
              ORDER BY persons.id ASC
              LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
                                        join_algorithm='auto')) INTERSECT DISTINCT (
                                                                                      (SELECT persons.id AS id
                                                                                       FROM
-                                                                                        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$another_prop`,
+                                                                                        (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), NULL), person.version) AS `properties___$another_prop`,
                                                                                                 person.id AS id
                                                                                          FROM person
                                                                                          WHERE and(equals(person.team_id, 99999), in(id,
@@ -34,7 +34,7 @@
                                                                                                                                         FROM person AS where_optimization
                                                                                                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0)))))
                                                                                          GROUP BY person.id
-                                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                                         HAVING and(ifNull(equals(argMax(ifNull(person.is_deleted, NULL), person.version), 0), 0), ifNull(less(argMax(ifNull(toTimeZone(person.created_at, 'UTC'), NULL), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                                                                                       WHERE ifNull(equals(persons.`properties___$another_prop`, 'something'), 0)
                                                                                       ORDER BY persons.id ASC
                                                                                       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -54,7 +54,7 @@
   FROM (((
             (SELECT persons.id AS id
              FROM
-               (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$some_prop`,
+               (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), NULL), person.version) AS `properties___$some_prop`,
                        person.id AS id
                 FROM person
                 WHERE and(equals(person.team_id, 99999), in(id,
@@ -62,14 +62,14 @@
                                                                FROM person AS where_optimization
                                                                WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0)))))
                 GROUP BY person.id
-                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                HAVING and(ifNull(equals(argMax(ifNull(person.is_deleted, NULL), person.version), 0), 0), ifNull(less(argMax(ifNull(toTimeZone(person.created_at, 'UTC'), NULL), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
              WHERE ifNull(equals(persons.`properties___$some_prop`, 'something'), 0)
              ORDER BY persons.id ASC
              LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
                                        join_algorithm='auto')) INTERSECT DISTINCT (
                                                                                      (SELECT persons.id AS id
                                                                                       FROM
-                                                                                        (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$another_prop`,
+                                                                                        (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), NULL), person.version) AS `properties___$another_prop`,
                                                                                                 person.id AS id
                                                                                          FROM person
                                                                                          WHERE and(equals(person.team_id, 99999), in(id,
@@ -77,7 +77,7 @@
                                                                                                                                         FROM person AS where_optimization
                                                                                                                                         WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$another_prop'), ''), 'null'), '^"|"$', ''), 'something'), 0)))))
                                                                                          GROUP BY person.id
-                                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                                                         HAVING and(ifNull(equals(argMax(ifNull(person.is_deleted, NULL), person.version), 0), 0), ifNull(less(argMax(ifNull(toTimeZone(person.created_at, 'UTC'), NULL), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
                                                                                       WHERE ifNull(equals(persons.`properties___$another_prop`, 'something'), 0)
                                                                                       ORDER BY persons.id ASC
                                                                                       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -97,7 +97,7 @@
   FROM (
           (SELECT persons.id AS id
            FROM
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$some_prop`,
+             (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), NULL), person.version) AS `properties___$some_prop`,
                      person.id AS id
               FROM person
               WHERE and(equals(person.team_id, 99999), in(id,
@@ -105,7 +105,7 @@
                                                              FROM person AS where_optimization
                                                              WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something1'), 0)))))
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+              HAVING and(ifNull(equals(argMax(ifNull(person.is_deleted, NULL), person.version), 0), 0), ifNull(less(argMax(ifNull(toTimeZone(person.created_at, 'UTC'), NULL), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
            WHERE ifNull(equals(persons.`properties___$some_prop`, 'something1'), 0)
            ORDER BY persons.id ASC
            LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -125,7 +125,7 @@
   FROM (
           (SELECT persons.id AS id
            FROM
-             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$some_prop`,
+             (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), NULL), person.version) AS `properties___$some_prop`,
                      person.id AS id
               FROM person
               WHERE and(equals(person.team_id, 99999), in(id,
@@ -133,7 +133,7 @@
                                                              FROM person AS where_optimization
                                                              WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'something1'), 0)))))
               GROUP BY person.id
-              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+              HAVING and(ifNull(equals(argMax(ifNull(person.is_deleted, NULL), person.version), 0), 0), ifNull(less(argMax(ifNull(toTimeZone(person.created_at, 'UTC'), NULL), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
            WHERE ifNull(equals(persons.`properties___$some_prop`, 'something1'), 0)
            ORDER BY persons.id ASC
            LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -164,12 +164,12 @@
                          e.distinct_id AS distinct_id
                   FROM events AS e
                   LEFT OUTER JOIN
-                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                    (SELECT argMax(ifNull(person_distinct_id_overrides.person_id, NULL), person_distinct_id_overrides.version) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                     HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                   WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
@@ -211,12 +211,12 @@
                          e.distinct_id AS distinct_id
                   FROM events AS e
                   LEFT OUTER JOIN
-                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                    (SELECT argMax(ifNull(person_distinct_id_overrides.person_id, NULL), person_distinct_id_overrides.version) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                     HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                   WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
@@ -422,12 +422,12 @@
                         argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                   (SELECT argMax(ifNull(person_distinct_id_overrides.person_id, NULL), person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                  HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
@@ -464,12 +464,12 @@
                         argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
                  FROM events AS e
                  LEFT OUTER JOIN
-                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                   (SELECT argMax(ifNull(person_distinct_id_overrides.person_id, NULL), person_distinct_id_overrides.version) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
                     FROM person_distinct_id_overrides
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
-                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                  HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
@@ -505,12 +505,12 @@
                          e.distinct_id AS distinct_id
                   FROM events AS e
                   LEFT OUTER JOIN
-                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                    (SELECT argMax(ifNull(person_distinct_id_overrides.person_id, NULL), person_distinct_id_overrides.version) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                     HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                   WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
@@ -552,12 +552,12 @@
                          e.distinct_id AS distinct_id
                   FROM events AS e
                   LEFT OUTER JOIN
-                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                    (SELECT argMax(ifNull(person_distinct_id_overrides.person_id, NULL), person_distinct_id_overrides.version) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                     HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                   WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
