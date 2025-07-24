@@ -6,7 +6,6 @@ from django.db import connection
 from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
-from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
