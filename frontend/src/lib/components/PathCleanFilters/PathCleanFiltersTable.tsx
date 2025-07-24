@@ -7,7 +7,7 @@ import { IconPencil, IconSort, IconTrash } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { isValidRegexp } from 'lib/utils/regexp'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
@@ -37,8 +37,9 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
 
     const style = {
         transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
+        transition: isDragging ? 'none' : transition,
+        opacity: isDragging ? 0.8 : 1,
+        zIndex: isDragging ? 1000 : 'auto',
     }
 
     return (
@@ -57,25 +58,30 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
             <tr
                 ref={setNodeRef}
                 style={style}
-                className={clsx('border-b border-border hover:bg-accent-light cursor-pointer', {
-                    'border-warning': isInvalidRegex,
-                })}
+                className={clsx(
+                    'border-b border-border hover:bg-gray-50 cursor-pointer transition-colors duration-150 bg-white',
+                    {
+                        'border-warning': isInvalidRegex,
+                        'bg-gray-100': isDragging,
+                        'shadow-lg': isDragging,
+                    }
+                )}
             >
                 <td className="p-2 w-8">
-                    <div className="flex items-center justify-center">
-                        <IconSort
-                            className="text-muted-alt cursor-grab active:cursor-grabbing"
-                            {...attributes}
-                            {...listeners}
-                        />
+                    <div
+                        className="flex items-center justify-center cursor-grab active:cursor-grabbing"
+                        {...attributes}
+                        {...listeners}
+                    >
+                        <IconSort className="text-muted-alt" />
                     </div>
                 </td>
                 <td className="p-2 w-12 text-center text-muted font-medium">{index + 1}</td>
                 <td className="p-2">
                     <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : null}>
                         <code
-                            className={clsx('font-mono text-sm px-2 py-1 rounded bg-accent-light', {
-                                'text-danger border border-danger': isInvalidRegex,
+                            className={clsx('font-mono text-sm px-2 py-1 rounded bg-gray-100', {
+                                'text-danger border border-danger bg-red-50': isInvalidRegex,
                             })}
                         >
                             {regex || '(Empty)'}
@@ -108,6 +114,16 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
 }
 
 export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFiltersTableProps): JSX.Element {
+    const [localFilters, setLocalFilters] = useState(filters)
+    const [isDragging, setIsDragging] = useState(false)
+
+    // Sync local state with props, but not during drag to avoid flicker
+    useEffect(() => {
+        if (!isDragging) {
+            setLocalFilters(filters)
+        }
+    }, [filters, isDragging])
+
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: {
@@ -119,27 +135,40 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
         })
     )
 
-    const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
-        const newFilters = filters.map((f, i) => (i === index ? filter : f))
+    const updateFilters = (newFilters: PathCleaningFilter[]): void => {
+        // Optimistic update
+        setLocalFilters(newFilters)
         setFilters(newFilters)
     }
 
+    const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
+        const newFilters = localFilters.map((f, i) => (i === index ? filter : f))
+        updateFilters(newFilters)
+    }
+
     const onRemoveFilter = (index: number): void => {
-        setFilters(filters.filter((_, i) => i !== index))
+        updateFilters(localFilters.filter((_, i) => i !== index))
+    }
+
+    const handleDragStart = (): void => {
+        setIsDragging(true)
     }
 
     const handleDragEnd = (event: any): void => {
+        setIsDragging(false)
         const { active, over } = event
 
-        if (active.id !== over.id) {
-            const oldIndex = filters.findIndex((_, index) => `filter-${index}` === active.id)
-            const newIndex = filters.findIndex((_, index) => `filter-${index}` === over.id)
+        if (over && active.id !== over.id) {
+            const oldIndex = localFilters.findIndex((_, index) => `filter-${index}` === active.id)
+            const newIndex = localFilters.findIndex((_, index) => `filter-${index}` === over.id)
 
-            setFilters(arrayMove(filters, oldIndex, newIndex))
+            if (oldIndex !== -1 && newIndex !== -1) {
+                updateFilters(arrayMove(localFilters, oldIndex, newIndex))
+            }
         }
     }
 
-    if (filters.length === 0) {
+    if (localFilters.length === 0) {
         return (
             <div className="text-center py-8 text-muted">
                 No path cleaning rules configured. Add your first rule to get started.
@@ -148,15 +177,16 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     }
 
     return (
-        <div className="border border-border rounded-lg overflow-hidden">
+        <div className="border border-border rounded-lg overflow-hidden bg-white">
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
                 modifiers={[restrictToVerticalAxis]}
             >
-                <table className="w-full">
-                    <thead className="bg-accent-light">
+                <table className="w-full bg-white">
+                    <thead className="bg-gray-50">
                         <tr>
                             <th className="p-3 w-8" />
                             <th className="p-3 w-12 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
@@ -175,10 +205,10 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                     </thead>
                     <tbody>
                         <SortableContext
-                            items={filters.map((_, index) => `filter-${index}`)}
+                            items={localFilters.map((_, index) => `filter-${index}`)}
                             strategy={verticalListSortingStrategy}
                         >
-                            {filters.map((filter, index) => (
+                            {localFilters.map((filter, index) => (
                                 <SortableRow
                                     key={`filter-${index}`}
                                     filter={filter}

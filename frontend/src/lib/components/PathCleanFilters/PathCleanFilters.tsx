@@ -1,7 +1,15 @@
+import { useState, useEffect } from 'react'
+import { useValues } from 'kea'
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
 import { PathCleanFiltersTable } from './PathCleanFiltersTable'
+import { PathCleanFilterItem } from './PathCleanFilterItem'
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { restrictToParentElement } from '@dnd-kit/modifiers'
+import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PathCleanFiltersProps {
     filters?: PathCleaningFilter[]
@@ -13,13 +21,88 @@ export const keyFromFilter = (filter: PathCleaningFilter): string => {
 }
 
 export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersProps): JSX.Element {
-    const onAddFilter = (filter: PathCleaningFilter): void => {
-        setFilters([...filters, filter])
+    const [localFilters, setLocalFilters] = useState(filters)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
+
+    // Sync local state with props
+    useEffect(() => {
+        setLocalFilters(filters)
+    }, [filters])
+
+    const updateFilters = (newFilters: PathCleaningFilter[]): void => {
+        // Optimistic update
+        setLocalFilters(newFilters)
+        setFilters(newFilters)
     }
 
+    const onAddFilter = (filter: PathCleaningFilter): void => {
+        updateFilters([...filters, filter])
+    }
+
+    const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
+        const newFilters = filters.map((f, i) => (i === index ? filter : f))
+        updateFilters(newFilters)
+    }
+
+    const onRemoveFilter = (index: number): void => {
+        updateFilters(filters.filter((_, i) => i !== index))
+    }
+
+    const onSortEnd = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
+        function move(arr: PathCleaningFilter[], from: number, to: number): PathCleaningFilter[] {
+            const clone = [...arr]
+            Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
+            return clone
+        }
+        updateFilters(move(localFilters, oldIndex, newIndex))
+    }
+
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
+
+    if (useTableUI) {
+        return (
+            <div className="flex flex-col gap-4">
+                <PathCleanFiltersTable filters={localFilters} setFilters={updateFilters} />
+                <div>
+                    <PathCleanFilterAddItemButton onAdd={onAddFilter} />
+                </div>
+            </div>
+        )
+    }
+
+    // Original pills UI
     return (
-        <div className="flex flex-col gap-4">
-            <PathCleanFiltersTable filters={filters} setFilters={setFilters} />
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+                <DndContext
+                    onDragEnd={({ active, over }) => {
+                        if (!over || active.id === over.id) {
+                            return
+                        }
+
+                        const aliases = localFilters.map((filter) => filter.alias)
+                        onSortEnd({
+                            oldIndex: aliases.indexOf(String(active.id)),
+                            newIndex: aliases.indexOf(String(over.id)),
+                        })
+                    }}
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    modifiers={[restrictToParentElement]}
+                >
+                    <SortableContext items={localFilters.map(keyFromFilter)} strategy={rectSortingStrategy}>
+                        {localFilters.map((filter, index) => (
+                            <PathCleanFilterItem
+                                key={keyFromFilter(filter)}
+                                filter={filter}
+                                onChange={(filter) => onEditFilter(index, filter)}
+                                onRemove={() => onRemoveFilter(index)}
+                            />
+                        ))}
+                    </SortableContext>
+                </DndContext>
+            </div>
             <div>
                 <PathCleanFilterAddItemButton onAdd={onAddFilter} />
             </div>
