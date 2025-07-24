@@ -37,15 +37,14 @@ class TwilioProvider:
             capture_exception(Exception(f"TwilioIntegration: Failed to list twilio phone numbers: {e}"))
             return []
 
-    def verify_phone_number(self, phone_number: str) -> bool:
+    def get_account_info(self) -> dict:
         """
-        Verify that a phone number is owned by the account.
+        Get account info.
         """
         try:
-            endpoint = "/IncomingPhoneNumbers.json"
-            params = {"PhoneNumber": phone_number}
-            response = self._make_request("GET", endpoint, params=params)
-            return len(response.get("incoming_phone_numbers", [])) > 0
+            endpoint = ".json"
+            response = self._make_request("GET", endpoint)
+            return response
         except requests.exceptions.HTTPError as e:
-            logger.warning(f"Phone number verification failed. Error: {e}")
-            return False
+            capture_exception(Exception(f"TwilioIntegration: Failed to get account info: {e}"))
+            return {}

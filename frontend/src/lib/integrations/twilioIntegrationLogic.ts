@@ -6,7 +6,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { TwilioPhoneNumberType } from '~/types'
 
-import type { twilioIntegrationLogicType } from './TwilioIntegrationLogicType'
+import type { twilioIntegrationLogicType } from './twilioIntegrationLogicType'
 
 export const TWILIO_CHANNELS_MIN_REFRESH_INTERVAL_MINUTES = 5
 

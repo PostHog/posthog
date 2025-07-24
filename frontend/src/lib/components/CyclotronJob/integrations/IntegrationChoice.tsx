@@ -5,6 +5,8 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -29,6 +31,7 @@ export function IntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
+    const [isNewChannelModalOpen, setIsNewChannelModalOpen] = useState(false)
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
@@ -90,6 +93,15 @@ export function IntegrationChoice({
                               },
                           ],
                       }
+                    : ['twilio'].includes(kind)
+                    ? {
+                          items: [
+                              {
+                                  label: 'Configure new Twilio account',
+                                  onClick: () => setIsNewChannelModalOpen(true),
+                              },
+                          ],
+                      }
                     : {
                           items: [
                               {
@@ -138,6 +150,13 @@ export function IntegrationChoice({
             ) : (
                 button
             )}
+
+            <ChannelSetupModal
+                isOpen={isNewChannelModalOpen}
+                channelType="twilio"
+                integration={integrationKind || undefined}
+                onComplete={() => setIsNewChannelModalOpen(false)}
+            />
         </>
     )
 }
