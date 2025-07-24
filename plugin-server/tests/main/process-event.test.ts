@@ -155,7 +155,10 @@ describe('process-event', () => {
         await resetTestDatabase(testCode, TEST_CONFIG)
         await resetTestDatabaseClickhouse(TEST_CONFIG)
 
-        hub = await createHub({ ...TEST_CONFIG })
+        hub = await createHub({ ...TEST_CONFIG }).catch((error) => {
+            logger.error('🛑', 'Failed to create Hub', { error })
+            throw error
+        })
         team = await getFirstTeam(hub)
 
         // clear the webhook redis cache
