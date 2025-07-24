@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 COMMON_INPUTS_SCHEMA = [
     {
@@ -11,7 +11,7 @@ COMMON_INPUTS_SCHEMA = [
     },
 ]
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=True,
     type="destination",

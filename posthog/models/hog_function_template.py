@@ -9,7 +9,7 @@ import dataclasses
 from posthog.models.utils import UUIDModel
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionTemplateType,
-    HogFunctionTemplate as HogFunctionTemplateDTO,
+    HogFunctionTemplateDC as HogFunctionTemplateDTO,
     HogFunctionMapping,
     HogFunctionMappingTemplate,
 )
@@ -219,13 +219,14 @@ class HogFunctionTemplate(UUIDModel):
         Returns:
             The saved database template instance
         """
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
         from posthog.cdp.validation import compile_hog
         import json
 
         # Verify the dataclass_template is the correct type
-        if not isinstance(dataclass_template, DataclassTemplate):
+        if not isinstance(dataclass_template, HogFunctionTemplateDC):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
+
 
         # Calculate sha based on content hash
         template_dict = {

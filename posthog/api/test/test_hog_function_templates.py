@@ -255,7 +255,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
     def test_template_updates_are_reflected(self):
         """Test that template updates are reflected in API responses"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as DataclassTemplate
 
         # Initial sha of the template
         initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")

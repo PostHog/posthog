@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
-blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
+blank_site_destination: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_destination",
@@ -136,7 +136,7 @@ export function onEvent({ inputs, posthog }) {
     ],
 )
 
-blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
+blank_site_app: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_app",

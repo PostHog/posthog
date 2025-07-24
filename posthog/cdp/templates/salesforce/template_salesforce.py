@@ -1,7 +1,7 @@
 import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 common_filters = {
     "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
@@ -21,7 +21,7 @@ common_inputs = {
     }
 }
 
-template_create: HogFunctionTemplate = HogFunctionTemplate(
+template_create: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -112,7 +112,7 @@ if (res.status >= 400) {
     filters=common_filters,
 )
 
-template_update: HogFunctionTemplate = HogFunctionTemplate(
+template_update: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",

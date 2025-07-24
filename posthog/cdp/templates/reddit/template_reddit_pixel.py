@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
 common_inputs = [
     {
@@ -17,7 +17,7 @@ common_inputs = [
     },
 ]
 
-template_reddit_pixel: HogFunctionTemplate = HogFunctionTemplate(
+template_reddit_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
     free=False,
     status="alpha",
     type="site_destination",

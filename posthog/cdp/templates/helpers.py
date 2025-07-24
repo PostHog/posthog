@@ -9,7 +9,7 @@ import STPyV8
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
@@ -19,7 +19,7 @@ from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFun
 
 # TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
 class BaseHogFunctionTemplateTest(BaseTest):
-    template: HogFunctionTemplate
+    template: HogFunctionTemplateDC
     compiled_hog: Any
     mock_fetch = MagicMock()
     mock_print = MagicMock()
@@ -104,7 +104,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
 
 class BaseSiteDestinationFunctionTest(APIBaseTest):
-    template: HogFunctionTemplate
+    template: HogFunctionTemplateDC
     track_fn: str
     inputs: dict
 

@@ -2,11 +2,11 @@ import dataclasses
 import json
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.models.integration import GoogleCloudIntegration
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",

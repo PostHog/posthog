@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
 
 def build_inputs(multiProductEvent=False):
@@ -37,7 +37,7 @@ def build_inputs(multiProductEvent=False):
     ]
 
 
-template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
+template_snapchat_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="alpha",
     free=False,
     type="site_destination",

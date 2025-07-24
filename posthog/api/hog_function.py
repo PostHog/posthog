@@ -44,7 +44,7 @@ from posthog.models.hog_functions.hog_function import (
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate 
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024

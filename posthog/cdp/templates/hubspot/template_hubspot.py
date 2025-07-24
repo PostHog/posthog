@@ -1,10 +1,10 @@
 import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     type="destination",
@@ -99,7 +99,7 @@ if (res.status == 200) {
     },
 )
 
-template_event: HogFunctionTemplate = HogFunctionTemplate(
+template_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     id="template-hubspot-event",

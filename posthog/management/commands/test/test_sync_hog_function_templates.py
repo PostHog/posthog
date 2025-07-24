@@ -183,7 +183,7 @@ class TestSyncHogFunctionTemplates:
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):
         """Test that template versioning behaves correctly"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as DataclassTemplate
 
         # Mock the Node.js API to avoid external dependencies
         mock_response = MagicMock()

@@ -95,7 +95,7 @@ class TestHogFunctionTemplate(TestCase):
 
     def test_update_existing_template(self):
         """Test updating an existing template with new content"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as HogFunctionTemplateDTO
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as HogFunctionTemplateDTO
 
         # First create a simple template
         original_dto = HogFunctionTemplateDTO(
@@ -240,7 +240,7 @@ class TestHogFunctionTemplate(TestCase):
     def test_sha_versioning(self):
         """Test template sha versioning system including status and related fields"""
         from posthog.cdp.templates.hog_function_template import (
-            HogFunctionTemplate as HogFunctionTemplateDTO,
+            HogFunctionTemplateDC as HogFunctionTemplateDTO,
             HogFunctionMapping,
             HogFunctionMappingTemplate,
         )
