@@ -71,8 +71,9 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 the regex will be replaced with the alias. Rules are applied in the order that they're listed.
             </p>
             <p>
-                <b>These will be applied in order, so make sure to put the most specific rules first.</b> You can
-                reorder them by dragging and dropping.
+                These will be applied in order, so make sure to put the most specific rules first and remember that
+                subsequent rules will receive the result of the previous one, not the original path. You can reorder
+                them by dragging and dropping.
             </p>
             <p>
                 <b>
