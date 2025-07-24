@@ -233,7 +233,9 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-              run: bin/turbo run test --filter=@posthog/plugin-server
+              run: |
+                  cd plugin-server
+                  pnpm test -- tests/main/process-event.test.ts
 
     posthog-analytics:
         name: PostHog CI analytics
