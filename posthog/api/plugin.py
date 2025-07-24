@@ -2,7 +2,6 @@ import json
 import re
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from posthoganalytics import capture_exception
 import requests
 from dateutil.relativedelta import relativedelta

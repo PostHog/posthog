@@ -1,4 +1,3 @@
-import base64
 import json
 from datetime import datetime
 from typing import Optional, cast
@@ -6,7 +5,6 @@ from unittest import mock
 from unittest.mock import patch
 
 from zoneinfo import ZoneInfo
-from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
 from posthog.api.test.test_hog_function import _create_template_from_mock
 from rest_framework import status
@@ -14,7 +12,7 @@ from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.constants import FROZEN_POSTHOG_VERSION
 
-from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
+from posthog.models import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -24,7 +22,6 @@ from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
-    HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP,
 )
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
