@@ -76,7 +76,8 @@ class QueryEventsExtractor:
         elif kind == "DataTableNode":
             events = self.extract_events(self._ensure_model_instance(query, DataTableNode).source)
         elif kind == "ActorsQuery":
-            events = self.extract_events(self._ensure_model_instance(query, ActorsQuery).source)
+            source = self._ensure_model_instance(query, ActorsQuery).source
+            events = self.extract_events(source) if source else []
         elif kind == "InsightActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, InsightActorsQuery).source)
         elif kind == "FunnelsActorsQuery":
