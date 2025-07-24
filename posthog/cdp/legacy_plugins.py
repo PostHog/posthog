@@ -31,7 +31,7 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
         "name": plugin.name,
         "description": template.description,
         "filters": template.filters,
-        "hog": template.hog,
+        "hog": template.code,
         "inputs": inputs,
         "enabled": plugin_config.get("enabled", True),
         "icon_url": template.icon_url,

@@ -207,7 +207,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     )
 
             # Without the addon you can't deviate from the template
-            data["hog"] = template.hog
+            data["hog"] = template.code
             data["inputs_schema"] = template.inputs_schema
         if is_create:
             # Set defaults for new functions
