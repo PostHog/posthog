@@ -122,13 +122,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     useEffect(() => {
-        if (
-            currentJobStatus !== null &&
-            (currentJobStatus === 'Running' ||
-                currentJobStatus === 'Completed' ||
-                currentJobStatus === 'Failed' ||
-                currentJobStatus === 'Cancelled')
-        ) {
+        const materializationStatuses = new Set(['Running', 'Completed', 'Failed', 'Cancelled'])
+        if (currentJobStatus && materializationStatuses.has(currentJobStatus)) {
             setStartingMaterialization(false)
         }
     }, [currentJobStatus])
