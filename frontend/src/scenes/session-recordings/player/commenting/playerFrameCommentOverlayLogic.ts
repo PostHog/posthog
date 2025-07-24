@@ -16,7 +16,7 @@ import { playerCommentModel } from 'scenes/session-recordings/player/commenting/
 export interface RecordingCommentForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
     // this is a string because we want to be able to display the time in the recording
-    timeInRecording: string | null
+    timeInRecording?: string | null
     // number of seconds into recording
     timestampInRecording?: number | null
     // the date that the timeInRecording represents

@@ -119,7 +119,7 @@ describe('playerInspectorLogic', () => {
             })
         })
 
-        it('reads comment comments from data logic', async () => {
+        it('reads comments from data logic', async () => {
             await expectLogic(dataLogic, () => {
                 dataLogic.actions.maybeLoadRecordingMeta()
             }).toDispatchActions(['loadRecordingCommentsSuccess'])

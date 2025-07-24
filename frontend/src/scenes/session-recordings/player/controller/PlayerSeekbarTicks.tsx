@@ -25,16 +25,16 @@ function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebook
     return x.type === 'comment' && x.source === 'notebook'
 }
 
-function IsComment(x: InspectorListItem): x is InspectorListItemComment {
+function isComment(x: InspectorListItem): x is InspectorListItemComment {
     return x.type === 'comment' && x.source === 'comment'
 }
 
-function isComment(x: InspectorListItem): x is InspectorListItemComment {
-    return IsComment(x) || isNotebookComment(x)
+function isAnyComment(x: InspectorListItem): x is InspectorListItemComment {
+    return isComment(x) || isNotebookComment(x)
 }
 
-function IsEmojiComment(x: InspectorListItem): x is InspectorListItemComment {
-    return IsComment(x) && !!x.data.item_context?.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
+function isEmojiComment(x: InspectorListItem): x is InspectorListItemComment {
+    return isComment(x) && !!x.data.item_context?.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
 }
 
 function PlayerSeekbarTick({
@@ -99,9 +99,9 @@ function PlayerSeekbarTick({
                     )
                 }
             >
-                {IsEmojiComment(item) ? (
+                {isEmojiComment(item) ? (
                     <div className="PlayerSeekbarTick__emoji">{item.data.content}</div>
-                ) : isComment(item) ? (
+                ) : isAnyComment(item) ? (
                     <div className="PlayerSeekbarTick__comment">
                         <IconComment />
                     </div>

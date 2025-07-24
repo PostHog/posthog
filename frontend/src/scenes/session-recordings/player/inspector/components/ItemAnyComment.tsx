@@ -32,7 +32,7 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
     )
 }
 
-function ItemComment_({ item }: { item: InspectorListItemComment }): JSX.Element {
+function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element {
     // lazy but good enough check for markdown image urls
     // we don't want to render markdown in the list row if there's an image since it won't fit
     const hasMarkdownImage = (item.data.content ?? '').includes('![')
@@ -63,8 +63,8 @@ function ItemComment_({ item }: { item: InspectorListItemComment }): JSX.Element
     )
 }
 
-export function ItemComment({ item }: ItemCommentProps): JSX.Element {
-    return isInspectorListItemNotebookComment(item) ? <ItemNotebookComment item={item} /> : <ItemComment_ item={item} />
+export function ItemAnyComment({ item }: ItemCommentProps): JSX.Element {
+    return isInspectorListItemNotebookComment(item) ? <ItemNotebookComment item={item} /> : <ItemComment item={item} />
 }
 
 function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
@@ -91,7 +91,7 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
     )
 }
 
-function ItemCommentDetail_({ item }: { item: InspectorListItemComment }): JSX.Element {
+function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.Element {
     const { startCommenting } = useActions(playerCommentModel)
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
@@ -107,7 +107,6 @@ function ItemCommentDetail_({ item }: { item: InspectorListItemComment }): JSX.E
                                 content: item.data.content ?? '',
                                 dateForTimestamp: item.timestamp,
                                 recordingId: item.data.item_id ?? null,
-                                timeInRecording: item.timestamp.toISOString(),
                                 timestampInRecording: item.timeInRecording,
                             }
                             startCommenting(commentEditPayload)
@@ -132,10 +131,10 @@ function ItemCommentDetail_({ item }: { item: InspectorListItemComment }): JSX.E
     )
 }
 
-export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
+export function ItemAnyCommentDetail({ item }: ItemCommentProps): JSX.Element {
     return isInspectorListItemNotebookComment(item) ? (
         <ItemCommentNotebookDetail item={item} />
     ) : (
-        <ItemCommentDetail_ item={item} />
+        <ItemCommentDetail item={item} />
     )
 }

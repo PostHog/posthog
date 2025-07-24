@@ -2,10 +2,10 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
-    ItemComment,
-    ItemCommentDetail,
+    ItemAnyComment,
+    ItemAnyCommentDetail,
     ItemCommentProps,
-} from 'scenes/session-recordings/player/inspector/components/ItemComment'
+} from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
 import {
     InspectorListItemAnnotationComment,
     InspectorListItemNotebookComment,
@@ -15,10 +15,10 @@ import {
 import { mswDecorator } from '~/mocks/browser'
 import { AnnotationScope, AnnotationType } from '~/types'
 
-type Story = StoryObj<typeof ItemComment>
-const meta: Meta<typeof ItemComment> = {
+type Story = StoryObj<typeof ItemAnyComment>
+const meta: Meta<typeof ItemAnyComment> = {
     title: 'Components/PlayerInspector/ItemComment',
-    component: ItemComment,
+    component: ItemAnyComment,
     decorators: [
         mswDecorator({
             get: {},
@@ -81,7 +81,7 @@ function makeAnnotationItem(
     }
 }
 
-const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentProps>) => {
+const BasicTemplate: StoryFn<typeof ItemAnyComment> = (props: Partial<ItemCommentProps>) => {
     props.item = props.item || makeNotebookItem()
 
     const propsToUse = props as ItemCommentProps
@@ -89,14 +89,14 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
     return (
         <div className="flex flex-col gap-2 min-w-96">
             <h3>Collapsed</h3>
-            <ItemComment {...propsToUse} />
+            <ItemAnyComment {...propsToUse} />
             <LemonDivider />
             <h3>Expanded</h3>
-            <ItemCommentDetail {...propsToUse} />
+            <ItemAnyCommentDetail {...propsToUse} />
             <LemonDivider />
             <h3>Expanded with overflowing comment</h3>
             <div className="w-52">
-                <ItemCommentDetail
+                <ItemAnyCommentDetail
                     {...propsToUse}
                     item={
                         {
@@ -113,7 +113,7 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
             <LemonDivider />
             <h3>Collapsed with overflowing comment</h3>
             <div className="w-52">
-                <ItemComment
+                <ItemAnyComment
                     {...propsToUse}
                     item={
                         {
