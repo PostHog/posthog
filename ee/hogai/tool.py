@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -9,14 +9,10 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 import products
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from posthog.models import Team, User
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
-
-if TYPE_CHECKING:
-    from posthog.models.team.team import Team
-    from posthog.models.user import User
-
-MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
 
 # Lower casing matters here. Do not change it.
@@ -89,7 +85,7 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
-class MaxTool(BaseTool):
+class MaxTool(AssistantContextMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -106,8 +102,8 @@ class MaxTool(BaseTool):
     """
 
     _context: dict[str, Any]
-    _team: Optional["Team"]
-    _user: Optional["User"]
+    _team: "Team"
+    _user: "User"
     _config: RunnableConfig
     _state: AssistantState
 
@@ -120,8 +116,10 @@ class MaxTool(BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, state: AssistantState | None = None):
-        super().__init__()
+    def __init__(self, *, team: Team, user: User, state: AssistantState | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._team = team
+        self._user = user
         self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):

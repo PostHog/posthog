@@ -107,6 +107,7 @@ class TestHogFunctionTemplate(TestCase):
             type="destination",
             free=True,
             category=["Testing"],
+            code_language="hog",
         )
 
         # Create the template in the database
@@ -124,6 +125,7 @@ class TestHogFunctionTemplate(TestCase):
             type="destination",
             free=True,
             category=["Testing", "Updated"],  # Changed
+            code_language="hog",
         )
 
         # Update the template
@@ -273,6 +275,7 @@ class TestHogFunctionTemplate(TestCase):
             type="destination",
             free=True,
             category=[],
+            code_language="hog",
         )
 
         template_beta = HogFunctionTemplateDTO(
@@ -284,6 +287,7 @@ class TestHogFunctionTemplate(TestCase):
             type="destination",
             free=True,
             category=[],
+            code_language="hog",
         )
 
         # Create first sha
@@ -309,6 +313,7 @@ class TestHogFunctionTemplate(TestCase):
             type="destination",
             free=True,
             category=[],
+            code_language="hog",
         )
 
         # Create template with mappings
@@ -322,6 +327,7 @@ class TestHogFunctionTemplate(TestCase):
             free=True,
             category=[],
             mappings=[HogFunctionMapping()],
+            code_language="hog",
         )
 
         # Create base template first
@@ -348,6 +354,7 @@ class TestHogFunctionTemplate(TestCase):
             free=True,
             category=[],
             filters={"events": [{"id": "$pageview"}]},
+            code_language="hog",
         )
 
         # Update with filters
@@ -366,6 +373,7 @@ class TestHogFunctionTemplate(TestCase):
             free=True,
             category=[],
             mapping_templates=[HogFunctionMappingTemplate(name="Mapping Template 1")],
+            code_language="hog",
         )
 
         # Update with mapping templates

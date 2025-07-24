@@ -208,6 +208,10 @@ impl RawEvent {
             .as_str()
             .map(|s| s.to_owned())
             .unwrap_or_else(|| value.to_string());
+
+        // Replace null characters with Unicode replacement character
+        let distinct_id = distinct_id.replace('\0', "\u{FFFD}");
+
         match distinct_id.len() {
             0 => None,
             1..=200 => Some(distinct_id),

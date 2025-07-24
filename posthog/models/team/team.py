@@ -132,6 +132,7 @@ class TeamManager(models.Manager):
                 name=str(playlist["name"]),
                 filters=playlist["filters"],
                 description=str(playlist.get("description", "")),
+                type="filters",
             )
         team.save()
         return team

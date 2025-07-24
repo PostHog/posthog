@@ -15,6 +15,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
         description: 'Sends events to a Pub/Sub topic on ingestion.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/pubsub-plugin/master/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: 'return event',
         inputs_schema: [
             {

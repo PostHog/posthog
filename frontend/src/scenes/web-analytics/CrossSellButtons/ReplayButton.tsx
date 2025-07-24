@@ -8,17 +8,17 @@ import { FilterLogicalOperator, ProductKey, PropertyFilterType, PropertyOperator
 
 /**
  * Map breakdown types to their corresponding property filter type
- * Outside the replayButton function
+ * Outside the replayButton function.
+ *
+ * Prefer not to use Person properties, are the user might be using anonymous events.
  */
-const BREAKDOWN_TYPE_MAP: Partial<
-    Record<WebStatsBreakdown, PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session>
-> = {
-    [WebStatsBreakdown.DeviceType]: PropertyFilterType.Person,
+const BREAKDOWN_TYPE_MAP: Partial<Record<WebStatsBreakdown, PropertyFilterType.Event | PropertyFilterType.Session>> = {
+    [WebStatsBreakdown.DeviceType]: PropertyFilterType.Event,
     [WebStatsBreakdown.InitialPage]: PropertyFilterType.Session,
     [WebStatsBreakdown.ExitPage]: PropertyFilterType.Session,
     [WebStatsBreakdown.Page]: PropertyFilterType.Event,
-    [WebStatsBreakdown.Browser]: PropertyFilterType.Person,
-    [WebStatsBreakdown.OS]: PropertyFilterType.Person,
+    [WebStatsBreakdown.Browser]: PropertyFilterType.Event,
+    [WebStatsBreakdown.OS]: PropertyFilterType.Event,
     [WebStatsBreakdown.InitialChannelType]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialReferringDomain]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialUTMSource]: PropertyFilterType.Session,
