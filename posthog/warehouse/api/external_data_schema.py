@@ -13,6 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.hogql.database.database import create_hogql_database
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
@@ -28,7 +29,6 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
 
@@ -300,25 +300,33 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         source: ExternalDataSource = instance.source
 
         if not source.job_inputs:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
-        incremental_columns: list[IncrementalField] = []
+        if not source.source_type:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
+
         source_type_enum = ExternalDataSource.Type(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
         schemas = new_source.get_schemas(config, self.team_id)
 
-        for schema in schemas:
-            if schema.name == instance.name:
-                incremental_columns = schema.incremental_fields
+        schema: SourceSchema | None = None
+
+        for s in schemas:
+            if s.name == instance.name:
+                schema = s
                 break
 
+        if schema is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
+            )
+
         data = {
-            "incremental_fields": incremental_columns,
-            "incremental_available": len(incremental_columns) > 0
-            and source.source_type != ExternalDataSource.Type.STRIPE,
-            "append_available": len(incremental_columns) > 0,
+            "incremental_fields": schema.incremental_fields,
+            "incremental_available": schema.supports_incremental,
+            "append_available": schema.supports_append,
             "full_refresh_available": True,
         }
 
