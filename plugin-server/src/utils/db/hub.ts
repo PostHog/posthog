@@ -174,9 +174,6 @@ export async function createHub(
         geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
-        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
-            process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
-        ),
         appMetrics: new AppMetrics(
             kafkaProducer,
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
