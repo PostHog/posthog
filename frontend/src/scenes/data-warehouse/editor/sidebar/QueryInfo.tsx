@@ -120,10 +120,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     const [startingMaterialization, setStartingMaterialization] = useState(false)
 
-    const currentJobStatus = dataModelingJobs?.results?.[0]?.status
+    const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     useEffect(() => {
         if (
-            currentJobStatus &&
+            currentJobStatus !== null &&
             (currentJobStatus === 'Running' ||
                 currentJobStatus === 'Completed' ||
                 currentJobStatus === 'Failed' ||
@@ -175,19 +175,21 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                 ? 'Materialization is starting'
                                                 : false
                                         }
-                                        onClick={() =>
-                                            editingView &&
-                                            (setStartingMaterialization(true),
-                                            runDataWarehouseSavedQuery(editingView.id))
-                                        }
+                                        onClick={() => {
+                                            if (editingView) {
+                                                setStartingMaterialization(true)
+                                                runDataWarehouseSavedQuery(editingView.id)
+                                            }
+                                        }}
                                         type="secondary"
                                         sideAction={{
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
                                             disabledReason:
-                                                !(startingMaterialization || currentJobStatus === 'Running') &&
-                                                'Materialization is not running',
+                                                startingMaterialization || currentJobStatus === 'Running'
+                                                    ? false
+                                                    : 'Materialization is not running',
                                         }}
                                     >
                                         {startingMaterialization
