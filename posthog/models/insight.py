@@ -46,7 +46,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     filters = models.JSONField(default=dict)
     filters_hash = models.CharField(max_length=400, null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
-    query_metadata = models.JSONField(default=dict, null=True, blank=True)
+    query_metadata = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     saved = models.BooleanField(default=False)

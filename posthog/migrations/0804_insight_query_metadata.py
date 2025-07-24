@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                 migrations.AddField(
                     model_name="insight",
                     name="query_metadata",
-                    field=models.JSONField(blank=True, default=dict, null=True),
+                    field=models.JSONField(blank=True, null=True),
                 ),
                 migrations.AddIndex(
                     model_name="insight",
