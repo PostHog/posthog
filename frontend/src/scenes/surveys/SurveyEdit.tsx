@@ -233,6 +233,7 @@ export default function SurveyEdit(): JSX.Element {
         surveyRepeatedActivationAvailable,
         deviceTypesMatchTypeValidationError,
         surveyErrors,
+        isExternalSurveyFFEnabled,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -339,17 +340,18 @@ export default function SurveyEdit(): JSX.Element {
                                                             Feedback
                                                         </button>
                                                     </PresentationTypeCard>
-                                                    {featureFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS] && (
-                                                        <PresentationTypeCard
-                                                            active={value === SurveyType.ExternalSurvey}
-                                                            onClick={() => onChange(SurveyType.ExternalSurvey)}
-                                                            title="External survey"
-                                                            description="Collect responses via an external link, hosted on PostHog. Price is the same as an in-app survey, but this might change in the future."
-                                                            value={SurveyType.Widget}
-                                                        >
-                                                            <LemonTag type="warning">BETA</LemonTag>
-                                                        </PresentationTypeCard>
-                                                    )}
+                                                    <PresentationTypeCard
+                                                        active={value === SurveyType.ExternalSurvey}
+                                                        onClick={() => onChange(SurveyType.ExternalSurvey)}
+                                                        title="External survey"
+                                                        description="Collect responses via an external link, hosted on PostHog. Make sure you update the posthog-js SDK if you are currently using surveys in your app."
+                                                        value={SurveyType.ExternalSurvey}
+                                                        disabled={!isExternalSurveyFFEnabled}
+                                                    >
+                                                        <LemonTag type="warning">
+                                                            {isExternalSurveyFFEnabled ? 'BETA' : 'COMING SOON'}
+                                                        </LemonTag>
+                                                    </PresentationTypeCard>
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
                                             </div>
