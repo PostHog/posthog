@@ -12,6 +12,7 @@ import pyarrow as pa
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
 from posthog.temporal.common.logger import get_logger
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 
 T = typing.TypeVar("T")
 LOGGER = get_logger()
@@ -274,3 +275,47 @@ def make_retryable_with_exponential_backoff(
                 return result
 
     return inner
+
+
+def handle_non_retryable_errors(non_retryable_error_types: typing.Sequence[str]):
+    """Decorator to handle non-retryable errors in batch export activities.
+
+    This decorator wraps batch export activities to catch exceptions and determine
+    whether they are:
+    a) an internal error and should be retried (by allowing the activity to fail) or
+    b) a user error and should be returned as a BatchExportResult with an error.
+
+    For now, we just take in a list of error class names that should not be retried.
+    In the future, we should use actual exception classes instead of strings.
+
+    Args:
+        non_retryable_error_types: List of error class names that should not be retried.
+
+    Returns:
+        A decorator function that handles exceptions according to the retry policy.
+
+    Example:
+        @handle_non_retryable_errors(("ClientError", "ParamValidationError"))
+        @activity.defn
+        async def insert_into_s3_activity(inputs: S3InsertInputs) -> BatchExportResult:
+            # Activity implementation here
+            return BatchExportResult(records_completed=100)
+    """
+
+    def decorator(func: typing.Callable[..., collections.abc.Awaitable[BatchExportResult]]):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs) -> BatchExportResult:
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                # If we catch an error at any point during this activity, we check if it's a non-retryable error.
+                # If it is, we return a BatchExportResult with the error.
+                # If it's not, we re-raise the error.
+                # TODO: Use actual exception classes instead of strings.
+                if e.__class__.__name__ in non_retryable_error_types:
+                    return BatchExportResult.from_exception(e)
+                raise
+
+        return wrapper
+
+    return decorator

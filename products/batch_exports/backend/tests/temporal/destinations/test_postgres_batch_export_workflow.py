@@ -720,7 +720,8 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         result = await activity_environment.run(insert_into_postgres_activity, insert_inputs)
         assert result.error is not None
-        assert result.error.startswith("MissingPrimaryKeyError: An operation could not be completed as")
+        assert result.error.type == "MissingPrimaryKeyError"
+        assert result.error.message.startswith("An operation could not be completed as")
 
 
 @pytest_asyncio.fixture

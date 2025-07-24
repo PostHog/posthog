@@ -772,8 +772,8 @@ async def execute_batch_export_insert_activity(
         )
         finish_inputs.records_completed = result.records_completed
         finish_inputs.bytes_exported = result.bytes_exported
-        if result.error:
-            finish_inputs.latest_error = result.error
+        if result.error_repr:
+            finish_inputs.latest_error = result.error_repr
             finish_inputs.status = BatchExportRun.Status.FAILED
 
     except exceptions.ActivityError as e:

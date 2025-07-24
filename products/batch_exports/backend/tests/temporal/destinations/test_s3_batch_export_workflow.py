@@ -762,7 +762,12 @@ class TestInsertIntoS3ActivityFromStage:
 
         result = await self._run_activity(activity_environment, insert_inputs)
         assert result.error is not None
-        assert result.error == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
+        assert result.error.type == "UnsupportedFileFormatError"
+        assert result.error.message == "'invalid' is not a supported format for S3 batch exports."
+        assert result.error_repr is not None  # this is the error that will be returned to the user
+        assert (
+            result.error_repr == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
+        )
 
 
 @pytest_asyncio.fixture

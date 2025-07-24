@@ -268,8 +268,11 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         m.post(TEST_URL, status=400, body="A useful error message", repeat=True)
         result = await activity_environment.run(insert_into_http_activity, insert_inputs)
         assert result.error is not None
+        assert result.error.type == "NonRetryableResponseError"
+        assert result.error.message == "NonRetryableResponseError (status: 400): A useful error message"
         assert (
-            result.error == "NonRetryableResponseError: NonRetryableResponseError (status: 400): A useful error message"
+            result.error_repr
+            == "NonRetryableResponseError: NonRetryableResponseError (status: 400): A useful error message"
         )
 
     with (
