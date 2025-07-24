@@ -12,6 +12,7 @@ import {
     BREAKDOWN_OTHER_STRING_LABEL,
     getTrendDatasetKey,
     getTrendResultCustomizationColorToken,
+    getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
 
 import {
@@ -336,16 +337,16 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
     listeners(({ actions, values }) => ({
         toggleHiddenLegendIndex: ({ dataset }) => {
-            if ((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes?.includes(dataset.id)) {
-                actions.updateHiddenLegendIndexes(
-                    (values.insightFilter as TrendsFilter).hiddenLegendIndexes?.filter((idx) => idx !== dataset.id)
-                )
-            } else {
-                actions.updateHiddenLegendIndexes([
-                    ...((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes || []),
-                    dataset.id,
-                ])
-            }
+            const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+            actions.updateInsightFilter({
+                resultCustomizations: {
+                    ...values.resultCustomizations,
+                    [resultCustomizationKey]: {
+                        assignmentBy: values.resultCustomizationBy,
+                        hidden: true, // TODO: actually toggle
+                    },
+                },
+            } as Partial<TrendsFilter>)
         },
     })),
 ])
