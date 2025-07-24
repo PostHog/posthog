@@ -4,8 +4,8 @@
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -33,9 +33,9 @@
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -63,9 +63,9 @@
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -92,8 +92,8 @@
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -121,8 +121,8 @@
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -150,8 +150,8 @@
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -178,7 +178,7 @@
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -206,9 +206,9 @@
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___arr,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -235,8 +235,8 @@
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -263,8 +263,8 @@
   SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -292,9 +292,9 @@
          groups.key AS key,
          groups.`properties___prop with whitespace` AS `prop with whitespace`
   FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
-            argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'prop with whitespace'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS `properties___prop with whitespace`,
-            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
+    (SELECT argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+            argMax(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'prop with whitespace'), ''), 'null'), '^"|"$', ''), NULL), toTimeZone(groups._timestamp, 'UTC')) AS `properties___prop with whitespace`,
+            argMax(ifNull(toTimeZone(groups.created_at, 'UTC'), NULL), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
