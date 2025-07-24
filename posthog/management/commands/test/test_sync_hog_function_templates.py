@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from django.core.management import call_command
 
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.management.commands.sync_hog_function_templates import (
     TEST_INCLUDE_PYTHON_TEMPLATE_IDS,
@@ -27,7 +27,7 @@ class TestSyncHogFunctionTemplates:
         call_command("sync_hog_function_templates")
 
         # Verify that the Python test template was created successfully
-        db_templates = DBHogFunctionTemplate.objects.filter(template_id__in=TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
+        db_templates = HogFunctionTemplate.objects.filter(template_id__in=TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
         assert db_templates.count() == len(TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
         # Verify that each template has the expected ID
@@ -71,7 +71,7 @@ class TestSyncHogFunctionTemplates:
 
         # Verify that Node.js test templates were synced correctly
         for template_id in TEST_INCLUDE_NODEJS_TEMPLATE_IDS:
-            node_template = DBHogFunctionTemplate.objects.filter(template_id=template_id).first()
+            node_template = HogFunctionTemplate.objects.filter(template_id=template_id).first()
             assert node_template is not None
             assert node_template.type == "transformation"
             assert node_template.name == f"Test {template_id}"
@@ -96,7 +96,7 @@ class TestSyncHogFunctionTemplates:
         call_command("sync_hog_function_templates")
 
         # Verify that the Python test templates were still created but not the invalid one
-        db_template_ids = set(DBHogFunctionTemplate.objects.values_list("template_id", flat=True))
+        db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
         assert "invalid_template" not in db_template_ids
 
@@ -110,7 +110,7 @@ class TestSyncHogFunctionTemplates:
         call_command("sync_hog_function_templates")
 
         # Verify that Python test templates were still created
-        db_template_ids = set(DBHogFunctionTemplate.objects.values_list("template_id", flat=True))
+        db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
@@ -123,7 +123,7 @@ class TestSyncHogFunctionTemplates:
         mock_get_hog_function_templates.return_value = mock_response
 
         # Clear any existing templates
-        DBHogFunctionTemplate.objects.all().delete()
+        HogFunctionTemplate.objects.all().delete()
 
         # First run - templates should be created
         from io import StringIO
@@ -164,7 +164,7 @@ class TestSyncHogFunctionTemplates:
         ), f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
 
         # Check that the template was stored correctly
-        db_template = DBHogFunctionTemplate.objects.get(template_id=slack_template.id)
+        db_template = HogFunctionTemplate.objects.get(template_id=slack_template.id)
 
         # Verify core template fields
         assert db_template.name == slack_template.name
@@ -192,7 +192,7 @@ class TestSyncHogFunctionTemplates:
         mock_get_hog_function_templates.return_value = mock_response
 
         # Clear any existing templates
-        DBHogFunctionTemplate.objects.all().delete()
+        HogFunctionTemplate.objects.all().delete()
 
         # Create a test template
         test_template = DataclassTemplate(
@@ -209,18 +209,18 @@ class TestSyncHogFunctionTemplates:
         )
 
         # Save the template to the database
-        template_1, created_1 = DBHogFunctionTemplate.create_from_dataclass(test_template)
+        template_1, created_1 = HogFunctionTemplate.create_from_dataclass(test_template)
         assert created_1 is True
         initial_sha = template_1.sha
 
         # Save the exact same template again
-        template_2, created_2 = DBHogFunctionTemplate.create_from_dataclass(test_template)
+        template_2, created_2 = HogFunctionTemplate.create_from_dataclass(test_template)
         assert created_2 is False  # Should not create a new record
         assert template_2.id == template_1.id  # Should be the same database record
         assert template_2.sha == initial_sha  # sha should be unchanged
 
         # Verify only one template exists in the database
-        template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
+        template_count = HogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
         assert template_count == 1
 
         # Create a modified version of the template (can't modify frozen dataclass)
@@ -238,7 +238,7 @@ class TestSyncHogFunctionTemplates:
         )
 
         # Save the modified template
-        template_3, created_3 = DBHogFunctionTemplate.create_from_dataclass(modified_template)
+        template_3, created_3 = HogFunctionTemplate.create_from_dataclass(modified_template)
         assert created_3 is False  # Should not create a new record
         assert template_3.id == template_1.id  # Should update the same database record
         assert template_3.sha != initial_sha  # sha should be different
@@ -247,5 +247,5 @@ class TestSyncHogFunctionTemplates:
         assert template_3.code == "return null"
 
         # Verify still only one template exists in the database
-        template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
+        template_count = HogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
         assert template_count == 1

@@ -10,14 +10,14 @@ from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -83,7 +83,7 @@ def _create_template_from_mock(template_data):
     serializer = HogFunctionTemplateSerializer(data=template_data)
     serializer.is_valid(raise_exception=True)
     template = serializer.save()
-    DBHogFunctionTemplate.create_from_dataclass(template)
+    HogFunctionTemplate.create_from_dataclass(template)
     return template
 
 
@@ -91,7 +91,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
     def setUp(self):
         super().setUp()
         # Create slack template in DB
-        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        HogFunctionTemplate.create_from_dataclass(template_slack)
         _create_template_from_mock(webhook_template)
 
         # Mock the API call to get templates
@@ -238,7 +238,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.organization.save()
 
         # Create slack template in DB
-        DBHogFunctionTemplate.create_from_dataclass(template_slack)
+        HogFunctionTemplate.create_from_dataclass(template_slack)
         _create_template_from_mock(webhook_template)
         _create_template_from_mock(geoip_template)
 
@@ -2187,11 +2187,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         When creating a HogFunction with a template_id, the hog_function_template FK should be set to the latest template.
         When creating without a template_id, the FK should be null.
         """
-        from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
-        from posthog.models.hog_functions.hog_function import HogFunction
 
         # Create a template in the DB
-        db_template = DBHogFunctionTemplate.objects.create(
+        _template = HogFunctionTemplate.objects.create(
             template_id="template-fk-test",
             sha="abcdef",
             name="FK Test Template",
@@ -2218,7 +2216,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         hog_function_id = response.json()["id"]
         hog_function = HogFunction.objects.get(id=hog_function_id)
         assert hog_function.hog_function_template is not None, "FK should be set when template_id is provided"
-        assert hog_function.hog_function_template.id == db_template.id, "FK should point to the correct template"
+        assert hog_function.hog_function_template.id == _template.id, "FK should point to the correct template"
 
         # Create a HogFunction without template_id
         response = self.client.post(

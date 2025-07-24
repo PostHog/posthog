@@ -17,7 +17,7 @@ from rest_framework.response import Response
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -44,7 +44,7 @@ from posthog.models.hog_functions.hog_function import (
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
 from django.conf import settings
-from posthog.models.hog_function_template import HogFunctionTemplate 
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -178,7 +178,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
-        template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
+        template = HogFunctionTemplate.objects.get(template_id=data["template_id"]) if data["template_id"] else None
         if not template:
             properties = {"team_id": team.id, "template_id": data.get("template_id")}
             if instance and instance.id:
@@ -218,7 +218,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Handle template values
             template_id = data.get("template_id")
             if template_id:
-                template = HogFunctionTemplates.template(template_id)
+                template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
                     data["hog"] = data.get("hog") or template.hog
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
@@ -329,7 +329,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         template_id = validated_data.get("template_id")
         if template_id:
-            db_template = DBHogFunctionTemplate.get_template(template_id)
+            db_template = HogFunctionTemplate.objects.get(template_id=template_id)
             if not db_template:
                 raise serializers.ValidationError({"template_id": f"No template found for id '{template_id}'"})
             validated_data["hog_function_template"] = db_template

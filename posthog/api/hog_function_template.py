@@ -1,6 +1,6 @@
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import viewsets, permissions, mixins
+from rest_framework import permissions, mixins, viewsets
 from rest_framework import serializers
 
 from posthog.cdp.templates.hog_function_template import (
@@ -27,12 +27,12 @@ class HogFunctionMappingTemplateSerializer(DataclassSerializer):
 class HogFunctionTemplateSerializer(serializers.ModelSerializer):
     mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
     mappings = HogFunctionMappingSerializer(many=True, required=False)
+    id = serializers.CharField(source="template_id")
 
     class Meta:
         model = HogFunctionTemplate
         fields = [
             "id",
-            "template_id",
             "sha",
             "name",
             "description",
@@ -55,17 +55,22 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_id(self, obj):
-        return obj.template_id
-
 
 # NOTE: There is nothing currently private about these values
-class PublicHogFunctionTemplateViewSet(viewsets.ModelViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+class PublicHogFunctionTemplateViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "team", "created_by", "enabled", "type"]
+    filterset_fields = ["template_id", "type"]
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
+    lookup_field = "template_id"
+
+    # TODO
 
     # def list(self, request: Request, **kwargs):
     #     types = ["destination"]

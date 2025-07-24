@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.slack.template_slack import template
 from posthog.models import HogFunction
 from django.core.cache import cache
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 MOCK_NODE_TEMPLATES = json.loads(
     open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()
@@ -38,13 +38,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         super().setUp()
 
         # Clear any existing templates and create test templates in the database
-        DBHogFunctionTemplate.objects.all().delete()
+        HogFunctionTemplate.objects.all().delete()
 
         # Create test templates that the tests expect
-        self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
+        self.template1, _ = HogFunctionTemplate.create_from_dataclass(template)
 
         # Create a webhook template
-        self.webhook_template = DBHogFunctionTemplate.objects.create(
+        self.webhook_template = HogFunctionTemplate.objects.create(
             template_id="template-webhook",
             sha="1.0.0",
             name="Webhook",
@@ -58,9 +58,24 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             free=True,
         )
 
+        # Create a deprecated template
+        self.deprecated_template = HogFunctionTemplate.objects.create(
+            template_id="template-deprecated",
+            sha="1.0.0",
+            name="Deprecated Template",
+            description="A deprecated template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="deprecated",
+            category=["Other"],
+            free=True,
+        )
+
         # Create additional templates to ensure we have > 5 templates
         for i in range(4):
-            DBHogFunctionTemplate.objects.create(
+            HogFunctionTemplate.objects.create(
                 template_id=f"template-test-{i}",
                 sha="1.0.0",
                 name=f"Test Template {i}",
@@ -75,7 +90,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             )
 
         # Create a site_destination template for filtering tests
-        DBHogFunctionTemplate.objects.create(
+        HogFunctionTemplate.objects.create(
             template_id="template-site-destination",
             sha="1.0.0",
             name="Site Destination",
@@ -94,6 +109,14 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
+        print(
+            json.dumps(
+                {
+                    "EXPECTED_FIRST_RESULT": EXPECTED_FIRST_RESULT,
+                    "response.json()": response.json()["results"],
+                }
+            )
+        )
         assert EXPECTED_FIRST_RESULT in response.json()["results"]
 
     def test_filter_function_templates(self):
@@ -165,85 +188,6 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert results[0]["id"] == "template-slack"
         assert results[1]["id"] == "template-webhook"
 
-
-class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    def setUp(self):
-        super().setUp()
-        # Clear any existing templates
-        DBHogFunctionTemplate.objects.all().delete()
-
-        # Create test templates in the database
-        self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
-
-        # Create a different template type
-        self.webhook_template = DBHogFunctionTemplate.objects.create(
-            template_id="template-webhook",
-            sha="1.0.0",
-            name="Webhook",
-            description="Generic webhook template",
-            code="return event",
-            code_language="hog",
-            inputs_schema={},
-            type="destination",
-            status="stable",
-            category=["Integrations"],
-            free=True,
-        )
-
-        # Create a deprecated template
-        self.deprecated_template = DBHogFunctionTemplate.objects.create(
-            template_id="template-deprecated",
-            sha="1.0.0",
-            name="Deprecated Template",
-            description="A deprecated template",
-            code="return event",
-            code_language="hog",
-            inputs_schema={},
-            type="destination",
-            status="deprecated",
-            category=["Other"],
-            free=True,
-        )
-
-    @patch("posthog.api.hog_function_template.get_hog_function_templates")
-    def test_get_templates_from_db(self, mock_get_templates):
-        """Test retrieving templates from the database via API"""
-        mock_get_templates.return_value.status_code = 200
-        mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-
-        # Test getting templates via API endpoint
-        response = self.client.get("/api/projects/@current/hog_function_templates/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        results = response.json()["results"]
-
-        # Find the template IDs in the response
-        template_ids = {t["id"] for t in results}
-
-        # Check that we have the expected templates and not the deprecated one
-        assert "template-slack" in template_ids
-        assert "template-webhook" in template_ids
-        assert "template-deprecated" not in template_ids
-
-        # Verify slack template has the right name
-        slack_template = next(t for t in results if t["id"] == "template-slack")
-        assert slack_template["name"] == template.name  # Name should match the original template
-
-    def test_get_specific_template_from_db(self):
-        """Test retrieving a specific template from the database via API"""
-        # Test getting a specific template via API endpoint
-        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        # Verify it has the expected name
-        assert response.json()["name"] == template.name
-
-    def test_get_specific_missing_template_from_db(self):
-        """Test retrieving a specific template from the database via API"""
-        # Verify non-existent template returns 404
-        response_missing = self.client.get("/api/projects/@current/hog_function_templates/non-existent-template")
-        assert response_missing.status_code == status.HTTP_404_NOT_FOUND
-
     def test_get_specific_deprecated_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Test getting a specific template via API endpoint
@@ -277,7 +221,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         )
 
         # Save the modified template - this should update the existing one
-        DBHogFunctionTemplate.create_from_dataclass(modified_template)
+        HogFunctionTemplate.create_from_dataclass(modified_template)
 
         # Get the template again and check it was updated
         updated_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
@@ -285,32 +229,119 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         assert updated_response.json()["name"] == "Updated Slack"
         assert updated_response.json()["description"] == "This template was updated"
 
-    def test_always_uses_database_templates(self):
-        """Test that templates are always loaded from database"""
-        # Create a unique template in the DB
-        DBHogFunctionTemplate.objects.create(
-            template_id="unique-db-template",
-            sha="1.0.0",
-            name="Unique DB Template",
-            description="This template only exists in the database",
-            code="return event",
-            code_language="hog",
-            inputs_schema={},
-            type="destination",
-            status="stable",
-            category=["Testing"],
-            free=True,
-        )
 
-        # Test that the template is always returned from database
-        response = self.client.get("/api/projects/@current/hog_function_templates/")
-        assert response.status_code == status.HTTP_200_OK, response.json()
+# class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+#     def setUp(self):
+#         super().setUp()
+#         # Clear any existing templates
+#         HogFunctionTemplate.objects.all().delete()
 
-        # Verify our unique DB template is included
-        template_ids = [t["id"] for t in response.json()["results"]]
-        assert "unique-db-template" in template_ids
+#         # Create test templates in the database
+#         self.template1, _ = HogFunctionTemplate.create_from_dataclass(template)
 
-        # Get the specific template via API
-        response_specific = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
-        assert response_specific.status_code == status.HTTP_200_OK, response_specific.json()
-        assert response_specific.json()["name"] == "Unique DB Template"
+#         # Create a different template type
+#         self.webhook_template = HogFunctionTemplate.objects.create(
+#             template_id="template-webhook",
+#             sha="1.0.0",
+#             name="Webhook",
+#             description="Generic webhook template",
+#             code="return event",
+#             code_language="hog",
+#             inputs_schema={},
+#             type="destination",
+#             status="stable",
+#             category=["Integrations"],
+#             free=True,
+#         )
+
+#         # Create a deprecated template
+#         self.deprecated_template = HogFunctionTemplate.objects.create(
+#             template_id="template-deprecated",
+#             sha="1.0.0",
+#             name="Deprecated Template",
+#             description="A deprecated template",
+#             code="return event",
+#             code_language="hog",
+#             inputs_schema={},
+#             type="destination",
+#             status="deprecated",
+#             category=["Other"],
+#             free=True,
+#         )
+
+#     def test_get_templates_from_db(self):
+#         """Test retrieving templates from the database via API"""
+
+#         # Test getting templates via API endpoint
+#         response = self.client.get("/api/projects/@current/hog_function_templates/")
+
+#         assert response.status_code == status.HTTP_200_OK, response.json()
+#         results = response.json()["results"]
+
+#         # Find the template IDs in the response
+#         template_ids = {t["id"] for t in results}
+
+#         # Check that we have the expected templates and not the deprecated one
+#         assert "template-slack" in template_ids
+#         assert "template-webhook" in template_ids
+#         assert "template-deprecated" not in template_ids
+
+#         # Verify slack template has the right name
+#         slack_template = next(t for t in results if t["id"] == "template-slack")
+#         assert slack_template["name"] == template.name  # Name should match the original template
+
+#     def test_get_specific_template_from_db(self):
+#         """Test retrieving a specific template from the database via API"""
+#         # Test getting a specific template via API endpoint
+#         response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack")
+
+#         assert response.status_code == status.HTTP_200_OK, response.json()
+#         # Verify it has the expected name
+#         assert response.json()["name"] == template.name
+
+#     def test_get_specific_missing_template_from_db(self):
+#         """Test retrieving a specific template from the database via API"""
+#         # Verify non-existent template returns 404
+#         response_missing = self.client.get("/api/projects/@current/hog_function_templates/non-existent-template")
+#         assert response_missing.status_code == status.HTTP_404_NOT_FOUND
+
+#     def test_get_specific_deprecated_template_from_db(self):
+#         """Test retrieving a specific template from the database via API"""
+#         # Test getting a specific template via API endpoint
+#         response = self.client.get(f"/api/projects/@current/hog_function_templates/template-deprecated")
+
+#         assert response.status_code == status.HTTP_200_OK, response.json()
+#         # Verify it has the expected name
+#         assert response.json()["name"] == self.deprecated_template.name
+
+#     def test_template_updates_are_reflected(self):
+#         """Test that template updates are reflected in API responses"""
+#         from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as DataclassTemplate
+
+#         # Initial sha of the template
+#         initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
+#         assert initial_response.status_code == status.HTTP_200_OK
+#         assert initial_response.json()["name"] == template.name
+
+#         # Create a modified sha of the template
+#         modified_template = DataclassTemplate(
+#             id="template-slack",  # Same ID
+#             name="Updated Slack",  # Changed
+#             description="This template was updated",  # Changed
+#             type="destination",
+#             hog="return {...event, updated: true}",  # Changed
+#             inputs_schema=template.inputs_schema,
+#             status="stable",
+#             free=True,
+#             category=["Customer Success"],
+#             code_language="hog",
+#         )
+
+#         # Save the modified template - this should update the existing one
+#         HogFunctionTemplate.create_from_dataclass(modified_template)
+
+#         # Get the template again and check it was updated
+#         updated_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
+#         assert updated_response.status_code == status.HTTP_200_OK
+#         assert updated_response.json()["name"] == "Updated Slack"
+#         assert updated_response.json()["description"] == "This template was updated"

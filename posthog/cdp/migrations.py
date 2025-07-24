@@ -1,7 +1,6 @@
 import json
 from typing import Any
 from posthog.api.hog_function import HogFunctionSerializer
-from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginAttachment, PluginConfig

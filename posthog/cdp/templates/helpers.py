@@ -14,7 +14,7 @@ from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
 from posthog.test.base import BaseTest, APIBaseTest
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 # TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
@@ -111,7 +111,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         # Create the template in the DB
-        DBHogFunctionTemplate.create_from_dataclass(self.template)
+        HogFunctionTemplate.create_from_dataclass(self.template)
         self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
         self.organization.save()
 

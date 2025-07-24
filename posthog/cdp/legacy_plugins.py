@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.api.hog_function import HogFunctionSerializer
-from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> Optional[HogFunctionSerializer]:
@@ -16,7 +16,7 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     if plugin_id == "user-agent":
         plugin_id = "user-agent-plugin"
 
-    template = HogFunctionTemplates.template(f"plugin-{plugin_id}")
+    template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
 
     if not template:
         raise Exception(f"Template not found for plugin {plugin_id}")
