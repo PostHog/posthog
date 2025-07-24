@@ -369,13 +369,13 @@ export function OverViewTab({
                     dropdownMatchSelectWidth={false}
                     size="small"
                     onChange={(status) => {
+                        const { active, ...restFilters } = filters || {}
                         if (status === 'all') {
-                            if (filters) {
-                                const { active, ...restFilters } = filters
-                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                            }
+                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                        } else if (status === 'STALE') {
+                            setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
                         } else {
-                            setFeatureFlagsFilters({ active: status, page: 1 })
+                            setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                         }
                     }}
                     options={[
@@ -385,6 +385,11 @@ export function OverViewTab({
                             label: 'Disabled',
                             value: 'false',
                             'data-attr': 'feature-flag-select-status-disabled',
+                        },
+                        {
+                            label: 'Stale',
+                            value: 'STALE',
+                            'data-attr': 'feature-flag-select-status-stale',
                         },
                     ]}
                     value={filters.active ?? 'all'}

@@ -5516,6 +5516,38 @@
          AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.191
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user1',
+                                                      'user10',
+                                                      'user2',
+                                                      'user3',
+                                                      'user4',
+                                                      'user5',
+                                                      'user6',
+                                                      'user7',
+                                                      'user8',
+                                                      'user9')
+         AND "posthog_persondistinctid"."team_id" = 99999)
+  '''
+# ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.2
   '''
   SELECT "posthog_organizationmembership"."id",
