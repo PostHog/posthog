@@ -37,44 +37,39 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         theme,
     } = useValues(trendsDataLogic(insightProps))
 
-    function updateData(): void {
-        const _data = [...indexedResults]
-        const colorList = indexedResults.map(getTrendsColor)
-
-        setData([
-            {
-                labels: _data.map((item) => item.label),
-                data: _data.map((item) => item.aggregated_value),
-                actions: _data.map((item) => item.action),
-                personsValues: _data.map((item) => item.persons),
-                breakdownValues: _data.map((item) => item.breakdown_value),
-                breakdownLabels: _data.map((item) => {
-                    return formatBreakdownLabel(
-                        item.breakdown_value,
-                        breakdownFilter,
-                        cohorts?.results,
-                        formatPropertyValueForDisplay,
-                        undefined,
-                        item.label
-                    )
-                }),
-                compareLabels: _data.map((item) => item.compare_label),
-                backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
-            },
-        ])
-        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
-    }
-
     useEffect(() => {
         if (indexedResults) {
-            updateData()
+            const colorList = indexedResults.map(getTrendsColor)
+
+            setData([
+                {
+                    labels: indexedResults.map((item) => item.label),
+                    data: indexedResults.map((item) => item.aggregated_value),
+                    actions: indexedResults.map((item) => item.action),
+                    personsValues: indexedResults.map((item) => item.persons),
+                    breakdownValues: indexedResults.map((item) => item.breakdown_value),
+                    breakdownLabels: indexedResults.map((item) => {
+                        return formatBreakdownLabel(
+                            item.breakdown_value,
+                            breakdownFilter,
+                            cohorts?.results,
+                            formatPropertyValueForDisplay,
+                            undefined,
+                            item.label
+                        )
+                    }),
+                    compareLabels: indexedResults.map((item) => item.compare_label),
+                    backgroundColor: colorList,
+                    hoverBackgroundColor: colorList,
+                    hoverBorderColor: colorList,
+                    borderColor: colorList,
+                    hoverBorderWidth: 10,
+                    borderWidth: 1,
+                },
+            ])
+            setTotal(indexedResults.reduce((prev, item) => prev + item.aggregated_value, 0))
         }
-    }, [indexedResults, theme])
+    }, [indexedResults, theme, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay, getTrendsColor])
 
     return data && total > 0 ? (
         <LineGraph
