@@ -394,7 +394,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'> & {
     perform: (
         request: (
             url: string,
