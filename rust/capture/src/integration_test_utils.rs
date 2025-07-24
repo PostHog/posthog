@@ -124,7 +124,7 @@ pub fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             billing_limiter,
             TokenDropper::default(),
             false,
-            CaptureMode::Events,
+            mode,
             None,
             25 * 1024 * 1024,
             enable_historical_rerouting,
