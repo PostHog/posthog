@@ -9,6 +9,7 @@ import {
     DropdownMenuItem,
     DropdownMenuItemIndicator,
     DropdownMenuLabel,
+    DropdownMenuOpenIndicator,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuSeparator,
@@ -44,7 +45,7 @@ export function Default(): JSX.Element {
                     <ButtonPrimitive>
                         <IconSearch />
                         Dropdown
-                        <IconChevronRight className="rotate-90 group-data-[state=open]/button-root:rotate-270" />
+                        <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
@@ -126,6 +127,7 @@ export function Default(): JSX.Element {
                     <ButtonPrimitive>
                         <IconSearch />
                         Checkboxes
+                        <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
@@ -164,6 +166,7 @@ export function Default(): JSX.Element {
                     <ButtonPrimitive>
                         <IconSearch />
                         Radio group
+                        <DropdownMenuOpenIndicator />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
 

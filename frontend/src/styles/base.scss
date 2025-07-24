@@ -558,7 +558,7 @@
 
     // Shadows
     // //////////////////////////////////////////////////////////
-    --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
+    --shadow-elevation-3000: 0 3px 0 var(--bg-fill-highlight-200);
 
     // Non-color vars
     --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
@@ -761,7 +761,7 @@
     --danger-3000-frame-bg-light: #f54e0080;
     --danger-3000-button-border-light: #e96b30;
     --danger-3000-button-border-hover-light: #f54e00;
-    --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
+    --shadow-elevation-3000-light: 0 3px 0 var(--border-primary);
     --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
     --text-3000-dark: #fff;
     --text-secondary-3000-dark: rgb(255 255 255 / 70%);
@@ -1009,7 +1009,7 @@
     --bg-table: #232429;
     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
     --link: var(--link-3000-dark);
-    --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+    --shadow-elevation-3000: 0 3px 0 var(--border-primary);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
     --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);

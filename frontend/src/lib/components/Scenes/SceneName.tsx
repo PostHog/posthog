@@ -1,10 +1,8 @@
 import { IconCheck, IconX } from '@posthog/icons'
-import { useValues } from 'kea'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { SceneInputProps } from './utils'
 
 type SceneNameProps = SceneInputProps
@@ -16,10 +14,7 @@ export function SceneName({
     optional = false,
     canEdit = true,
 }: SceneNameProps): JSX.Element {
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
-    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
-    const value = typeof lastBreadcrumb?.name === 'string' ? (lastBreadcrumb.name as string) : defaultValue
-    const [localValue, setLocalValue] = useState(value)
+    const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -73,7 +68,7 @@ export function SceneName({
                     type="button"
                     variant="outline"
                     onClick={() => {
-                        setLocalValue(value)
+                        setLocalValue(defaultValue)
                         setLocalIsEditing(false)
                     }}
                     tooltip="Cancel"
@@ -95,8 +90,8 @@ export function SceneName({
                     menuItem
                     inert={!canEdit}
                 >
-                    {value !== '' ? (
-                        value
+                    {localValue !== '' ? (
+                        localValue
                     ) : (
                         <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
                     )}

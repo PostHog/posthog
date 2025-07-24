@@ -85,6 +85,7 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -128,7 +129,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const [tags, setTags] = useState(insight.tags)
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
+    const defaultInsightName =
+        typeof lastBreadcrumb?.name === 'string'
+            ? (lastBreadcrumb.name as string)
+            : insight.name || insight.derived_name
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
     const dashboardOverridesExist =
@@ -583,7 +589,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 <>
                     <ScenePanelMetaInfo>
                         <SceneName
-                            defaultValue={insight.name || insight.derived_name || ''}
+                            defaultValue={defaultInsightName || ''}
                             onSave={(value) => setInsightMetadata({ name: value })}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
