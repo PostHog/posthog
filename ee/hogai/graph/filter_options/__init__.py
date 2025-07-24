@@ -2,4 +2,8 @@
 
 from .types import FilterOptionsState, PartialFilterOptionsState, FilterOptionsNodeName
 
-__all__ = ["FilterOptionsState", "PartialFilterOptionsState", "FilterOptionsNodeName"]
+__all__ = [
+    "FilterOptionsState",
+    "PartialFilterOptionsState",
+    "FilterOptionsNodeName",
+]

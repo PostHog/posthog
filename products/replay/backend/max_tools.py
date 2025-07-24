@@ -1,20 +1,48 @@
 import logging
 from pydantic import BaseModel, Field
-
-from ee.hogai.tool import MaxTool
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
-from posthog.schema import MaxRecordingUniversalFilters
-
-# Import the prompts you want to pass to the graph
+from ee.hogai.tool import MaxTool, FilterProfile, register_filter_profile
+from posthog.schema import MaxRecordingUniversalFilters, AssistantContextualTool
 from .prompts import (
     PRODUCT_DESCRIPTION_PROMPT,
-    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
-    MULTIPLE_FILTERS_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
+    TOOL_USAGE_PROMPT,
+    PROPERTY_FILTER_TYPES_PROMPT,
+    DATE_FIELDS_PROMPT,
+    HUMAN_IN_THE_LOOP_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+# Create and register the FilterProfile for session recordings after the class is defined
+# Format the prompt with all the required components
+formatted_prompt = f"""
+{PRODUCT_DESCRIPTION_PROMPT}
+
+{SESSION_REPLAY_EXAMPLES_PROMPT}
+
+{FILTER_FIELDS_TAXONOMY_PROMPT}
+
+{PROPERTY_FILTER_TYPES_PROMPT}
+
+{DATE_FIELDS_PROMPT}
+
+{TOOL_USAGE_PROMPT}
+
+{HUMAN_IN_THE_LOOP_PROMPT}
+""".strip()
+
+SESSION_RECORDINGS_FILTER_PROFILE = FilterProfile(
+    tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+    response_model=MaxRecordingUniversalFilters,
+    formatted_prompt=formatted_prompt,
+)
+
+# Register the filter profile
+register_filter_profile(SESSION_RECORDINGS_FILTER_PROFILE)
 
 
 class SearchSessionRecordingsArgs(BaseModel):
@@ -36,23 +64,14 @@ class SearchSessionRecordingsTool(MaxTool):
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        # Create graph with injected prompts
-        injected_prompts = {
-            "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
-            "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-            "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
-            "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
-        }
-
-        graph = FilterOptionsGraph(
-            team=self._team, user=self._user, injected_prompts=injected_prompts
-        ).compile_full_graph()
+        graph = FilterOptionsGraph(team=self._team, user=self._user).compile_full_graph()
 
         graph_input = {
             "change": change,
             "generated_filter_options": None,
             "messages": [],
             "tool_progress_messages": [],
+            "tool_name": SESSION_RECORDINGS_FILTER_PROFILE.tool_name,
             **self.context,
         }
 

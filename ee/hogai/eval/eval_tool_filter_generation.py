@@ -17,11 +17,9 @@ from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
 from ee.models.assistant import Conversation
 from .conftest import MaxEval
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from products.replay.backend.max_tools import (
-    PRODUCT_DESCRIPTION_PROMPT,
-    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-    SESSION_REPLAY_EXAMPLES_PROMPT,
-)
+from ee.hogai.tool import register_filter_profile
+from posthog.schema import AssistantContextualTool
+from products.replay.backend.max_tools import SESSION_RECORDINGS_FILTER_PROFILE
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +40,11 @@ DUMMY_CURRENT_FILTERS = {
 
 @pytest.fixture
 def call_search_session_recordings(demo_org_team_user):
-    injected_prompts = {
-        "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
-        "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-        "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
-    }
-    graph = FilterOptionsGraph(
-        demo_org_team_user[1], demo_org_team_user[2], injected_prompts=injected_prompts
-    ).compile_full_graph(checkpointer=DjangoCheckpointer())
+    register_filter_profile(SESSION_RECORDINGS_FILTER_PROFILE)
+
+    graph = FilterOptionsGraph(demo_org_team_user[1], demo_org_team_user[2]).compile_full_graph(
+        checkpointer=DjangoCheckpointer()
+    )
 
     async def callable(change: str) -> dict:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
@@ -58,10 +53,10 @@ def call_search_session_recordings(demo_org_team_user):
             "change": change,
             "generated_filter_options": None,
             "current_filters": DUMMY_CURRENT_FILTERS,
+            "tool_name": AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
         }
 
         result = await graph.ainvoke(graph_input, config={"configurable": {"thread_id": conversation.id}})
-        # The tool returns a tuple of (message, MaxRecordingUniversalFilters)
         return result
 
     return callable
@@ -135,8 +130,29 @@ class FilterGenerationCorrectness(Scorer):
         if len(actual.values) != len(expected.values):
             return False
 
-        # Simple comparison - in a real implementation you might want more sophisticated matching
         return True
+
+
+class AskUserForHelp(Scorer):
+    """Score the correctness of the ask_user_for_help tool."""
+
+    def _name(self):
+        return "ask_user_for_help_scorer"
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        if "generated_filter_options" not in output or output["generated_filter_options"] is None:
+            if "intermediate_steps" in output and output["intermediate_steps"][-1][0].tool == "ask_user_for_help":
+                return Score(
+                    name=self._name(), score=1, metadata={"reason": "LLM returned valid ask_user_for_help response"}
+                )
+            else:
+                return Score(
+                    name=self._name(),
+                    score=0,
+                    metadata={"reason": "LLM did not return valid ask_user_for_help response"},
+                )
+        else:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned a filter"})
 
 
 @pytest.mark.django_db
@@ -225,5 +241,17 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                     }
                 ),
             ),
+        ],
+    )
+
+
+@pytest.mark.django_db
+async def eval_tool_search_session_recordings_ask_user_for_help(call_search_session_recordings):
+    await MaxEval(
+        experiment_name="tool_search_session_recordings_ask_user_for_help",
+        task=call_search_session_recordings,
+        scores=[AskUserForHelp()],
+        data=[
+            EvalCase(input="Tell me something about insights", expected="clarify"),
         ],
     )

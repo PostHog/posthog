@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar, Optional
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -13,6 +13,41 @@ from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
 from posthog.models import Team, User
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
+
+
+# Type variable for filter response types
+T = TypeVar("T", bound=BaseModel)
+
+
+class FilterProfile(BaseModel):
+    """Base class for filter profiles that define how filter generation works for specific tools."""
+
+    tool_name: str
+    """The name of the tool this profile is for (must match AssistantContextualTool)"""
+
+    response_model: type[T]
+    """The Pydantic model for the filter response (e.g., MaxRecordingUniversalFilters)"""
+
+    formatted_prompt: Optional[str] = None
+    """The formatted prompt with all parameters injected. Set by the tool before using the profile."""
+
+
+# Registry for filter profiles
+FILTER_PROFILES: dict[AssistantContextualTool, FilterProfile] = {}
+
+
+def register_filter_profile(profile: FilterProfile) -> None:
+    """Register a filter profile for a specific tool."""
+    tool_name = AssistantContextualTool(profile.tool_name)
+    FILTER_PROFILES[tool_name] = profile
+
+
+def get_filter_profile(tool_name: str) -> FilterProfile | None:
+    """Get the filter profile for a given tool name."""
+    try:
+        return FILTER_PROFILES[AssistantContextualTool(tool_name)]
+    except (ValueError, KeyError):
+        return None
 
 
 # Lower casing matters here. Do not change it.

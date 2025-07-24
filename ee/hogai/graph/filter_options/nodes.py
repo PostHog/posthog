@@ -1,5 +1,4 @@
 from functools import cached_property
-from typing import cast, Optional
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -20,38 +19,25 @@ from ee.hogai.graph.query_planner.toolkit import (
 )
 
 from .prompts import (
-    FILTER_INITIAL_PROMPT,
-    FILTER_FIELDS_TAXONOMY_PROMPT,
-    HUMAN_IN_THE_LOOP_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
-    PRODUCT_DESCRIPTION_PROMPT,
-    GROUP_PROPERTY_FILTER_TYPES_PROMPT,
-    RESPONSE_FORMATS_PROMPT,
-    FILTER_LOGICAL_OPERATORS_PROMPT,
-    DATE_FIELDS_PROMPT,
-    TOOL_USAGE_PROMPT,
-    EXAMPLES_PROMPT,
-)
-from posthog.models.group_type_mapping import GroupTypeMapping
-from .toolkit import EntityType, FilterOptionsTool, FilterOptionsToolkit, ask_user_for_help, final_answer
-
-from abc import ABC
-
-from pydantic import ValidationError
-
-from .prompts import (
+    GROUPS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
 )
+from posthog.models.group_type_mapping import GroupTypeMapping
+from .toolkit import EntityType, FilterOptionsTool, FilterOptionsToolkit, ask_user_for_help, create_final_answer_model
+
+from abc import ABC
+from ee.hogai.tool import get_filter_profile
+from pydantic import ValidationError
 from ee.hogai.llm import MaxChatOpenAI
 
 
 class FilterOptionsNode(FilterOptionsBaseNode):
     """Node for generating filtering options based on user queries."""
 
-    def __init__(self, team, user, injected_prompts: Optional[dict] = None):
+    def __init__(self, team, user):
         super().__init__(team, user)
-        self.injected_prompts = injected_prompts or {}
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -66,15 +52,23 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         """Get all available entities as strings."""
         return EntityType.values() + self._team_group_types
 
-    def _get_react_property_filters_prompt(self) -> str:
-        return cast(
-            str,
-            ChatPromptTemplate.from_template(FILTER_FIELDS_TAXONOMY_PROMPT, template_format="mustache")
-            .format_messages(groups=self._team_group_types)[0]
-            .content,
-        )
+    def _get_filter_profile(self, state: FilterOptionsState):
+        """Get the filter profile for this tool. Raises error if not found."""
+        if not state.tool_name:
+            raise ValueError("tool_name is required in state for filter generation")
+
+        profile = get_filter_profile(state.tool_name)
+        if not profile:
+            raise ValueError(
+                f"No FilterProfile registered for tool '{state.tool_name}'. Register a FilterProfile before using filter generation."
+            )
+        return profile
 
     def _get_model(self, state: FilterOptionsState):
+        # Create dynamic final_answer tool based on filter profile
+        filter_profile = self._get_filter_profile(state)
+        dynamic_final_answer = create_final_answer_model(filter_profile.response_model)
+
         return MaxChatOpenAI(
             model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
         ).bind_tools(
@@ -84,7 +78,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
                 retrieve_event_properties,
                 retrieve_event_property_values,
                 ask_user_for_help,
-                final_answer,
+                dynamic_final_answer,
             ],
             tool_choice="required",
             parallel_tool_calls=False,
@@ -95,56 +89,35 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        # Use injected prompts to build dynamic FILTER_INITIAL_PROMPT
-        dynamic_filter_prompt = self._get_filter_generation_prompt(self.injected_prompts)
-
-        # Always include the base system and conversation setup
-        system_messages = [
-            ("system", dynamic_filter_prompt),  # Use dynamic prompt instead of static
-            ("system", self._get_react_property_filters_prompt()),
-            ("system", HUMAN_IN_THE_LOOP_PROMPT),
-        ]
-
-        messages = [*system_messages, ("human", USER_FILTER_OPTIONS_PROMPT)]
-
-        # Add any existing tool messages from state
-        conversation = ChatPromptTemplate(messages, template_format="mustache")
+        system_messages = [("system", self._get_filter_generation_prompt(state)), ("human", USER_FILTER_OPTIONS_PROMPT)]
+        messages = [*system_messages]
 
         progress_messages = list(getattr(state, "tool_progress_messages", []))
-        all_messages = [*conversation.messages, *progress_messages]
+        all_messages = [*messages, *progress_messages]
 
         full_conversation = ChatPromptTemplate(all_messages, template_format="mustache")
 
         return full_conversation
 
-    def _get_filter_generation_prompt(self, injected_prompts: dict) -> str:
-        return cast(
-            str,
-            ChatPromptTemplate.from_template(FILTER_INITIAL_PROMPT, template_format="mustache")
-            .format_messages(
-                **{
-                    "product_description_prompt": injected_prompts.get(
-                        "product_description_prompt", PRODUCT_DESCRIPTION_PROMPT
-                    ),
-                    "group_property_filter_types_prompt": injected_prompts.get(
-                        "group_property_filter_types_prompt", GROUP_PROPERTY_FILTER_TYPES_PROMPT
-                    ),
-                    "response_formats_prompt": injected_prompts.get("response_formats_prompt", RESPONSE_FORMATS_PROMPT),
-                    "filter_logical_operators_prompt": injected_prompts.get(
-                        "filter_logical_operators_prompt", FILTER_LOGICAL_OPERATORS_PROMPT
-                    ),
-                    "multiple_filters_prompt": injected_prompts.get("multiple_filters_prompt", ""),
-                    "date_fields_prompt": injected_prompts.get("date_fields_prompt", DATE_FIELDS_PROMPT),
-                    "tool_usage_prompt": injected_prompts.get("tool_usage_prompt", TOOL_USAGE_PROMPT),
-                    "examples_prompt": injected_prompts.get("examples_prompt", EXAMPLES_PROMPT),
-                }
-            )[0]
-            .content,
+    def _get_filter_generation_prompt(self, state: FilterOptionsState) -> str:
+        filter_profile = self._get_filter_profile(state)
+
+        if not filter_profile.formatted_prompt:
+            raise ValueError(
+                f"FilterProfile for tool '{state.tool_name}' has no formatted_prompt set. The tool must format the prompt before using the graph."
+            )
+
+        groups_prompt = (
+            ChatPromptTemplate.from_template(GROUPS_PROMPT, template_format="mustache")
+            .format_messages(groups=self._team_group_types)[0]
+            .content
         )
+
+        return f"{filter_profile.formatted_prompt}\n\n{groups_prompt}"
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         """Process the state and return filtering options."""
-        progress_messages = getattr(state, "tool_progress_messages", [])
+        progress_messages = state.tool_progress_messages or []
         full_conversation = self._construct_messages(state)
 
         chain = full_conversation | merge_message_runs() | self._get_model(state)
@@ -156,11 +129,9 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         if not change.strip():
             change = "Show me all session recordings with default filters"
 
-        # Use injected prompts if available, otherwise fall back to default prompts
+        # Use filter profile if available, otherwise fall back to default prompts
         output_message = chain.invoke(
             {
-                "core_memory": self.core_memory.text if self.core_memory else "",
-                "groups": self._all_entities,
                 "change": change,
                 "current_filters": current_filters,
             },
@@ -182,6 +153,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
             tool_progress_messages=[*progress_messages, ai_message],
             intermediate_steps=[*intermediate_steps, (result, None)],
             generated_filter_options=state.generated_filter_options,
+            tool_name=state.tool_name,
         )
 
 
@@ -215,16 +187,17 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
                 return PartialFilterOptionsState(
                     generated_filter_options=full_response,
                     intermediate_steps=None,
+                    tool_name=state.tool_name,
                 )
 
             # The agent has requested help, so we return a message to the root node
             if input.name == "ask_user_for_help":
                 help_message = input.arguments.request  # type: ignore
-                return self._get_reset_state(str(help_message), input.name)
+                return self._get_reset_state(str(help_message), input.name, state)
 
         # If we're still here, check if we've hit the iteration limit within this cycle
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
-            return self._get_reset_state(FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations")
+            return self._get_reset_state(FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
         if input and not output:
             # Generate progress message before executing tool
@@ -254,6 +227,7 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
         return PartialFilterOptionsState(
             tool_progress_messages=[*old_msg, *tool_result_msg],
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+            tool_name=state.tool_name,
         )
 
     def router(self, state: FilterOptionsState):
@@ -272,7 +246,7 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
         # Continue normal processing - agent should see tool results and make next decision
         return "continue"
 
-    def _get_reset_state(self, output: str, tool_call_id: str) -> PartialFilterOptionsState:
+    def _get_reset_state(self, output: str, tool_call_id: str, state: FilterOptionsState) -> PartialFilterOptionsState:
         reset_state = PartialFilterOptionsState.get_reset_state()
         reset_state.intermediate_steps = [
             (
@@ -280,4 +254,5 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
                 None,
             )
         ]
+        reset_state.tool_name = state.tool_name
         return reset_state

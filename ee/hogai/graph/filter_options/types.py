@@ -39,6 +39,11 @@ class FilterOptionsState(BaseState):
     The messages with tool calls to collect tool progress.
     """
 
+    tool_name: Optional[str] = Field(default=None)
+    """
+    The name of the tool requesting filter generation.
+    """
+
 
 class PartialFilterOptionsState(BaseState):
     """
@@ -69,6 +74,11 @@ class PartialFilterOptionsState(BaseState):
     tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
     """
     The messages with tool calls to collect tool progress.
+    """
+
+    tool_name: Optional[str] = Field(default=None)
+    """
+    The name of the tool requesting filter generation.
     """
 
 

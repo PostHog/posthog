@@ -1,6 +1,6 @@
 from enum import Enum
 from functools import cached_property
-from typing import Union
+from typing import Union, TypeVar
 from pydantic import BaseModel, Field
 from ee.hogai.graph.query_planner.toolkit import (
     TaxonomyAgentToolkit,
@@ -36,14 +36,29 @@ class ask_user_for_help(BaseModel):
     request: str = Field(..., description="The question you want to ask the user.")
 
 
-class final_answer(BaseModel):
+# Type variable for filter response types
+T = TypeVar("T", bound=BaseModel)
+
+
+def create_final_answer_model(response_model: type[T]) -> type[BaseModel]:
     """
-    Use this tool to finalize the filter options answer.
-    You MUST use this tool ONLY when you have all the information you need to build the filter.
-    If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
+    Create a dynamic final_answer model based on the response model from FilterProfile.
     """
 
-    data: MaxRecordingUniversalFilters = Field(description="Complete filter object as defined in the prompts")
+    class final_answer(BaseModel):
+        """
+        Use this tool to finalize the filter options answer.
+        You MUST use this tool ONLY when you have all the information you need to build the filter.
+        If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
+        """
+
+        data: response_model = Field(description="Complete filter object as defined in the prompts")
+
+    return final_answer
+
+
+# Default final_answer for backward compatibility
+final_answer = create_final_answer_model(MaxRecordingUniversalFilters)
 
 
 FilterOptionsToolUnion = Union[
