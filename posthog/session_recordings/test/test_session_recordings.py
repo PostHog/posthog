@@ -25,7 +25,7 @@ from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_delete.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.session_recordings.test import setup_stream_from

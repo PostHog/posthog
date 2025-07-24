@@ -36,8 +36,8 @@ from rest_framework.utils.encoders import JSONEncoder
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
-import posthog.session_recordings.queries.session_recording_list_from_query
-import posthog.session_recordings.queries.sub_queries.events_subquery
+import posthog.session_recordings.queries_to_delete.session_recording_list_from_query
+import posthog.session_recordings.queries_to_delete.sub_queries.events_subquery
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -61,13 +61,13 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries.session_recording_list_from_query import (
+from posthog.session_recordings.queries_to_delete.session_recording_list_from_query import (
     SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
 )
 from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
     SessionRecordingListFromQuery as RewrittenSessionRecordingListFromQuery,
 )
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries_to_delete.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,

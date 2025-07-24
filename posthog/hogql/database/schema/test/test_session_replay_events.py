@@ -10,7 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 from posthog.models.utils import uuid7
 from posthog.schema import HogQLQueryModifiers
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries_to_delete.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
     APIBaseTest,

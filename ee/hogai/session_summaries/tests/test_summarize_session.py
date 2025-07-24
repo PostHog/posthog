@@ -16,7 +16,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries_to_delete.session_replay_events import SessionReplayEvents
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
 pytestmark = pytest.mark.django_db
