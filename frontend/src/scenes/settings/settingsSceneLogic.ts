@@ -45,14 +45,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     }),
 
     listeners(({ values }) => ({
-        async selectSetting({ setting }) {
-            const url = urls.absolute(
-                urls.currentProject(
-                    urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-                )
-            )
-            await copyToClipboard(url)
-        },
+        // Removed clipboard copy on selectSetting to prevent unwanted copying when navigating settings
     })),
 
     urlToAction(({ actions, values }) => ({
