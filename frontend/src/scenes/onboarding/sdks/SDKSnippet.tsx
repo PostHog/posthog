@@ -40,7 +40,7 @@ export const SDKSnippet = ({
 function AdvertiseSurveysReactNativeBeta({ productKey }: { productKey: ProductKey }): JSX.Element {
     return (
         <SDKFeatureAnnouncementBanner
-            context={`${productKey.toLocaleLowerCase()}-onboarding`}
+            context={`${productKey.toLowerCase()}-onboarding`}
             sdkKey={SDKKey.REACT_NATIVE}
             featureName="Surveys"
             tagText="Beta"
@@ -55,7 +55,7 @@ function AdvertiseSurveysReactNativeBeta({ productKey }: { productKey: ProductKe
 function AdvertiseSurveysIOSBeta({ productKey }: { productKey: ProductKey }): JSX.Element {
     return (
         <SDKFeatureAnnouncementBanner
-            context={`${productKey.toLocaleLowerCase()}-onboarding`}
+            context={`${productKey.toLowerCase()}-onboarding`}
             sdkKey={SDKKey.IOS}
             featureName="Surveys"
             tagText="Beta"
@@ -70,7 +70,7 @@ function AdvertiseSurveysIOSBeta({ productKey }: { productKey: ProductKey }): JS
 function AdvertiseSurveysFlutterBeta({ productKey }: { productKey: ProductKey }): JSX.Element {
     return (
         <SDKFeatureAnnouncementBanner
-            context={`${productKey.toLocaleLowerCase()}-onboarding`}
+            context={`${productKey.toLowerCase()}-onboarding`}
             sdkKey={SDKKey.FLUTTER}
             featureName="Surveys"
             tagText="Beta"
