@@ -4,8 +4,7 @@ import { useActions, useValues } from 'kea'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
-import { ChannelType } from 'products/messaging/frontend/Channels/messageChannelsLogic'
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
@@ -16,8 +15,8 @@ export function OtherIntegrations({
     integrationKinds: IntegrationKind[]
     titleText?: string
 }): JSX.Element {
-    const { integrations, integrationsLoading, setupModalOpen } = useValues(integrationsLogic)
-    const { deleteIntegration, openSetupModal, closeSetupModal } = useActions(integrationsLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { deleteIntegration, openSetupModal } = useActions(integrationsLogic)
 
     const otherIntegrations = integrations?.filter((integration) => integrationKinds.includes(integration.kind))
 
@@ -69,7 +68,7 @@ export function OtherIntegrations({
                                             <LemonButton
                                                 type="primary"
                                                 onClick={() => {
-                                                    openSetupModal(integration.id)
+                                                    openSetupModal(integration, integration.kind as ChannelType)
                                                 }}
                                                 icon={<IconWarning />}
                                             >
@@ -87,14 +86,6 @@ export function OtherIntegrations({
                                     </div>
                                 }
                             />
-                            {setupModalOpen === integration.id && (
-                                <ChannelSetupModal
-                                    isOpen={setupModalOpen === integration.id}
-                                    channelType={integration.kind as ChannelType}
-                                    integration={integration}
-                                    onComplete={closeSetupModal}
-                                />
-                            )}
                         </>
                     ))
                 ) : integrationsLoading ? (

@@ -11,6 +11,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 import { ICONS } from './utils'
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
@@ -29,7 +30,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         deleteIntegration: (id: number) => ({ id }),
         openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
         closeNewIntegrationModal: true,
-        openSetupModal: (id: number) => ({ id }),
+        openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
     }),
     reducers({
@@ -41,9 +42,23 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         setupModalOpen: [
-            null as number | null,
+            false,
             {
-                openSetupModal: (_, { id }) => id,
+                openSetupModal: () => true,
+                closeSetupModal: () => false,
+            },
+        ],
+        setupModalType: [
+            null as ChannelType | null,
+            {
+                openSetupModal: (_, { channelType }) => channelType ?? null,
+                closeSetupModal: () => null,
+            },
+        ],
+        selectedIntegration: [
+            null as IntegrationType | null,
+            {
+                openSetupModal: (_, { integration }) => integration ?? null,
                 closeSetupModal: () => null,
             },
         ],

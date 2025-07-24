@@ -6,20 +6,22 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
-import { messageChannelsLogic } from './messageChannelsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
 import { OtherIntegrations } from 'scenes/settings/environment/OtherIntegrations'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
+export const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio'] as const
+export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
-    const { isNewChannelModalOpen, selectedIntegration, integrations, integrationsLoading, channelType } =
-        useValues(messageChannelsLogic)
-    const { openNewChannelModal, closeNewChannelModal } = useActions(messageChannelsLogic)
+    const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
+        useValues(integrationsLogic)
+    const { openSetupModal, closeSetupModal } = useActions(integrationsLogic)
 
-    const messagingIntegrationTypes = ['email', 'slack', 'twilio', 'webhook']
     const allMessagingIntegrations =
-        integrations?.filter((integration) => messagingIntegrationTypes.includes(integration.kind)) ?? []
+        integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
 
     const showProductIntroduction = !integrationsLoading && !allMessagingIntegrations.length
 
@@ -30,7 +32,7 @@ export function MessageChannels(): JSX.Element {
                     <IconLetter /> Email
                 </div>
             ),
-            onClick: () => openNewChannelModal(undefined, 'email'),
+            onClick: () => openSetupModal(undefined, 'email'),
         },
         {
             label: (
@@ -50,7 +52,7 @@ export function MessageChannels(): JSX.Element {
                     <IconTwilio /> Twilio
                 </div>
             ),
-            onClick: () => openNewChannelModal(undefined, 'twilio'),
+            onClick: () => openSetupModal(undefined, 'twilio'),
         },
     ]
 
@@ -73,10 +75,10 @@ export function MessageChannels(): JSX.Element {
                 }
             />
             <ChannelSetupModal
-                isOpen={isNewChannelModalOpen}
-                channelType={channelType}
+                isOpen={setupModalOpen}
+                channelType={setupModalType}
                 integration={selectedIntegration || undefined}
-                onComplete={() => closeNewChannelModal()}
+                onComplete={() => closeSetupModal()}
             />
 
             <div className="flex flex-col gap-4">
@@ -93,12 +95,12 @@ export function MessageChannels(): JSX.Element {
                         thingName="channel integration"
                         description="Configure channels to send messages from."
                         docsURL="https://posthog.com/docs/messaging"
-                        action={() => openNewChannelModal(undefined, 'email')}
+                        action={() => openSetupModal(undefined, 'email')}
                         isEmpty
                     />
                 )}
                 {allMessagingIntegrations.length > 0 && (
-                    <OtherIntegrations titleText="" integrationKinds={['email', 'slack', 'twilio']} />
+                    <OtherIntegrations titleText="" integrationKinds={[...MESSAGING_CHANNEL_TYPES]} />
                 )}
             </div>
         </>
