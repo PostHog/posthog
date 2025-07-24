@@ -1,4 +1,5 @@
 use axum_test_helper::TestClient;
+use base64::Engine;
 
 use capture::config::CaptureMode;
 use capture::integration_test_utils::{
@@ -207,6 +208,38 @@ async fn post_form_urlencoded_batch_events_payload() {
     let utf8_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
     let form_payload =
         serde_urlencoded::to_string([("data", utf8_payload), ("ver", "1.2.3")]).expect(&err_msg);
+
+    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/capture/?_={}", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(form_payload)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    validate_capture_response(title, res).await;
+
+    // extract the processed events from the in-mem sink and validate contents
+    let got = sink.events();
+    validate_batch_events_payload(title, got);
+}
+
+#[tokio::test]
+async fn post_form_base64_urlencoded_batch_events_payload() {
+    let title = "post-form-base64-urlencoded-batch-events-payload";
+    let raw_payload = load_request_payload(title, BATCH_EVENTS_JSON);
+    let err_msg = format!(
+        "failed to serialize payload to urlencoded form in case: {}",
+        title
+    );
+    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
+    let form_payload =
+        serde_urlencoded::to_string([("data", base64_payload.as_ref()), ("ver", "1.2.3")])
+            .expect(&err_msg);
 
     let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
     let client = TestClient::new(router);

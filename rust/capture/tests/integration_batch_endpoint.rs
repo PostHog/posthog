@@ -1,5 +1,6 @@
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
+use base64::Engine;
 
 use capture::config::CaptureMode;
 use capture::integration_test_utils::{
@@ -72,7 +73,7 @@ async fn gzipped_no_hint_batch_events_payload() {
     let req = client
         .post(&req_path)
         .body(gzipped_payload)
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "text/plain")
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
@@ -84,16 +85,18 @@ async fn gzipped_no_hint_batch_events_payload() {
 }
 
 #[tokio::test]
-async fn post_form_urlencoded_batch_events_payload() {
+async fn post_form_base64_urlencoded_batch_events_payload() {
     let title = "post-form-urlencoded-batch-events-payload";
     let raw_payload = load_request_payload(title, BATCH_EVENTS_JSON);
     let err_msg = format!(
-        "failed to serialize payload to urlencoded form in case: {}",
+        "failed to serialize payload to base64 + urlencoded form in case: {}",
         title
     );
-    let utf8_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
+    // the "new" capture endpoints like /batch/ expect base64 encoded form payloads only
+    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
     let form_payload =
-        serde_urlencoded::to_string([("data", utf8_payload), ("ver", "1.2.3")]).expect(&err_msg);
+        serde_urlencoded::to_string([("data", base64_payload.as_str()), ("ver", "1.2.3")])
+            .expect(&err_msg);
 
     let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
     let client = TestClient::new(router);
