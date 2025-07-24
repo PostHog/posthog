@@ -207,9 +207,14 @@ def get_frequentist_experiment_result_new_format(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = (
-        metric_variant_to_statistic(metric, control_variant_validated) if not control_variant_validated.errors else None
-    )
+    try:
+        control_stat = (
+            metric_variant_to_statistic(metric, control_variant_validated)
+            if not control_variant_validated.errors
+            else None
+        )
+    except StatisticError as e:
+        raise ExposedCHQueryError(str(e), code=None) from e
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
@@ -225,8 +230,11 @@ def get_frequentist_experiment_result_new_format(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.errors:
-            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-            result = method.run_test(test_stat, control_stat)
+            try:
+                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+                result = method.run_test(test_stat, control_stat)
+            except StatisticError as e:
+                raise ExposedCHQueryError(str(e), code=None) from e
 
             confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -264,9 +272,14 @@ def get_bayesian_experiment_result_new_format(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    control_stat = (
-        metric_variant_to_statistic(metric, control_variant_validated) if not control_variant_validated.errors else None
-    )
+    try:
+        control_stat = (
+            metric_variant_to_statistic(metric, control_variant_validated)
+            if not control_variant_validated.errors
+            else None
+        )
+    except StatisticError as e:
+        raise ExposedCHQueryError(str(e), code=None) from e
 
     variants: list[ExperimentVariantResultBayesian] = []
 
@@ -282,8 +295,11 @@ def get_bayesian_experiment_result_new_format(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.errors:
-            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-            result = method.run_test(test_stat, control_stat)
+            try:
+                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+                result = method.run_test(test_stat, control_stat)
+            except StatisticError as e:
+                raise ExposedCHQueryError(str(e), code=None) from e
 
             # Convert credible interval to percentage
             credible_interval = [result.credible_interval[0], result.credible_interval[1]]
