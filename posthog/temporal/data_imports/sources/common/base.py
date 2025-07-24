@@ -11,7 +11,7 @@ from posthog.schema import (
 )
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
-from posthog.temporal.data_imports.pipelines.source.config import Config
+from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 
 if TYPE_CHECKING:

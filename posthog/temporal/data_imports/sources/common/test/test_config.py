@@ -1,6 +1,6 @@
 import typing
 
-from posthog.temporal.data_imports.pipelines.source import config
+from posthog.temporal.data_imports.sources.common import config
 
 
 def test_empty_config():

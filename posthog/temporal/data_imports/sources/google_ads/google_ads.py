@@ -15,11 +15,11 @@ from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
 from posthog.models import Integration
-from posthog.temporal.data_imports.pipelines.google_ads.schemas import RESOURCE_SCHEMAS
+from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
+from posthog.temporal.data_imports.sources.common import config
+from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
 

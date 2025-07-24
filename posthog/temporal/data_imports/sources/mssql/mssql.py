@@ -22,7 +22,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,

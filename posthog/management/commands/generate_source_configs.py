@@ -39,7 +39,7 @@ class SourceConfigGenerator:
     def generate_all_configs(self) -> str:
         self.imports.update(
             [
-                "from posthog.temporal.data_imports.pipelines.source import config",
+                "from posthog.temporal.data_imports.sources.common import config",
                 "from posthog.warehouse.models import ExternalDataSource",
             ]
         )

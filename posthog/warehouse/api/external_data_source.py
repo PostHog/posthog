@@ -13,7 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models.user import User
-from posthog.temporal.data_imports.pipelines.source.config import Config
+from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.warehouse.api.external_data_schema import (
     ExternalDataSchemaSerializer,

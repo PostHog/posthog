@@ -3,7 +3,7 @@ from __future__ import annotations
 import pyarrow as pa
 import pytest
 
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableReference
+from posthog.temporal.data_imports.sources.common.sql import Column, Table, TableReference
 
 
 class TestColumn(Column):
