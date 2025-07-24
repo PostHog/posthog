@@ -567,7 +567,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        user = cast(request.user, User)
+        user = cast(User, request.user)
         use_multiple_sub_queries = (
             posthoganalytics.feature_enabled(
                 "use-multiple-sub-queries",
