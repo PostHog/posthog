@@ -31,7 +31,10 @@ pub const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 
 // we reuse the "raw" payload fixtures a lot, encoding/compressing them differently in different tests
 pub const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
-//const SINGLE_REPLAY_JSON: &str = "single_replay_payload.json";
+pub const SINGLE_REPLAY_EVENT_JSON: &str = "single_replay_event_payload.json";
+// the /engage/ endpoint is unique: this only accepts "unnamed" (no event.event attrib)
+// events that are structured as "$identify" events
+pub const SINGLE_ENGAGE_EVENT_JSON: &str = "single_engage_event_payload.json";
 pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 
 pub struct FixedTime {
@@ -324,6 +327,132 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
         Some(true),
         props["$console_log_recording_enabled_server_side"].as_bool(),
         "mismatched event.properties.$console_log_recording_enabled_server_side in case: {}",
+        title,
+    );
+}
+
+// utility to validate tests/fixtures/single_replay_event_payload.json
+pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+    let expected_event_count = 1;
+    let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
+
+    assert_eq!(
+        expected_event_count,
+        got_events.len(),
+        "event count: expected {}, got {}",
+        expected_event_count,
+        got_events.len(),
+    );
+
+    // should only be one event in this batch
+    let got = got_events[0].to_owned();
+
+    // introspect on extracted event parsing metadata
+    let meta = &got.metadata;
+    assert_eq!(
+        DataType::SnapshotMain,
+        meta.data_type,
+        "mismatched Kafka topic assignment in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some("01983d9b-8639-78fa-ac26-b9e7bf716521".to_string()),
+        meta.session_id,
+        "wrong session_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event attributes
+    let event = &got.event;
+    assert_eq!(
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "mismatched token in case: {}",
+        title,
+    );
+    assert_eq!(
+        "01983d90-510c-7970-a356-ecd2aa03cb22", &event.distinct_id,
+        "mismatched distinct_id in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        DEFAULT_TEST_TIME, &event.now,
+        "mismatched 'now' timestamp in case: {}",
+        title,
+    );
+    assert_eq!(
+        36_usize,
+        event.uuid.to_string().len(),
+        "invalid UUID in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        Some(expected_timestamp),
+        event.sent_at,
+        "mismatched sent_at in case: {}",
+        title,
+    );
+
+    // introspect on event data to be processed by plugin-server
+    let event_data_err_msg = format!("failed to hydrate test event.data in case: {}", title);
+    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+
+    assert_eq!(
+        "$snapshot_items",
+        event["event"].as_str().unwrap(),
+        "mismatched event.event in case: {}",
+        title,
+    );
+    assert_eq!(
+        None,
+        event["timestamp"].as_str(),
+        "mismatched event.timestamp in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties map
+    let err_msg = format!("failed to extract event.properties in case: {}", title);
+    let props = event["properties"].as_object().expect(&err_msg);
+
+    assert_eq!(
+        6_usize,
+        props.len(),
+        "mismatched event.properties length in case: {}",
+        title,
+    );
+    assert_eq!(
+        "web", props["$lib"],
+        "mismatched event.properties.$lib in case: {}",
+        title,
+    );
+    assert_eq!(
+        "01983d90-510c-7970-a356-ecd2aa03cb22", props["distinct_id"],
+        "mismatched event.properties.distinct_id in case: {}",
+        title,
+    );
+    assert_eq!(
+        "01983d9b-8639-78fa-ac26-b9e7bf716521", props["$session_id"],
+        "mismatched event.properties.$session_id in case: {}",
+        title,
+    );
+    assert_eq!(
+        "01983d90-31f6-78cf-86c8-b26d0bdaaff0", props["$window_id"],
+        "mismatched event.properties.$window_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties.$snapshot_data map
+    let err_msg = format!(
+        "failed to extract event.properties.$snapshot_data in case: {}",
+        title
+    );
+    let snap_data = props["$snapshot_data"].as_array().expect(&err_msg);
+
+    assert_eq!(
+        20_usize,
+        snap_data.len(),
+        "mismatched event.properties.$snapshot_data length in case: {}",
         title,
     );
 }
