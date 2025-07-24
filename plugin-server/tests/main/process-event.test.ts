@@ -146,36 +146,41 @@ describe('process-event', () => {
     })
 
     beforeEach(async () => {
-        const testCode = `
+        try {
+            const testCode = `
             function processEvent (event, meta) {
                 event.properties["somewhere"] = "over the rainbow";
                 return event
             }
         `
-        await resetTestDatabase(testCode, TEST_CONFIG)
-        await resetTestDatabaseClickhouse(TEST_CONFIG)
+            await resetTestDatabase(testCode, TEST_CONFIG)
+            await resetTestDatabaseClickhouse(TEST_CONFIG)
 
-        console.log('beforeEach', 'createHub')
-        hub = await createHub({ ...TEST_CONFIG }).catch((error) => {
-            logger.error('🛑', 'Failed to create Hub', { error })
+            console.log('beforeEach', 'createHub')
+            hub = await createHub({ ...TEST_CONFIG }).catch((error) => {
+                logger.error('🛑', 'Failed to create Hub', { error })
+                throw error
+            })
+            console.log('beforeEach', 'created hub')
+            team = await getFirstTeam(hub)
+
+            // clear the webhook redis cache
+            const redis = await createRedis(hub, 'ingestion')
+            const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+            await redis.del(hooksCacheKey)
+            await redis.quit()
+
+            eventsProcessor = new EventsProcessor(hub)
+            processEventCounter = 0
+            mockClientEventCounter = 0
+            now = DateTime.utc()
+
+            // Always start with an anonymous state
+            state = { currentDistinctId: 'anonymous_id' }
+        } catch (error) {
+            logger.error('🛑', 'Failed in beforeEach ', { error, stack: error.stack })
             throw error
-        })
-        console.log('beforeEach', 'created hub')
-        team = await getFirstTeam(hub)
-
-        // clear the webhook redis cache
-        const redis = await createRedis(hub, 'ingestion')
-        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-        await redis.del(hooksCacheKey)
-        await redis.quit()
-
-        eventsProcessor = new EventsProcessor(hub)
-        processEventCounter = 0
-        mockClientEventCounter = 0
-        now = DateTime.utc()
-
-        // Always start with an anonymous state
-        state = { currentDistinctId: 'anonymous_id' }
+        }
     })
 
     afterEach(async () => {
