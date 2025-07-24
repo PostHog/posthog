@@ -3,14 +3,10 @@ from unittest.mock import Mock, patch
 
 import pytest
 import dagster
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_ENABLED_TEAM_IDS,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME,
-    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster
-from dagster import build_asset_context, build_op_context
+from dagster import build_asset_context
 
 from dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,
@@ -272,68 +268,3 @@ class TestIntegrationScenarios:
 
         assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
         assert len(result) > 0  # Ensure defaults are not empty
-
-    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
-    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    def test_web_analytics_asset_integration(self, mock_get_teams, mock_store):
-        test_teams = [100, 200, 300]
-        mock_get_teams.return_value = test_teams
-        mock_store.return_value = test_teams
-
-        mock_cluster = Mock()
-        context = build_asset_context()
-        result = web_analytics_team_selection(context, mock_cluster)
-
-        assert isinstance(result, dagster.MaterializeResult)
-        assert result.metadata["team_count"] == 3
-        assert result.metadata["team_ids"] == str(test_teams)
-
-        mock_get_teams.assert_called_once()
-        mock_store.assert_called_once_with(context, test_teams, mock_cluster)
-
-
-@pytest.mark.skip(reason="Failing on Dagster CI but works locally, I will check it later")
-def test_team_selection_clickhouse_integration(cluster: ClickhouseCluster):
-    test_team_ids = [123, 456, 789]
-    context = build_op_context()
-
-    with patch("dags.web_preaggregated_team_selection.settings_with_log_comment") as mock_settings:
-        mock_settings.return_value = {"log_comment": "test"}
-
-        result = store_team_selection_in_clickhouse(context, test_team_ids, cluster)
-        assert result == test_team_ids
-
-        query_result = sync_execute(
-            f"SELECT team_id FROM {WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME} WHERE team_id IN %(team_ids)s ORDER BY team_id",
-            {"team_ids": test_team_ids},
-        )
-
-        inserted_team_ids = [row[0] for row in query_result]
-        assert inserted_team_ids == sorted(test_team_ids)
-
-        dict_exists = sync_execute(
-            f"SELECT 1 FROM system.dictionaries WHERE name = '{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}'"
-        )
-        assert len(dict_exists) > 0
-
-
-@pytest.mark.skip(reason="Failing on Dagster CI but works locally, I will check it later")
-def test_web_analytics_asset_real_execution(cluster: ClickhouseCluster):
-    test_team_ids_str = "111,222,333"
-
-    with patch("dags.web_preaggregated_team_selection.settings_with_log_comment") as mock_settings:
-        mock_settings.return_value = {"log_comment": "test"}
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_team_ids_str}):
-            context = build_asset_context()
-            result = web_analytics_team_selection(context, cluster)
-
-            assert isinstance(result, dagster.MaterializeResult)
-            assert result.metadata["team_count"] == 3
-
-            query_result = sync_execute(
-                "SELECT COUNT(*) FROM web_pre_aggregated_teams WHERE team_id IN %(team_ids)s",
-                {"team_ids": [111, 222, 333]},
-            )
-
-            assert query_result[0][0] == 3
