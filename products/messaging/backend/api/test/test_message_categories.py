@@ -80,22 +80,24 @@ class TestMessageCategoryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
             {"name": "Updated Name", "key": "new_key"},
         )
-        # The request should succeed but the key should not change
-        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        # The request should fail and the key should not change
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("The key field cannot be updated after creation.", str(patch_response.json()))
         category.refresh_from_db()
-        self.assertEqual(category.name, "Updated Name")
-        self.assertEqual(category.key, "original_key")  # Key should remain unchanged
+        self.assertEqual(category.name, "Test Category")
+        self.assertEqual(category.key, "original_key")
 
         # Attempt to change key via PUT
         put_response = self.client.put(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
             {"name": "Put Updated Name", "key": "another_new_key", "category_type": "marketing"},
         )
-        # The request should succeed but the key should not change
-        self.assertEqual(put_response.status_code, status.HTTP_200_OK)
+        # The request should fail and the key should not change
+        self.assertEqual(put_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("The key field cannot be updated after creation.", str(put_response.json()))
         category.refresh_from_db()
-        self.assertEqual(category.name, "Put Updated Name")
-        self.assertEqual(category.key, "original_key")  # Key should remain unchanged
+        self.assertEqual(category.name, "Test Category")
+        self.assertEqual(category.key, "original_key")
 
     def test_create_message_category(self):
         """
