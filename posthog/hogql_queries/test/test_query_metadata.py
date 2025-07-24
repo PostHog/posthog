@@ -42,7 +42,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events({})
         self.assertCountEqual(result, [])
 
-        result = self.extractor.extract_events(None)
+        result = self.extractor.extract_events(None)  # type: ignore
         self.assertCountEqual(result, [])
 
     def test_extract_events_trends_query(self):

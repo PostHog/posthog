@@ -122,29 +122,45 @@ class QueryEventsExtractor:
         return [event for series in series for event in self._get_series_events(series)]
 
     def _extract_events_from_events_query(self, query: EventsQuery) -> list[str]:
-        source_events = self.extract_events(query.source)
+        source_events = self.extract_events(query.source) if query.source else []
         return [query.event, *source_events] if query.event else source_events
 
     def _extract_events_from_funnels_query(self, query: FunnelsQuery) -> list[str]:
         series_events = [event for series in query.series for event in self._get_series_events(series)]
-        funnel_filter_events = [_.event for _ in query.funnelsFilter.exclusions]
+        funnel_filter_events = (
+            [_.event for _ in query.funnelsFilter.exclusions]
+            if query.funnelsFilter and query.funnelsFilter.exclusions
+            else []
+        )
 
         return list(set(series_events + funnel_filter_events))
 
     def _extract_events_from_retention_query(self, query: RetentionQuery) -> list[str]:
-        target_events = self._get_retention_entity_events(query.retentionFilter.targetEntity)
-        returning_events = self._get_retention_entity_events(query.retentionFilter.returningEntity)
+        target_events = (
+            self._get_retention_entity_events(query.retentionFilter.targetEntity)
+            if query.retentionFilter.targetEntity
+            else []
+        )
+        returning_events = (
+            self._get_retention_entity_events(query.retentionFilter.returningEntity)
+            if query.retentionFilter.returningEntity
+            else []
+        )
 
         return list(set(target_events + returning_events))
 
     def _extract_events_from_paths_query(self, query: PathsQuery) -> list[str]:
         included_events = []
-        if PathType.FIELD_PAGEVIEW in query.pathsFilter.includeEventTypes:
+        if query.pathsFilter.includeEventTypes and PathType.FIELD_PAGEVIEW in query.pathsFilter.includeEventTypes:
             included_events.append(str(PathType.FIELD_PAGEVIEW))
-        if PathType.FIELD_SCREEN in query.pathsFilter.includeEventTypes:
+        if query.pathsFilter.includeEventTypes and PathType.FIELD_SCREEN in query.pathsFilter.includeEventTypes:
             included_events.append(str(PathType.FIELD_SCREEN))
 
-        excluded_events = [event for event in query.pathsFilter.excludeEvents if not self._is_valid_url(event)]
+        excluded_events = (
+            [event for event in query.pathsFilter.excludeEvents if not self._is_valid_url(event)]
+            if query.pathsFilter.excludeEvents
+            else []
+        )
 
         return list(set(included_events + excluded_events))
 
@@ -169,15 +185,17 @@ class QueryEventsExtractor:
 
     def _get_retention_entity_events(self, entity: RetentionEntity) -> list[str]:
         if entity.type == EntityType.EVENTS:
-            return [entity.id]
+            return [entity.id] if entity.id else []
         elif entity.type == EntityType.ACTIONS:
-            return self._get_action_events(action_id=int(entity.id), project_id=self.team.project_id)
+            return (
+                self._get_action_events(action_id=int(entity.id), project_id=self.team.project_id) if entity.id else []
+            )
 
         return []
 
     def _get_series_events(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> list[str]:
         if isinstance(series, EventsNode):
-            return [series.event]
+            return [series.event] if series.event else []
         if isinstance(series, ActionsNode):
             return self._get_action_events(action_id=int(series.id), project_id=self.team.project_id)
 
@@ -187,7 +205,8 @@ class QueryEventsExtractor:
     @cache_for(timedelta(minutes=1))
     def _get_action_events(action_id: int, project_id: int) -> list[str]:
         action = Action.objects.get(pk=action_id, team__project_id=project_id)
-        return action.get_step_events()
+        step_events = action.get_step_events()
+        return step_events if step_events else []
 
 
 def extract_query_metadata(
