@@ -1102,7 +1102,8 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 
 export type ResultCustomizationBase = {
-    color: DataColorToken
+    color?: DataColorToken
+    hidden?: boolean
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
