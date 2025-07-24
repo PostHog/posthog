@@ -353,12 +353,7 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
         "mismatched Kafka topic assignment in case: {}",
         title,
     );
-    assert_eq!(
-        None,
-        meta.session_id,
-        "wrong session_id in case: {}",
-        title,
-    );
+    assert_eq!(None, meta.session_id, "wrong session_id in case: {}", title,);
 
     // introspect on extracted event attributes
     let event = &pageview.event;
@@ -397,7 +392,10 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!("failed to hydrate test $pageview event.data in case: {}", title);
+    let event_data_err_msg = format!(
+        "failed to hydrate test $pageview event.data in case: {}",
+        title
+    );
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
@@ -419,7 +417,10 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!("failed to extract event.properties on $pageview in case: {}", title);
+    let err_msg = format!(
+        "failed to extract event.properties on $pageview in case: {}",
+        title
+    );
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
@@ -469,8 +470,13 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     );
 
     // introspect on extracted event.properties.$set_once map
-    let err_msg = format!("failed to extract event.properties.$set_once on $pageview in case: {}", title);
-    let set_once_props = event["properties"]["$set_once"].as_object().expect(&err_msg);
+    let err_msg = format!(
+        "failed to extract event.properties.$set_once on $pageview in case: {}",
+        title
+    );
+    let set_once_props = event["properties"]["$set_once"]
+        .as_object()
+        .expect(&err_msg);
 
     assert_eq!(
         58_usize,
@@ -491,8 +497,7 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
         title,
     );
     assert_eq!(
-        None,
-        meta.session_id,
+        None, meta.session_id,
         "mismatched session_id in case: {}",
         title,
     );
@@ -534,7 +539,10 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     );
 
     // introspect on event data to be processed by plugin-server
-    let event_data_err_msg = format!("failed to hydrate test $pageleave event.data in case: {}", title);
+    let event_data_err_msg = format!(
+        "failed to hydrate test $pageleave event.data in case: {}",
+        title
+    );
     let event: Value = from_str(&event.data).expect(&event_data_err_msg);
 
     assert_eq!(
@@ -556,7 +564,10 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     );
 
     // introspect on extracted event.properties map
-    let err_msg = format!("failed to extract event.properties on $pageleave in case: {}", title);
+    let err_msg = format!(
+        "failed to extract event.properties on $pageleave in case: {}",
+        title
+    );
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
