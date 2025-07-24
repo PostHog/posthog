@@ -92,6 +92,26 @@ const OPTIONS = [
     },
 ]
 
+function getMaterializationDisabledReasons(
+    currentJobStatus: string | null,
+    startingMaterialization: boolean
+): {
+    sync: string | false
+    cancel: string | false
+    revert: string | false
+} {
+    return {
+        sync:
+            currentJobStatus === 'Running'
+                ? 'Materialization is already running'
+                : startingMaterialization
+                ? 'Materialization is starting'
+                : false,
+        cancel: currentJobStatus !== 'Running' ? 'Materialization is not running' : false,
+        revert: currentJobStatus === 'Running' ? 'Cannot revert while materialization is running' : false,
+    }
+}
+
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
@@ -120,6 +140,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
+    const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -156,13 +177,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     <LemonButton
                                         className="whitespace-nowrap"
                                         loading={startingMaterialization || currentJobStatus === 'Running'}
-                                        disabledReason={
-                                            currentJobStatus === 'Running'
-                                                ? 'Materialization is already running'
-                                                : startingMaterialization
-                                                ? 'Materialization is starting'
-                                                : false
-                                        }
+                                        disabledReason={sync}
                                         onClick={() => {
                                             if (editingView) {
                                                 setStartingMaterialization(true)
@@ -174,8 +189,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
-                                            disabledReason:
-                                                currentJobStatus !== 'Running' && 'Materialization is not running',
+                                            disabledReason: cancel,
                                         }}
                                     >
                                         {startingMaterialization
@@ -186,11 +200,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
-                                        disabledReason={
-                                            currentJobStatus === 'Running'
-                                                ? 'Materialization is already running'
-                                                : false
-                                        }
+                                        disabledReason={sync}
                                         value={
                                             editingView
                                                 ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency ||
@@ -215,10 +225,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             type="secondary"
                                             size="small"
                                             tooltip="Revert materialized view to view"
-                                            disabledReason={
-                                                currentJobStatus === 'Running' &&
-                                                'Cannot revert while materialization is running'
-                                            }
+                                            disabledReason={revert}
                                             icon={<IconRevert />}
                                             onClick={() => {
                                                 LemonDialog.open({
