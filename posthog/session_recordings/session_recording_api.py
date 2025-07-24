@@ -566,7 +566,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
         results, _, timings = (
-            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
+            posthog.session_recordings.queries_to_replace.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
                 query=query, team=self.team, hogql_query_modifiers=modifiers
             ).get_event_ids_for_session()
         )
