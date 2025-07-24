@@ -391,7 +391,7 @@ describe('CDP API', () => {
                 },
                 team_id: team.id,
                 enabled: true,
-                hog: posthogFilterOutPlugin.template.hog,
+                hog: posthogFilterOutPlugin.template.code,
                 inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
             })
         })

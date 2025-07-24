@@ -63,7 +63,7 @@ export class TemplateTester {
 
         this.template = {
             ...this._template,
-            bytecode: await compileHog(this._template.hog),
+            bytecode: await compileHog(this._template.code),
         }
 
         this.executor = new HogExecutorService(this.mockHub)
