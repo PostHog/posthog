@@ -6,7 +6,7 @@ import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 import type { newCategoryLogicType } from './newCategoryLogicType'
 
-type CategoryForm = {
+export type CategoryForm = {
     name: string
     key: string
     description: string
@@ -14,7 +14,7 @@ type CategoryForm = {
     category_type: string
 }
 
-type CategoryLogicProps = {
+export type CategoryLogicProps = {
     category?: MessageCategory | null
     onSuccess?: () => void
 }

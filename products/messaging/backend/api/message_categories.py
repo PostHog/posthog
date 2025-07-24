@@ -11,7 +11,7 @@ class MessageCategorySerializer(serializers.ModelSerializer):
             if MessageCategory.objects.filter(team_id=self.context["team_id"], key=data["key"], deleted=False).exists():
                 raise serializers.ValidationError({"key": "A message category with this key already exists."})
         else:
-            if "key" in data and data["key"] != self.instance.key:
+            if "key" in data and hasattr(self.instance, "key") and data["key"] != self.instance.key:
                 raise serializers.ValidationError({"key": "The key field cannot be updated after creation."})
         return data
 
