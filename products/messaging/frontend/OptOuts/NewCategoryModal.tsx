@@ -96,8 +96,15 @@ export function NewCategoryModal({ isOpen, onClose, category }: NewCategoryModal
                     <LemonTextArea placeholder="Internal description for your team" rows={3} />
                 </LemonField>
 
-                <LemonField name="public_description" label="Public description">
-                    <LemonTextArea placeholder="Description shown to users in email preferences page" rows={3} />
+                <LemonField
+                    name="public_description"
+                    label="Public description"
+                    help="This description will be shown to users in the email preferences page."
+                >
+                    <LemonTextArea
+                        placeholder="e.g., Latest updates on feature launches, product improvements, and more."
+                        rows={3}
+                    />
                 </LemonField>
             </Form>
         </LemonModal>
