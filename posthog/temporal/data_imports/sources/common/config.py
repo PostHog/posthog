@@ -30,6 +30,9 @@ class ConfigProtocol(_Dataclass, typing.Protocol):
     @classmethod
     def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
 
+    @classmethod
+    def validate_dict(cls: type[_T], d: dict[str, typing.Any]) -> tuple[bool, list[str]]: ...
+
     def to_dict(self) -> dict[str, typing.Any]: ...
 
 
@@ -61,6 +64,10 @@ class Config(ConfigProtocol):
     def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
         raise NotImplementedError
 
+    @classmethod
+    def validate_dict(cls: type[_T], d: dict[str, typing.Any]) -> tuple[bool, list[str]]:
+        raise NotImplementedError
+
     def to_dict(self) -> dict[str, typing.Any]:
         return dataclasses.asdict(self)
 
@@ -77,6 +84,64 @@ class MetaConfig:
     prefix: str | None = None
     alias: str | None = None
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert
+
+
+def validate_config(
+    config_cls: type, d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None
+) -> tuple[bool, list[str]]:
+    """
+    Validate a dict against a config class.
+
+    Returns:
+        (is_valid, error_messages): Tuple of validation result and list of error messages
+    """
+
+    if not is_config(config_cls):
+        return False, ["Class is not a valid config class"]
+
+    errors = []
+    top_level_prefixes = prefixes or ()
+
+    fields = dataclasses.fields(config_cls)
+    module_path = config_cls.__module__
+
+    for field in fields:
+        field_type = _resolve_field_type(field, module_path=module_path)
+        field_meta: MetaConfig | None = field.metadata.get(META_KEY, None)
+
+        field_flat_key = _get_flat_key(field, prefixes or (), d)
+        field_nested_key = _get_nested_key(field, d)
+
+        if field_flat_key not in d and field_nested_key not in d and field.name not in d:
+            # Field not found in dict
+            if field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
+                errors.append(f"Required field '{field.name}' is missing")
+            continue
+
+        # Validate nested configs
+        if is_config(field_type) or _is_union_of_config(field_type):
+            if is_config(field_type):
+                config_types = [field_type]
+            else:
+                config_types = [arg for arg in typing.get_args(field_type) if is_config(arg)]
+
+            for config_type in config_types:
+                if field_nested_key in d and isinstance(d[field_nested_key], dict):
+                    is_valid, nested_errors = validate_config(config_type, d[field_nested_key], prefixes)
+                    if not is_valid:
+                        errors.extend(nested_errors)
+                else:
+                    # Trying a flat structure
+                    field_type_meta = _try_get_meta(config_type)
+                    if field_type_meta:
+                        field_prefixes = _resolve_field_prefixes(
+                            config_type, field_type_meta, field_meta, top_level_prefixes
+                        )
+                        is_valid, nested_errors = validate_config(config_type, d, field_prefixes)
+                        if not is_valid:
+                            errors.extend(nested_errors)
+
+    return len(errors) == 0, errors
 
 
 def to_config(
@@ -112,8 +177,8 @@ def to_config(
         field_type = _resolve_field_type(field, module_path=module_path)
         field_meta: MetaConfig | None = field.metadata.get(META_KEY, None)
 
-        field_flat_key = _get_flat_key(field, prefixes or ())
-        field_nested_key = _get_nested_key(field)
+        field_flat_key = _get_flat_key(field, prefixes or (), d)
+        field_nested_key = _get_nested_key(field, d)
 
         if field_flat_key in d:
             field_key = field_flat_key
@@ -267,7 +332,7 @@ def _resolve_field_prefixes(
     return field_prefixes
 
 
-def _get_flat_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...]) -> str:
+def _get_flat_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...], d: dict[str, typing.Any]) -> str:
     """Get the key used to lookup a field in a flat dictionary."""
     try:
         config_meta = field.metadata[META_KEY]
@@ -276,7 +341,12 @@ def _get_flat_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...
 
     name = field.name
     if config_meta.alias is not None:
-        name = config_meta.alias
+        if config_meta.alias in d.keys():
+            name = config_meta.alias
+        elif field.name in d.keys():
+            pass
+        else:
+            name = config_meta.alias
 
     if config_meta.prefix is not None:
         prefixes = (config_meta.prefix,)
@@ -284,7 +354,7 @@ def _get_flat_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...
     return "_".join((*prefixes, name))
 
 
-def _get_nested_key(field: dataclasses.Field[typing.Any]) -> str:
+def _get_nested_key(field: dataclasses.Field[typing.Any], d: dict[str, typing.Any]) -> str:
     """Get the key used to lookup a field in a nested dictionary."""
     name = field.name
 
@@ -294,7 +364,12 @@ def _get_nested_key(field: dataclasses.Field[typing.Any]) -> str:
         return name
 
     if config_meta.alias is not None:
-        name = config_meta.alias
+        if config_meta.alias in d.keys():
+            name = config_meta.alias
+        elif field.name in d.keys():
+            pass
+        else:
+            name = config_meta.alias
 
     return name
 
@@ -458,6 +533,14 @@ def config(
 
             return to_config(cls, d, prefixes=prefixes)
 
+        def validate_dict(cls, d: dict[str, typing.Any]):
+            if prefix:
+                prefixes = (prefix,)
+            else:
+                prefixes = None
+
+            return validate_config(cls, d, prefixes=prefixes)
+
         try:
             delattr(cls, "__dataclass_fields__")
         except AttributeError:
@@ -465,6 +548,7 @@ def config(
 
         cls = dataclasses.dataclass(cls)
         setattr(cls, "from_dict", classmethod(from_dict))  # noqa: B010
+        setattr(cls, "validate_dict", classmethod(validate_dict))  # noqa: B010
         setattr(cls, "__source_config_meta", MetaConfig(prefix=prefix))  # noqa: B010
 
         return cls

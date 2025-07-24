@@ -225,6 +225,34 @@ def test_to_config_override_alias():
     assert cfg.c == "seen"
 
 
+def test_to_config_override_alias_fallback():
+    """Test `config.to_config` with overriden lookup names but
+    fallback to the original name if the alias key os missing.
+
+    Lookup names in the flat dictionary can be specified when using
+    `config.value`.
+    """
+
+    @config.config
+    class TestConfig(config.Config):
+        a: str = config.value(alias="not_a")
+        b: int = config.value(alias="not_b")
+        c: str | None = config.value(alias="not_c")
+
+    config_dict = {
+        "a": "test",
+        "b": 10,
+        "not_c": "seen",
+        "c": "not-seen",
+    }
+
+    cfg = TestConfig.from_dict(config_dict)
+
+    assert cfg.a == "test"
+    assert cfg.b == 10
+    assert cfg.c == "seen"
+
+
 def test_to_config_union_nested_configs():
     """Test `config.to_config` with a union of nested configs."""
 
@@ -290,3 +318,122 @@ def test_to_config_union_nested_configs_with_alias():
 
     assert isinstance(a_cfg.inner, A)
     assert a_cfg.inner.a == "test"
+
+
+def test_validate_dict():
+    @config.config
+    class TestConfig(config.Config):
+        a: str
+
+    config_dict = {
+        "b": "test",
+    }
+
+    is_valid, errors = TestConfig.validate_dict(config_dict)
+
+    assert is_valid is False
+    assert len(errors) == 1
+
+    config_dict = {
+        "a": "test",
+    }
+
+    is_valid, errors = TestConfig.validate_dict(config_dict)
+
+    assert is_valid is True
+    assert len(errors) == 0
+
+
+def test_validate_dict_alias():
+    @config.config
+    class TestConfig(config.Config):
+        a: str = config.value(alias="c")
+
+    config_dict = {
+        "b": "test",
+    }
+
+    is_valid, errors = TestConfig.validate_dict(config_dict)
+
+    assert is_valid is False
+    assert len(errors) == 1
+
+    config_dict = {
+        "c": "test",
+    }
+
+    is_valid, errors = TestConfig.validate_dict(config_dict)
+
+    assert is_valid is True
+    assert len(errors) == 0
+
+
+def test_validate_dict_default():
+    @config.config
+    class TestConfig(config.Config):
+        a: str = config.value(default="1")
+
+    config_dict = {
+        "b": "test",
+    }
+
+    is_valid, errors = TestConfig.validate_dict(config_dict)
+
+    assert is_valid is True
+    assert len(errors) == 0
+
+
+def test_validate_dict_with_nested_dict():
+    @config.config
+    class TestConfigA:
+        a: str
+        b: int = 0
+        c: str | None = None
+
+    @config.config
+    class TestConfigB:
+        a: TestConfigA
+
+    @config.config
+    class TestConfigC(config.Config):
+        a: TestConfigA
+        b: TestConfigB
+        d: bool = False
+
+    config_dict = {
+        "a": {
+            "a": "test",
+        },
+        "b": {
+            "a": {
+                "a": "test",
+                "b": 1,
+                "c": "something",
+            }
+        },
+        "d": True,
+    }
+
+    is_valid, errors = TestConfigC.validate_dict(config_dict)
+
+    assert is_valid is True
+    assert len(errors) == 0
+
+    config_dict = {
+        "a": {
+            "non_existent_key": "test",
+        },
+        "b": {
+            "a": {
+                "a": "test",
+                "b": 1,
+                "c": "something",
+            }
+        },
+        "d": True,
+    }
+
+    is_valid, errors = TestConfigC.validate_dict(config_dict)
+
+    assert is_valid is False
+    assert len(errors) == 1

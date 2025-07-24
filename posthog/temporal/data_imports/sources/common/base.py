@@ -59,6 +59,9 @@ class BaseSource(ABC, Generic[ConfigType]):
     def parse_config(self, job_inputs: dict) -> ConfigType:
         return self._config_class.from_dict(job_inputs)
 
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        return self._config_class.validate_dict(job_inputs)
+
     def validate_credentials(self, config: ConfigType, team_id: int) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
