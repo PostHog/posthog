@@ -15,27 +15,29 @@ def migrate_recording_annotations(apps, schema_editor):
     comment_chunk = []
     annotation_chunk = []
     for annotation in recording_annotations.iterator(chunk_size=CHUNK_SIZE):
-        comment_chunk.append(
-            Comment(
-                content=annotation.content,
-                scope="recording",
-                item_id=annotation.recording_id,
-                item_context={
-                    "is_emoji": annotation.is_emoji,
-                    "time_in_recording": annotation.date_marker.isoformat(),
-                    "migrated_from_annotation": annotation.id,
-                },
-                team_id=annotation.team_id,
-                created_by=annotation.created_by,
-                created_at=annotation.created_at,
+        # technically date_marker can be null, but a recording comment without one is invalid
+        if annotation.date_marker:
+            comment_chunk.append(
+                Comment(
+                    content=annotation.content,
+                    scope="recording",
+                    item_id=annotation.recording_id,
+                    item_context={
+                        "is_emoji": annotation.is_emoji,
+                        "time_in_recording": annotation.date_marker.isoformat(),
+                        "migrated_from_annotation": annotation.id,
+                    },
+                    team_id=annotation.team_id,
+                    created_by=annotation.created_by,
+                    created_at=annotation.created_at,
+                )
             )
-        )
 
         annotation.deleted = True
         annotation_chunk.append(annotation)
 
         # Bulk update every CHUNK_SIZE items
-        if len(comment_chunk) == CHUNK_SIZE:
+        if len(comment_chunk) == CHUNK_SIZE or len(annotation_chunk) == CHUNK_SIZE:
             Comment.objects.bulk_create(comment_chunk)
             Annotation.objects.bulk_update(annotation_chunk, fields=["deleted"])
             comment_chunk = []
