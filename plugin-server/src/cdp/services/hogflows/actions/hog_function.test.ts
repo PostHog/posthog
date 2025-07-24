@@ -85,6 +85,7 @@ describe('HogFunctionHandler', () => {
                                     value: 1,
                                 },
                             },
+                            message_category_id: 'test-category-id', // Example category ID
                         },
                     },
                     exit: {

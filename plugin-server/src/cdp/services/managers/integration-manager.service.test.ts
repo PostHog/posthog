@@ -43,7 +43,7 @@ describe('IntegrationManager', () => {
     })
 
     it('returns the integrations', async () => {
-        const items = await manager.getMany([integrations[0].id.toString()])
+        const items = await manager.getMany([integrations[0].id])
 
         expect(items).toEqual({
             '1': {
@@ -63,7 +63,7 @@ describe('IntegrationManager', () => {
 
     it('updates cached integration data when integration changes', async () => {
         // First check - initial state
-        const item = await manager.get(integrations[0].id.toString())
+        const item = await manager.get(integrations[0].id)
         expect(item?.config).toEqual({ team: 'foobar' })
         expect(item?.sensitive_config).toEqual({ access_token: 'token', not_encrypted: 'not-encrypted' })
 
@@ -78,7 +78,7 @@ describe('IntegrationManager', () => {
             'updateIntegration'
         )
 
-        manager['onIntegrationsReloaded']([integrations[0].id.toString()])
+        manager['onIntegrationsReloaded']([integrations[0].id])
 
         // Verify the database update worked
         const updatedIntegration = await hub.db.postgres.query(
@@ -95,9 +95,9 @@ describe('IntegrationManager', () => {
         )
 
         // Trigger integration reload
-        manager['onIntegrationsReloaded']([integrations[0].id.toString()])
+        manager['onIntegrationsReloaded']([integrations[0].id])
         // Check if the cached data was updated
-        const reloadedIntegrations = await manager.get(integrations[0].id.toString())
+        const reloadedIntegrations = await manager.get(integrations[0].id)
         expect(reloadedIntegrations?.config).toEqual({ team: 'updated-team' })
         expect(reloadedIntegrations?.sensitive_config).toEqual({
             access_token: 'updated-token',

@@ -1,5 +1,5 @@
 import datetime
-from abc import ABC, abstractmethod
+from abc import ABC
 from uuid import UUID
 
 from django.utils import timezone
@@ -10,13 +10,8 @@ from posthog.models.user import User
 
 
 class AssistantContextMixin(ABC):
-    @property
-    @abstractmethod
-    def _team(self) -> Team: ...
-
-    @property
-    @abstractmethod
-    def _user(self) -> User: ...
+    _team: Team
+    _user: User
 
     async def _aget_core_memory(self) -> CoreMemory | None:
         try:
