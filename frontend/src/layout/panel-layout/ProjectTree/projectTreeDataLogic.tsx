@@ -25,6 +25,7 @@ import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     formatUrlAsName,
+    isGroupViewShortcut,
     joinPath,
     sortFilesAndFolders,
     splitPath,
@@ -551,8 +552,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         groupItems: [
-            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
-            (groupTypes, groupsAccessStatus, aggregationLabel): FileSystemImport[] => {
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel, s.shortcutData],
+            (groupTypes, groupsAccessStatus, aggregationLabel, shortcutData): FileSystemImport[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
@@ -576,7 +577,22 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
-                return groupItems
+
+                // Add saved group filter shortcuts - these are created when users save filtered views
+                // from the groups page and should appear in the persons:// tree under "Saved Views"
+                const groupFilterShortcuts = shortcutData
+                    .filter((shortcut) => isGroupViewShortcut(shortcut))
+                    .map((shortcut) => ({
+                        path: shortcut.path,
+                        category: 'Saved Views',
+                        iconType: 'database' as const,
+                        href: shortcut.href || '',
+                        visualOrder: 100,
+                        shortcut: true,
+                        tags: shortcut.tags || [],
+                    }))
+
+                return [...groupItems, ...groupFilterShortcuts]
             },
         ],
         getShortcutTreeItems: [
@@ -589,7 +605,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
-                    for (const shortcut of shortcutData) {
+                    for (const shortcut of shortcutData.filter((shortcut) => !isGroupViewShortcut(shortcut))) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
                             imports: [shortcut],
