@@ -5236,12 +5236,13 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    code: string
     code_language: 'javascript' | 'hog'
 }
 
