@@ -2518,6 +2518,74 @@ class TestExperimentCRUD(APILicensedTest):
         second_duplicate = second_duplicate_response.json()
         self.assertEqual(second_duplicate["name"], "Conflict Test (Copy) 1")
 
+    def test_duplicate_experiment_with_custom_feature_flag(self) -> None:
+        """Test that experiments can be duplicated with a different feature flag"""
+        # Create original experiment
+        original_ff_key = "original-flag"
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "description": "Original description",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": original_ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ]
+                },
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
+                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+            },
+        )
+
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Create a new feature flag to use for the duplicate
+        new_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="duplicate-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Duplicate the experiment with a custom feature flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate",
+            {"feature_flag_key": new_flag.key},
+        )
+
+        assert response.status_code == 201
+        duplicate_data = response.json()
+
+        # Verify the duplicate uses the new feature flag
+        assert duplicate_data["feature_flag_key"] == "duplicate-test-flag"
+        assert duplicate_data["feature_flag"]["key"] == "duplicate-test-flag"
+
+        # Verify the duplicate has the same settings
+        assert duplicate_data["description"] == original_experiment["description"]
+        assert duplicate_data["parameters"] == original_experiment["parameters"]
+        assert duplicate_data["filters"] == original_experiment["filters"]
+        assert duplicate_data["metrics"] == original_experiment["metrics"]
+        assert duplicate_data["metrics_secondary"] == original_experiment["metrics_secondary"]
+
+        # Verify temporal fields are reset
+        assert duplicate_data["start_date"] is None
+        assert duplicate_data["end_date"] is None
+        assert duplicate_data["archived"] is False
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):

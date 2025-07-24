@@ -133,9 +133,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         count: values.experiments.count - 1,
                     }
                 },
-                duplicateExperiment: async (id: number) => {
+                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string }) => {
+                    const data = payload.featureFlagKey ? { feature_flag_key: payload.featureFlagKey } : {}
                     const duplicatedExperiment = await api.create(
-                        `api/projects/${values.currentProjectId}/experiments/${id}/duplicate`
+                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
+                        data
                     )
                     lemonToast.success('Experiment duplicated successfully')
                     // Navigate to the newly created experiment

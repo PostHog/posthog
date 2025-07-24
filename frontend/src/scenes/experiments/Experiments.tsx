@@ -19,11 +19,13 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
+import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
@@ -38,10 +40,11 @@ export const scene: SceneExport = {
 export function Experiments(): JSX.Element {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
-    const { loadExperiments, setExperimentsTab, archiveExperiment, setExperimentsFilters, duplicateExperiment } =
+    const { loadExperiments, setExperimentsTab, archiveExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
 
     const flagResult = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST]
 
@@ -139,7 +142,7 @@ export function Experiments(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    onClick={() => duplicateExperiment(experiment.id as number)}
+                                    onClick={() => setDuplicateModalExperiment(experiment)}
                                     size="small"
                                     fullWidth
                                 >
@@ -379,6 +382,13 @@ export function Experiments(): JSX.Element {
                         </>
                     )}
                 </>
+            )}
+            {duplicateModalExperiment && (
+                <DuplicateExperimentModal
+                    isOpen={true}
+                    onClose={() => setDuplicateModalExperiment(null)}
+                    experiment={duplicateModalExperiment}
+                />
             )}
         </div>
     )

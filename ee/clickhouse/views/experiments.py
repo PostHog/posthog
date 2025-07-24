@@ -549,6 +549,9 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
+        # Allow overriding the feature flag key from the request
+        feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
+
         # Generate a unique name for the duplicate
         base_name = f"{source_experiment.name} (Copy)"
         duplicate_name = base_name
@@ -579,7 +582,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             "stats_config": source_experiment.stats_config,
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
-            "feature_flag_key": source_experiment.feature_flag.key,  # Reuse existing flag
+            "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
             # Reset fields for new experiment
             "start_date": None,
             "end_date": None,
