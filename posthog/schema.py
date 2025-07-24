@@ -1176,6 +1176,12 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentStatsValidationError(StrEnum):
+    NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
+    BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
+    NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+
+
 class ExperimentVariantFunnelsBaseStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3450,12 +3456,24 @@ class ExperimentStatsBase(BaseModel):
     sum_squares: float
 
 
+class ExperimentStatsBaseValidated(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    errors: list[ExperimentStatsValidationError]
+    key: str
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+
+
 class ExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     chance_to_win: float
     credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    errors: list[ExperimentStatsValidationError]
     key: str
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
@@ -3469,6 +3487,7 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    errors: list[ExperimentStatsValidationError]
     key: str
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
@@ -3730,7 +3749,7 @@ class NewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: ExperimentStatsBase
+    baseline: ExperimentStatsBaseValidated
     variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
@@ -5705,7 +5724,7 @@ class CachedNewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: ExperimentStatsBase
+    baseline: ExperimentStatsBaseValidated
     cache_key: str
     cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
@@ -7777,14 +7796,6 @@ class ExperimentExposureQuery(BaseModel):
     start_date: Optional[str] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentMetricResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBase
-    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class FunnelCorrelationResponse(BaseModel):
