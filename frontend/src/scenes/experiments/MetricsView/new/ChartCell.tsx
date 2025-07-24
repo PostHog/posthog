@@ -81,7 +81,7 @@ export function ChartCell({
                         )}
 
                         {/* Render content based on data availability */}
-                        {hasEnoughData ? (
+                        {hasEnoughData && (
                             <>
                                 {/* Gradient definition for this specific bar */}
                                 <ChartGradients
@@ -127,21 +127,17 @@ export function ChartCell({
                                     shapeRendering="crispEdges"
                                 />
                             </>
-                        ) : (
-                            /* "Not enough data" message centered in the cell */
-                            <text
-                                x={VIEW_BOX_WIDTH / 2}
-                                y={viewBoxHeight / 2}
-                                fontSize="10"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fill="var(--muted)"
-                                className="select-none"
-                            >
-                                Not enough data yet
-                            </text>
                         )}
                     </svg>
+
+                    {/* "Not enough data" message as HTML overlay */}
+                    {!hasEnoughData && (
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-border-light px-3 py-1 rounded text-[10px] text-muted whitespace-nowrap">
+                                Not enough data yet
+                            </div>
+                        </div>
+                    )}
                 </div>
             </ChartCellTooltip>
         </td>
