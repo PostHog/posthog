@@ -202,9 +202,9 @@ def get_team_filters(team_ids):
         }
     else:
         return {
-            "raw_sessions": "dictGet('web_preaggregated_teams_dict', 'enabled_at', raw_sessions.team_id) IS NOT NULL",
-            "person_distinct_id_overrides": "dictGet('web_preaggregated_teams_dict', 'enabled_at', person_distinct_id_overrides.team_id) IS NOT NULL",
-            "events": "dictGet('web_preaggregated_teams_dict', 'enabled_at', e.team_id) IS NOT NULL",
+            "raw_sessions": "dictHas('web_preaggregated_teams_dict', raw_sessions.team_id)",
+            "person_distinct_id_overrides": "dictHas('web_preaggregated_teams_dict', person_distinct_id_overrides.team_id)",
+            "events": "dictHas('web_preaggregated_teams_dict', e.team_id)",
         }
 
 

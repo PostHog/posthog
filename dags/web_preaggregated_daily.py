@@ -29,7 +29,6 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
-from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME
 
 logger = structlog.get_logger(__name__)
 
@@ -184,11 +183,7 @@ def export_web_analytics_data_by_team(
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
 
     if not team_ids:
-        dict_query = f"""
-        SELECT team_id
-        FROM {WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}
-        WHERE enabled_at IS NOT NULL
-        """
+        dict_query = "SELECT dictGetAll('web_preaggregated_teams_dict') AS team_id"
         try:
             result = sync_execute(dict_query)
             team_ids = [row[0] for row in result]
