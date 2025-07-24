@@ -11,6 +11,7 @@ from redis import asyncio as aioredis
 
 
 _client_map: Dict[str, Any] = {}
+_test_async_client_map: Dict[str, Any] = {}  # For test mode, where we don't need per-loop isolation
 
 
 def get_client(redis_url: Optional[str] = None) -> redis.Redis:
@@ -103,13 +104,13 @@ def get_async_client(redis_url: Optional[str] = None):
         raise ImproperlyConfigured("REDIS_URL is not configured")
 
     if settings.TEST:
-        # For tests, use simple caching without per-loop complexity
-        # since FakeAsyncRedis doesn't have the same event loop restrictions
-        if redis_url not in _client_map:
+        # For tests, use simple URL-based caching without per-loop complexity
+        # This allows tests to work both inside and outside async contexts
+        if redis_url not in _test_async_client_map:
             import fakeredis
 
-            _client_map[redis_url] = fakeredis.FakeAsyncRedis()
-        return _client_map[redis_url]
+            _test_async_client_map[redis_url] = fakeredis.FakeAsyncRedis()
+        return _test_async_client_map[redis_url]
     else:
         # Production code: use per-loop caching for real Redis connections
         loop = asyncio.get_running_loop()
@@ -135,6 +136,9 @@ def TEST_clear_clients():
     global _client_map
     for key in list(_client_map.keys()):
         del _client_map[key]
+    global _test_async_client_map
+    for key in list(_test_async_client_map.keys()):
+        del _test_async_client_map[key]
     global _loop_clients
     for loop in list(_loop_clients.keys()):
         del _loop_clients[loop]
