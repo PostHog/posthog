@@ -23,13 +23,13 @@ function FlutterDartSetup(props: FlutterSetupProps & FlutterInstallProps): JSX.E
     const configOptions = [
         props.includeReplay &&
             `// check https://posthog.com/docs/session-replay/installation?tab=Flutter
-    // for more config and to learn about how we capture sessions on mobile
-    // and what to expect
-    config.sessionReplay = true;
-    // choose whether to mask images or text
-    config.sessionReplayConfig.maskAllTexts = false;
-    config.sessionReplayConfig.maskAllImages = false;`,
-        props.includeSurveys && `  config.surveys = true`,
+  // for more config and to learn about how we capture sessions on mobile
+  // and what to expect
+  config.sessionReplay = true;
+  // choose whether to mask images or text
+  config.sessionReplayConfig.maskAllTexts = false;
+  config.sessionReplayConfig.maskAllImages = false;`,
+        props.includeSurveys && `config.surveys = true`,
     ]
         .filter(Boolean)
         .join('\n')
@@ -47,7 +47,7 @@ Future<void> main() async {
   config.host = '${apiHostOrigin()}';
   config.debug = true;
   config.captureApplicationLifecycleEvents = true;
-${configOptions}
+  ${configOptions}
   // Setup PostHog with the given Context and Config
   await Posthog().setup(config);
   runApp(MyApp());
@@ -88,7 +88,9 @@ class _MyAppState extends State<MyApp> {
       ),
     );
   }
-}`}
+}
+// If you're using go_router, check this page to learn how to set up the PosthogObserver
+// https://posthog.com/docs/libraries/flutter#capturing-screen-views`}
         </CodeSnippet>
     )
 }
@@ -121,7 +123,11 @@ class _MyAppState extends State<MyApp> {
         title: 'My App',
         home: const HomeScreen(),
     );
-}`}
+}
+// If you're using go_router, check this page to learn how to set up the PosthogObserver
+// https://posthog.com/docs/libraries/flutter#capturing-screen-views
+
+`}
         </CodeSnippet>
     )
 }
@@ -240,13 +246,10 @@ export function SDKInstallFlutterInstructions(props: FlutterSetupProps): JSX.Ele
             <h3>iOS/macOS Setup</h3>
             <p className="prompt-text">Add these values in Info.plist</p>
             <FlutterIOSSetupSnippet {...props} />
-            <h3>Web Setup</h3>
-            <p className="prompt-text">Add these values in index.html</p>
-            <FlutterWebSetupSnippet />
             {props.requiresManualInstall && (
                 <>
                     <h3>Dart Setup</h3>
-                    <p className="prompt-text">Initialize the PostHog SDK with the following configuration:</p>
+                    <p className="prompt-text">Add these values in main.dart</p>
                     <FlutterDartSetup {...props} apiToken={currentTeam?.api_token} />
                     {props.includeSurveys && (
                         <>
@@ -260,13 +263,16 @@ export function SDKInstallFlutterInstructions(props: FlutterSetupProps): JSX.Ele
                         <>
                             <p className="prompt-text">
                                 Wrap your app with the <strong>PostHogWidget</strong> and install the{' '}
-                                <strong>PosthogObserver</strong>:
+                                <strong>PosthogObserver</strong>
                             </p>
                             <InstallFlutterWidgetsAndObsserver />
                         </>
                     )}
                 </>
             )}
+            <h3>Web Setup</h3>
+            <p className="prompt-text">Add these values in index.html</p>
+            <FlutterWebSetupSnippet />
         </>
     )
 }
