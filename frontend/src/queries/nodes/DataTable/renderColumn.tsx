@@ -35,6 +35,7 @@ import {
     trimQuotes,
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export function renderColumn(
     key: string,
@@ -48,11 +49,7 @@ export function renderColumn(
 ): JSX.Element | string {
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
-    const keySplit = key.split('--')
-    if (keySplit.length > 1 && isGroupsQuery(query.source)) {
-        key = keySplit[1].trim()
-    }
-    key = key.split('--')[0].trim()
+    key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -149,7 +146,7 @@ export function renderColumn(
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
-        const propertyKey = trimQuotes(key.substring(11))
+        const propertyKey = trimQuotes(key.substring('properties.'.length))
         if (setQuery && (isEventsQuery(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
@@ -303,9 +300,9 @@ export function renderColumn(
     } else if (
         isGroupsQuery(query.source) &&
         key.startsWith('properties.') &&
-        context?.columns?.[trimQuotes(key.substring(11))]?.render
+        context?.columns?.[trimQuotes(key.substring('properties.'.length))]?.render
     ) {
-        const propertyName = trimQuotes(key.substring(11))
+        const propertyName = trimQuotes(key.substring('properties.'.length))
         const Component = context?.columns?.[propertyName].render
         return Component ? (
             <Component
