@@ -136,7 +136,9 @@ export const QueryDatabase = (): JSX.Element => {
                                     deleteDraft(draft.id)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                                <ButtonPrimitive menuItem className="text-danger">
+                                    Delete
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )
