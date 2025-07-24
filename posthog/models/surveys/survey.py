@@ -29,9 +29,6 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
         WIDGET = "widget", "widget"
-        BUTTON = "button", "button"
-        EMAIL = "email", "email"
-        FULL_SCREEN = "full_screen", "full screen"
         EXTERNAL_SURVEY = "external_survey", "external survey"
         API = "api", "api"
 
