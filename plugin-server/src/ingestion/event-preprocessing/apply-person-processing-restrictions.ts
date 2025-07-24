@@ -15,9 +15,10 @@ export function applyPersonProcessingRestrictions(
     const shouldSkipPerson = shouldSkipPersonRestriction || shouldSkipPersonOptOut
 
     if (shouldSkipPerson) {
-        event.properties = {
-            ...(event.properties ?? {}),
-            $process_person_profile: false,
+        if (event.properties) {
+            event.properties.$process_person_profile = false
+        } else {
+            event.properties = { $process_person_profile: false }
         }
     }
 }
