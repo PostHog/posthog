@@ -162,6 +162,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     tabUrl = urls.groups(parseInt(groupMatch[1]))
                 }
             }
+
             if (!tabUrl) {
                 return values.tabs[0].url
             }
@@ -184,6 +185,9 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             },
         } as Record<string, (...args: any[]) => void>
         urlToAction[urls.groups(':key')] = ({ key }: { key: string }) => {
+            if (values.activeTab?.key === `groups-${key}`) {
+                return
+            }
             actions.setTabKey(`groups-${key}`)
             actions.setGroupTypeIndex(parseInt(key))
         }
