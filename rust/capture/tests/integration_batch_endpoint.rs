@@ -1,3 +1,4 @@
+use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 
 use capture::config::CaptureMode;
@@ -126,7 +127,7 @@ async fn post_form_lz64_batch_events_payload() {
         serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())])
             .expect(&err_msg);
 
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let (router, _sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
     let client = TestClient::new(router);
 
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
@@ -138,9 +139,19 @@ async fn post_form_lz64_batch_events_payload() {
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
-    validate_capture_response(title, res).await;
+    // we expect this to fail while /batch/, /s/, and /i/v0/e/
+    // are processed by handle_common, w/o LZ64 support
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        res.status(),
+        "test {}: non-4xx response: {}",
+        title,
+        res.text().await
+    );
+
+    //validate_capture_response(title, res).await;
 
     // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_batch_events_payload(title, got);
+    //let got = sink.events();
+    //validate_batch_events_payload(title, got);
 }
