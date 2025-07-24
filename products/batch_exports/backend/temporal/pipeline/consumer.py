@@ -14,11 +14,11 @@ from products.batch_exports.backend.temporal.metrics import (
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_stream_transformer,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     raise_on_task_failure,
 )
-from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
@@ -87,10 +87,12 @@ class Consumer:
         multiple files that must each individually be valid.
 
         Returns:
-            BatchExportResult (A tuple containing):
-                - The total number of records in all consumed record batches.
+            BatchExportResult:
+                - The total number of records in all consumed record batches. If an error occurs, this will be None.
                 - The total number of bytes exported (this is the size of the actual data exported, which takes into
-                    account the file type and compression).
+                    account the file type and compression). If an error occurs, this will be None.
+                - The error that occurred, if any. If no error occurred, this will be None. If an error occurs, this
+                    will be a string representation of the error.
         """
 
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
