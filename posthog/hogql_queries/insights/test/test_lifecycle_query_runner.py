@@ -77,6 +77,20 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         return self._create_query_runner(date_from, date_to, interval, aggregation_group_type_index).calculate()
 
     def test_lifecycle_query_group_0(self):
+        # Create group type mapping for group_0
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create the group on Jan 9th so that the first event on Jan 9th marks it as "new"
+        with freeze_time("2020-01-09T12:00:00Z"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"name": "org 5"},
+            )
+
         self._create_events(
             data=[
                 (
@@ -327,6 +341,29 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_lifecycle_query_group_1(self):
+        # Create group type mapping for group_1
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
+
+        # Create company:1 on Jan 9th so that the first event on Jan 9th marks it as "new"
+        with freeze_time("2020-01-09T12:00:00Z"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:1",
+                properties={"name": "company 1"},
+            )
+
+        # Create company:2 on Jan 12th so that the first event on Jan 12th marks it as "new"
+        with freeze_time("2020-01-12T12:00:00Z"):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:2",
+                properties={"name": "company 2"},
+            )
+
         self._create_events(
             data=[
                 (
@@ -370,12 +407,12 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             [
                 {
-                    "count": 1.0,
+                    "count": 2.0,
                     "data": [
-                        1.0,  # 9th, c1
+                        1.0,  # 9th, company:1 created and has first event
                         0.0,
-                        0.0,  # 11th,
-                        0.0,  # 12th, c2
+                        0.0,  # 11th
+                        1.0,  # 12th, company:2 created and has first event
                         0.0,
                         0.0,
                         0.0,  # 15th
@@ -472,12 +509,12 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     },
                 },
                 {
-                    "count": 4.0,
+                    "count": 3.0,
                     "data": [
                         0.0,
                         0.0,
                         1.0,  # 11th, c1
-                        1.0,  # 12th
+                        0.0,  # 12th
                         0.0,
                         0.0,
                         1.0,  # 15th, c2
