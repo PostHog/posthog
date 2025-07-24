@@ -179,6 +179,7 @@ class FeatureFlagSerializer(
             "is_remote_configuration",
             "has_encrypted_payloads",
             "status",
+            "evaluation_environment",
             "_create_in_folder",
         ]
 
@@ -695,6 +696,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "ensure_experience_continuity",
             "has_encrypted_payloads",
             "version",
+            "evaluation_environment",
         ]
 
 
