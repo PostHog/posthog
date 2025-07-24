@@ -359,7 +359,7 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
         title,
     );
     assert_eq!(
-        "01983d85-e613-7067-a70e-21bb63f8b8ee", &event.distinct_id,
+        "known_user@example.com", &event.distinct_id,
         "mismatched distinct_id in case: {}",
         title,
     );
@@ -405,7 +405,7 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
         title,
     );
     assert_eq!(
-        "01983d85-e613-7067-a70e-21bb63f8b8ee", event["distinct_id"],
+        "known_user@example.com", event["distinct_id"],
         "mismatched event.distinct_id in case: {}",
         title,
     );
@@ -415,9 +415,16 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        1_usize,
+        2_usize,
         props.len(),
         "mismatched event.properties length in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        Some("01983d85-e613-7067-a70e-21bb63f8b8ee"),
+        props["$anon_distinct_id"].as_str(),
+        "mismatched event.properties.$anon_distinct_id in case: {}",
         title,
     );
 
