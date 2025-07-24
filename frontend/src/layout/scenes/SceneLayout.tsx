@@ -123,13 +123,15 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto]': scenePanelIsPresent && !scenePanelIsOverlay,
                 })}
             >
-                {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
+                {layoutConfig?.layout !== 'app-raw-no-header' && (
+                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                )}
 
                 {scenePanelIsPresent && (
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen',
+                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen min-w-0',
                                 {
                                     hidden: !scenePanelOpen,
                                     // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
@@ -172,7 +174,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 )}
                 <div
                     className={cn(
-                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
+                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
                         {
                             'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
                             'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',
