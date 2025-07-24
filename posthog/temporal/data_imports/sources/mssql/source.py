@@ -115,7 +115,9 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
-        valid_host, host_errors = self.is_database_host_valid(config.host, team_id, config.ssh_tunnel.enabled)
+        valid_host, host_errors = self.is_database_host_valid(
+            config.host, team_id, config.ssh_tunnel.enabled if config.ssh_tunnel else False
+        )
         if not valid_host:
             return valid_host, host_errors
 
