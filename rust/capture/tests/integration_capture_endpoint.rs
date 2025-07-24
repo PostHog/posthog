@@ -71,7 +71,7 @@ async fn gzipped_no_hint_single_event_payload() {
     let req = client
         .post(&req_path)
         .body(gzipped_payload)
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "text/plain")
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
@@ -185,7 +185,7 @@ async fn gzipped_no_hint_batch_events_payload() {
     let req = client
         .post(&req_path)
         .body(gzipped_payload)
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "text/plain")
         .header("X-Forwarded-For", "127.0.0.1");
     let res = req.send().await;
 
