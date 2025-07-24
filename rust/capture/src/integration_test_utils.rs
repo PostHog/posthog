@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use capture::{
+use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
     router::router,
@@ -16,8 +16,7 @@ use capture::{
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
-use axum_test_helper::{TestClient, TestResponse};
-//use chrono::{Utc, Offset};
+use axum_test_helper::TestResponse;
 use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -28,12 +27,12 @@ use serde_json::{from_str, Number, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
 use time::OffsetDateTime;
 
-const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
+pub const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 
 // we reuse the "raw" payload fixtures a lot, encoding/compressing them differently in different tests
-const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
+pub const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
 //const SINGLE_REPLAY_JSON: &str = "single_replay_payload.json";
-const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
+pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 
 pub struct FixedTime {
     pub time: String,
@@ -46,12 +45,12 @@ impl TimeSource for FixedTime {
 }
 
 #[derive(Clone, Default)]
-struct MemorySink {
+pub struct MemorySink {
     events: Arc<Mutex<Vec<ProcessedEvent>>>,
 }
 
 impl MemorySink {
-    fn events(&self) -> Vec<ProcessedEvent> {
+    pub fn events(&self) -> Vec<ProcessedEvent> {
         self.events.lock().unwrap().clone()
     }
 }
@@ -81,13 +80,13 @@ impl Event for MemorySink {
 // in this case, we load a generic JSON event payload for each test,
 // and let that test case additionally compress/encode the data
 // according to the behavior we're exercising.
-fn load_request_payload(title: &str, target: &str) -> Vec<u8> {
+pub fn load_request_payload(title: &str, target: &str) -> Vec<u8> {
     let path = Path::new("tests/fixtures").join(target);
     let err_msg = format!("loading req event payload for case: {}", title);
     read(path).expect(&err_msg)
 }
 
-fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
+pub fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
     let quota_resource_mode = match mode {
         CaptureMode::Events => QuotaResource::Events,
         CaptureMode::Recordings => QuotaResource::Recordings,
@@ -139,7 +138,7 @@ fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, MemoryS
 }
 
 // utility to compress capture payloads for testing
-fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
+pub fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
     let err_msg = format!("failed to GZIP payload in case: {}", title);
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
 
@@ -147,7 +146,7 @@ fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
     encoder.finish().expect(&err_msg)
 }
 
-fn lz64_compress(title: &str, data: Vec<u8>) -> String {
+pub fn lz64_compress(title: &str, data: Vec<u8>) -> String {
     let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {}", title);
     let utf8_str = std::str::from_utf8(&data).expect(&utf8_err_msg);
     let utf16_bytes: Vec<u16> = utf8_str.encode_utf16().collect();
@@ -155,7 +154,7 @@ fn lz64_compress(title: &str, data: Vec<u8>) -> String {
 }
 
 // format the sent_at value when included in GET URL query params
-fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
+pub fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
     let err_msg = format!(
         "failed to parse ISO8601 time into UNIX millis in case: {}",
         title
@@ -166,7 +165,7 @@ fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
         * 1000_i64
 }
 
-async fn validate_capture_response(title: &str, res: TestResponse) {
+pub async fn validate_capture_response(title: &str, res: TestResponse) {
     assert_eq!(
         StatusCode::OK,
         res.status(),
@@ -189,7 +188,7 @@ async fn validate_capture_response(title: &str, res: TestResponse) {
 }
 
 // utility to validate tests/fixtures/single_event_payload.json
-fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     let expected_event_count = 1;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -330,7 +329,7 @@ fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
 }
 
 // utility to validate tests/fixtures/batch_events_payload.json
-fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     let expected_event_count = 2;
     let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
 
@@ -615,166 +614,4 @@ fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent>) {
         "mismatched event.properties.$time on $pageleave in case: {}",
         title,
     );
-}
-
-#[tokio::test]
-async fn simple_single_event_payload() {
-    let title = "simple-single-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(raw_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn gzipped_single_event_payload() {
-    let title = "gzipped-single-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let gzipped_payload = gzip_compress(title, raw_payload);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}&compression=gzip", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(gzipped_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn gzipped_no_hint_single_event_payload() {
-    let title = "gzipped-no-hint-single-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let gzipped_payload = gzip_compress(title, raw_payload);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    // note: without a "compression" GET query param or POST form, we must auto-detect GZIP compression
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(gzipped_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn post_form_urlencoded_single_event_payload() {
-    let title = "post-form-urlencoded-single-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let err_msg = format!(
-        "failed to serialize payload to urlencoded form in case: {}",
-        title
-    );
-    let utf8_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
-    let form_payload =
-        serde_urlencoded::to_string([("data", utf8_payload), ("ver", "1.2.3")]).expect(&err_msg);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(form_payload)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn post_form_lz64_single_event_payload() {
-    let title = "post-form-lz64-encoded-single-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let lz64_payload = lz64_compress(title, raw_payload);
-    let err_msg = format!(
-        "failed to serialize LZ64 payload to urlencoded form in case: {}",
-        title
-    );
-    let form_payload =
-        serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())])
-            .expect(&err_msg);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}&compression=lz64", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(form_payload)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn simple_batch_events_payload() {
-    let title = "simple-batch-events-payload";
-    let raw_payload = load_request_payload(title, BATCH_EVENTS_JSON);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/batch/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(raw_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_batch_events_payload(title, got);
 }

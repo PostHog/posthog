@@ -11,6 +11,7 @@ workspace = true
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" } # TODO: remove, directly use reqwest like capture-server tests
 axum-client-ip = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -52,7 +53,6 @@ lz-str = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
-axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" } # TODO: remove, directly use reqwest like capture-server tests
 anyhow = { workspace = true }
 futures = { workspace = true }
 once_cell = { workspace = true }
