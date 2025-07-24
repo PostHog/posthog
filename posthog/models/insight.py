@@ -10,7 +10,6 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 from django.db.models import QuerySet
-from django.contrib.postgres.indexes import GinIndex
 
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
@@ -46,7 +45,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     filters = models.JSONField(default=dict)
     filters_hash = models.CharField(max_length=400, null=True, blank=True)
     query = models.JSONField(null=True, blank=True)
-    query_metadata = models.JSONField(null=True, blank=True)
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     saved = models.BooleanField(default=False)
@@ -112,13 +110,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     class Meta:
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")
-        indexes = [
-            GinIndex(
-                name="dashboarditem_query_metadata",
-                fields=["query_metadata"],
-                opclasses=["jsonb_ops"],
-            ),
-        ]
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
