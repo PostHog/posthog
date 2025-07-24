@@ -155,10 +155,12 @@ describe('process-event', () => {
         await resetTestDatabase(testCode, TEST_CONFIG)
         await resetTestDatabaseClickhouse(TEST_CONFIG)
 
+        console.log('beforeEach', 'createHub')
         hub = await createHub({ ...TEST_CONFIG }).catch((error) => {
             logger.error('🛑', 'Failed to create Hub', { error })
             throw error
         })
+        console.log('beforeEach', 'created hub')
         team = await getFirstTeam(hub)
 
         // clear the webhook redis cache
@@ -177,7 +179,11 @@ describe('process-event', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        console.log('afterEach', 'closeHub', !!hub)
+
+        if (hub) {
+            await closeHub(hub)
+        }
     })
 
     const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
