@@ -258,9 +258,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
                 # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
                 wrapper.select_from.table.select.append(day_start)
-                # Don't add one if we already have one
-                if not any(x for x in wrapper.select_from.table.group_by if x == ast.Field(chain=["day_start"])):
-                    wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
@@ -292,9 +290,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
                 # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
                 wrapper.select_from.table.select.append(day_start)
-                # Don't add one if we already have one
-                if not any(x for x in wrapper.select_from.table.group_by if x == ast.Field(chain=["day_start"])):
-                    wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
