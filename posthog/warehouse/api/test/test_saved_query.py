@@ -120,7 +120,7 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400
 
         response_json = response.json()
-        assert "Variables like {filters} are not allowed in views" in response_json["detail"]
+        assert "Invalid query: Unable to resolve field: filters" in response_json["detail"]
 
     def test_delete(self):
         query_name = "test_query"
