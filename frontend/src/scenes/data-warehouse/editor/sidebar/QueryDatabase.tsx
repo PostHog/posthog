@@ -20,6 +20,7 @@ import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import api from 'lib/api'
+import { draftsLogic } from '../draftsLogic'
 
 export const QueryDatabase = (): JSX.Element => {
     const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName } =
@@ -42,6 +43,7 @@ export const QueryDatabase = (): JSX.Element => {
     const { allTabs, viewDrafts } = useValues(multitabLogic)
     const { createTab, selectTab, setTabDraftId } = useActions(multitabLogic)
     const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
+    const { deleteDraft } = useActions(draftsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -122,6 +124,24 @@ export const QueryDatabase = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                // Show menu for drafts
+                if (item.record?.type === 'draft') {
+                    const draft = item.record.draft
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 // Show menu for tables
                 if (item.record?.type === 'table') {
                     return (

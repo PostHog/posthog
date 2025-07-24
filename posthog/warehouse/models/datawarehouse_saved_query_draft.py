@@ -21,8 +21,3 @@ class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDMod
         blank=True,
         help_text="Original saved query this draft is editing (optional)",
     )
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["team", "created_by"]),
-        ]
