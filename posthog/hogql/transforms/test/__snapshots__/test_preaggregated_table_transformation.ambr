@@ -277,6 +277,13 @@
      ORDER BY c DESC)
   '''
 # ---
+# name: TestPreaggregatedTableTransformation.test_preaggregation_tables
+  '''
+  sql
+    (SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state)
+     FROM web_stats_daily)
+  '''
+# ---
 # name: TestPreaggregatedTableTransformation.test_preaggregation_tables_group_by_session_property
   '''
   sql
@@ -457,6 +464,35 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestPreaggregatedTableTransformationIntegration.test_trends_line_dau_query
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT uniqMerge(e.persons_uniq_state) AS total,
+               toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
+        FROM web_stats_daily AS e
+        WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestPreaggregatedTableTransformationIntegration.test_trends_query
