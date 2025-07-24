@@ -47,7 +47,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { removeUndefinedAndNull } from '~/lib/utils'
@@ -525,7 +524,7 @@ export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: IndexedTrendResult
 ): string {
-    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === ResultCustomizationBy.Value
     return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
 }
 

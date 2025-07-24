@@ -20,6 +20,7 @@ import {
     InsightQueryNode,
     LifecycleQuery,
     MathType,
+    ResultCustomizationBy,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
@@ -37,6 +38,8 @@ import {
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
+
+export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value
 
 /** All math types that can result in non-whole numbers. */
 const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
@@ -85,7 +88,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
                 'yAxisScaleType',
                 'showMultipleYAxes',
-                'resultCustomizationBy',
+                'resultCustomizationBy as resultCustomizationByRaw',
                 'getTheme',
                 'theme',
             ],
@@ -273,6 +276,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+        resultCustomizationBy: [
+            (s) => [s.resultCustomizationByRaw],
+            (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
+        ],
+
         getTrendsColorToken: [
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
             (resultCustomizationBy, resultCustomizations, getTheme, breakdownFilter, querySource) => {
