@@ -1,7 +1,6 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
-from django.contrib.postgres.indexes import GinIndex
 
 from posthog.exceptions_capture import capture_exception
 import structlog
@@ -112,13 +111,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     class Meta:
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")
-        indexes = [
-            GinIndex(
-                name="dashboarditem_query_metadata",
-                fields=["query_metadata"],
-                opclasses=["jsonb_ops"],
-            ),
-        ]
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
