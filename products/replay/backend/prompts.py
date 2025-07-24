@@ -1,13 +1,52 @@
-import json
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
-
 # SESSION_REPLAY_RESPONSE_FORMATS_PROMPT = """
 # <response_formats>
+# Formats of responses
+# 1. Question Response Format
+# When you need clarification or determines that additional information is required, you should return a response in the following format:
+# {
+#     "request": "Your clarifying question here."
+# }
+
+# Here are some examples where you should ask clarification questions (return 'question' format):
+# 1. Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
+# 2. Ambiguous Date Ranges: If the user mentions a period like "recent sessions" without clear start and end dates, ask: "Could you specify the exact start and end dates for the period you are interested in?"
+# 3. Incomplete Filter Criteria: For queries such as "Show recordings with high session duration" where a threshold or comparison operator is missing, ask: "What value should be considered as 'high' for session duration?"
+
+
+# 2. Filter Response Format
+# Once all necessary data is collected, the agent should return the filter in this structured format:
+# {
+#     "data": {
+#         "date_from": "<date_from>",
+#         "date_to": "<date_to>",
+#         "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
+#         "filter_group": {
+#             "type": "<FilterLogicalOperator>",
+#             "values": [
+#             {
+#                 "type": "<FilterLogicalOperator>",
+#                 "values": [
+#                     {
+#                         "key": "<key>",
+#                         "type": "<PropertyFilterType>",
+#                         "value": ["<value>"],
+#                         "operator": "<PropertyOperator>"
+#                     },
+#                 ],
+#                 ...
+#             },
+#         ]
+#     }
+# }
+
 # Notes:
 # 1. Replace <date_from> and <date_to> with valid date strings.
-# 2. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
-# 3. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
-# 4. WHEN GENERATING A FILTER BASED ON MORE THAN ONE PROPERTY ALWAYS MAKE SURE TO KEEP THE OLD FILTERS. NEVER REMOVE ANY FILTERS.
+# 2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
+# 3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
+# 4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
+
+
+# WHEN GENERATING A FILTER ALWAYS MAKE SURE TO KEEP THE STATE OF THE FILTERS. NEVER REMOVE ANY FILTERS UNLESS THE USER ASKS FOR IT.
 # </response_formats>
 
 # """.strip()
@@ -171,12 +210,13 @@ json
 """.strip()
 
 PRODUCT_DESCRIPTION_PROMPT = """
+<product_description>
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings.
+</product_description>
 """.strip()
 
-
-FILTER_FIELDS_TAXONOMY_PROMPT = f"""
-<taxonomy_info>
+FILTER_FIELDS_TAXONOMY_PROMPT = """
+<filter_fields_taxonomy>
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
 <key> Field
@@ -207,6 +247,7 @@ Ensure the values in this array match the expected type of the property identifi
 - Multiple Values:
 The <value> array can contain multiple items when the filter should match any one of several potential values.
 
+
 <supported_operators>
 Supported operators for the String or Numeric types are:
 - equals
@@ -235,81 +276,39 @@ Supported operators for the Boolean type are:
 All operators take a single value except for `equals` and `doesn't equal` which can take one or more values.
 </supported_operators>
 
+</filter_fields_taxonomy>
 
-<list_of_property_and_event_names>
-The following is a list of property names, event names and their definitions.
-If you find the property name the user is asking for in the list, use it without calling a tool.
-If you cannot find the property name in the list, call the tool to get the list of properties for the entity or event.
-
-
-SOME OF THE AVAILABLE PROPERTIES, EVENTS and their definitions:
-```json
-{json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP, indent=2)}
-```
-#### SOME OF THE AVAILABLE CAMPAIGN PROPERTIES and their definitions:
-
-```json
-{json.dumps(CAMPAIGN_PROPERTIES, indent=2)}
-```
-
-</list_of_property_and_event_names>
-
-</taxonomy_info>
-
-""".strip()
-
-PROPERTY_FILTER_TYPES_PROMPT = """
-PostHog users can filter their data using various properties and values.
-Properties are classified into groups based on the source of the property or a user defined group.
-Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
-For example, properties can be belong to events, persons, actions, cohorts, sessions and more custom groups.
-Properties can orginate from the following sources:
-- Person Properties aka PersonPropertyFilter:
-    Are associated with a person. For example, email, name, is_signed_up etc.
-    Use the "name" field from the Person properties array (e.g. email).
-    Example: If filtering on email, you might use the key email.
-    Use `retrieve_entity_properties` to get the list of all available person properties.
-
-- Session Properties aka SessionPropertyFilter:
-    Are associated with a session. For example, $start_timestamp, $entry_current_url, session duration etc.
-    Use the "name" field from the Session properties array (e.g., $start_timestamp, $entry_current_url).
-    Example: If filtering based on the session start time, you might use the key $start_timestamp.
-    Use `retrieve_entity_properties` to get the list of all available session properties.
-
-- Event Properties aka EventPropertyFilter:
-    Properties of an event. For example, $current_url, $browser, $ai_error etc
-    Use the "name" field from the Event properties array (e.g. $current_url).
-    Example: For filtering on the user's browser, you might use the key $browser.
 """.strip()
 
 
 TOOL_USAGE_PROMPT = """
-
+<tool_usage>
 ## Tool Usage Rules
 1. **Property Discovery Required**: Use tools to find properties.
-2. Users can be looking for properties related to PERSON, SESSION, GROUP, or EVENT. EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
+2. **CRITICAL DISTINCTION**: EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
 
-2. **Tool Workflow**:
-   - Infer if the user is asking for a person, session, group, or event property.
-   - Use `retrieve_entity_properties` to discover available properties for an entity such as person, session, organization, etc.
-   - Use `retrieve_entity_property_values` to get possible values for a specific property related to person, session, organization, etc.
-   - Use `retrieve_event_properties` to discover available properties for an event
-   - Use `retrieve_event_property_values` to get possible values for a specific property related to event.
+3. **Tool Workflow**:
+   - **For ENTITY properties** (person, session, organization, groups): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
+   - **For EVENT properties** (properties of specific events like pageview, signup, etc.): Use `retrieve_event_properties` and `retrieve_event_property_values`
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete filter information
-   - *CRITICAL*: Call the event tools if you have found a property related to event, do not call the entity tools.
+   - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-3. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
+3. **When to Ask for Help**:
+   - No properties found for the entity/group
+   - Cannot infer the correct entity/group type
+   - Property values don't match user's request
+   - Any ambiguity in the user's request
 
-4. **Multi-Filter Example**: If user mentions "mobile users who completed signup":
-   - Filter 1: Infer entity type "person" for "mobile" → find $device_type property → get values → use "Mobile"
-   - Filter 2: Infer entity type "event" for "signup" → find $signup_event → get event properties if needed
-   - Combine both filters with AND logic
-   - Use `final_answer` only when ALL filters are processed
+4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
-5. Use the output of the tools to build the filter. Merge the results for each filter component into a single filter.
-
+5. **Tool Selection Decision Tree**:
+   - If the user mentions a property that belongs to a person (name, email, location, etc.) → use entity tools with entity="person"
+   - If the user mentions a property that belongs to a session (duration, start time, etc.) → use entity tools with entity="session"
+   - If the user mentions a property that belongs to a group (organization, account, etc.) → use entity tools with entity="[group_name]"
+   - If the user mentions an action or event (signup, purchase, pageview, etc.) → use event tools with event_name="[event_name]"
+</tool_usage>
 """.strip()
 
 
@@ -381,6 +380,7 @@ Below is a refined description for the date fields and their types:
 </date_to>
 </date_fields>
 """.strip()
+
 
 HUMAN_IN_THE_LOOP_PROMPT = """
 When you need clarification or determines that additional information is required, you can use the `ask_user_for_help` tool.

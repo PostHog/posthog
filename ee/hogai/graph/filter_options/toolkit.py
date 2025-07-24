@@ -9,7 +9,6 @@ from ee.hogai.graph.query_planner.toolkit import (
     retrieve_event_properties,
     retrieve_event_property_values,
 )
-from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import MaxRecordingUniversalFilters
 import yaml
 
@@ -79,8 +78,8 @@ class FilterOptionsTool(BaseModel):
 class FilterOptionsToolkit(TaxonomyAgentToolkit):
     @cached_property
     def _entity_names(self) -> list[str]:
-        """Override to include event type."""
-        return [*super()._entity_names, EntityType.EVENT.value]
+        """Override to use only actual entity types, not events."""
+        return super()._entity_names
 
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
@@ -110,24 +109,13 @@ class FilterOptionsToolkit(TaxonomyAgentToolkit):
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
-        Retrieve properties for an entitiy like person, session, or one of the groups.
+        Retrieve properties for an entity like person, session, or one of the groups.
+        Events should use retrieve_event_properties instead.
         """
         if entity not in self._entity_names:
             return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
 
-        if entity == EntityType.EVENT.value or entity == EntityType.ACTION.value:
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.EVENT).values_list(
-                "name", "property_type"
-            )[:max_properties]
-            props = self._enrich_props_with_descriptions("event", qs)
-            if not props:
-                return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
-
-            return self._generate_properties_output(props)
-        else:
-            result = super().retrieve_entity_properties(entity)
-
-        return result
+        return super().retrieve_entity_properties(entity)
 
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """

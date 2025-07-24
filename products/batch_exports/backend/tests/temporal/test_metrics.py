@@ -115,29 +115,25 @@ async def test_interceptor_calls_histogram_metrics(
 
         mocked_meter.assert_any_call(
             {
-                "workflow_namespace": "default",
-                "workflow_type": "postgres-export",
-                "activity_type": "insert_into_postgres_activity",
-                "interval": "hour",
-                "status": "COMPLETED",
-                "exception": "",
-            }
-        )
-        mocked_meter.assert_any_call(
-            {
-                "workflow_namespace": "default",
-                "workflow_type": "postgres-export",
                 "interval": "hour",
                 "status": "COMPLETED",
                 "exception": "",
             }
         )
 
-        mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
-            name="batch_exports_activity_interval_execution_latency", description=None, unit="ms"
+        mocked_meter.return_value.create_histogram.assert_any_call(
+            name="batch_exports_activity_attempt",
+            description="Histogram tracking attempts made by critical batch export activities",
         )
         mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
-            name="batch_exports_workflow_interval_execution_latency", description=None, unit="ms"
+            name="batch_exports_workflow_interval_execution_latency",
+            description="Histogram tracking execution latency for batch export workflows by interval",
+            unit="ms",
+        )
+        mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
+            name="batch_exports_activity_interval_execution_latency",
+            description="Histogram tracking execution latency for critical batch export activities by interval",
+            unit="ms",
         )
 
         number_of_record_calls = len(
@@ -146,3 +142,5 @@ async def test_interceptor_calls_histogram_metrics(
         assert (
             number_of_record_calls == 2
         ), f"expected to have recorded two metrics: for workflow and activity execution latency, but only found {number_of_record_calls}"
+
+        mocked_meter.return_value.create_histogram.return_value.record.assert_called_once_with(1)

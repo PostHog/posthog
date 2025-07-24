@@ -1,25 +1,29 @@
-import pytest
 import logging
+
+import pytest
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 
-from posthog.schema import (
-    MaxRecordingUniversalFilters,
-    FilterLogicalOperator,
-    RecordingOrder,
-    RecordingDurationFilter,
-    DurationType,
-    PropertyOperator,
-    MaxOuterUniversalFiltersGroup,
-    MaxInnerUniversalFiltersGroup,
-)
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
 from ee.models.assistant import Conversation
+
 from .conftest import MaxEval
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.tool import register_filter_profile
 from posthog.schema import AssistantContextualTool
 from products.replay.backend.max_tools import SESSION_RECORDINGS_FILTER_PROFILE
+
+from posthog.schema import (
+    DurationType,
+    FilterLogicalOperator,
+    MaxInnerUniversalFiltersGroup,
+    MaxOuterUniversalFiltersGroup,
+    MaxRecordingUniversalFilters,
+    PropertyOperator,
+    RecordingDurationFilter,
+    RecordingOrder,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +168,63 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
         data=[
             # Test basic filter generation for mobile devices
             EvalCase(
-                input="Show me recordings from mobile devices",
+                input="show me recordings of users that were using a mobile device (use events)",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        "date_from": "-7d",
+                        "date_to": None,
+                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$device_type",
+                                            "type": "event",
+                                            "value": ["Mobile"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "filter_test_accounts": True,
+                        "order": "start_time",
+                    }
+                ),
+            ),
+            EvalCase(
+                input="Show me recordings from chrome browsers",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        "date_from": "-7d",
+                        "date_to": None,
+                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$browser",
+                                            "type": "event",
+                                            "value": ["Chrome"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "filter_test_accounts": True,
+                        "order": "start_time",
+                    }
+                ),
+            ),
+            EvalCase(
+                input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
                     **{
                         "date_from": "-7d",
@@ -193,8 +253,8 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             ),
             # Test date range filtering
             EvalCase(
-                input="Show recordings from the last 24 hours",
-                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-1d"}),
+                input="Show recordings from the last 2 hours",
+                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-2h"}),
             ),
             # Test location filtering
             EvalCase(
@@ -223,7 +283,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             ),
             # Test browser-specific filtering
             EvalCase(
-                input="Show recordings from Chrome users",
+                input="Show recordings from users that were using a browser in English",
                 expected=MaxRecordingUniversalFilters(
                     **{
                         **DUMMY_CURRENT_FILTERS,
@@ -233,7 +293,12 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                                 {
                                     "type": "AND",
                                     "values": [
-                                        {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}
+                                        {
+                                            "key": "$browser_language",
+                                            "type": "person",
+                                            "value": ["EN-en"],
+                                            "operator": "exact",
+                                        }
                                     ],
                                 }
                             ],

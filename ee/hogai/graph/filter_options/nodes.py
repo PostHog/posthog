@@ -20,9 +20,9 @@ from ee.hogai.graph.query_planner.toolkit import (
 
 from .prompts import (
     USER_FILTER_OPTIONS_PROMPT,
-    GROUPS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
+    PROPERTY_FILTER_TYPES_PROMPT,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from .toolkit import EntityType, FilterOptionsTool, FilterOptionsToolkit, ask_user_for_help, create_final_answer_model
@@ -31,6 +31,7 @@ from abc import ABC
 from ee.hogai.tool import get_filter_profile
 from pydantic import ValidationError
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import format_events_prompt
 
 
 class FilterOptionsNode(FilterOptionsBaseNode):
@@ -89,15 +90,17 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        system_messages = [("system", self._get_filter_generation_prompt(state)), ("human", USER_FILTER_OPTIONS_PROMPT)]
+        system_messages = [
+            ("system", self._get_filter_generation_prompt(state)),
+            ("system", PROPERTY_FILTER_TYPES_PROMPT),
+            ("human", USER_FILTER_OPTIONS_PROMPT),
+        ]
         messages = [*system_messages]
 
         progress_messages = list(getattr(state, "tool_progress_messages", []))
         all_messages = [*messages, *progress_messages]
 
-        full_conversation = ChatPromptTemplate(all_messages, template_format="mustache")
-
-        return full_conversation
+        return ChatPromptTemplate(all_messages, template_format="mustache")
 
     def _get_filter_generation_prompt(self, state: FilterOptionsState) -> str:
         filter_profile = self._get_filter_profile(state)
@@ -107,13 +110,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
                 f"FilterProfile for tool '{state.tool_name}' has no formatted_prompt set. The tool must format the prompt before using the graph."
             )
 
-        groups_prompt = (
-            ChatPromptTemplate.from_template(GROUPS_PROMPT, template_format="mustache")
-            .format_messages(groups=self._team_group_types)[0]
-            .content
-        )
-
-        return f"{filter_profile.formatted_prompt}\n\n{groups_prompt}"
+        return filter_profile.formatted_prompt
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         """Process the state and return filtering options."""
@@ -129,11 +126,17 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         if not change.strip():
             change = "Show me all session recordings with default filters"
 
-        # Use filter profile if available, otherwise fall back to default prompts
+        events_in_context = []
+        if ui_context := self._get_ui_context(state):
+            events_in_context = ui_context.events if ui_context.events else []
+
+        # Use injected prompts if available, otherwise fall back to default prompts
         output_message = chain.invoke(
             {
                 "change": change,
                 "current_filters": current_filters,
+                "events": format_events_prompt(events_in_context, self._team),
+                "groups": self._team_group_types,
             },
             config,
         )
@@ -179,7 +182,6 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
         else:
             # First check if we've reached the terminal stage and return the filter options
             if input.name == "final_answer":
-                # Extract the full response structure
                 full_response = {
                     "data": input.arguments.data,  # type: ignore
                 }
