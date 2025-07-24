@@ -500,7 +500,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 redis_key_base=inputs.redis_key_base,
             )
         )
-        # If nothing session ids returned - then all the session ids got patterns extracted and cached successfully
+        # If no session ids returned - then all the session ids got patterns extracted and cached successfully
         if session_ids_to_process is None:
             # Keeping all the initial sessions
             single_session_summaries_inputs = summaries_session_inputs
