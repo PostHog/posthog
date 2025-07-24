@@ -193,6 +193,7 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
     objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
 
     s3_data = []
+    sizes = []
     keys = []
     assert objects.get("KeyCount", 0) > 0
     assert "Contents" in objects
@@ -202,6 +203,7 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
             continue
 
         keys.append(key)
+        sizes.append(obj["Size"])
 
         if file_format == "Parquet":
             s3_data.extend(await read_parquet_from_s3(bucket_name, key, json_columns))
@@ -213,12 +215,12 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
         else:
             raise ValueError(f"Unsupported file format: {file_format}")
 
-    return s3_data, keys
+    return s3_data, keys, sizes
 
 
 async def assert_file_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
     """Assert a file is in S3 and return its contents."""
-    s3_data, keys = await assert_files_in_s3(
+    s3_data, keys, _ = await assert_files_in_s3(
         s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns
     )
     assert len(keys) == 1
@@ -430,10 +432,19 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 class TestInsertIntoS3ActivityFromStage:
     """Tests for the insert_into_s3_from_stage_activity."""
 
-    async def _run_activity(self, activity_environment: ActivityEnvironment, insert_inputs: S3InsertInputs):
-        with override_settings(
-            BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
-        ):  # 5MB, the minimum for Multipart uploads
+    async def _run_activity(
+        self,
+        activity_environment: ActivityEnvironment,
+        insert_inputs: S3InsertInputs,
+        multipart_upload_part_size_mb: int | None = None,
+    ):
+        if multipart_upload_part_size_mb:
+            chunk_size = multipart_upload_part_size_mb * 1024**2
+        else:
+            # 5MB, the minimum for Multipart uploads
+            chunk_size = 5 * 1024**2
+
+        with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=chunk_size):
             assert insert_inputs.batch_export_id is not None
             await activity_environment.run(
                 insert_into_internal_stage_activity,
@@ -647,7 +658,9 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
+        records_exported, bytes_exported = await self._run_activity(
+            activity_environment, insert_inputs, max_file_size_mb
+        )
 
         assert records_exported == len(events_to_export_created)
         assert isinstance(bytes_exported, int)
@@ -657,7 +670,7 @@ class TestInsertIntoS3ActivityFromStage:
         # 1. The file exists in S3.
         # 2. We can read it (so, it's a valid file).
         # 3. It has the same length as the events we have created.
-        s3_data, s3_keys = await assert_files_in_s3(
+        s3_data, s3_keys, s3_sizes = await assert_files_in_s3(
             s3_compatible_client=minio_client,
             bucket_name=bucket_name,
             key_prefix=prefix,
@@ -667,6 +680,12 @@ class TestInsertIntoS3ActivityFromStage:
         )
 
         assert len(s3_data) == len(events_to_export_created)
+        if max_file_size_mb is not None:
+            # We tolerate files to be slightly larger than max_file_size_mb
+            assert all(s3_size / 1024**2 < (max_file_size_mb + 0.1 * max_file_size_mb) for s3_size in s3_sizes), (
+                f"At least one file had a size larger than `max_file_size_mb`: {s3_sizes}"
+            )
+
         num_files = len(s3_keys)
 
         def expected_s3_key(
