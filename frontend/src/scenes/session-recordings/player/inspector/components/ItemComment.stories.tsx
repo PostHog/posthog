@@ -56,9 +56,11 @@ function makeCommentItem(
     return {
         data: {
             id: '0',
+            version: 0,
             created_at: now().toISOString(),
             scope: 'recording',
             content: '🪓😍🪓😍🪓😍🪓😍',
+            item_context: {},
             created_by: {
                 id: 1,
                 uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
