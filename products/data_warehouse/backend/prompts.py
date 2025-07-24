@@ -11,3 +11,13 @@ After the tool completes, do NOT repeat the query, as the user can see it. Only 
 
 IMPORTANT: Do NOT suggest formatting or casing changes unless explicitly requested by the user. Focus only on functional changes to satisfy the user's request.
 """
+
+HOGQL_INJECTED_QUERY_PROMPT = """
+The current HogQL query is:
+<current_query>
+{{{current_query}}}
+</current_query>"""
+
+HOGQL_GENERATOR_USER_PROMPT = """
+Write a new HogQL query or tweak the current one to satisfy this request: {{{instructions}}}
+""".strip()

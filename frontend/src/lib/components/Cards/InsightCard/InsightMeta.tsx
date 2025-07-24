@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -52,7 +53,6 @@ interface InsightMetaProps
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
-    hasResults?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
@@ -68,7 +68,6 @@ export function InsightMeta({
     refreshEnabled,
     loading,
     loadingQueued,
-    hasResults,
     rename,
     duplicate,
     moveToDashboard,
@@ -114,7 +113,6 @@ export function InsightMeta({
                     description={insight.description}
                     loading={loading}
                     loadingQueued={loadingQueued}
-                    hasResults={hasResults}
                     tags={insight.tags}
                 />
             }
@@ -309,7 +307,6 @@ export function InsightMetaContent({
     link,
     loading,
     loadingQueued,
-    hasResults,
     tags,
 }: {
     title: string
@@ -318,43 +315,21 @@ export function InsightMetaContent({
     link?: string
     loading?: boolean
     loadingQueued?: boolean
-    hasResults?: boolean
     tags?: string[]
 }): JSX.Element {
     let titleEl: JSX.Element = (
         <h4 title={title} data-attr="insight-card-title">
             {title || <i>{fallbackTitle || 'Untitled'}</i>}
             {(loading || loadingQueued) && (
-                <>
-                    {hasResults ? (
-                        <Tooltip
-                            title={
-                                loading
-                                    ? 'This insight is checking for newer results.'
-                                    : 'This insight is waiting to check for newer results.'
-                            }
-                            placement="top-end"
-                        >
-                            <span className="text-muted text-sm font-medium ml-1.5">
-                                <Spinner className="mr-1.5 text-base" textColored />
-                            </span>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip
-                            title={
-                                loading
-                                    ? 'This insight is loading results.'
-                                    : 'This insight is waiting to load results.'
-                            }
-                            placement="top-end"
-                        >
-                            <span className="text-accent text-sm font-medium ml-1.5">
-                                <Spinner className="mr-1.5 text-base" textColored />
-                                {loading ? 'Loading' : 'Waiting to load'}
-                            </span>
-                        </Tooltip>
-                    )}
-                </>
+                <Tooltip
+                    title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
+                    placement="top-end"
+                >
+                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
+                        <Spinner className="mr-1.5 text-base" textColored />
+                        {loading ? 'Loading' : 'Waiting to load'}
+                    </span>
+                </Tooltip>
             )}
         </h4>
     )
@@ -371,7 +346,7 @@ export function InsightMetaContent({
                 </LemonMarkdown>
             )}
             {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
-            <LemonTableLoader loading={loading && !hasResults} />
+            <LemonTableLoader loading={loading} />
         </>
     )
 }
