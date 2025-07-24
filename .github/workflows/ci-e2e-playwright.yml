@@ -239,7 +239,7 @@ jobs:
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive report
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: playwright-container-report
                   path: playwright/playwright-report/
@@ -248,7 +248,7 @@ jobs:
 
             - name: Archive screenshots
               if: always()
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: playwright-container-screenshots
                   path: playwright/test-results
@@ -510,7 +510,7 @@ jobs:
 
             - name: Archive Playwright report on failure
               if: failure()
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: playwright-report
                   path: playwright/playwright-report/
@@ -518,7 +518,7 @@ jobs:
 
             - name: Archive screenshots
               if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
                   name: playwright-screenshots
                   path: playwright/test-results
