@@ -450,5 +450,5 @@ class TestTemplateMigration(BaseTest):
         assert template["inputs_schema"][0]["key"] == "access_token"
         assert template["inputs_schema"][0]["type"] == "string"
         assert template["inputs_schema"][0]["secret"]
-        assert "inputs.oauth.access_token" not in template["hog"]
-        assert "inputs.access_token" in template["hog"]
+        assert "inputs.oauth.access_token" not in template["code"]
+        assert "inputs.access_token" in template["code"]
