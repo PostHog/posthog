@@ -123,6 +123,8 @@ class _MyAppState extends State<MyApp> {
         title: 'My App',
         home: const HomeScreen(),
     );
+);
+  }
 }
 // If you're using go_router, check this page to learn how to set up the PosthogObserver
 // https://posthog.com/docs/libraries/flutter#capturing-screen-views

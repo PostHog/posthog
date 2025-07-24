@@ -18,16 +18,16 @@ function RNInstallSnippet({ includeReplay, includeSurveys }: RNSetupProps): JSX.
             {`# Expo apps
 npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization${
                 includeReplay ? ` posthog-react-native-session-replay` : ''
-            }${includeSurveys ? `react-native-safe-area-context react-native-svg` : ''}
+            }${includeSurveys ? ` react-native-safe-area-context react-native-svg` : ''}
 
 # Standard React Native apps
 yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize${
                 includeReplay ? ` posthog-react-native-session-replay` : ''
-            }${includeSurveys ? `react-native-safe-area-context react-native-svg` : ''}
+            }${includeSurveys ? ` react-native-safe-area-context react-native-svg` : ''}
 # or
 npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize${
                 includeReplay ? ` posthog-react-native-session-replay` : ''
-            }${includeSurveys ? `react-native-safe-area-context react-native-svg` : ''}
+            }${includeSurveys ? ` react-native-safe-area-context react-native-svg` : ''}
 
 # for iOS
 cd ios
@@ -115,7 +115,8 @@ function RNSetupSurveysProvider(): JSX.Element {
             </p>
             <CodeSnippet language={Language.JSX}>
                 {`<YourAppRoot>
-  <PostHogSurveyProvider>
+                {`<YourAppRoot>
+  <PostHogSurveyProvider>{children}</PostHogSurveyProvider>
 </YourAppRoot>`}
             </CodeSnippet>
             <p>You can also pass your client instance to the PostHogSurveyProvider.</p>

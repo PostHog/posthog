@@ -43,7 +43,7 @@ function IOSSetupSnippet(props: iOSSetupProps): JSX.Element {
         .filter(Boolean)
         .join('\n')
 
-    const configSection = configOptions ? `${configOptions}` : ''
+    const configSection = configOptions ? configOptions : ''
 
     return (
         <CodeSnippet language={Language.Swift}>
