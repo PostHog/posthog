@@ -11,14 +11,16 @@ export default meta
 
 export function Default(): JSX.Element {
     return (
-        <>
-            <ViewRecordingButton sessionId="123456789" type="secondary" />
+        <div className="flex flex-col gap-y-2 grow-0">
+            <ViewRecordingButton fullWidth sessionId="123456789" type="secondary" />
+            <ViewRecordingButton fullWidth sessionId="123456789" type="secondary" recordingStatus="disabled" />
             <ViewRecordingButton
                 sessionId="123456789"
                 type="secondary"
+                fullWidth
                 minimumDuration={2000}
                 recordingDuration={1000}
             />
-        </>
+        </div>
     )
 }
