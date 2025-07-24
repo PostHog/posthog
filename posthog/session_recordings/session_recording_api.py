@@ -33,11 +33,11 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+
+import posthog
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
-import posthog.session_recordings.queries_to_replace.session_recording_list_from_query
-import posthog.session_recordings.queries_to_replace.sub_queries.events_subquery
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -567,11 +567,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        results, _, timings = (
-            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                query=query, team=self.team, hogql_query_modifiers=modifiers
-            ).get_event_ids_for_session()
+        user = cast(request.user, User)
+        use_multiple_sub_queries = (
+            posthoganalytics.feature_enabled(
+                "use-multiple-sub-queries",
+                str(user.distinct_id),
+            )
+            if user
+            else False
         )
+
+        if use_multiple_sub_queries:
+            results, _, timings = (
+                posthog.session_recordings.queries_to_replace.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
+                    query=query, team=self.team, hogql_query_modifiers=modifiers
+                ).get_event_ids_for_session()
+            )
+        else:
+            results, _, timings = (
+                posthog.session_recordings.queries_to_delete.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
+                    query=query, team=self.team, hogql_query_modifiers=modifiers
+                ).get_event_ids_for_session()
+            )
 
         response = JsonResponse(data={"results": results})
 
