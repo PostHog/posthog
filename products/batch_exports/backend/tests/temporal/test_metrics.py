@@ -126,13 +126,13 @@ async def test_interceptor_calls_histogram_metrics(
             description="Histogram tracking attempts made by critical batch export activities",
         )
         mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
-            name="batch_exports_activity_interval_execution_latency",
-            description="Histogram tracking execution latency for critical batch export activities separated by interval",
+            name="batch_exports_workflow_interval_execution_latency",
+            description="Histogram tracking execution latency for batch export workflows by interval",
             unit="ms",
         )
         mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
-            name="batch_exports_workflow_interval_execution_latency",
-            description="Histogram tracking execution latency for batch export workflows by interval",
+            name="batch_exports_activity_interval_execution_latency",
+            description="Histogram tracking execution latency for critical batch export activities by interval",
             unit="ms",
         )
 
