@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { IconBalance, IconCollapse, IconExpand, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -58,6 +58,7 @@ import {
     DashboardPlacement,
     DashboardType,
     EarlyAccessFeatureStage,
+    FeatureFlagEvaluationEnvironment,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -387,6 +388,29 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 dataAttr="feature-flag-enabled-checkbox"
                                             />
                                         </div>
+                                    )}
+                                </LemonField>
+                                <LemonField name="evaluation_environment" label="Evaluation environment">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect
+                                            value={value}
+                                            onChange={onChange}
+                                            options={[
+                                                {
+                                                    value: FeatureFlagEvaluationEnvironment.BOTH,
+                                                    label: 'Both client and server',
+                                                },
+                                                {
+                                                    value: FeatureFlagEvaluationEnvironment.CLIENT,
+                                                    label: 'Client-side only',
+                                                },
+                                                {
+                                                    value: FeatureFlagEvaluationEnvironment.SERVER,
+                                                    label: 'Server-side only',
+                                                },
+                                            ]}
+                                            fullWidth
+                                        />
                                     )}
                                 </LemonField>
                                 {!featureFlag.is_remote_configuration && (
@@ -932,6 +956,19 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             This flag{' '}
                             <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
                             across authentication events.
+                        </span>
+
+                        <span className="card-secondary mt-4">Evaluation environment</span>
+                        <span>
+                            This flag is evaluated on{' '}
+                            <b>
+                                {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.BOTH
+                                    ? 'both client and server'
+                                    : featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.CLIENT
+                                    ? 'client-side only'
+                                    : 'server-side only'}
+                            </b>
+                            .
                         </span>
                     </div>
                     <LemonDivider className="my-3" />

@@ -36,6 +36,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
+    FeatureFlagEvaluationEnvironment,
     FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
@@ -192,6 +193,22 @@ export function OverViewTab({
                             </Tooltip>
                         )}
                     </div>
+                )
+            },
+        },
+        {
+            title: 'Environment',
+            dataIndex: 'evaluation_environment',
+            width: 120,
+            render: function RenderEnvironment(_, featureFlag: FeatureFlagType) {
+                return (
+                    <LemonTag type="default" className="uppercase">
+                        {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.BOTH
+                            ? 'Both'
+                            : featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.CLIENT
+                            ? 'Client'
+                            : 'Server'}
+                    </LemonTag>
                 )
             },
         },

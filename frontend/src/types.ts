@@ -3260,6 +3260,12 @@ export interface MultivariateFlagOptions {
     variants: MultivariateFlagVariant[]
 }
 
+export enum FeatureFlagEvaluationEnvironment {
+    SERVER = 'server',
+    CLIENT = 'client',
+    BOTH = 'both',
+}
+
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate?: MultivariateFlagOptions | null
@@ -3303,7 +3309,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
-    evaluation_environment: 'server' | 'client' | 'both'
+    evaluation_environment: FeatureFlagEvaluationEnvironment
 }
 
 export interface OrganizationFeatureFlag {
