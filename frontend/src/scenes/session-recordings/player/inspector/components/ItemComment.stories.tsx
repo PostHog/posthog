@@ -7,7 +7,7 @@ import {
     ItemCommentProps,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
 import {
-    InspectorListItemAnnotationComment,
+    InspectorListItemComment,
     InspectorListItemNotebookComment,
     RecordingComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -49,14 +49,14 @@ function makeNotebookItem(
     }
 }
 
-function makeAnnotationItem(
-    itemOverrides: Partial<InspectorListItemAnnotationComment> = {},
+function makeCommentItem(
+    itemOverrides: Partial<InspectorListItemComment> = {},
     dataOverrides: Partial<AnnotationType> = {}
-): InspectorListItemAnnotationComment {
+): InspectorListItemComment {
     return {
         data: {
-            id: 0,
-            created_at: now(),
+            id: '0',
+            created_at: now().toISOString(),
             date_marker: now(),
             updated_at: now().toISOString(),
             scope: AnnotationScope.Project,
@@ -75,7 +75,7 @@ function makeAnnotationItem(
         timeInRecording: 0,
         timestamp: now(),
         type: 'comment',
-        source: 'annotation',
+        source: 'comment',
         search: '',
         ...itemOverrides,
     }
@@ -138,5 +138,5 @@ NotebookComment.args = {
 
 export const AnnotationComment: Story = BasicTemplate.bind({})
 AnnotationComment.args = {
-    item: makeAnnotationItem(),
+    item: makeCommentItem(),
 }
