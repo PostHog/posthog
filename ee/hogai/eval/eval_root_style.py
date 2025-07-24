@@ -2,7 +2,6 @@ import pytest
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
@@ -70,8 +69,7 @@ def call_root(demo_org_team_user):
             }
         )
         .add_inkeep_docs()
-        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
-        .compile(checkpointer=DjangoCheckpointer())
+        .compile()
     )
 
     async def callable(messages: str | list[AssistantMessageUnion]) -> AssistantMessage:
