@@ -12,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { useState, useEffect } from 'react'
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
@@ -107,26 +106,20 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         initialDataWarehouseSavedQueryLoading,
         dataModelingJobs,
         hasMoreJobsToLoad,
+        startingMaterialization,
     } = useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
         loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         revertMaterialization,
+        setStartingMaterialization,
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
-    const [startingMaterialization, setStartingMaterialization] = useState(false)
-
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
-    useEffect(() => {
-        const materializationStatuses = new Set(['Running', 'Completed', 'Failed', 'Cancelled'])
-        if (currentJobStatus && materializationStatuses.has(currentJobStatus)) {
-            setStartingMaterialization(false)
-        }
-    }, [currentJobStatus])
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
