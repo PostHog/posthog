@@ -74,95 +74,6 @@ class MaxRetriesError extends Error {
     }
 }
 
-class BatchWritingPersonsStoreTransaction implements PersonsStoreTransaction {
-    constructor(private store: BatchWritingPersonsStoreForBatch, private tx: PersonRepositoryTransaction) {}
-
-    async createPerson(
-        createdAt: DateTime,
-        properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
-        teamId: number,
-        isUserId: number | null,
-        isIdentified: boolean,
-        uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        return await this.store.createPerson(
-            createdAt,
-            properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
-            teamId,
-            isUserId,
-            isIdentified,
-            uuid,
-            distinctIds,
-            this.tx
-        )
-    }
-
-    async updatePersonForMerge(
-        person: InternalPerson,
-        update: Partial<InternalPerson>,
-        _distinctId: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        return await this.store.updatePersonForMerge(person, update, _distinctId, this.tx)
-    }
-
-    async updatePersonWithPropertiesDiffForUpdate(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson>,
-        _distinctId: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        return await this.store.updatePersonWithPropertiesDiffForUpdate(
-            person,
-            propertiesToSet,
-            propertiesToUnset,
-            otherUpdates,
-            _distinctId,
-            this.tx
-        )
-    }
-
-    async deletePerson(person: InternalPerson, _distinctId: string): Promise<TopicMessage[]> {
-        return await this.store.deletePerson(person, _distinctId, this.tx)
-    }
-
-    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
-        return await this.store.addDistinctId(person, distinctId, version, this.tx)
-    }
-
-    async moveDistinctIds(
-        source: InternalPerson,
-        target: InternalPerson,
-        _distinctId: string
-    ): Promise<MoveDistinctIdsResult> {
-        return await this.store.moveDistinctIds(source, target, _distinctId, this.tx)
-    }
-
-    async updateCohortsAndFeatureFlagsForMerge(
-        teamID: Team['id'],
-        sourcePersonID: InternalPerson['id'],
-        targetPersonID: InternalPerson['id'],
-        _distinctId: string
-    ): Promise<void> {
-        return await this.store.updateCohortsAndFeatureFlagsForMerge(
-            teamID,
-            sourcePersonID,
-            targetPersonID,
-            _distinctId,
-            this.tx
-        )
-    }
-
-    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
-        return await this.tx.addPersonlessDistinctIdForMerge(teamId, distinctId)
-    }
-}
-
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
     dbWriteMode: PersonBatchWritingDbWriteMode
@@ -399,7 +310,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     async inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
         return await this.personRepository.inTransaction(description, async (tx) => {
-            const transactionWrapper = new BatchWritingPersonsStoreTransaction(this, tx)
+            const transactionWrapper = new PersonsStoreTransaction(this, tx)
             return await transaction(transactionWrapper)
         })
     }
