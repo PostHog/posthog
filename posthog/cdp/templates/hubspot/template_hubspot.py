@@ -14,7 +14,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/hubspot.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let properties := {
     'email': inputs.email
 }
@@ -109,7 +109,7 @@ template_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/hubspot.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not sending event.')
     return

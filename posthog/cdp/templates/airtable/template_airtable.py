@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/airtable.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 let url := f'https://api.airtable.com/v0/{inputs.base_id}/{inputs.table_name}'
 
 let payload := {

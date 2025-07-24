@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="https://raw.githubusercontent.com/PostHog/bug-report-app/refs/heads/main/logo.png",
     category=["Custom"],
     code_language="javascript",
-    hog="""
+    code="""
 const style = (inputs) => `
     .form, .button, .thanks {
         position: fixed;

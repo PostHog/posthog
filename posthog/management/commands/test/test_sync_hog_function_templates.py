@@ -168,7 +168,7 @@ class TestSyncHogFunctionTemplates:
 
         # Verify core template fields
         assert db_template.name == slack_template.name
-        assert db_template.code == slack_template.hog
+        assert db_template.code == slack_template.code
         assert db_template.type == slack_template.type
 
         # Only check bytecode if it's not a JavaScript template
@@ -178,12 +178,12 @@ class TestSyncHogFunctionTemplates:
         dataclass_template = db_template.to_dataclass()
         assert dataclass_template.id == slack_template.id
         assert dataclass_template.name == slack_template.name
-        assert dataclass_template.hog == slack_template.hog
+        assert dataclass_template.code == slack_template.code
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):
         """Test that template versioning behaves correctly"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as DataclassTemplate
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
         # Mock the Node.js API to avoid external dependencies
         mock_response = MagicMock()
@@ -195,12 +195,12 @@ class TestSyncHogFunctionTemplates:
         HogFunctionTemplate.objects.all().delete()
 
         # Create a test template
-        test_template = DataclassTemplate(
+        test_template = HogFunctionTemplateDC(
             id="test-versioning-template",
             name="Test Versioning Template",
             description="Test template for version behavior",
             type="transformation",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="beta",
             free=True,
@@ -224,12 +224,12 @@ class TestSyncHogFunctionTemplates:
         assert template_count == 1
 
         # Create a modified version of the template (can't modify frozen dataclass)
-        modified_template = DataclassTemplate(
+        modified_template = HogFunctionTemplateDC(
             id="test-versioning-template",  # Same ID
             name="Modified Test Template",  # Changed
             description="This template was modified",  # Changed
             type="transformation",
-            hog="return null",  # Changed
+            code="return null",  # Changed
             inputs_schema=[],
             status="beta",
             free=True,

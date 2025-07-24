@@ -61,7 +61,7 @@ template_tiktok_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/tiktok.png",
     category=["Advertisement"],
     code_language="javascript",
-    hog="""
+    code="""
 // Adds window.snaptr and lazily loads the TikTok Pixel script
 function initSnippet() {
     !function (w, d, t) {

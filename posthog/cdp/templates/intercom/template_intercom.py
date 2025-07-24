@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/intercom.png",
     category=["Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -172,7 +172,7 @@ template_send_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/intercom.png",
     category=["Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return

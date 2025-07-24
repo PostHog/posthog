@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/pineapple.png",
     category=["Custom", "Analytics"],
     code_language="javascript",
-    hog="""
+    code="""
 const style = `
     .button {
         position: fixed;

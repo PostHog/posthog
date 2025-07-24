@@ -12,7 +12,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Customer Success"],
     icon_url="/static/services/zendesk.png",
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email) or empty(inputs.name)) {
     print('`email` or `name` input is empty. Not creating a contact.')
     return

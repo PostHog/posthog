@@ -51,10 +51,10 @@ class HogFunctionTemplateDC:
     type: HogFunctionTemplateType
     id: str
     name: str
-    hog: str
+    code: str
+    code_language: Literal["javascript", "hog"]
     inputs_schema: list[dict]
     category: list[str]
-    code_language: Literal["javascript", "hog"]
     description: Optional[str] = None
     filters: Optional[dict] = None
     mappings: Optional[list[HogFunctionMapping]] = None

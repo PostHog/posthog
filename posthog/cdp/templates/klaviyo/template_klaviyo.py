@@ -10,7 +10,7 @@ template_user: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/klaviyo.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.externalId) and empty(inputs.email)) {
     print('Email or External ID has to be set. Skipping...')
     return
@@ -154,7 +154,7 @@ template_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/klaviyo.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.externalId) and empty(inputs.email)) {
     print('Email or External ID has to be set. Skipping...')
     return

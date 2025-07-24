@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/aws-kinesis.png",
     category=["Analytics"],
     code_language="hog",
-    hog="""
+    code="""
 fun getPayload() {
   let region := inputs.aws_region
   let service := 'kinesis'

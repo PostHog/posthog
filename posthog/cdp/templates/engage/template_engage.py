@@ -12,7 +12,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/engage.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 fetch('https://api.engage.so/posthog', {
     'method': 'POST',
     'headers': {

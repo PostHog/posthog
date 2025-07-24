@@ -13,7 +13,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/avo.png",
     category=["Analytics"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.apiKey) or empty(inputs.environment)) {
     print('API Key and environment has to be set. Skipping...')
     return

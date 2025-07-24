@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/zapier.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 let hook_path := inputs.hook;
 let prefix := 'https://hooks.zapier.com/';
 // Remove the prefix if it exists

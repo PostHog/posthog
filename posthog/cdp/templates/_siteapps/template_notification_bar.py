@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/hedgehog/list-hog.png",
     category=["Custom", "Analytics"],
     code_language="javascript",
-    hog="""
+    code="""
 export function onLoad({ inputs }) {
     if (inputs.domains) {
         const domains = inputs.domains.split(',').map((domain) => domain.trim())

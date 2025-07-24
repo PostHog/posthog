@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/knock.png",
     category=["SMS & Push Notifications"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.userId)) {
     print('No User ID set. Skipping...')
     return

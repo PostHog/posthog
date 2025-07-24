@@ -15,7 +15,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/sendgrid.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not updating contacts.')
     return

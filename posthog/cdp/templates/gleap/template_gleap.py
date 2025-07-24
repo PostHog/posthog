@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/gleap.png",
     category=["Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let action := inputs.action
 let name := event.event
 

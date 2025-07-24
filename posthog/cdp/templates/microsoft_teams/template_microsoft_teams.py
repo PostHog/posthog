@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/microsoft-teams.png",
     category=["Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
     not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
     not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and

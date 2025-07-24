@@ -44,7 +44,7 @@ template_create_contact: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     return false
 }
@@ -99,7 +99,7 @@ template_update_contact_list: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     return false
 }

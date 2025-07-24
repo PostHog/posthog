@@ -10,7 +10,7 @@ from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -80,11 +80,8 @@ def get_db_field_value(field, model_id):
 
 
 def _create_template_from_mock(template_data):
-    serializer = HogFunctionTemplateSerializer(data=template_data)
-    serializer.is_valid(raise_exception=True)
-    template = serializer.save()
-    HogFunctionTemplate.create_from_dataclass(template)
-    return template
+    template = HogFunctionTemplateDC(**template_data)
+    return HogFunctionTemplate.create_from_dataclass(template)
 
 
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -93,12 +90,6 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         # Create slack template in DB
         HogFunctionTemplate.create_from_dataclass(template_slack)
         _create_template_from_mock(webhook_template)
-
-        # Mock the API call to get templates
-        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
-            mock_get_templates.return_value.status_code = 200
-            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
@@ -122,7 +113,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         response = self._create_slack_function()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
-        assert response.json()["hog"] == template_slack.hog
+        assert response.json()["hog"] == template_slack.code
         assert response.json()["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_override_hog_or_schema(self):
@@ -136,7 +127,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         new_response = response.json()
         # These did not change
-        assert new_response["hog"] == template_slack.hog
+        assert new_response["hog"] == template_slack.code
         assert new_response["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_use_without_template(self):
@@ -241,12 +232,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         HogFunctionTemplate.create_from_dataclass(template_slack)
         _create_template_from_mock(webhook_template)
         _create_template_from_mock(geoip_template)
-
-        # Mock the API call to get templates
-        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
-            mock_get_templates.return_value.status_code = 200
-            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
         # Create the action referenced in EXAMPLE_FULL
         if not Action.objects.filter(id=9, team=self.team).exists():

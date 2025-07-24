@@ -16,7 +16,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/google-cloud-storage.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 let res := fetch(f'https://storage.googleapis.com/upload/storage/v1/b/{encodeURLComponent(inputs.bucketName)}/o?uploadType=media&name={encodeURLComponent(inputs.filename)}', {
   'method': 'POST',
   'headers': {

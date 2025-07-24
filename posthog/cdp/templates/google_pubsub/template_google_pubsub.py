@@ -16,7 +16,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/google-cloud.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 let headers := () -> {
   'Authorization': f'Bearer {inputs.auth.access_token}',
   'Content-Type': 'application/json'

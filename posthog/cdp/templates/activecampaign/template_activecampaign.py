@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/activecampaign.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not creating a contact.')
     return

@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/linkedin.png",
     category=["Advertisement"],
     code_language="hog",
-    hog="""
+    code="""
 let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,

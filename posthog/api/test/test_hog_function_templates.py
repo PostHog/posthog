@@ -20,7 +20,7 @@ EXPECTED_FIRST_RESULT = {
     "id": template_slack.id,
     "name": template_slack.name,
     "description": template_slack.description,
-    "code": template_slack.hog,
+    "code": template_slack.code,
     "inputs_schema": template_slack.inputs_schema,
     "category": template_slack.category,
     "filters": template_slack.filters,
@@ -162,7 +162,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def test_template_updates_are_reflected(self):
         """Test that template updates are reflected in API responses"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as DataclassTemplate
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
         # Initial sha of the template
         initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
@@ -170,12 +170,12 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert initial_response.json()["name"] == template_slack.name
 
         # Create a modified sha of the template
-        modified_template = DataclassTemplate(
+        modified_template = HogFunctionTemplateDC(
             id="template-slack",  # Same ID
             name="Updated Slack",  # Changed
             description="This template was updated",  # Changed
             type="destination",
-            hog="return {...event, updated: true}",  # Changed
+            code="return {...event, updated: true}",  # Changed
             inputs_schema=template_slack.inputs_schema,
             status="stable",
             free=True,

@@ -17,12 +17,6 @@ class TestHogFlowAPI(APIBaseTest):
         HogFunctionTemplate.create_from_dataclass(template_slack)
         _create_template_from_mock(webhook_template)
 
-        # # Mock the API call to get templates
-        # with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
-        #     mock_get_templates.return_value.status_code = 200
-        #     mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-        #     HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
-
     def _create_hog_flow_with_action(self, action_config: dict):
         action = {
             "id": "action_1",

@@ -13,7 +13,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/clearbit.png",
     category=["Analytics"],
     code_language="hog",
-    hog="""
+    code="""
 let api_key := inputs.api_key
 let email := inputs.email
 

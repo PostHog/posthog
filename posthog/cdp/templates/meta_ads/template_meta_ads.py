@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/meta-ads.png",
     category=["Advertisement"],
     code_language="hog",
-    hog="""
+    code="""
 let body := {
     'data': [
         {

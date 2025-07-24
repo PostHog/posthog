@@ -31,7 +31,7 @@ template_create: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/salesforce.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let getPayload := () -> {
   let properties := {}
   if (inputs.include_all_event_properties) {
@@ -122,7 +122,7 @@ template_update: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/salesforce.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let getPayload := () -> {
   let properties := {}
   if (inputs.include_all_event_properties) {

@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/slack.png",
     category=["Customer Success"],
     code_language="hog",
-    hog="""
+    code="""
 let res := fetch('https://slack.com/api/chat.postMessage', {
   'body': {
     'channel': inputs.channel,

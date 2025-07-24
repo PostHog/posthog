@@ -13,7 +13,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/rudderstack.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 fun getPayload() {
     let rudderPayload := {
         'context': {

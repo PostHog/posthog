@@ -47,7 +47,7 @@ template_snapchat_pixel: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/snapchat.png",
     category=["Advertisement"],
     code_language="javascript",
-    hog="""
+    code="""
 // Adds window.snaptr and lazily loads the Snapchat Pixel script
 function initSnippet() {
     (function(e,t,n){if(e.snaptr)return;var a=e.snaptr=function()

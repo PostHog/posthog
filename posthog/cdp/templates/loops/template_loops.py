@@ -12,7 +12,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -111,7 +111,7 @@ template_send_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/loops.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return

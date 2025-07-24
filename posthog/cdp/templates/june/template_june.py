@@ -10,7 +10,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/june.png",
     category=["Analytics"],
     code_language="hog",
-    hog="""
+    code="""
 let type := 'track'
 
 if (event.event in ('$identify', '$set')) {

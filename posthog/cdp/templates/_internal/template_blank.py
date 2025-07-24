@@ -10,7 +10,7 @@ blank_site_destination: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom", "Analytics"],
     code_language="javascript",
-    hog="""
+    code="""
 export async function onLoad({ inputs, posthog }) {
     console.log('🦔 Loading (takes 1 sec)', { inputs })
     // onEvent will not be called until this function resolves
@@ -146,7 +146,7 @@ blank_site_app: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/hedgehog/builder-hog-03.png",
     category=["Custom", "Analytics"],
     code_language="javascript",
-    hog="""
+    code="""
 export function onLoad({ inputs, posthog }) {
     console.log(`Hello ${inputs.name} from your new Site App!`)
 }
