@@ -11,7 +11,7 @@ from dags import (
 
 defs = dagster.Definitions(
     assets=[
-        web_preaggregated_team_selection.web_analytics_team_config,
+        web_preaggregated_team_selection.web_analytics_team_selection,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
         web_preaggregated_daily.web_stats_daily_export,
