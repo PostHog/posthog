@@ -915,7 +915,7 @@ mod tests {
         let filter = PropertyFilter {
             key: filter_flag_id.to_string(),
             value: Some(filter_value),
-            operator: Some(OperatorType::Exact),
+            operator: Some(OperatorType::FlagEvaluatesTo),
             prop_type: PropertyType::Flag,
             negation: None,
             group_type_index: None,
