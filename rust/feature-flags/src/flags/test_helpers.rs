@@ -58,6 +58,6 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
         active: true,
         ensure_experience_continuity: Some(false),
         version: Some(1),
-        evaluation_environment: "both".to_string(),
+        evaluation_environment: Some("both".to_string()),
     }
 }

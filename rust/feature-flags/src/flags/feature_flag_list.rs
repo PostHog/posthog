@@ -308,7 +308,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
-            evaluation_environment: "both".to_string(),
+            evaluation_environment: Some("both".to_string()),
         };
 
         let flag2 = FeatureFlagRow {
@@ -321,7 +321,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
-            evaluation_environment: "both".to_string(),
+            evaluation_environment: Some("both".to_string()),
         };
 
         // Insert multiple flags for the team
