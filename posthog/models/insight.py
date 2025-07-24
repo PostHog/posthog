@@ -18,6 +18,7 @@ from posthog.models.utils import sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, RootTeamManager
+from django.contrib.postgres.indexes import GinIndex
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +48,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     saved = models.BooleanField(default=False)
+    query_metadata = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(null=True, blank=True, auto_now_add=True)
     refreshing = models.BooleanField(default=False)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -109,6 +111,13 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     class Meta:
         db_table = "posthog_dashboarditem"
         unique_together = ("team", "short_id")
+        indexes = [
+            GinIndex(
+                name="dashboarditem_query_metadata",
+                fields=["query_metadata"],
+                opclasses=["jsonb_ops"],
+            ),
+        ]
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
