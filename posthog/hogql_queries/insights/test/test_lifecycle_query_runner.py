@@ -600,8 +600,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                 properties={"name": "new org"},
             )
 
-        # Create events where person is created much later than the group
-        # This would cause incorrect results if person.created_at is used instead of group.created_at
         self._create_events(
             data=[
                 (
@@ -644,17 +642,17 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         # This verifies that group.created_at is being used, not person.created_at
 
         expected_data = [
-            0.0,  # 2020-01-09 - no new groups
-            0.0,  # 2020-01-10 - no new groups (org:early is old, org:new not created yet)
-            0.0,  # 2020-01-11 - no new groups (org:early is old, org:new not created yet)
+            0.0,  # 2020-01-09
+            0.0,  # 2020-01-10
+            0.0,  # 2020-01-11
             1.0,  # 2020-01-12 - org:new becomes "new" on its creation date
-            0.0,  # 2020-01-13 - no new groups
-            0.0,  # 2020-01-14 - no new groups
-            0.0,  # 2020-01-15 - no new groups
-            0.0,  # 2020-01-16 - no new groups
-            0.0,  # 2020-01-17 - no new groups
-            0.0,  # 2020-01-18 - no new groups
-            0.0,  # 2020-01-19 - no new groups
+            0.0,  # 2020-01-13
+            0.0,  # 2020-01-14
+            0.0,  # 2020-01-15
+            0.0,  # 2020-01-16
+            0.0,  # 2020-01-17
+            0.0,  # 2020-01-18
+            0.0,  # 2020-01-19
         ]
 
         self.assertEqual(
