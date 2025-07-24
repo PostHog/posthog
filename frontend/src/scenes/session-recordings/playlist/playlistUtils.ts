@@ -6,11 +6,9 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -108,25 +106,15 @@ export async function createPlaylist(
     playlist: Partial<SessionRecordingPlaylistType>,
     redirect = false
 ): Promise<SessionRecordingPlaylistType | null> {
-    try {
-        playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
-        const res = await api.recordings.createPlaylist(playlist)
-        if (redirect) {
-            router.actions.push(urls.replayPlaylist(res.short_id))
-        }
-        return res
-    } catch (e: any) {
-        if (e.status === 403) {
-            openBillingPopupModal({
-                title: `Upgrade now to unlock unlimited playlists`,
-                description: PLAYLIST_LIMIT_REACHED_MESSAGE,
-            })
-        } else {
-            throw e
-        }
+    playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
+    if (playlist.type === 'collection') {
+        playlist.filters = undefined
     }
-
-    return null
+    const res = await api.recordings.createPlaylist(playlist)
+    if (redirect) {
+        router.actions.push(urls.replayPlaylist(res.short_id))
+    }
+    return res
 }
 
 export async function deletePlaylist(

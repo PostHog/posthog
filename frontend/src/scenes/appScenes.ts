@@ -33,6 +33,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.PipelineNode]: () => import('./pipeline/PipelineNode'),
     [Scene.Groups]: () => import('./groups/Groups'),
+    [Scene.GroupsNew]: () => import('./groups/GroupsNew'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),

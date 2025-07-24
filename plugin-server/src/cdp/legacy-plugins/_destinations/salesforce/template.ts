@@ -15,6 +15,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
         description: 'Relay PostHog events to Salesforce',
         icon_url: 'https://raw.githubusercontent.com/PostHog/salesforce-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: 'return event',
         inputs_schema: [
             {

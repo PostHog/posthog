@@ -2,7 +2,8 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { PersonStoreManager } from '~/worker/ingestion/persons/person-store-manager'
+import { MessageSizeTooLarge } from '~/utils/db/error'
+import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -29,8 +30,7 @@ import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/ev
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
-import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -103,7 +103,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStoreManager: PersonStoreManager
+    private personStore: BatchWritingPersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private deduplicationRedis: DeduplicationRedis
@@ -150,17 +150,12 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const batchWritingPersonStore = new BatchWritingPersonsStore(this.hub.db, {
+        this.personStore = new BatchWritingPersonsStore(this.hub.db, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
-        const measuringPersonStore = new MeasuringPersonsStore(this.hub.db, {
-            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
-            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
-        })
-        this.personStoreManager = new PersonStoreManager(this.hub, measuringPersonStore, batchWritingPersonStore)
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -322,7 +317,7 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
         }
 
-        const personsStoreForBatch = this.personStoreManager.forBatch()
+        const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
@@ -338,9 +333,8 @@ export class IngestionConsumer {
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
-        if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            await this.kafkaProducer.queueMessages(personsStoreMessages)
-            await this.kafkaProducer.flush()
+        if (this.kafkaProducer) {
+            await this.producePersonsStoreMessages(personsStoreMessages)
         }
 
         personsStoreForBatch.reportBatch()
@@ -359,6 +353,45 @@ export class IngestionConsumer {
                 await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
             }),
         }
+    }
+
+    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
+        await Promise.all(
+            personsStoreMessages.map((record) => {
+                return Promise.all(
+                    record.topicMessage.messages.map(async (message) => {
+                        try {
+                            return await this.kafkaProducer!.produce({
+                                topic: record.topicMessage.topic,
+                                key: message.key ? Buffer.from(message.key) : null,
+                                value: message.value ? Buffer.from(message.value) : null,
+                                headers: message.headers,
+                            })
+                        } catch (error) {
+                            if (error instanceof MessageSizeTooLarge) {
+                                await captureIngestionWarning(
+                                    this.kafkaProducer!,
+                                    record.teamId,
+                                    'message_size_too_large',
+                                    {
+                                        eventUuid: record.uuid,
+                                        distinctId: record.distinctId,
+                                    }
+                                )
+                                logger.warn('🪣', `Message size too large`, {
+                                    topic: record.topicMessage.topic,
+                                    key: message.key,
+                                    headers: message.headers,
+                                })
+                            } else {
+                                throw error
+                            }
+                        }
+                    })
+                )
+            })
+        )
+        await this.kafkaProducer!.flush()
     }
 
     /**

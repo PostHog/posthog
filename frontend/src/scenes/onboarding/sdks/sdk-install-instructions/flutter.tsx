@@ -14,7 +14,7 @@ export interface FlutterInstallProps {
 }
 
 function FlutterInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^4.0.0</CodeSnippet>
+    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^5.0.0</CodeSnippet>
 }
 
 function InstallFlutterSessionReplay(props: FlutterInstallProps): JSX.Element {
@@ -80,7 +80,9 @@ class _MyAppState extends State<MyApp> {
       ),
     );
   }
-}`}
+}
+// If you're using go_router, check this page to learn how to set up the PosthogObserver
+// https://posthog.com/docs/libraries/flutter#capturing-screen-views`}
         </CodeSnippet>
     )
 }
@@ -88,7 +90,6 @@ class _MyAppState extends State<MyApp> {
 function FlutterAndroidSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const url = apiHostOrigin()
-    const props = { apiToken: currentTeam?.api_token }
 
     if (includeReplay) {
         return (
@@ -98,8 +99,6 @@ function FlutterAndroidSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.E
                         '<application>\n\t<activity>\n\t\t[...]\n\t</activity>\n\t<meta-data android:name="com.posthog.posthog.AUTO_INIT" android:value="false" />\n</application>'
                     }
                 </CodeSnippet>
-                <InstallFlutterSessionReplay {...props} />
-                <InstallFlutterWidgetsSessionReplay />
             </>
         )
     }
@@ -117,7 +116,6 @@ function FlutterAndroidSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.E
 function FlutterIOSSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const url = apiHostOrigin()
-    const props = { apiToken: currentTeam?.api_token }
 
     if (includeReplay) {
         return (
@@ -125,8 +123,6 @@ function FlutterIOSSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.Eleme
                 <CodeSnippet language={Language.XML}>
                     {'<dict>\n\t[...]\n\t<key>com.posthog.posthog.AUTO_INIT</key>\n\t<false/>\n\t[...]\n</dict>'}
                 </CodeSnippet>
-                <InstallFlutterSessionReplay {...props} />
-                <InstallFlutterWidgetsSessionReplay />
             </>
         )
     }
@@ -136,7 +132,7 @@ function FlutterIOSSetupSnippet({ includeReplay }: FlutterSetupProps): JSX.Eleme
                 currentTeam?.api_token +
                 '</string>\n\t<key>com.posthog.posthog.POSTHOG_HOST</key>\n\t<string>' +
                 url +
-                '</string>\n\t<key>com.posthog.posthog.CAPTURE_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<true/>\n\t[...]\n</dict>'}
+                '</string>\n\t<key>com.posthog.posthog.CAPTURE_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<true/>\n\t<key>com.posthog.posthog.DEBUG</key>\n\t<true/>\n</dict>'}
         </CodeSnippet>
     )
 }
@@ -152,16 +148,14 @@ function FlutterWebSetupSnippet(): JSX.Element {
     ...
 ${jsSnippet}
   </head>
-
-  <body>
-    ...
-  </body>
 </html>`}
         </CodeSnippet>
     )
 }
 
 export function SDKInstallFlutterInstructions(props: FlutterSetupProps): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const tokenProps = { apiToken: currentTeam?.api_token }
     return (
         <>
             <h3>Install</h3>
@@ -172,6 +166,11 @@ export function SDKInstallFlutterInstructions(props: FlutterSetupProps): JSX.Ele
             <h3>iOS/macOS Setup</h3>
             <p className="prompt-text">Add these values in Info.plist</p>
             <FlutterIOSSetupSnippet {...props} />
+            <h3>Dart Setup</h3>
+            <p className="prompt-text">Add these values in main.dart</p>
+            <InstallFlutterSessionReplay {...tokenProps} />
+            <p className="prompt-text">Install PosthogObserver</p>
+            <InstallFlutterWidgetsSessionReplay />
             <h3>Web Setup</h3>
             <p className="prompt-text">Add these values in index.html</p>
             <FlutterWebSetupSnippet />

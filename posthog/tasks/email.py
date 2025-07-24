@@ -524,13 +524,18 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
 
     campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
 
+    # Sort functions by failure rate descending (highest first)
+    sorted_functions = sorted(
+        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
+    )
+
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"Data Pipeline Failures Alert for {team.name}",
         template_name="hog_functions_daily_digest",
         template_context={
             "team": team,
-            "functions": digest_data["functions"],
+            "functions": sorted_functions,
             "site_url": settings.SITE_URL,
         },
     )
@@ -684,22 +689,28 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         hog_function_id = str(hog_function["id"])
         if hog_function_id in metrics_by_function:
             metrics = metrics_by_function[hog_function_id]
-            function_info = {
-                "id": hog_function_id,
-                "name": hog_function["name"],
-                "type": hog_function["type"],
-                "succeeded": metrics["succeeded"],
-                "failed": metrics["failed"],
-                "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-            }
-            function_metrics.append(function_info)
+            total_runs = metrics["succeeded"] + metrics["failed"]
+            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+            # Only include functions with failure rate > 1%
+            if failure_rate > 1.0:
+                function_info = {
+                    "id": hog_function_id,
+                    "name": hog_function["name"],
+                    "type": hog_function["type"],
+                    "succeeded": metrics["succeeded"],
+                    "failed": metrics["failed"],
+                    "failure_rate": round(failure_rate, 1),
+                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+                }
+                function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")
         return
 
-    # Sort by failed count descending
-    function_metrics.sort(key=lambda x: int(x["failed"]) if x["failed"] is not None else 0, reverse=True)
+    # Sort by failure rate descending (highest failure rate first)
+    function_metrics.sort(key=lambda x: x["failure_rate"] or 0, reverse=True)
 
     # Prepare data for email
     digest_data = {

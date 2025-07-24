@@ -9,6 +9,7 @@ import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
 import {
     CyclotronJobInvocationHogFunction,
+    CyclotronJobQueueKind,
     DBHogFunctionTemplate,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -54,9 +55,6 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
 export const createIntegration = (integration: Partial<IntegrationType>) => {
     const item: IntegrationType = {
         team_id: 1,
-        errors: '',
-        created_at: new Date().toISOString(),
-        created_by_id: 1001,
         id: integration.id ?? 1,
         kind: integration.kind ?? 'slack',
         config: {},
@@ -142,6 +140,7 @@ export const createHogFunctionTemplate = (
         type: 'destination',
         name: 'Hog Function Template',
         description: 'Hog Function Template',
+        code_language: 'hog',
         hog: 'Hog Function Template',
         inputs_schema: [],
         category: [],
@@ -167,7 +166,7 @@ export const insertHogFunctionTemplate = async (
         name: template.name,
         description: template.description,
         code: template.hog,
-        code_language: 'hog',
+        code_language: template.code_language,
         status: template.status,
         free: template.free,
         category: template.category,
@@ -189,14 +188,15 @@ export const insertIntegration = async (
     team_id: Team['id'],
     integration: Partial<IntegrationType> = {}
 ): Promise<IntegrationType> => {
-    const res = await insertRow(
-        postgres,
-        'posthog_integration',
-        createIntegration({
+    const res = await insertRow(postgres, 'posthog_integration', {
+        ...createIntegration({
             ...integration,
             team_id: team_id,
-        })
-    )
+        }),
+        errors: '',
+        created_at: new Date().toISOString(),
+        created_by_id: 1001,
+    })
     return res
 }
 
@@ -239,7 +239,8 @@ export const createHogExecutionGlobals = (
 
 export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
-    _globals: Partial<HogFunctionInvocationGlobals> = {}
+    _globals: Partial<HogFunctionInvocationGlobals> = {},
+    queue: CyclotronJobQueueKind = 'hog'
 ): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)
     // Add the source of the trigger to the globals
@@ -260,7 +261,7 @@ export const createExampleInvocation = (
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: 'hog',
+        queue,
         queuePriority: 0,
     }
 }

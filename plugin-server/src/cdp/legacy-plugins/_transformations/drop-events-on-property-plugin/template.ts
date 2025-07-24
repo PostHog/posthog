@@ -14,6 +14,7 @@ export const dropEventsOnPropertyPlugin: LegacyTransformationPlugin = {
             'This plugin will drop any events that have a specific key. If you supply a value, it will drop any event with the combination of they key and the value. You will not be billed for any events that this plugin drops.',
         icon_url: 'https://raw.githubusercontent.com/posthog/drop-events-on-property-plugin/main/logo.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

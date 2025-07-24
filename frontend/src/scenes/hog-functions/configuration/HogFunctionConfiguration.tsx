@@ -129,8 +129,6 @@ export function HogFunctionConfiguration({
     }
 
     const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
-    const isSegmentPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('segment-')
-    const isNativePlugin = (template?.id || hogFunction?.template?.id)?.startsWith('native-')
 
     const headerButtons = (
         <>
@@ -212,12 +210,9 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        // Never allow editing for legacy plugins
-        (!isLegacyPlugin &&
-            !isNativePlugin &&
-            !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
-                (type === 'transformation' && canEditTransformationHogCode)))
+        (['email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
+            (type === 'transformation' && canEditTransformationHogCode) ||
+            (type === 'destination' && (template?.code_language || hogFunction?.template?.code_language) === 'hog'))
     const showTesting =
         displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
@@ -330,8 +325,9 @@ export function HogFunctionConfiguration({
                                         <LemonTextArea disabled={loading} />
                                     </LemonField>
 
-                                    {isLegacyPlugin || isSegmentPlugin ? null : hogFunction?.template &&
-                                      !hogFunction.template.id.startsWith('template-blank-') ? (
+                                    {hogFunction?.template?.code_language === 'hog' &&
+                                    hogFunction?.template &&
+                                    !hogFunction.template.id.startsWith('template-blank-') ? (
                                         <LemonDropdown
                                             showArrow
                                             overlay={
@@ -463,9 +459,10 @@ export function HogFunctionConfiguration({
                                                     setConfigurationValue(`inputs.${key}`, input)
                                                 }}
                                                 showSource={showSource}
+                                                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                             />
                                             {oldInputs && newInputs && (
-                                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
                                                     <div className="flex-1 text-center">
                                                         <span className="text-sm font-medium">Suggested by Max</span>
                                                     </div>
@@ -560,6 +557,7 @@ export function HogFunctionConfiguration({
                                                 setConfigurationValue(`inputs.${key}`, input)
                                             }}
                                             showSource={showSource}
+                                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                         />
                                         {showSource && canEditSource ? (
                                             <LemonButton
