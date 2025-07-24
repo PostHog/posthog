@@ -115,7 +115,6 @@ function RNSetupSurveysProvider(): JSX.Element {
             </p>
             <CodeSnippet language={Language.JSX}>
                 {`<YourAppRoot>
-                {`<YourAppRoot>
   <PostHogSurveyProvider>{children}</PostHogSurveyProvider>
 </YourAppRoot>`}
             </CodeSnippet>
