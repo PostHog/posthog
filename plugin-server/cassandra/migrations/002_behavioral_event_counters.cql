@@ -15,6 +15,5 @@ CREATE TABLE IF NOT EXISTS behavioral_event_counters (
     PRIMARY KEY (team_id, filter_hash, person_id, date)
 ) WITH CLUSTERING ORDER BY (filter_hash ASC, person_id ASC, date DESC);
 
--- Create index on date for efficient time-range queries
-CREATE INDEX IF NOT EXISTS behavioral_counters_date_idx 
-ON behavioral_event_counters (date);
+-- Note: Cannot create secondary index on counter table
+-- Time-range queries should use the primary key (team_id, filter_hash, person_id, date)

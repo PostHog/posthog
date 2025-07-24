@@ -84,14 +84,20 @@ async function getExecutedMigrations() {
 async function executeMigration(filename, content) {
     console.log(`Executing migration: ${filename}`)
 
-    // Split content by semicolons to handle multiple statements
-    const statements = content
+    // Remove comments and split content by semicolons to handle multiple statements
+    const cleanContent = content
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+
+    const statements = cleanContent
         .split(';')
         .map((stmt) => stmt.trim())
-        .filter((stmt) => stmt.length > 0 && !stmt.startsWith('--'))
+        .filter((stmt) => stmt.length > 0)
 
     for (const statement of statements) {
         if (statement.trim()) {
+            console.log(`Executing statement: ${statement.substring(0, 50)}...`)
             await client.execute(statement)
         }
     }
