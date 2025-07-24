@@ -718,6 +718,7 @@ mod tests {
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
             version: flag.version,
+            evaluation_environment: flag.evaluation_environment,
         };
 
         // Insert the feature flag into the database

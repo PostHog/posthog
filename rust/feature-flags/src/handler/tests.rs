@@ -163,6 +163,7 @@ async fn test_evaluate_feature_flags() {
         },
         ensure_experience_continuity: Some(false),
         version: Some(1),
+        evaluation_environment: "both".to_string(),
     };
 
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -246,6 +247,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         },
         ensure_experience_continuity: Some(false),
         version: Some(1),
+        evaluation_environment: "both".to_string(),
     }];
 
     let feature_flag_list = FeatureFlagList { flags };
@@ -617,6 +619,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
             },
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
         FeatureFlag {
             name: Some("Flag 2".to_string()),
@@ -639,6 +642,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
             },
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
     ];
 
@@ -710,6 +714,7 @@ async fn test_evaluate_feature_flags_details() {
             },
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
         FeatureFlag {
             name: Some("Flag 2".to_string()),
@@ -732,6 +737,7 @@ async fn test_evaluate_feature_flags_details() {
             },
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
     ];
 
@@ -870,6 +876,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         },
         ensure_experience_continuity: Some(false),
         version: Some(1),
+        evaluation_environment: "both".to_string(),
     };
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
@@ -959,6 +966,7 @@ async fn test_long_distinct_id() {
         },
         ensure_experience_continuity: Some(false),
         version: Some(1),
+        evaluation_environment: "both".to_string(),
     };
 
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -1122,6 +1130,7 @@ async fn test_fetch_and_filter_flags() {
             filters: FlagFilters::default(),
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
         FeatureFlag {
             name: Some("Survey Flag 2".to_string()),
@@ -1133,6 +1142,7 @@ async fn test_fetch_and_filter_flags() {
             filters: FlagFilters::default(),
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
         FeatureFlag {
             name: Some("Regular Flag 1".to_string()),
@@ -1144,6 +1154,7 @@ async fn test_fetch_and_filter_flags() {
             filters: FlagFilters::default(),
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
         FeatureFlag {
             name: Some("Regular Flag 2".to_string()),
@@ -1155,6 +1166,7 @@ async fn test_fetch_and_filter_flags() {
             filters: FlagFilters::default(),
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         },
     ];
 

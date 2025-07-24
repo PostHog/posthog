@@ -224,6 +224,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_environment: "both".to_string(),
         };
 
         let deps = flag_no_deps.extract_dependencies().unwrap();
@@ -258,6 +259,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_environment: "both".to_string(),
         };
 
         let deps = flag_with_dep.extract_dependencies().unwrap();
@@ -306,6 +308,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_environment: "both".to_string(),
         };
 
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
@@ -350,6 +353,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
+            evaluation_environment: "both".to_string(),
         };
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
@@ -460,6 +464,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -559,6 +564,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -692,6 +698,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -788,6 +795,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -874,6 +882,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -892,6 +901,7 @@ mod tests {
                 active: false,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -987,6 +997,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
+                evaluation_environment: "both".to_string(),
             }),
         )
         .await
@@ -1067,6 +1078,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_environment: "both".to_string(),
                 }),
             )
             .await
@@ -1158,6 +1170,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_environment: "both".to_string(),
                 }),
             )
             .await
@@ -1243,6 +1256,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_environment: "both".to_string(),
                 }),
             )
             .await
@@ -1357,6 +1371,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_environment: "both".to_string(),
                 }),
             )
             .await

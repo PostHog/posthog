@@ -1204,6 +1204,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         }
     }
 
@@ -4025,6 +4026,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_environment: "both".to_string(),
         };
 
         // Test user "11" - should get first-variant
