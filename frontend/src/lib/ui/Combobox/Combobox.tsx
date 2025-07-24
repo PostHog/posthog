@@ -178,7 +178,7 @@ const Group = ({ value, children }: GroupProps): JSX.Element | null => {
         return null
     }
 
-    return <div>{children}</div>
+    return <div className="contents">{children}</div>
 }
 
 interface EmptyProps {
