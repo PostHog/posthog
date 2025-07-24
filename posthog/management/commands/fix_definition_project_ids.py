@@ -1,10 +1,11 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction, models
 from posthog.models import EventDefinition, PropertyDefinition
+from posthog.storage.environments_rollback_storage import get_all_rollback_organization_ids
 
 
 class Command(BaseCommand):
-    help = "Fix project_id alignment for EventDefinition and PropertyDefinition records where team.project_id != definition.project_id"
+    help = "Fix project_id alignment for EventDefinition and PropertyDefinition records where team.project_id != definition.project_id (only for organizations that have triggered environment rollback)"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -19,6 +20,14 @@ class Command(BaseCommand):
         self.batch_size = options["batch_size"]
 
         self.stdout.write(self.style.SUCCESS("Starting definition project_id alignment process"))
+
+        rollback_org_ids = get_all_rollback_organization_ids()
+        if not rollback_org_ids:
+            self.stdout.write(self.style.WARNING("No organizations have triggered environment rollback. Exiting."))
+            return
+        self.stdout.write(f"Processing only rolled back organizations: {len(rollback_org_ids)} orgs")
+        # Organization IDs are UUIDs, not integers
+        self.rollback_org_ids = rollback_org_ids
 
         if self.dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN MODE - No changes will be made"))
@@ -51,6 +60,9 @@ class Command(BaseCommand):
             project_id=models.F("team__project_id")
         )
 
+        # Filter by rollback organizations
+        misaligned_query = misaligned_query.filter(team__organization_id__in=self.rollback_org_ids)
+
         misaligned_count = misaligned_query.count()
 
         if misaligned_count == 0:
@@ -60,18 +72,25 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {misaligned_count} EventDefinitions with misaligned project_id")
 
         if self.dry_run:
-            # Show sample of what would be updated
-            sample_size = min(5, misaligned_count)
-            sample_records = misaligned_query[:sample_size]
+            # Show summary by organization and team
+            from django.db.models import Count
 
-            for event_def in sample_records:
+            team_summary = (
+                misaligned_query.values("team_id", "team__name", "team__organization_id", "team__organization__name")
+                .annotate(count=Count("id"))
+                .order_by("team__organization_id", "team_id")
+            )
+
+            current_org_id = None
+            for entry in team_summary:
+                if entry["team__organization_id"] != current_org_id:
+                    current_org_id = entry["team__organization_id"]
+                    self.stdout.write(f"\n  Organization: {entry['team__organization__name']} (ID: {current_org_id})")
+
                 self.stdout.write(
-                    f"  Would update EventDefinition id={event_def.id} name='{event_def.name}' "
-                    f"from project_id={event_def.project_id} to project_id={event_def.team.project_id}"
+                    f"    Team: {entry['team__name']} (ID: {entry['team_id']}) - "
+                    f"{entry['count']} EventDefinitions to update"
                 )
-
-            if sample_size < misaligned_count:
-                self.stdout.write(f"  ... and {misaligned_count - sample_size} more EventDefinitions")
 
             return {"total": misaligned_count, "updated": 0}
 
@@ -108,6 +127,9 @@ class Command(BaseCommand):
             project_id=models.F("team__project_id")
         )
 
+        # Filter by rollback organizations
+        misaligned_query = misaligned_query.filter(team__organization_id__in=self.rollback_org_ids)
+
         misaligned_count = misaligned_query.count()
 
         if misaligned_count == 0:
@@ -117,18 +139,25 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {misaligned_count} PropertyDefinitions with misaligned project_id")
 
         if self.dry_run:
-            # Show sample of what would be updated
-            sample_size = min(5, misaligned_count)
-            sample_records = misaligned_query[:sample_size]
+            # Show summary by organization and team
+            from django.db.models import Count
 
-            for property_def in sample_records:
+            team_summary = (
+                misaligned_query.values("team_id", "team__name", "team__organization_id", "team__organization__name")
+                .annotate(count=Count("id"))
+                .order_by("team__organization_id", "team_id")
+            )
+
+            current_org_id = None
+            for entry in team_summary:
+                if entry["team__organization_id"] != current_org_id:
+                    current_org_id = entry["team__organization_id"]
+                    self.stdout.write(f"\n  Organization: {entry['team__organization__name']} (ID: {current_org_id})")
+
                 self.stdout.write(
-                    f"  Would update PropertyDefinition id={property_def.id} name='{property_def.name}' type={property_def.get_type_display()} "
-                    f"from project_id={property_def.project_id} to project_id={property_def.team.project_id}"
+                    f"    Team: {entry['team__name']} (ID: {entry['team_id']}) - "
+                    f"{entry['count']} PropertyDefinitions to update"
                 )
-
-            if sample_size < misaligned_count:
-                self.stdout.write(f"  ... and {misaligned_count - sample_size} more PropertyDefinitions")
 
             return {"total": misaligned_count, "updated": 0}
 
