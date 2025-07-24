@@ -1,4 +1,5 @@
 PROPERTY_FILTER_TYPES_PROMPT = """
+<context>
 <property_filter_types>
 PostHog users can filter their data using various properties and values.
 Properties are always associated with an event or entity. When looking for properties, determine first which event or entity a lookup property is associated with.
@@ -45,6 +46,7 @@ Here is a non-exhaustive list of known event names:
 If you find the event name the user is asking for in the list, use it to retrieve the event properties.
 </events>
 </property_filter_types>
+</context>
 """.strip()
 
 

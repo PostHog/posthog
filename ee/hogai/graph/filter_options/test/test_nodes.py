@@ -18,7 +18,9 @@ from posthog.schema import (
     PersonPropertyFilter,
     EventPropertyFilter,
     DurationType,
+    AssistantContextualTool,
 )
+from ee.hogai.tool import FilterProfile, register_filter_profile
 
 AND_FILTER_EXAMPLE = MaxRecordingUniversalFilters(
     duration=[
@@ -70,18 +72,18 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         )
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="company", group_type_index=1)
 
-    def test_init_without_injected_prompts(self):
-        """Test node initializes correctly without injected prompts."""
+        # Register a test filter profile
+        test_profile = FilterProfile(
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+            response_model=MaxRecordingUniversalFilters,
+            formatted_prompt="Test prompt for filter generation",
+        )
+        register_filter_profile(test_profile)
+
+    def test_init(self):
+        """Test node initializes correctly."""
         node = FilterOptionsNode(self.team, self.user)
-
-        self.assertEqual(node.injected_prompts, {})
-
-    def test_init_with_injected_prompts(self):
-        """Test node initializes correctly with injected prompts."""
-        injected_prompts = {"test_prompt": "test_value"}
-        node = FilterOptionsNode(self.team, self.user, injected_prompts=injected_prompts)
-
-        self.assertEqual(node.injected_prompts, injected_prompts)
+        self.assertIsNotNone(node)
 
     def test_run_successful_execution(self):
         """Test successful run execution with proper tool call creation."""
@@ -99,6 +101,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             state = FilterOptionsState(
                 change="show me user properties",
                 current_filters={"property": "active"},
+                tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
             )
 
             result = node.run(state, {})
@@ -124,7 +127,10 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(change="test query")
+            state = FilterOptionsState(
+                change="test query",
+                tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+            )
 
             with self.assertRaises(ValueError) as context:
                 node.run(state, {})
@@ -142,7 +148,10 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
 
         with patch.object(node, "_get_model", return_value=mock_model):
             state = FilterOptionsState(
-                intermediate_steps=[], change="filter users by activity", current_filters={"active": True}
+                intermediate_steps=[],
+                change="filter users by activity",
+                current_filters={"active": True},
+                tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
             )
 
             result = node.run(state, {})
@@ -168,7 +177,11 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(intermediate_steps=[], change="")
+            state = FilterOptionsState(
+                intermediate_steps=[],
+                change="",
+                tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+            )
 
             result = node.run(state, {})
 
@@ -191,7 +204,11 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         existing_steps: list[tuple[AgentAction, str | None]] = [(existing_action, "previous_result")]
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = FilterOptionsState(intermediate_steps=existing_steps, change="continue processing")
+            state = FilterOptionsState(
+                intermediate_steps=existing_steps,
+                change="continue processing",
+                tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+            )
 
             result = node.run(state, {})
 
@@ -208,46 +225,6 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(new_action.tool, "new_tool")
             self.assertEqual(new_action.tool_input, {"arguments": {"param": "value"}})
             self.assertEqual(new_action.log, "new_id")
-
-    def test_injected_prompts_through_public_run_interface(self):
-        tool_calls = [{"name": "test_tool", "args": {"arguments": {}}, "id": "test_id"}]
-
-        # Create a message with the expected tool calls
-        message = LangchainAIMessage(content="", tool_calls=tool_calls)
-        mock_model = FakeChatOpenAI(responses=[message])
-
-        # Create two nodes with different prompt configurations
-        default_node = FilterOptionsNode(self.team, self.user)
-        custom_node = FilterOptionsNode(
-            self.team,
-            self.user,
-            injected_prompts={
-                "examples_prompt": "CUSTOM_MARKER: Special examples",
-                "tool_usage_prompt": "CUSTOM_MARKER: Special tool usage",
-            },
-        )
-
-        state = FilterOptionsState(intermediate_steps=[], change="test query")
-
-        # Test that both node configurations work through the public interface
-        # This proves injected prompts don't break functionality
-        with (
-            patch.object(default_node, "_get_model", return_value=mock_model),
-            patch.object(custom_node, "_get_model", return_value=mock_model),
-        ):
-            # Run both nodes - this proves they work with different configurations
-            default_result = default_node.run(state, {})
-            custom_result = custom_node.run(state, {})
-
-        # Both should succeed
-        self.assertIsInstance(default_result, PartialFilterOptionsState)
-        self.assertIsInstance(custom_result, PartialFilterOptionsState)
-
-        # Both should create tool actions (proving the injected prompts didn't break functionality)
-        assert default_result.intermediate_steps is not None
-        assert custom_result.intermediate_steps is not None
-        self.assertEqual(len(default_result.intermediate_steps), 1)
-        self.assertEqual(len(custom_result.intermediate_steps), 1)
 
     def test_intermediate_steps_and_tool_progress_messages_same_length(self):
         """Test that intermediate_steps and tool_progress_messages have the same number of elements."""
@@ -281,6 +258,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
                         "All the properties",
                     )
                 ],
+                tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
             )
 
             result = node.run(state, {})
@@ -295,7 +273,10 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
     def test_prompt_includes_defined_events_tag(self):
         """Test that the constructed prompt includes a <defined_events> tag."""
         node = FilterOptionsNode(self.team, self.user)
-        state = FilterOptionsState(change="test query")
+        state = FilterOptionsState(
+            change="test query",
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+        )
 
         # Test that the node's run method uses format_events_prompt correctly
         with patch("ee.hogai.graph.filter_options.nodes.format_events_prompt") as mock_format_events:
@@ -342,12 +323,39 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
                     "messages should contain the mocked event",
                 )
 
+    def test_missing_tool_name_raises_error(self):
+        """Test that missing tool_name raises appropriate error."""
+        node = FilterOptionsNode(self.team, self.user)
+        state = FilterOptionsState(change="test query")  # Missing tool_name
+
+        with self.assertRaises(ValueError) as context:
+            node.run(state, {})
+
+        self.assertIn("tool_name is required", str(context.exception))
+
+    def test_missing_filter_profile_raises_error(self):
+        """Test that missing filter profile raises appropriate error."""
+        node = FilterOptionsNode(self.team, self.user)
+        state = FilterOptionsState(
+            change="test query",
+            tool_name="nonexistent_tool",  # Tool that doesn't have a registered profile
+        )
+
+        with self.assertRaises(ValueError) as context:
+            node.run(state, {})
+
+        self.assertIn("No FilterProfile registered", str(context.exception))
+
 
 class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_with_generated_filter_options(self):
         """Test router returns 'end' when filter options are generated."""
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = FilterOptionsState(intermediate_steps=[], generated_filter_options={"result": "filter", "data": {}})
+        state = FilterOptionsState(
+            intermediate_steps=[],
+            generated_filter_options={"result": "filter", "data": {}},
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+        )
 
         result = node.router(state)
 
@@ -358,7 +366,10 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsToolsNode(self.team, self.user)
         # Create state with intermediate steps that have help request action
         action = AgentAction(tool="ask_user_for_help", tool_input="Need help with filters", log="")
-        state = FilterOptionsState(intermediate_steps=[(action, None)])
+        state = FilterOptionsState(
+            intermediate_steps=[(action, None)],
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+        )
 
         result = node.router(state)
 
@@ -369,7 +380,10 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsToolsNode(self.team, self.user)
         # Create state with intermediate steps that have max iterations action
         action = AgentAction(tool="max_iterations", tool_input="Reached maximum iterations", log="")
-        state = FilterOptionsState(intermediate_steps=[(action, None)])
+        state = FilterOptionsState(
+            intermediate_steps=[(action, None)],
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+        )
 
         result = node.router(state)
 
@@ -378,7 +392,10 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_continue_normal_processing(self):
         """Test router returns 'continue' for normal processing."""
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = FilterOptionsState(intermediate_steps=[])
+        state = FilterOptionsState(
+            intermediate_steps=[],
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+        )
 
         result = node.router(state)
 
@@ -407,7 +424,10 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
         node = FilterOptionsToolsNode(self.team, self.user)
         action = AgentAction(tool=tool_name, tool_input=tool_args["arguments"], log="test")
-        state = FilterOptionsState(intermediate_steps=[(action, None)])
+        state = FilterOptionsState(
+            intermediate_steps=[(action, None)],
+            tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
+        )
 
         if tool_name == "final_answer":
             result = node.run(state, {})

@@ -91,8 +91,8 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         and continuation with intermediate steps.
         """
         system_messages = [
-            ("system", self._get_filter_generation_prompt(state)),
             ("system", PROPERTY_FILTER_TYPES_PROMPT),
+            ("system", self._get_filter_generation_prompt(state)),
             ("human", USER_FILTER_OPTIONS_PROMPT),
         ]
         messages = [*system_messages]

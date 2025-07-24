@@ -3,6 +3,7 @@ import logging
 import pytest
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
+from deepdiff import DeepDiff
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
@@ -82,59 +83,36 @@ class FilterGenerationCorrectness(Scorer):
             logger.exception(f"Error parsing filters: {e}")
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})
 
-        score = 0.0
-        total_checks = 0
+        # Convert both objects to dict for deepdiff comparison
+        actual_dict = actual_filters.model_dump()
+        expected_dict = expected.model_dump()
 
-        # Check date_from
-        if expected.date_from:
-            total_checks += 1
-            if actual_filters.date_from == expected.date_from:
-                score += 1.0
+        # Use deepdiff to find differences
+        diff = DeepDiff(expected_dict, actual_dict, ignore_order=True, report_repetition=True)
 
-        # Check date_to
-        if expected.date_to is not None:
-            total_checks += 1
-            if actual_filters.date_to == expected.date_to:
-                score += 1.0
+        if not diff:
+            return Score(name=self._name(), score=1.0, metadata={"reason": "Perfect match"})
 
-        # Check duration
-        if expected.duration:
-            total_checks += 1
-            if actual_filters.duration == expected.duration:
-                score += 1.0
-
-        # Check filter_group structure
-        if expected.filter_group:
-            total_checks += 1
-            if self._compare_filter_groups(actual_filters.filter_group, expected.filter_group):
-                score += 1.0
-
-        # Check filter_test_accounts
-        if expected.filter_test_accounts is not None:
-            total_checks += 1
-            if actual_filters.filter_test_accounts == expected.filter_test_accounts:
-                score += 1.0
-
-        # Check order
-        if expected.order:
-            total_checks += 1
-            if actual_filters.order == expected.order:
-                score += 1.0
-
-        final_score = score / total_checks if total_checks > 0 else 0.0
-        return Score(
-            name=self._name(), score=final_score, metadata={"total_checks": total_checks, "passed_checks": score}
+        # Calculate score based on number of differences
+        total_fields = len(expected_dict.keys())
+        changed_fields = (
+            len(diff.get("values_changed", {}))
+            + len(diff.get("dictionary_item_added", set()))
+            + len(diff.get("dictionary_item_removed", set()))
         )
 
-    def _compare_filter_groups(self, actual, expected):
-        """Compare filter group structures."""
-        if actual.type != expected.type:
-            return False
+        score = max(0.0, (total_fields - changed_fields) / total_fields)
 
-        if len(actual.values) != len(expected.values):
-            return False
-
-        return True
+        return Score(
+            name=self._name(),
+            score=score,
+            metadata={
+                "differences": str(diff),
+                "total_fields": total_fields,
+                "changed_fields": changed_fields,
+                "reason": f"Found {changed_fields} differences out of {total_fields} fields",
+            },
+        )
 
 
 class AskUserForHelp(Scorer):
@@ -303,6 +281,158 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                                 }
                             ],
                         },
+                    }
+                ),
+            ),
+            # Test user behavior filtering
+            EvalCase(
+                input="Show recordings where users visited the posthog.com/checkout_page",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$current_url",
+                                            "type": "event",
+                                            "value": ["posthog.com/checkout_page"],
+                                            "operator": "icontains",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ),
+            # Test session duration filtering
+            EvalCase(
+                input="Show recordings longer than 5 minutes",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "duration": [{"key": "duration", "type": "recording", "value": 300, "operator": "gt"}],
+                    }
+                ),
+            ),
+            # Test user action
+            EvalCase(
+                input="Show recordings from users that performed a billing action",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "paid_bill",
+                                            "type": "event",
+                                            "value": "null",
+                                            "operator": "is_set",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ),
+            # Test page-specific filtering
+            EvalCase(
+                input="Show recordings from users who visited the pricing page",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$pathname",
+                                            "type": "event",
+                                            "value": ["/pricing/"],
+                                            "operator": "icontains",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ),
+            # Test conversion funnel filtering
+            EvalCase(
+                input="Show recordings from users who completed the signup flow",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "signup_completed",
+                                            "type": "event",
+                                            "value": None,
+                                            "operator": "is_set",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ),
+            # Test device and browser combination
+            EvalCase(
+                input="Show recordings from mobile Safari users",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$device_type",
+                                            "type": "event",
+                                            "value": ["Mobile"],
+                                            "operator": "exact",
+                                        },
+                                        {
+                                            "key": "$browser",
+                                            "type": "event",
+                                            "value": ["Safari"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ),
+            # Test time-based filtering
+            EvalCase(
+                input="Show recordings from yesterday",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        **DUMMY_CURRENT_FILTERS,
+                        "date_from": "-1d",
+                        "date_to": "-1d",
                     }
                 ),
             ),

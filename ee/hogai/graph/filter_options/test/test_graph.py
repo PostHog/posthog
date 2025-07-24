@@ -6,31 +6,12 @@ from posthog.test.base import BaseTest
 
 
 class TestFilterOptionsGraph(BaseTest):
-    def test_init_without_injected_prompts(self):
-        """Test that FilterOptionsGraph initializes correctly without injected prompts."""
+    def test_init(self):
+        """Test that FilterOptionsGraph initializes correctly."""
         graph = FilterOptionsGraph(self.team, self.user)
 
         self.assertEqual(graph._team, self.team)
         self.assertEqual(graph._user, self.user)
-        self.assertEqual(graph.injected_prompts, {})
-
-    def test_init_with_injected_prompts(self):
-        """Test that FilterOptionsGraph initializes correctly with injected prompts."""
-        injected_prompts = {
-            "product_description_prompt": "Custom product description",
-            "examples_prompt": "Custom examples",
-        }
-        graph = FilterOptionsGraph(self.team, self.user, injected_prompts=injected_prompts)
-
-        self.assertEqual(graph._team, self.team)
-        self.assertEqual(graph._user, self.user)
-        self.assertEqual(graph.injected_prompts, injected_prompts)
-
-    def test_init_with_none_injected_prompts(self):
-        """Test that FilterOptionsGraph handles None injected prompts correctly."""
-        graph = FilterOptionsGraph(self.team, self.user, injected_prompts=None)
-
-        self.assertEqual(graph.injected_prompts, {})
 
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsNode")
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsToolsNode")
@@ -53,7 +34,7 @@ class TestFilterOptionsGraph(BaseTest):
         self.assertTrue(graph._has_start_node)
 
         # Verify nodes were initialized with correct parameters
-        mock_node_class.assert_called_once_with(self.team, self.user, injected_prompts={})
+        mock_node_class.assert_called_once_with(self.team, self.user)
         mock_tools_class.assert_called_once_with(self.team, self.user)
 
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsNode")
@@ -77,22 +58,40 @@ class TestFilterOptionsGraph(BaseTest):
         self.assertIs(result, graph)
         self.assertTrue(graph._has_start_node)
 
-    @patch("ee.hogai.graph.filter_options.graph.FilterOptionsNode")
-    @patch("ee.hogai.graph.filter_options.graph.FilterOptionsToolsNode")
-    def test_add_filter_options_generator_with_injected_prompts(self, mock_tools_class, mock_node_class):
-        """Test that injected prompts are passed to FilterOptionsNode."""
-        injected_prompts = {"test_prompt": "test_value"}
-        graph = FilterOptionsGraph(self.team, self.user, injected_prompts=injected_prompts)
+    def test_compile_full_graph(self):
+        """Test that compile_full_graph calls add_filter_options_generator and compile."""
+        graph = FilterOptionsGraph(self.team, self.user)
 
-        # Mock the instances
-        mock_tools_instance = MagicMock()
-        mock_tools_instance.router = MagicMock()
-        mock_tools_class.return_value = mock_tools_instance
+        with (
+            patch.object(graph, "add_filter_options_generator") as mock_add_generator,
+            patch.object(graph, "compile") as mock_compile,
+        ):
+            mock_add_generator.return_value = graph
+            mock_compile.return_value = "compiled_graph"
 
-        mock_node_instance = MagicMock()
-        mock_node_class.return_value = mock_node_instance
+            result = graph.compile_full_graph()
 
-        graph.add_filter_options_generator()
+            # Verify add_filter_options_generator was called
+            mock_add_generator.assert_called_once()
 
-        # Verify FilterOptionsNode was initialized with injected prompts
-        mock_node_class.assert_called_once_with(self.team, self.user, injected_prompts=injected_prompts)
+            # Verify compile was called
+            mock_compile.assert_called_once()
+
+            # Verify result
+            self.assertEqual(result, "compiled_graph")
+
+    def test_compile_full_graph_with_checkpointer(self):
+        """Test that compile_full_graph passes checkpointer to compile."""
+        graph = FilterOptionsGraph(self.team, self.user)
+        checkpointer = MagicMock()
+
+        with (
+            patch.object(graph, "add_filter_options_generator") as mock_add_generator,
+            patch.object(graph, "compile") as mock_compile,
+        ):
+            mock_add_generator.return_value = graph
+
+            graph.compile_full_graph(checkpointer=checkpointer)
+
+            # Verify compile was called with checkpointer
+            mock_compile.assert_called_once_with(checkpointer=checkpointer)

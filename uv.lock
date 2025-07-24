@@ -1207,6 +1207,18 @@ wheels = [
 ]
 
 [[package]]
+name = "deepdiff"
+version = "8.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "orderly-set" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0a/0f/9cd2624f7dcd755cbf1fa21fb7234541f19a1be96a56f387ec9053ebe220/deepdiff-8.5.0.tar.gz", hash = "sha256:a4dd3529fa8d4cd5b9cbb6e3ea9c95997eaa919ba37dac3966c1b8f872dc1cd1", size = 538517, upload-time = "2025-05-09T18:44:10.035Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/3b/2e0797200c51531a6d8c97a8e4c9fa6fb56de7e6e2a15c1c067b6b10a0b0/deepdiff-8.5.0-py3-none-any.whl", hash = "sha256:d4599db637f36a1c285f5fdfc2cd8d38bde8d8be8636b65ab5e425b67c54df26", size = 85112, upload-time = "2025-05-09T18:44:07.784Z" },
+]
+
+[[package]]
 name = "defusedxml"
 version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3539,6 +3551,15 @@ wheels = [
 ]
 
 [[package]]
+name = "orderly-set"
+version = "5.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/88/39c83c35d5e97cc203e9e77a4f93bf87ec89cf6a22ac4818fdcc65d66584/orderly_set-5.5.0.tar.gz", hash = "sha256:e87185c8e4d8afa64e7f8160ee2c542a475b738bc891dc3f58102e654125e6ce", size = 27414, upload-time = "2025-07-10T20:10:55.885Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/27/fb8d7338b4d551900fa3e580acbe7a0cf655d940e164cb5c00ec31961094/orderly_set-5.5.0-py3-none-any.whl", hash = "sha256:46f0b801948e98f427b412fcabb831677194c05c3b699b80de260374baa0b1e7", size = 13068, upload-time = "2025-07-10T20:10:54.377Z" },
+]
+
+[[package]]
 name = "orjson"
 version = "3.10.15"
 source = { registry = "https://pypi.org/simple" }
@@ -3967,6 +3988,7 @@ dev = [
     { name = "braintrust" },
     { name = "braintrust-langchain" },
     { name = "datamodel-code-generator" },
+    { name = "deepdiff" },
     { name = "django-linear-migrations" },
     { name = "django-stubs" },
     { name = "djangorestframework-stubs" },
@@ -4184,6 +4206,7 @@ dev = [
     { name = "braintrust", specifier = "==0.1.1" },
     { name = "braintrust-langchain", specifier = "==0.0.2" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
+    { name = "deepdiff", specifier = ">=8.5.0" },
     { name = "django-linear-migrations", specifier = "==2.16.*" },
     { name = "django-stubs", specifier = "==5.0.4" },
     { name = "djangorestframework-stubs", specifier = "~=3.14.5" },

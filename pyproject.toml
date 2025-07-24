@@ -165,6 +165,7 @@ dev = [
     "braintrust==0.1.1",
     "braintrust-langchain==0.0.2",
     "datamodel-code-generator==0.28.5",
+    "deepdiff>=8.5.0",
     "django-linear-migrations==2.16.*",
     "django-stubs==5.0.4",
     "djangorestframework-stubs~=3.14.5",

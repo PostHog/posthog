@@ -367,7 +367,7 @@ DATE_FIELDS_PROMPT = """
 Below is a refined description for the date fields and their types:
 
 <date_from>
-- Relative Date (Days): Use the format "-Nd" for the last N days (e.g., "last 5 days" becomes "-5d").
+- Relative Date (Days): Use the format "-Nd" for the last N days (e.g., "last 5 days" becomes "-5d", "yesterday" becomes "-1d").
 - Relative Date (Hours): Use the format "-Nh" for the last N hours (e.g., "last 5 hours" becomes "-5h").
 - Custom Date: If a specific start date is provided, use the format "YYYY-MM-DD".
 - If a date is provided but without a year or month, use the current year and month.
