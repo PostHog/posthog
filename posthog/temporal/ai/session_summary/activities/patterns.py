@@ -16,7 +16,6 @@ from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_extraction,
 )
 from ee.hogai.session_summaries.session_group.patterns import (
-from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
@@ -26,11 +25,6 @@ from ee.hogai.session_summaries.session_group.patterns import (
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
-from ee.hogai.session_summaries.session.summarize_session import (
-    ExtraSummaryContext,
-    SingleSessionSummaryLlmInputs,
-)
-from ee.hogai.session_summaries.session_group.summarize_session_group import (
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
