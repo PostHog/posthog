@@ -167,13 +167,13 @@ export function isFrequentistResult(result: ExperimentVariantResult): result is 
     return result.method === 'frequentist'
 }
 
-export function getVariantInterval(result: ExperimentVariantResult): [number, number] | null {
+export function getVariantInterval(result: ExperimentVariantResult): [number, number] | undefined {
     if (isBayesianResult(result)) {
         return result.credible_interval
     } else if (isFrequentistResult(result)) {
         return result.confidence_interval
     }
-    return null
+    return undefined
 }
 
 export function getIntervalLabel(result: ExperimentVariantResult): string {
@@ -182,9 +182,9 @@ export function getIntervalLabel(result: ExperimentVariantResult): string {
 
 export interface PercentageChangeResult {
     text: string
-    isSignificant: boolean
-    isPositive: boolean | null
-    pointEstimate: number | null
+    isSignificant: boolean | undefined
+    isPositive: boolean | undefined
+    pointEstimate: number | undefined
 }
 
 export function formatPercentageChange(result: ExperimentVariantResult): PercentageChangeResult {
@@ -193,8 +193,8 @@ export function formatPercentageChange(result: ExperimentVariantResult): Percent
         return {
             text: '—',
             isSignificant: false,
-            isPositive: null,
-            pointEstimate: null,
+            isPositive: undefined,
+            pointEstimate: undefined,
         }
     }
 

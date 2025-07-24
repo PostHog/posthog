@@ -3211,7 +3211,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -10922,7 +10922,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "credible_intervals": {
                     "additionalProperties": {
@@ -11046,7 +11046,7 @@
                     "type": "number"
                 }
             },
-            "required": ["errors", "key", "number_of_samples", "sum", "sum_squares"],
+            "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentStatsValidationError": {
@@ -11213,17 +11213,7 @@
                     "type": "number"
                 }
             },
-            "required": [
-                "chance_to_win",
-                "credible_interval",
-                "errors",
-                "key",
-                "method",
-                "number_of_samples",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantResultFrequentist": {
@@ -11266,17 +11256,7 @@
                     "type": "number"
                 }
             },
-            "required": [
-                "confidence_interval",
-                "errors",
-                "key",
-                "method",
-                "number_of_samples",
-                "p_value",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantTrendsBaseStats": {
@@ -16600,7 +16580,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "baseline": {
-                            "$ref": "#/definitions/ExperimentStatsBase"
+                            "$ref": "#/definitions/ExperimentStatsBaseValidated"
                         },
                         "credible_intervals": {
                             "additionalProperties": {
