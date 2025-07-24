@@ -4,17 +4,18 @@ from unittest.mock import Mock, patch
 import pytest
 import dagster
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.web_preaggregated.team_config import (
+from posthog.models.web_preaggregated.team_selection import (
     DEFAULT_ENABLED_TEAM_IDS,
-    WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
 from dagster import build_asset_context, build_op_context
 
 from dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,
-    store_team_config_in_clickhouse,
-    web_analytics_team_config,
+    store_team_selection_in_clickhouse,
+    web_analytics_team_selection,
 )
 
 
@@ -99,13 +100,13 @@ class TestGetTeamIdsFromSources:
         assert result == expected
 
 
-class TestStoreTeamConfigInClickhouse:
+class TestStoreTeamSelectionInClickhouse:
     def setup_method(self):
         self.mock_context = Mock(spec=dagster.OpExecutionContext)
         self.mock_context.log = Mock()
         self.mock_cluster = Mock()
 
-    def test_stores_team_config_successfully(self):
+    def test_stores_team_selection_successfully(self):
         team_ids = [1, 2, 3]
 
         # Mock successful operations
@@ -117,7 +118,7 @@ class TestStoreTeamConfigInClickhouse:
             Mock(result=Mock(return_value=reload_results)),
         ]
 
-        result = store_team_config_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
+        result = store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
         assert result == team_ids
         assert self.mock_cluster.map_all_hosts.call_count == 2
@@ -126,7 +127,7 @@ class TestStoreTeamConfigInClickhouse:
     def test_handles_empty_team_ids_list(self):
         team_ids = []
 
-        result = store_team_config_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
+        result = store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
         assert result == []
         self.mock_context.log.warning.assert_called_with("No team IDs to store")
@@ -145,8 +146,8 @@ class TestStoreTeamConfigInClickhouse:
             Mock(result=Mock(return_value=reload_results)),
         ]
 
-        with pytest.raises(Exception, match="Failed to insert team configuration"):
-            store_team_config_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
+        with pytest.raises(Exception, match="Failed to insert team selection"):
+            store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
     def test_raises_exception_on_dictionary_reload_failure(self):
         team_ids = [1, 2, 3]
@@ -161,7 +162,7 @@ class TestStoreTeamConfigInClickhouse:
         ]
 
         with pytest.raises(Exception, match="Failed to reload dictionary"):
-            store_team_config_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
+            store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
     def test_logs_appropriate_messages(self):
         team_ids = [1, 2, 3]
@@ -175,7 +176,7 @@ class TestStoreTeamConfigInClickhouse:
             Mock(result=Mock(return_value=reload_results)),
         ]
 
-        store_team_config_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
+        store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
         self.mock_context.log.info.assert_called_with(f"Storing {len(team_ids)} enabled team IDs in ClickHouse")
 
@@ -191,34 +192,34 @@ class TestStoreTeamConfigInClickhouse:
             Mock(result=Mock(return_value=reload_results)),
         ]
 
-        store_team_config_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
+        store_team_selection_in_clickhouse(self.mock_context, team_ids, self.mock_cluster)
 
         # Verify map_all_hosts was called twice (once for insert, once for reload)
         assert self.mock_cluster.map_all_hosts.call_count == 2
 
 
-class TestWebAnalyticsTeamConfigAsset:
+class TestWebAnalyticsTeamSelectionAsset:
     def setup_method(self):
         self.mock_context = Mock(spec=dagster.AssetExecutionContext)
         self.mock_context.log = Mock()
         self.mock_cluster = Mock()
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    @patch("dags.web_preaggregated_team_selection.store_team_config_in_clickhouse")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
     def test_asset_execution_success(self, mock_store, mock_get_teams):
         test_teams = [1, 2, 3]
         mock_get_teams.return_value = test_teams
         mock_store.return_value = test_teams
 
         # Import and use the function directly, not as an asset
-        from dags.web_preaggregated_team_selection import web_analytics_team_config
+        from dags.web_preaggregated_team_selection import web_analytics_team_selection
 
         # Create a proper Dagster context
         from dagster import build_asset_context
 
         context = build_asset_context()
 
-        result = web_analytics_team_config(context, self.mock_cluster)
+        result = web_analytics_team_selection(context, self.mock_cluster)
 
         # Verify functions were called
         mock_get_teams.assert_called_once()
@@ -230,20 +231,20 @@ class TestWebAnalyticsTeamConfigAsset:
         assert result.metadata["team_ids"] == str(test_teams)
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    @patch("dags.web_preaggregated_team_selection.store_team_config_in_clickhouse")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
     def test_asset_handles_empty_teams(self, mock_store, mock_get_teams):
         empty_teams = []
         mock_get_teams.return_value = empty_teams
         mock_store.return_value = empty_teams
 
         context = build_asset_context()
-        result = web_analytics_team_config(context, self.mock_cluster)
+        result = web_analytics_team_selection(context, self.mock_cluster)
 
         assert result.metadata["team_count"] == 0
         assert result.metadata["team_ids"] == str(empty_teams)
 
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    @patch("dags.web_preaggregated_team_selection.store_team_config_in_clickhouse")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
     def test_asset_propagates_store_errors(self, mock_store, mock_get_teams):
         test_teams = [1, 2, 3]
         mock_get_teams.return_value = test_teams
@@ -252,7 +253,7 @@ class TestWebAnalyticsTeamConfigAsset:
         context = build_asset_context()
 
         with pytest.raises(Exception, match="ClickHouse error"):
-            web_analytics_team_config(context, self.mock_cluster)
+            web_analytics_team_selection(context, self.mock_cluster)
 
 
 class TestIntegrationScenarios:
@@ -272,7 +273,7 @@ class TestIntegrationScenarios:
         assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
         assert len(result) > 0  # Ensure defaults are not empty
 
-    @patch("dags.web_preaggregated_team_selection.store_team_config_in_clickhouse")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
     @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
     def test_web_analytics_asset_integration(self, mock_get_teams, mock_store):
         test_teams = [100, 200, 300]
@@ -281,7 +282,7 @@ class TestIntegrationScenarios:
 
         mock_cluster = Mock()
         context = build_asset_context()
-        result = web_analytics_team_config(context, mock_cluster)
+        result = web_analytics_team_selection(context, mock_cluster)
 
         assert isinstance(result, dagster.MaterializeResult)
         assert result.metadata["team_count"] == 3
@@ -291,18 +292,18 @@ class TestIntegrationScenarios:
         mock_store.assert_called_once_with(context, test_teams, mock_cluster)
 
 
-def test_team_config_clickhouse_integration(cluster: ClickhouseCluster):
+def test_team_selection_clickhouse_integration(cluster: ClickhouseCluster):
     test_team_ids = [123, 456, 789]
     context = build_op_context()
 
     with patch("dags.web_preaggregated_team_selection.settings_with_log_comment") as mock_settings:
         mock_settings.return_value = {"log_comment": "test"}
 
-        result = store_team_config_in_clickhouse(context, test_team_ids, cluster)
+        result = store_team_selection_in_clickhouse(context, test_team_ids, cluster)
         assert result == test_team_ids
 
         query_result = sync_execute(
-            "SELECT team_id FROM web_preaggregated_teams_config WHERE team_id IN %(team_ids)s ORDER BY team_id",
+            f"SELECT team_id FROM {WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME} WHERE team_id IN %(team_ids)s ORDER BY team_id",
             {"team_ids": test_team_ids},
         )
 
@@ -310,7 +311,7 @@ def test_team_config_clickhouse_integration(cluster: ClickhouseCluster):
         assert inserted_team_ids == sorted(test_team_ids)
 
         dict_exists = sync_execute(
-            f"SELECT 1 FROM system.dictionaries WHERE name = '{WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME}'"
+            f"SELECT 1 FROM system.dictionaries WHERE name = '{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}'"
         )
         assert len(dict_exists) > 0
 
@@ -323,13 +324,13 @@ def test_web_analytics_asset_real_execution(cluster: ClickhouseCluster):
 
         with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_team_ids_str}):
             context = build_asset_context()
-            result = web_analytics_team_config(context, cluster)
+            result = web_analytics_team_selection(context, cluster)
 
             assert isinstance(result, dagster.MaterializeResult)
             assert result.metadata["team_count"] == 3
 
             query_result = sync_execute(
-                "SELECT COUNT(*) FROM web_preaggregated_teams_config WHERE team_id IN %(team_ids)s",
+                "SELECT COUNT(*) FROM web_pre_aggregated_teams WHERE team_id IN %(team_ids)s",
                 {"team_ids": [111, 222, 333]},
             )
 

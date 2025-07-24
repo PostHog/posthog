@@ -25,12 +25,11 @@ from posthog.models.web_preaggregated.sql import (
     DROP_PARTITION_SQL,
 )
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
-from posthog.models.web_preaggregated.team_config import WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME
 
 logger = structlog.get_logger(__name__)
 
@@ -187,7 +186,7 @@ def export_web_analytics_data_by_team(
     if not team_ids:
         dict_query = f"""
         SELECT team_id
-        FROM {CLICKHOUSE_DATABASE}.{WEB_ANALYTICS_TEAM_CONFIG_TABLE_NAME}
+        FROM {WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}
         WHERE enabled_at IS NOT NULL
         """
         try:
