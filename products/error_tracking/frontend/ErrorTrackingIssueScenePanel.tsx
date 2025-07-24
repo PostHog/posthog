@@ -79,7 +79,7 @@ const IssueStatusSelect = ({
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent loop matchTriggerWidth>
-                    {status == 'active' ? (
+                    {status === 'active' ? (
                         <>
                             <DropdownMenuItem asChild>
                                 <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
