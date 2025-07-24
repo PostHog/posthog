@@ -381,7 +381,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                 const findColumnByKey = (
                     columns: LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[],
                     key: string
-                ): LemonTableColumnGroup<FlattenedFunnelStepByBreakdown> | null => {
+                ): LemonTableColumn<
+                    FlattenedFunnelStepByBreakdown,
+                    keyof FlattenedFunnelStepByBreakdown | undefined
+                > | null => {
                     for (const group of columns) {
                         for (const col of group.children) {
                             if (col.key === key || col.dataIndex === key) {
