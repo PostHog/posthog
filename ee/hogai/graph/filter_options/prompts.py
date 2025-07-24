@@ -59,7 +59,7 @@ TOOL_USAGE_PROMPT = """
 GROUP_PROPERTY_FILTER_TYPES_PROMPT = """
 <property_filter_types>
 PostHog users can filter their data using various properties and values.
-Properties are classified into groups based on the source of the property or a user defined group. Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
+Properties are always associated with an event or entity. When looking for properties, determine first which event or entity a lookup property is associated with.
 
 **CRITICAL**: There are two main categories of properties - ENTITY properties and EVENT properties. They use different tools.
 
@@ -341,7 +341,7 @@ json
                 "values": [
                     {
                         "key": "$device_type",
-                        "type": "person",
+                        "type": "event",
                         "value": ["Mobile"],
                         "operator": "exact"
                     },
@@ -362,41 +362,12 @@ json
 
 User: "Show me recordings of users who are either mobile OR desktop"
 
-json
-{
-"data": {
-    "date_from": "-5d",
-    "date_to": null,
-    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
-    "filter_group": {
-        "type": "OR",
-        "values": [
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "$device_type",
-                        "type": "person",
-                        "value": ["Mobile"],
-                        "operator": "exact"
-                    }
-                ]
-            },
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "$device_type",
-                        "type": "person",
-                        "value": ["Desktop"],
-                        "operator": "exact"
-                    }
-                ]
-            }
-        ]
-    }
-}
-}
+```json
+{"data":{"date_from":"-5d","date_to":null,"duration":[{"key":"duration","type":"recording","value":60,"operator":"gt"}],"filter_group":{"type":"OR","values":[{"type":"AND","values":[{"key":"$device_type","type":"person","value":["Mobile"],"operator":"exact"}]},{"type":"AND","values":[{"key":"$device_type","type":"person","value":["Desktop"],"operator":"exact"}]}]}}}
+```
+
+Note: Some default properties, starting with the $ sign, are present in events and entities. For example, `$device_type` can be found under `person` properties and under the `$pageview` (or similar) event.
+
 
 3. **Complex Multi-Filter Example**
 
@@ -496,4 +467,8 @@ json
 PRODUCT_DESCRIPTION_PROMPT = """
 You are an expert at creating filters for PostHog products. Your job is to understand what users want to see in their data and translate that into precise filter configurations.
 Transform natural language requests like "show me users from mobile devices who completed signup" into structured filter objects that will find exactly what they're looking for.
+
+<session_replay_details>
+A session recording is a timeline of many events along with related entities a user has interacted with (directly or indirectly). When you apply a filter using an event property, the system returns any recording that contains at least one event matching that property/value pair.
+</session_replay_details>
 """.strip()
