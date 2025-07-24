@@ -36,6 +36,9 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.utils import (
+    handle_non_retryable_errors,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -73,7 +76,7 @@ class DummyRetryableError(Exception):
         super().__init__(message)
 
 
-NON_RETRYABLE_ERROR_TYPES = (DummyNonRetryableError,)
+NON_RETRYABLE_ERROR_TYPES = ("DummyNonRetryableError",)
 
 
 @dataclass(kw_only=True)
@@ -154,17 +157,15 @@ class DummyExportWorkflow(PostHogWorkflow):
         return
 
 
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn(name="insert_into_dummy_activity_from_stage")
 async def insert_into_dummy_activity_from_stage(inputs: DummyInsertInputs) -> BatchExportResult:
     """A mock activity to test the batch export entrypoint."""
-    try:
-        if inputs.exception_to_raise:
-            # get the exception class from the string
-            exception_cls = globals()[inputs.exception_to_raise]
-            raise exception_cls()
-        return BatchExportResult(records_completed=100, bytes_exported=100)
-    except NON_RETRYABLE_ERROR_TYPES as e:
-        return BatchExportResult.from_exception(e)
+    if inputs.exception_to_raise:
+        # get the exception class from the string
+        exception_cls = globals()[inputs.exception_to_raise]
+        raise exception_cls()
+    return BatchExportResult(records_completed=100, bytes_exported=100)
 
 
 class TestErrorHandling:

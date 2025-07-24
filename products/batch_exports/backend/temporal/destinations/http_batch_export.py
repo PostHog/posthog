@@ -35,10 +35,9 @@ from products.batch_exports.backend.temporal.temporary_file import (
     BatchExportTemporaryFile,
     json_dumps_bytes,
 )
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = [
-    "NonRetryableResponseError",
-]
+NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
 
 
 class RetryableResponseError(Exception):
@@ -156,154 +155,146 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
     return response
 
 
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
 async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
-    try:
-        logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
-        logger.info(
-            "Batch exporting range %s - %s to HTTP endpoint: %s",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-            inputs.url,
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
+    logger.info(
+        "Batch exporting range %s - %s to HTTP endpoint: %s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
+        inputs.url,
+    )
+
+    async with get_client(team_id=inputs.team_id) as client:
+        if not await client.is_alive():
+            raise ConnectionError("Cannot establish connection to ClickHouse")
+
+        if inputs.batch_export_schema is not None:
+            raise NotImplementedError("Batch export schema is not supported for HTTP export")
+
+        fields = http_default_fields()
+        columns = [field["alias"] for field in fields]
+
+        interval_start = await maybe_resume_from_heartbeat(inputs)
+
+        is_backfill = inputs.get_is_backfill()
+
+        record_iterator = iter_records(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            fields=fields,
+            extra_query_parameters=None,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
         )
 
-        async with get_client(team_id=inputs.team_id) as client:
-            if not await client.is_alive():
-                raise ConnectionError("Cannot establish connection to ClickHouse")
+        last_uploaded_timestamp: str | None = None
 
-            if inputs.batch_export_schema is not None:
-                raise NotImplementedError("Batch export schema is not supported for HTTP export")
-
-            fields = http_default_fields()
-            columns = [field["alias"] for field in fields]
-
-            interval_start = await maybe_resume_from_heartbeat(inputs)
-
-            is_backfill = inputs.get_is_backfill()
-
-            record_iterator = iter_records(
-                client=client,
-                team_id=inputs.team_id,
-                interval_start=interval_start,
-                interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-                fields=fields,
-                extra_query_parameters=None,
-                backfill_details=inputs.backfill_details,
-                is_backfill=is_backfill,
+        async def worker_shutdown_handler():
+            """Handle the Worker shutting down by heart-beating our latest status."""
+            await activity.wait_for_worker_shutdown()
+            logger.warn(
+                f"Worker shutting down! Reporting back latest exported part {last_uploaded_timestamp}",
             )
+            if last_uploaded_timestamp is None:
+                # Don't heartbeat if worker shuts down before we could even send anything
+                # Just start from the beginning again.
+                return
 
-            last_uploaded_timestamp: str | None = None
+            activity.heartbeat(last_uploaded_timestamp)
 
-            async def worker_shutdown_handler():
-                """Handle the Worker shutting down by heart-beating our latest status."""
-                await activity.wait_for_worker_shutdown()
-                logger.warn(
-                    f"Worker shutting down! Reporting back latest exported part {last_uploaded_timestamp}",
+        asyncio.create_task(worker_shutdown_handler())
+
+        rows_exported = get_rows_exported_metric()
+        bytes_exported = get_bytes_exported_metric()
+
+        # The HTTP destination currently only supports the PostHog batch capture endpoint. In the
+        # future we may support other endpoints, but we'll need a way to template the request body,
+        # headers, etc.
+        #
+        # For now, we write the batch out in PostHog capture format, which means each Batch Export
+        # temporary file starts with a header and ends with a footer.
+        #
+        # For example:
+        #
+        #   Header written when temp file is opened: {"api_key": "api-key-from-inputs","batch": [
+        #   Each record is written out as an object:   {"event": "foo", ...},
+        #   Finally, a footer is written out:        ]}
+        #
+        # Why write to a file at all? Because we need to serialize the data anyway, and it's the
+        # safest way to stay within batch endpoint payload limits and not waste process memory.
+        posthog_batch_header = """{{"api_key": "{}","historical_migration":true,"batch": [""".format(inputs.token)
+        posthog_batch_footer = "]}"
+
+        with BatchExportTemporaryFile() as batch_file:
+
+            def write_event_to_batch(event):
+                if batch_file.records_since_last_reset == 0:
+                    batch_file.write(posthog_batch_header)
+                else:
+                    batch_file.write(",")
+
+                batch_file.write_record_as_bytes(json_dumps_bytes(event))
+
+            async def flush_batch_to_http_endpoint(last_uploaded_timestamp: str, session: aiohttp.ClientSession):
+                logger.debug(
+                    "Sending %s records of size %s bytes",
+                    batch_file.records_since_last_reset,
+                    batch_file.bytes_since_last_reset,
                 )
-                if last_uploaded_timestamp is None:
-                    # Don't heartbeat if worker shuts down before we could even send anything
-                    # Just start from the beginning again.
-                    return
+
+                batch_file.write(posthog_batch_footer)
+
+                await post_json_file_to_url(inputs.url, batch_file, session)
+
+                rows_exported.add(batch_file.records_since_last_reset)
+                bytes_exported.add(batch_file.bytes_since_last_reset)
 
                 activity.heartbeat(last_uploaded_timestamp)
 
-            asyncio.create_task(worker_shutdown_handler())
+            async with aiohttp.ClientSession() as session:
+                for record_batch in record_iterator:
+                    for row in record_batch.select(columns).to_pylist():
+                        # Format result row as PostHog event, write JSON to the batch file.
 
-            rows_exported = get_rows_exported_metric()
-            bytes_exported = get_bytes_exported_metric()
+                        properties = row["properties"]
+                        properties = json.loads(properties) if properties else {}
+                        properties["$geoip_disable"] = True
 
-            # The HTTP destination currently only supports the PostHog batch capture endpoint. In the
-            # future we may support other endpoints, but we'll need a way to template the request body,
-            # headers, etc.
-            #
-            # For now, we write the batch out in PostHog capture format, which means each Batch Export
-            # temporary file starts with a header and ends with a footer.
-            #
-            # For example:
-            #
-            #   Header written when temp file is opened: {"api_key": "api-key-from-inputs","batch": [
-            #   Each record is written out as an object:   {"event": "foo", ...},
-            #   Finally, a footer is written out:        ]}
-            #
-            # Why write to a file at all? Because we need to serialize the data anyway, and it's the
-            # safest way to stay within batch endpoint payload limits and not waste process memory.
-            posthog_batch_header = """{{"api_key": "{}","historical_migration":true,"batch": [""".format(inputs.token)
-            posthog_batch_footer = "]}"
+                        if row["event"] == "$autocapture" and row["elements_chain"] is not None:
+                            properties["$elements_chain"] = row["elements_chain"]
 
-            with BatchExportTemporaryFile() as batch_file:
+                        capture_event = {
+                            "uuid": row["uuid"],
+                            "distinct_id": row["distinct_id"],
+                            "timestamp": row["timestamp"],
+                            "event": row["event"],
+                            "properties": properties,
+                        }
 
-                def write_event_to_batch(event):
-                    if batch_file.records_since_last_reset == 0:
-                        batch_file.write(posthog_batch_header)
-                    else:
-                        batch_file.write(",")
+                        inserted_at = row.pop("_inserted_at")
 
-                    batch_file.write_record_as_bytes(json_dumps_bytes(event))
+                        write_event_to_batch(capture_event)
 
-                async def flush_batch_to_http_endpoint(last_uploaded_timestamp: str, session: aiohttp.ClientSession):
-                    logger.debug(
-                        "Sending %s records of size %s bytes",
-                        batch_file.records_since_last_reset,
-                        batch_file.bytes_since_last_reset,
-                    )
+                        if (
+                            batch_file.tell() > settings.BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES
+                            or batch_file.records_since_last_reset >= settings.BATCH_EXPORT_HTTP_BATCH_SIZE
+                        ):
+                            last_uploaded_timestamp = str(inserted_at)
+                            await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
+                            batch_file.reset()
 
-                    batch_file.write(posthog_batch_footer)
+                if batch_file.tell() > 0:
+                    last_uploaded_timestamp = str(inserted_at)
+                    await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
 
-                    await post_json_file_to_url(inputs.url, batch_file, session)
-
-                    rows_exported.add(batch_file.records_since_last_reset)
-                    bytes_exported.add(batch_file.bytes_since_last_reset)
-
-                    activity.heartbeat(last_uploaded_timestamp)
-
-                async with aiohttp.ClientSession() as session:
-                    for record_batch in record_iterator:
-                        for row in record_batch.select(columns).to_pylist():
-                            # Format result row as PostHog event, write JSON to the batch file.
-
-                            properties = row["properties"]
-                            properties = json.loads(properties) if properties else {}
-                            properties["$geoip_disable"] = True
-
-                            if row["event"] == "$autocapture" and row["elements_chain"] is not None:
-                                properties["$elements_chain"] = row["elements_chain"]
-
-                            capture_event = {
-                                "uuid": row["uuid"],
-                                "distinct_id": row["distinct_id"],
-                                "timestamp": row["timestamp"],
-                                "event": row["event"],
-                                "properties": properties,
-                            }
-
-                            inserted_at = row.pop("_inserted_at")
-
-                            write_event_to_batch(capture_event)
-
-                            if (
-                                batch_file.tell() > settings.BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES
-                                or batch_file.records_since_last_reset >= settings.BATCH_EXPORT_HTTP_BATCH_SIZE
-                            ):
-                                last_uploaded_timestamp = str(inserted_at)
-                                await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
-                                batch_file.reset()
-
-                    if batch_file.tell() > 0:
-                        last_uploaded_timestamp = str(inserted_at)
-                        await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
-
-                return BatchExportResult(records_completed=batch_file.records_total)
-    except Exception as e:
-        # If we catch an error at any point during this activity, we check if it's a non-retryable error.
-        # If it is, we return a BatchExportResult with the error.
-        # If it's not, we re-raise the error.
-        # TODO: Use actual exception classes instead of strings.
-        if e.__class__.__name__ in NON_RETRYABLE_ERROR_TYPES:
-            return BatchExportResult.from_exception(e)
-        raise
+            return BatchExportResult(records_completed=batch_file.records_total)
 
 
 @workflow.defn(name="http-export")

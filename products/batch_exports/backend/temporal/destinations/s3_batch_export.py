@@ -56,8 +56,9 @@ from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     wait_for_schema_or_producer,
 )
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = [
+NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
@@ -72,7 +73,7 @@ NON_RETRYABLE_ERROR_TYPES = [
     "InvalidS3EndpointError",
     # Invalid file_format input
     "UnsupportedFileFormatError",
-]
+)
 
 FILE_FORMAT_EXTENSIONS = {
     "Parquet": "parquet",
@@ -332,6 +333,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         return
 
 
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
     """Activity to batch export data to a customer's S3.
@@ -347,88 +349,79 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
     it will be used by other destinations, not just S3. Our S3 batch exports also support customising the max S3 file
     size, different file formats, compression, etc, which ClickHouse's S3 functions may not support.
     """
-    try:
-        bind_contextvars(
-            team_id=inputs.team_id,
-            destination="S3",
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="S3",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+    )
+    external_logger = EXTERNAL_LOGGER.bind()
+
+    external_logger.info(
+        "Batch exporting range %s - %s to S3: %s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
+        get_s3_key(inputs),
+    )
+
+    async with Heartbeater():
+        # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
+        # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
+        # - we don't order the events in the query to ClickHouse
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = ProducerFromInternalStage()
+        assert inputs.batch_export_id is not None
+        producer_task = await producer.start(
+            queue=queue,
+            batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
-        )
-        external_logger = EXTERNAL_LOGGER.bind()
-
-        external_logger.info(
-            "Batch exporting range %s - %s to S3: %s",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-            get_s3_key(inputs),
+            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
         )
 
-        async with Heartbeater():
-            # NOTE: we don't support resuming from heartbeats for this activity for 2 reasons:
-            # - resuming from old heartbeats doesn't play nicely with S3 multipart uploads
-            # - we don't order the events in the query to ClickHouse
-            data_interval_start = (
-                dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-            )
-            data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-
-            queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-            producer = ProducerFromInternalStage()
-            assert inputs.batch_export_id is not None
-            producer_task = await producer.start(
-                queue=queue,
-                batch_export_id=inputs.batch_export_id,
-                data_interval_start=inputs.data_interval_start,
-                data_interval_end=inputs.data_interval_end,
-                max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            external_logger.info(
+                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
             )
 
-            record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-            if record_batch_schema is None:
-                external_logger.info(
-                    "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-                    inputs.data_interval_start or "START",
-                    inputs.data_interval_end or "END",
-                )
+            return BatchExportResult(records_completed=0, bytes_exported=0)
 
-                return BatchExportResult(records_completed=0, bytes_exported=0)
+        record_batch_schema = pa.schema(
+            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+            # record batches have them as nullable.
+            # Until we figure it out, we set all fields to nullable. There are some fields we know
+            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+            # between batches.
+            [field.with_nullable(True) for field in record_batch_schema]
+        )
 
-            record_batch_schema = pa.schema(
-                # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                # record batches have them as nullable.
-                # Until we figure it out, we set all fields to nullable. There are some fields we know
-                # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                # between batches.
-                [field.with_nullable(True) for field in record_batch_schema]
-            )
+        consumer = ConcurrentS3Consumer(
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            s3_inputs=inputs,
+            part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+            max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+        )
 
-            consumer = ConcurrentS3Consumer(
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
-                s3_inputs=inputs,
-                part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
-            )
-
-            return await run_consumer_from_stage(
-                queue=queue,
-                consumer=consumer,
-                producer_task=producer_task,
-                schema=record_batch_schema,
-                file_format=inputs.file_format,
-                compression=inputs.compression,
-                include_inserted_at=True,
-                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-                json_columns=("properties", "person_properties", "set", "set_once"),
-            )
-    except Exception as e:
-        # If we catch an error at any point during this activity, we check if it's a non-retryable error.
-        # If it is, we return a BatchExportResult with the error.
-        # If it's not, we re-raise the error.
-        # TODO: Use actual exception classes instead of strings.
-        if e.__class__.__name__ in NON_RETRYABLE_ERROR_TYPES:
-            return BatchExportResult.from_exception(e)
-        raise
+        return await run_consumer_from_stage(
+            queue=queue,
+            consumer=consumer,
+            producer_task=producer_task,
+            schema=record_batch_schema,
+            file_format=inputs.file_format,
+            compression=inputs.compression,
+            include_inserted_at=True,
+            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            json_columns=("properties", "person_properties", "set", "set_once"),
+        )
 
 
 class ConcurrentS3Consumer(ConsumerFromStage):

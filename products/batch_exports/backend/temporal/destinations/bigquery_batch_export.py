@@ -56,10 +56,11 @@ from products.batch_exports.backend.temporal.temporary_file import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_non_retryable_errors,
     set_status_to_running_task,
 )
 
-NON_RETRYABLE_ERROR_TYPES = [
+NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
     "Forbidden",
     # Invalid token.
@@ -74,7 +75,7 @@ NON_RETRYABLE_ERROR_TYPES = [
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
-]
+)
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
@@ -650,222 +651,214 @@ class BigQueryConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to BigQuery."""
-    try:
-        bind_contextvars(
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="BigQuery",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+    )
+    external_logger = EXTERNAL_LOGGER.bind()
+
+    external_logger.info(
+        "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
+        inputs.data_interval_start or "START",
+        inputs.data_interval_end or "END",
+        inputs.project_id,
+        inputs.dataset_id,
+        inputs.table_id,
+    )
+
+    async with (
+        Heartbeater() as heartbeater,
+        set_status_to_running_task(run_id=inputs.run_id),
+    ):
+        is_orderless = str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS
+
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
+        if details is None or is_orderless:
+            details = BigQueryHeartbeatDetails()
+
+        done_ranges: list[DateRange] = details.done_ranges
+
+        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+        )
+        data_interval_start = (
+            dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
+        )
+        data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
+        full_range = (data_interval_start, data_interval_end)
+
+        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        producer = Producer(record_batch_model)
+        producer_task = await producer.start(
+            queue=queue,
+            model_name=model_name,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
-            destination="BigQuery",
-            data_interval_start=inputs.data_interval_start,
-            data_interval_end=inputs.data_interval_end,
-        )
-        external_logger = EXTERNAL_LOGGER.bind()
-
-        external_logger.info(
-            "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-            inputs.project_id,
-            inputs.dataset_id,
-            inputs.table_id,
+            full_range=full_range,
+            done_ranges=done_ranges,
+            fields=fields,
+            filters=filters,
+            destination_default_fields=bigquery_default_fields(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            extra_query_parameters=extra_query_parameters,
         )
 
-        async with (
-            Heartbeater() as heartbeater,
-            set_status_to_running_task(run_id=inputs.run_id),
-        ):
-            is_orderless = str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS
-
-            _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
-            if details is None or is_orderless:
-                details = BigQueryHeartbeatDetails()
-
-            done_ranges: list[DateRange] = details.done_ranges
-
-            model, record_batch_model, model_name, fields, filters, extra_query_parameters = (
-                resolve_batch_exports_model(inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema)
-            )
-            data_interval_start = (
-                dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
-            )
-            data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
-            full_range = (data_interval_start, data_interval_end)
-
-            queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-            producer = Producer(record_batch_model)
-            producer_task = await producer.start(
-                queue=queue,
-                model_name=model_name,
-                is_backfill=inputs.get_is_backfill(),
-                backfill_details=inputs.backfill_details,
-                team_id=inputs.team_id,
-                full_range=full_range,
-                done_ranges=done_ranges,
-                fields=fields,
-                filters=filters,
-                destination_default_fields=bigquery_default_fields(),
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-                extra_query_parameters=extra_query_parameters,
+        record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
+        if record_batch_schema is None:
+            external_logger.info(
+                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
             )
 
-            record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
-            if record_batch_schema is None:
-                external_logger.info(
-                    "Batch export will finish early as there is no data matching specified filters in range %s - %s",
-                    inputs.data_interval_start or "START",
-                    inputs.data_interval_end or "END",
+            return BatchExportResult(records_completed=details.records_completed)
+
+        record_batch_schema = pa.schema(
+            # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
+            # record batches have them as nullable.
+            # Until we figure it out, we set all fields to nullable. There are some fields we know
+            # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
+            # between batches.
+            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        )
+        if inputs.use_json_type is True:
+            json_type = "JSON"
+            json_columns = ["properties", "set", "set_once", "person_properties"]
+        else:
+            json_type = "STRING"
+            json_columns = []
+
+        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+            schema = [
+                bigquery.SchemaField("uuid", "STRING"),
+                bigquery.SchemaField("event", "STRING"),
+                bigquery.SchemaField("properties", json_type),
+                bigquery.SchemaField("elements", "STRING"),
+                bigquery.SchemaField("set", json_type),
+                bigquery.SchemaField("set_once", json_type),
+                bigquery.SchemaField("distinct_id", "STRING"),
+                bigquery.SchemaField("team_id", "INT64"),
+                bigquery.SchemaField("ip", "STRING"),
+                bigquery.SchemaField("site_url", "STRING"),
+                bigquery.SchemaField("timestamp", "TIMESTAMP"),
+                bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
+            ]
+        else:
+            schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
+
+        stage_schema = [
+            bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
+        ]
+
+        mutable = False
+        merge_key = None
+        update_key = None
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                mutable = True
+                merge_key = (
+                    bigquery.SchemaField("team_id", "INT64"),
+                    bigquery.SchemaField("distinct_id", "STRING"),
                 )
 
-                return BatchExportResult(records_completed=details.records_completed)
-
-            record_batch_schema = pa.schema(
-                # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
-                # record batches have them as nullable.
-                # Until we figure it out, we set all fields to nullable. There are some fields we know
-                # are not nullable, but I'm opting for the more flexible option until we out why schemas differ
-                # between batches.
-                [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
-            )
-            if inputs.use_json_type is True:
-                json_type = "JSON"
-                json_columns = ["properties", "set", "set_once", "person_properties"]
-            else:
-                json_type = "STRING"
-                json_columns = []
-
-            if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-                schema = [
-                    bigquery.SchemaField("uuid", "STRING"),
-                    bigquery.SchemaField("event", "STRING"),
-                    bigquery.SchemaField("properties", json_type),
-                    bigquery.SchemaField("elements", "STRING"),
-                    bigquery.SchemaField("set", json_type),
-                    bigquery.SchemaField("set_once", json_type),
-                    bigquery.SchemaField("distinct_id", "STRING"),
+                update_key = ["person_version", "person_distinct_id_version"]
+            elif inputs.batch_export_model.name == "sessions":
+                mutable = True
+                merge_key = (
                     bigquery.SchemaField("team_id", "INT64"),
-                    bigquery.SchemaField("ip", "STRING"),
-                    bigquery.SchemaField("site_url", "STRING"),
-                    bigquery.SchemaField("timestamp", "TIMESTAMP"),
-                    bigquery.SchemaField("bq_ingested_timestamp", "TIMESTAMP"),
-                ]
-            else:
-                schema = get_bigquery_fields_from_record_schema(record_batch_schema, known_json_columns=json_columns)
+                    bigquery.SchemaField("session_id", "STRING"),
+                )
+                update_key = ["end_timestamp"]
 
-            stage_schema = [
-                bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
-            ]
+        data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
 
-            mutable = False
-            merge_key = None
-            update_key = None
-            if isinstance(inputs.batch_export_model, BatchExportModel):
-                if inputs.batch_export_model.name == "persons":
-                    mutable = True
-                    merge_key = (
-                        bigquery.SchemaField("team_id", "INT64"),
-                        bigquery.SchemaField("distinct_id", "STRING"),
+        with bigquery_client(inputs) as bq_client:
+            async with bq_client.managed_table(
+                project_id=inputs.project_id,
+                dataset_id=inputs.dataset_id,
+                table_id=inputs.table_id,
+                table_schema=schema,
+                delete=False,
+            ) as bigquery_table:
+                can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
+
+                if not can_perform_merge:
+                    if model_name == "persons":
+                        raise MissingRequiredPermissionsError()
+
+                    external_logger.warning(
+                        "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
                     )
 
-                    update_key = ["person_version", "person_distinct_id_version"]
-                elif inputs.batch_export_model.name == "sessions":
-                    mutable = True
-                    merge_key = (
-                        bigquery.SchemaField("team_id", "INT64"),
-                        bigquery.SchemaField("session_id", "STRING"),
-                    )
-                    update_key = ["end_timestamp"]
-
-            data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-            stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
-
-            with bigquery_client(inputs) as bq_client:
                 async with bq_client.managed_table(
                     project_id=inputs.project_id,
                     dataset_id=inputs.dataset_id,
-                    table_id=inputs.table_id,
-                    table_schema=schema,
-                    delete=False,
-                ) as bigquery_table:
-                    can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
+                    table_id=stage_table_name if can_perform_merge else inputs.table_id,
+                    table_schema=stage_schema,
+                    create=can_perform_merge,
+                    delete=can_perform_merge,
+                ) as bigquery_stage_table:
+                    consumer = BigQueryConsumer(
+                        heartbeater=heartbeater,
+                        heartbeat_details=details,
+                        data_interval_end=data_interval_end,
+                        data_interval_start=data_interval_start,
+                        writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
+                        bigquery_client=bq_client,
+                        bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
+                        table_schema=stage_schema if can_perform_merge else schema,
+                    )
 
-                    if not can_perform_merge:
-                        if model_name == "persons":
-                            raise MissingRequiredPermissionsError()
-
-                        external_logger.warning(
-                            "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
+                    try:
+                        await run_consumer(
+                            consumer=consumer,
+                            queue=queue,
+                            producer_task=producer_task,
+                            schema=record_batch_schema,
+                            max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                            json_columns=() if can_perform_merge else json_columns,
+                            writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                            multiple_files=True,
                         )
 
-                    async with bq_client.managed_table(
-                        project_id=inputs.project_id,
-                        dataset_id=inputs.dataset_id,
-                        table_id=stage_table_name if can_perform_merge else inputs.table_id,
-                        table_schema=stage_schema,
-                        create=can_perform_merge,
-                        delete=can_perform_merge,
-                    ) as bigquery_stage_table:
-                        consumer = BigQueryConsumer(
-                            heartbeater=heartbeater,
-                            heartbeat_details=details,
-                            data_interval_end=data_interval_end,
-                            data_interval_start=data_interval_start,
-                            writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
-                            bigquery_client=bq_client,
-                            bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
-                            table_schema=stage_schema if can_perform_merge else schema,
-                        )
+                    except Exception:
+                        # Ensure we always write data to final table,  even if
+                        # we fail halfway through, as if we resume from a
+                        # heartbeat, we can continue without losing data
+                        # However, orderless batch exports should not merge
+                        # partial data as they will resume from the beginning.
+                        if can_perform_merge and not is_orderless:
+                            await bq_client.amerge_tables(
+                                final_table=bigquery_table,
+                                stage_table=bigquery_stage_table,
+                                mutable=mutable,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                                stage_fields_cast_to_json=json_columns,
+                            )
+                        raise
 
-                        try:
-                            await run_consumer(
-                                consumer=consumer,
-                                queue=queue,
-                                producer_task=producer_task,
-                                schema=record_batch_schema,
-                                max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                                json_columns=() if can_perform_merge else json_columns,
-                                writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
-                                multiple_files=True,
+                    else:
+                        if can_perform_merge:
+                            await bq_client.amerge_tables(
+                                final_table=bigquery_table,
+                                stage_table=bigquery_stage_table,
+                                mutable=mutable,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                                stage_fields_cast_to_json=json_columns,
                             )
 
-                        except Exception:
-                            # Ensure we always write data to final table,  even if
-                            # we fail halfway through, as if we resume from a
-                            # heartbeat, we can continue without losing data
-                            # However, orderless batch exports should not merge
-                            # partial data as they will resume from the beginning.
-                            if can_perform_merge and not is_orderless:
-                                await bq_client.amerge_tables(
-                                    final_table=bigquery_table,
-                                    stage_table=bigquery_stage_table,
-                                    mutable=mutable,
-                                    merge_key=merge_key,
-                                    update_key=update_key,
-                                    stage_fields_cast_to_json=json_columns,
-                                )
-                            raise
-
-                        else:
-                            if can_perform_merge:
-                                await bq_client.amerge_tables(
-                                    final_table=bigquery_table,
-                                    stage_table=bigquery_stage_table,
-                                    mutable=mutable,
-                                    merge_key=merge_key,
-                                    update_key=update_key,
-                                    stage_fields_cast_to_json=json_columns,
-                                )
-
-            return BatchExportResult(records_completed=details.records_completed)
-    except Exception as e:
-        # If we catch an error at any point during this activity, we check if it's a non-retryable error.
-        # If it is, we return a BatchExportResult with the error.
-        # If it's not, we re-raise the error.
-        # TODO: Use actual exception classes instead of strings.
-        if e.__class__.__name__ in NON_RETRYABLE_ERROR_TYPES:
-            return BatchExportResult.from_exception(e)
-        raise
+        return BatchExportResult(records_completed=details.records_completed)
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
