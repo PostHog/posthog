@@ -9,6 +9,7 @@ from ee.hogai.session_summaries.constants import (
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
     PATTERNS_EXTRACTION_MAX_TOKENS,
     SESSION_SUMMARIES_SYNC_MODEL,
+    SINGLE_ENTITY_MAX_TOKENS,
 )
 from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
@@ -144,6 +145,31 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     current_tokens = base_template_tokens
     for summary_input, summary_tokens in zip(inputs.single_session_summaries_inputs, session_tokens):
         session_id = summary_input.session_id
+        # Check if single session exceeds the limit
+        if base_template_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
+            # Check if it fits within the single entity max tokens limit
+            if base_template_tokens + summary_tokens <= SINGLE_ENTITY_MAX_TOKENS:
+                logger.warning(
+                    f"Session {session_id} exceeds PATTERNS_EXTRACTION_MAX_TOKENS "
+                    f"({base_template_tokens + summary_tokens} tokens) but fits within "
+                    f"SINGLE_ENTITY_MAX_TOKENS. Processing it in a separate chunk."
+                )
+                # Save current chunk if not empty
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_tokens = base_template_tokens
+                # Process this large session in its own chunk
+                chunks.append([session_id])
+                continue
+            else:
+                # Session is too large even for single entity processing
+                logger.error(
+                    f"Session {session_id} exceeds even SINGLE_ENTITY_MAX_TOKENS "
+                    f"({base_template_tokens + summary_tokens} tokens). Skipping this session."
+                )
+                continue
+
         # Check if adding this session would exceed the limit
         if current_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
             # If current chunk is not empty, save it and start a new one
@@ -307,7 +333,7 @@ async def assign_events_to_patterns_activity(
         ]
         # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
         # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
-        # TODO: Decide if to split not by number of sessions, but by tokens, as with patterns extraction
+        # TODO: Split not by number of sessions, but by tokens, as with patterns extraction
         session_summaries_chunks_str = [
             intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
             for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)

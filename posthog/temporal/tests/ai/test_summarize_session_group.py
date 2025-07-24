@@ -609,6 +609,69 @@ class TestPatternExtractionChunking:
         assert chunks[0] == ["session-0"]
         assert chunks[1] == ["session-1", "session-2"]
 
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.get_async_client")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.json.dumps")
+    @patch(
+        "posthog.temporal.ai.session_summary.activities.patterns.remove_excessive_content_from_session_summary_for_llm"
+    )
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.estimate_tokens_from_strings")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns._get_session_summaries_str_from_inputs")
+    @patch("posthog.temporal.ai.session_summary.activities.patterns.logger")
+    async def test_oversized_session_handling(
+        self,
+        mock_logger,
+        mock_get_summaries,
+        mock_estimate_tokens,
+        mock_remove_excessive,
+        mock_json_dumps,
+        mock_get_async_client,
+    ):
+        """Test handling of sessions that exceed token limits."""
+        # Setup inputs with 4 sessions
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=[
+                SingleSessionSummaryInputs(session_id=f"session-{i}", user_id=1, team_id=1, redis_key_base="test")
+                for i in range(4)
+            ],
+            user_id=1,
+            extra_summary_context=None,
+            redis_key_base="test",
+        )
+        # Mock Redis client
+        mock_redis_client = AsyncMock()
+        mock_get_async_client.return_value = mock_redis_client
+        # Mock Redis returning session summaries
+        mock_get_summaries.return_value = [f'{{"summary": "Summary {i}", "segments": []}}' for i in range(4)]
+        # Mock json.dumps to return a simple string
+        mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
+        # Mock token counts:
+        # base=1000
+        # session-0: 500 (fits normally)
+        # session-1: 160000 (exceeds PATTERNS_EXTRACTION_MAX_TOKENS but fits in SINGLE_ENTITY_MAX_TOKENS)
+        # session-2: 250000 (exceeds even SINGLE_ENTITY_MAX_TOKENS, should be skipped)
+        # session-3: 600 (fits normally)
+        mock_estimate_tokens.side_effect = [1000, 500, 160000, 250000, 600]
+        chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+        # Expected behavior:
+        # - session-0 goes into first chunk
+        # - session-1 gets its own chunk (warning logged)
+        # - session-2 is skipped (error logged)
+        # - session-3 goes into third chunk
+        assert len(chunks) == 3
+        assert chunks[0] == ["session-0"]
+        assert chunks[1] == ["session-1"]
+        assert chunks[2] == ["session-3"]
+        # Verify logging
+        mock_logger.warning.assert_called_once()
+        warning_call = mock_logger.warning.call_args[0][0]
+        assert "session-1" in warning_call
+        assert "PATTERNS_EXTRACTION_MAX_TOKENS" in warning_call
+        assert "SINGLE_ENTITY_MAX_TOKENS" in warning_call
+        mock_logger.error.assert_called_once()
+        error_call = mock_logger.error.call_args[0][0]
+        assert "session-2" in error_call
+        assert "SINGLE_ENTITY_MAX_TOKENS" in error_call
+
 
 @pytest.mark.asyncio
 async def test_combine_patterns_from_chunks_activity(

@@ -198,6 +198,7 @@ async def get_llm_single_session_summary(
 ) -> str:
     """Generate a single session summary in one LLM call."""
     try:
+        # TODO: Think about edge-case like one summary too large for o3 (cut some context or use other model)
         result = await call_llm(
             input_prompt=summary_prompt,
             user_key=user_id,
