@@ -2485,14 +2485,14 @@ export interface ExperimentStatsBase {
     sum_squares: number
 }
 
-export enum ExperimentStatsValidationError {
+export enum ExperimentStatsValidationFailure {
     NotEnoughExposures = 'not-enough-exposures',
     BaselineMeanIsZero = 'baseline-mean-is-zero',
     NotEnoughMetricData = 'not-enough-metric-data',
 }
 
 export interface ExperimentStatsBaseValidated extends ExperimentStatsBase {
-    errors?: ExperimentStatsValidationError[]
+    validation_failures?: ExperimentStatsValidationFailure[]
 }
 
 export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseValidated {

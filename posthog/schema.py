@@ -1176,7 +1176,7 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
-class ExperimentStatsValidationError(StrEnum):
+class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
@@ -3460,11 +3460,11 @@ class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    errors: Optional[list[ExperimentStatsValidationError]] = None
     key: str
     number_of_samples: int
     sum: float
     sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
 
 
 class ExperimentVariantResultBayesian(BaseModel):
@@ -3473,13 +3473,13 @@ class ExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: Optional[float] = None
     credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
-    errors: Optional[list[ExperimentStatsValidationError]] = None
     key: str
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     significant: Optional[bool] = None
     sum: float
     sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
 
 
 class ExperimentVariantResultFrequentist(BaseModel):
@@ -3487,7 +3487,6 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
-    errors: Optional[list[ExperimentStatsValidationError]] = None
     key: str
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
@@ -3495,6 +3494,7 @@ class ExperimentVariantResultFrequentist(BaseModel):
     significant: Optional[bool] = None
     sum: float
     sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
 
 
 class ExternalQueryError(BaseModel):

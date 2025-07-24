@@ -11027,12 +11027,6 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
-                "errors": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentStatsValidationError"
-                    },
-                    "type": "array"
-                },
                 "key": {
                     "type": "string"
                 },
@@ -11044,12 +11038,18 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
-        "ExperimentStatsValidationError": {
+        "ExperimentStatsValidationFailure": {
             "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
             "type": "string"
         },
@@ -11187,12 +11187,6 @@
                     "minItems": 2,
                     "type": "array"
                 },
-                "errors": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentStatsValidationError"
-                    },
-                    "type": "array"
-                },
                 "key": {
                     "type": "string"
                 },
@@ -11211,6 +11205,12 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
@@ -11225,12 +11225,6 @@
                     },
                     "maxItems": 2,
                     "minItems": 2,
-                    "type": "array"
-                },
-                "errors": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentStatsValidationError"
-                    },
                     "type": "array"
                 },
                 "key": {
@@ -11254,6 +11248,12 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],

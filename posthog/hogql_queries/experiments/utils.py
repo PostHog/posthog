@@ -2,7 +2,7 @@ from typing import TypeVar
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentStatsValidationError,
+    ExperimentStatsValidationFailure,
     ExperimentVariantResultBayesian,
     ExperimentQueryResponse,
     ExperimentStatsBase,
@@ -82,18 +82,18 @@ def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> 
 def validate_variant_result(
     variant_result: ExperimentStatsBase, metric: ExperimentFunnelMetric | ExperimentMeanMetric, is_baseline=False
 ) -> ExperimentStatsBaseValidated:
-    errors = []
+    validation_failures = []
 
     if variant_result.number_of_samples < 50:
-        errors.append(ExperimentStatsValidationError.NOT_ENOUGH_EXPOSURES)
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
     if isinstance(metric, ExperimentFunnelMetric) and variant_result.sum < 5:
-        errors.append(ExperimentStatsValidationError.NOT_ENOUGH_METRIC_DATA)
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if is_baseline and variant_result.sum == 0:
-        errors.append(ExperimentStatsValidationError.BASELINE_MEAN_IS_ZERO)
+        validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
-    return ExperimentStatsBaseValidated(**variant_result.model_dump(), errors=errors)
+    return ExperimentStatsBaseValidated(**variant_result.model_dump(), validation_failures=validation_failures)
 
 
 def convert_new_to_legacy_trends_variant_results(variant: ExperimentStatsBase) -> ExperimentVariantTrendsBaseStats:
@@ -210,7 +210,7 @@ def get_frequentist_experiment_result_new_format(
     try:
         control_stat = (
             metric_variant_to_statistic(metric, control_variant_validated)
-            if not control_variant_validated.errors
+            if not control_variant_validated.validation_failures
             else None
         )
     except StatisticError as e:
@@ -225,11 +225,11 @@ def get_frequentist_experiment_result_new_format(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
-            errors=test_variant_validated.errors,
+            validation_failures=test_variant_validated.validation_failures,
         )
 
         # Check if we can perform statistical analysis
-        if control_stat and not test_variant_validated.errors:
+        if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
                 result = method.run_test(test_stat, control_stat)
@@ -275,7 +275,7 @@ def get_bayesian_experiment_result_new_format(
     try:
         control_stat = (
             metric_variant_to_statistic(metric, control_variant_validated)
-            if not control_variant_validated.errors
+            if not control_variant_validated.validation_failures
             else None
         )
     except StatisticError as e:
@@ -290,11 +290,11 @@ def get_bayesian_experiment_result_new_format(
             number_of_samples=test_variant_validated.number_of_samples,
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
-            errors=test_variant_validated.errors,
+            validation_failures=test_variant_validated.validation_failures,
         )
 
         # Check if we can perform statistical analysis
-        if control_stat and not test_variant_validated.errors:
+        if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
                 result = method.run_test(test_stat, control_stat)
