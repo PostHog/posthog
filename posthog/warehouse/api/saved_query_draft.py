@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from rest_framework import viewsets
 
@@ -11,11 +12,25 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
     class Meta:
         model = DataWarehouseSavedQueryDraft
         fields = ["id", "created_at", "updated_at", "query", "saved_query_id", "name"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "name"]
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+        saved_query_id = validated_data.get("saved_query_id")
+
+        name = "Untitled"
+        if saved_query_id:
+            count = DataWarehouseSavedQueryDraft.objects.filter(
+                saved_query_id=saved_query_id,
+                team_id=validated_data["team_id"],
+                created_by=validated_data["created_by"],
+            ).count()
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+            name = f"({count + 1}) {saved_query.name}"
+
+        validated_data["name"] = name
+
         draft = DataWarehouseSavedQueryDraft(**validated_data)
         draft.save()
         return draft

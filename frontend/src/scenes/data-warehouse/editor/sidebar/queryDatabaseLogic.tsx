@@ -115,7 +115,7 @@ const createTableNode = (
 const createDraftNode = (draft: DataWarehouseSavedQueryDraft): TreeDataItem => {
     return {
         id: `draft-${draft.id}`,
-        name: draft.query.name || 'Untitled',
+        name: draft.name,
         type: 'node',
         icon: <IconDocument />,
         record: {
