@@ -51,7 +51,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         _create_template_from_mock(MOCK_NODE_TEMPLATES[12])
         _create_template_from_mock(MOCK_NODE_TEMPLATES[16])
 
-
     def _get_plugin_activity(self, expected_status: int = status.HTTP_200_OK):
         activity = self.client.get(f"/api/organizations/@current/plugins/activity")
         self.assertEqual(activity.status_code, expected_status)
