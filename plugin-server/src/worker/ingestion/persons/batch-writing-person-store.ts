@@ -4,7 +4,7 @@ import pLimit from 'p-limit'
 
 import { NoRowsUpdatedError } from '~/utils/utils'
 
-import { TopicMessage } from '../../../kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
 import {
     InternalPerson,
     PersonBatchWritingDbWriteMode,
@@ -12,12 +12,11 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../types'
-import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 import { captureIngestionWarning } from '../utils'
-import { BasePersonRepository } from './base-person-repository'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -99,15 +98,15 @@ export class BatchWritingPersonsStore implements PersonsStore {
     private options: BatchWritingPersonsStoreOptions
 
     constructor(
-        private db: DB,
-        private personRepository: PersonRepository = new BasePersonRepository(db.postgres),
+        private personRepository: PersonRepository,
+        private kafkaProducer: KafkaProducerWrapper,
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
     forBatch(): PersonsStoreForBatch {
-        return new BatchWritingPersonsStoreForBatch(this.db, this.personRepository, this.options)
+        return new BatchWritingPersonsStoreForBatch(this.personRepository, this.kafkaProducer, this.options)
     }
 }
 
@@ -130,8 +129,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     private options: BatchWritingPersonsStoreOptions
 
     constructor(
-        private db: DB,
         private personRepository: PersonRepository,
+        private kafkaProducer: KafkaProducerWrapper,
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -219,7 +218,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                             // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
                             if (error instanceof MessageSizeTooLarge) {
                                 await captureIngestionWarning(
-                                    this.db.kafkaProducer,
+                                    this.kafkaProducer,
                                     update.team_id,
                                     'person_upsert_message_size_too_large',
                                     {

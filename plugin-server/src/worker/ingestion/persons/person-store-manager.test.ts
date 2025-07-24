@@ -170,7 +170,7 @@ describe('PersonStoreManager', () => {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
-        batchStore = new BatchWritingPersonsStore(db, mockPersonRepository)
+        batchStore = new BatchWritingPersonsStore(mockPersonRepository, db.kafkaProducer)
         manager = new PersonStoreManager(hub, measuringStore, batchStore)
     })
 
@@ -356,7 +356,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
-        const batchStore = new BatchWritingPersonsStore(db, mockPersonRepository)
+        const batchStore = new BatchWritingPersonsStore(mockPersonRepository, db.kafkaProducer)
         measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
         batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
         shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
@@ -1011,7 +1011,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })
-            const batchStore = new BatchWritingPersonsStore(db, mockPersonRepository)
+            const batchStore = new BatchWritingPersonsStore(mockPersonRepository, db.kafkaProducer)
             const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
             const batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
             const shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
