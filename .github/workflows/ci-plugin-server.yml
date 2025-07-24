@@ -208,10 +208,10 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
 
-            - name: Wait for Clickhouse, Redis, Kafka & Cassandra
+            - name: Wait for Clickhouse, Redis, Kafka
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse cassandra -d --wait
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse -d --wait
                   bin/check_kafka_clickhouse_up
 
             - name: Set up databases
