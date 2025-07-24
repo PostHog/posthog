@@ -16,7 +16,7 @@ async fn simple_single_event_payload() {
     let client = TestClient::new(router);
 
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}", unix_millis_sent_at);
+    let req_path = format!("/capture/?_={}", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(raw_payload)
@@ -41,7 +41,7 @@ async fn gzipped_single_event_payload() {
     let client = TestClient::new(router);
 
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}&compression=gzip", unix_millis_sent_at);
+    let req_path = format!("/capture/?_={}&compression=gzip", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(gzipped_payload)
@@ -67,7 +67,7 @@ async fn gzipped_no_hint_single_event_payload() {
 
     // note: without a "compression" GET query param or POST form, we must auto-detect GZIP compression
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}", unix_millis_sent_at);
+    let req_path = format!("/capture/?_={}", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(gzipped_payload)
@@ -98,7 +98,7 @@ async fn post_form_urlencoded_single_event_payload() {
     let client = TestClient::new(router);
 
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}", unix_millis_sent_at);
+    let req_path = format!("/capture/?_={}", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(form_payload)
@@ -130,7 +130,7 @@ async fn post_form_lz64_single_event_payload() {
     let client = TestClient::new(router);
 
     let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/e/?_={}&compression=lz64", unix_millis_sent_at);
+    let req_path = format!("/capture/?_={}&compression=lz64", unix_millis_sent_at);
     let req = client
         .post(&req_path)
         .body(form_payload)
