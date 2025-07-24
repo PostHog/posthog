@@ -115,10 +115,7 @@ class Command(BaseCommand):
                     base_query.order_by("id")
                     .select_for_update(skip_locked=True)  # Add row locking
                     .select_related("team")
-                    .only("id", "query", "query_metadata", "team")[
-                          # Only fetch fields we need
-                        :batch_size
-                    ]
+                    .only("id", "query", "query_metadata", "team")[:batch_size]
                 )
 
                 if not insights:
