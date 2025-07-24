@@ -579,7 +579,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
 
     def test_lifecycle_query_group_with_different_created_at(self):
         """Test that lifecycle query uses group's created_at, not person's created_at when aggregating by groups."""
-        # Create group type mapping
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -619,7 +618,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     [
                         # Person p2 is created on Jan 10th (during test period)
                         # but interacts with org:new (created Jan 12th, also during test period)
-                        ("2020-01-10T12:00:00Z", {"$group_0": "org:new"}),
+                        ("2020-01-12T13:00:00Z", {"$group_0": "org:new"}),
                         ("2020-01-14T12:00:00Z", {"$group_0": "org:new"}),
                     ],
                 ),
