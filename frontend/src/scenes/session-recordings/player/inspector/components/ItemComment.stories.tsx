@@ -13,7 +13,7 @@ import {
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { CommentType } from '~/types'
 
 type Story = StoryObj<typeof ItemAnyComment>
 const meta: Meta<typeof ItemAnyComment> = {
@@ -51,15 +51,13 @@ function makeNotebookItem(
 
 function makeCommentItem(
     itemOverrides: Partial<InspectorListItemComment> = {},
-    dataOverrides: Partial<AnnotationType> = {}
+    dataOverrides: Partial<CommentType> = {}
 ): InspectorListItemComment {
     return {
         data: {
             id: '0',
             created_at: now().toISOString(),
-            date_marker: now(),
-            updated_at: now().toISOString(),
-            scope: AnnotationScope.Project,
+            scope: 'recording',
             content: '🪓😍🪓😍🪓😍🪓😍',
             created_by: {
                 id: 1,
