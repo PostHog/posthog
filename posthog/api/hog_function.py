@@ -197,13 +197,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError({"template_id": f"Error loading template '{data['template_id']}'"})
 
         if data["type"] == "transformation" and not has_addon:
+            if not template:
+                raise serializers.ValidationError(
+                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
+                )
+
             if not bypass_addon_check:
                 # If they don't have the addon, they can only use free templates and can't modify them
-                if not template:
-                    raise serializers.ValidationError(
-                        {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                    )
-
                 if not template.free and data["type"] != "internal_destination" and not instance:
                     raise serializers.ValidationError(
                         {"template_id": "The Data Pipelines addon is required for this template."}
@@ -212,6 +212,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Without the addon you can't deviate from the template
             data["hog"] = template.code
             data["inputs_schema"] = template.inputs_schema
+
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []
