@@ -113,7 +113,7 @@ def generate_session_group_patterns_combination_prompt(
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
 
-    # Convert all pattern chunks to YAML format for the prompt
+    # Serialize all the pattern chunks to inject into the prompt
     patterns_chunks_yaml = []
     for i, chunk in enumerate(patterns_chunks):
         patterns_chunks_yaml.append(f"Patterns chunk #{i+1}:\n\n{chunk.model_dump_json(exclude_none=True)}")
