@@ -1,6 +1,6 @@
 // Postgres
 
-import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { Client, Pool, PoolClient, QueryConfig, QueryConfigValues, QueryResult, QueryResultRow } from 'pg'
 
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../../utils/metrics'
@@ -104,8 +104,8 @@ export class PostgresRouter {
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(
         target: PostgresUse | TransactionClient,
-        queryString: string | QueryConfig<I>,
-        values: I | undefined,
+        queryString: string,
+        values: QueryConfigValues<I> | undefined,
         tag: string,
         queryFailureLogLevel: 'error' | 'warn' = 'error'
     ): Promise<QueryResult<R>> {
@@ -161,20 +161,17 @@ export class PostgresRouter {
 function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     // Un-exported, use PostgresRouter to run PG queries
     client: Client | Pool | PoolClient,
-    queryString: string | QueryConfig<I>,
-    values: I | undefined,
+    queryString: string,
+    values: QueryConfigValues<I> | undefined,
     tag: string,
     queryFailureLogLevel: 'error' | 'warn' = 'error'
 ): Promise<QueryResult<R>> {
     return instrumentQuery('query.postgres', tag, async () => {
-        const queryConfig =
-            typeof queryString === 'string'
-                ? {
-                      // Annotate query string to give context when looking at DB logs
-                      text: `/* plugin-server:${tag} */ ${queryString}`,
-                      values,
-                  }
-                : queryString
+        const queryConfig: QueryConfig<I> = {
+            // Annotate query string to give context when looking at DB logs
+            text: `/* plugin-server:${tag} */ ${queryString}`,
+            values,
+        }
 
         try {
             return await client.query(queryConfig, values)

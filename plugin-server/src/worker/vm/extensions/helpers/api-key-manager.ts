@@ -53,7 +53,7 @@ export class PluginsApiKeyManager {
                 'fetchPluginsUser'
             )
 
-            if (userResult.rowCount < 1) {
+            if (userResult.rowCount && userResult.rowCount < 1) {
                 const botUserEmailId = Math.round(Math.random() * 100000000)
                 const botUserEmail = `${botUserEmailId}@${POSTHOG_BOT_USER_EMAIL_DOMAIN}`
 
