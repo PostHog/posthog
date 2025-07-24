@@ -107,6 +107,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     loaders(({ values, actions, props }) => ({
         issue: {
+            setIssue: ({ issue }) => issue,
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
