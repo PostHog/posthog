@@ -183,7 +183,10 @@ export function lowercaseFirstLetter(string: string): string {
     return string.charAt(0).toLowerCase() + string.slice(1)
 }
 
-export function fullName(props: { first_name?: string; last_name?: string }): string {
+export function fullName(props?: { first_name?: string; last_name?: string }): string {
+    if (!props) {
+        return 'Unknown User'
+    }
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
