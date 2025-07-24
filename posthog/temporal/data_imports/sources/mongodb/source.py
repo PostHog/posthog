@@ -11,7 +11,7 @@ from posthog.temporal.data_imports.sources.common.mixins import ValidateDatabase
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.mongo.mongo import (
+from posthog.temporal.data_imports.sources.mongodb.mongo import (
     get_schemas as get_mongo_schemas,
     filter_mongo_incremental_fields,
     _parse_connection_string,

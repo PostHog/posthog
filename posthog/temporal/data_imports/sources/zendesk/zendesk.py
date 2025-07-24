@@ -4,8 +4,8 @@ import dlt
 from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
 from dlt.sources.helpers.requests import Response, Request
 import requests
-from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 

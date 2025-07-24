@@ -5,7 +5,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     Type4,
 )
-from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     get_schemas as get_google_sheets_schemas,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
     google_sheets_source,

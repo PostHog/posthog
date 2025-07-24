@@ -4,12 +4,12 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from posthog.temporal.data_imports.pipelines.stripe import (
+from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
-from posthog.temporal.data_imports.pipelines.stripe.settings import (
+from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
     INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )

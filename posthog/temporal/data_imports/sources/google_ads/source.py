@@ -10,7 +10,7 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.google_ads import (
+from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,

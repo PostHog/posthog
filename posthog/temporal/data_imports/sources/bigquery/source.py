@@ -12,7 +12,7 @@ from posthog.schema import (
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.bigquery import (
+from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     delete_all_temp_destination_tables,
     delete_table,
     validate_credentials as validate_bigquery_credentials,

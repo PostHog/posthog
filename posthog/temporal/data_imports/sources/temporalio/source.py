@@ -8,7 +8,7 @@ from posthog.schema import (
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.temporalio.source import (
+from posthog.temporal.data_imports.sources.temporalio.temporalio import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     temporalio_source,

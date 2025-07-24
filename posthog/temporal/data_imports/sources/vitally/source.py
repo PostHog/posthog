@@ -11,11 +11,11 @@ from posthog.schema import (
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.vitally import (
+from posthog.temporal.data_imports.sources.vitally.vitally import (
     validate_credentials as validate_vitally_credentials,
+    vitally_source,
 )
-from posthog.temporal.data_imports.pipelines.vitally import vitally_source
-from posthog.temporal.data_imports.pipelines.vitally.settings import (
+from posthog.temporal.data_imports.sources.vitally.settings import (
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )

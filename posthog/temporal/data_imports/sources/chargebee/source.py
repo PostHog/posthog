@@ -9,11 +9,11 @@ from posthog.schema import (
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.chargebee import (
+from posthog.temporal.data_imports.sources.chargebee.chargebee import (
     chargebee_source,
     validate_credentials as validate_chargebee_credentials,
 )
-from posthog.temporal.data_imports.pipelines.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig

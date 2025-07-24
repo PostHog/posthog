@@ -9,9 +9,9 @@ from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
 from posthog.temporal.common.logger import get_temporal_context
-from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
-from posthog.temporal.data_imports.pipelines.salesforce.auth import SalesforceAuth
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
 
 LOGGER = structlog.get_logger()
 

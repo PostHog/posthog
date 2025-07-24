@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
+from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     get_schemas as get_snowflake_schemas,
     filter_snowflake_incremental_fields,
     snowflake_source,

@@ -5,7 +5,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     Type4,
 )
-from posthog.temporal.data_imports.pipelines.doit.source import doit_source, doit_list_reports, DOIT_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.doit.doit import doit_source, doit_list_reports, DOIT_INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema

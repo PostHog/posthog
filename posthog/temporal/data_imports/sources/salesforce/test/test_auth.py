@@ -3,7 +3,7 @@ import requests
 import pytest
 import json
 
-from posthog.temporal.data_imports.pipelines.salesforce import auth
+from posthog.temporal.data_imports.sources.salesforce import auth
 
 
 def test_salesforce_refresh_access_token_raises_on_client_failure():

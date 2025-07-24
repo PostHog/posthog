@@ -16,7 +16,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.mysql.mysql import (
+from posthog.temporal.data_imports.sources.mysql.mysql import (
     get_schemas as get_mysql_schemas,
     mysql_source,
     filter_mysql_incremental_fields,

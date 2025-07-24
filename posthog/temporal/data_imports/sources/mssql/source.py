@@ -14,7 +14,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.pipelines.mssql.mssql import (
+from posthog.temporal.data_imports.sources.mssql.mssql import (
     get_schemas as get_mssql_schemas,
     mssql_source,
     filter_mssql_incremental_fields,

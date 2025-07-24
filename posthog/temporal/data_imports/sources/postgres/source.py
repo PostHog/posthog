@@ -14,7 +14,7 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.pipelines.postgres import (
+from posthog.temporal.data_imports.sources.postgres.postgres import (
     postgres_source,
     get_schemas as get_postgres_schemas,
     get_postgres_row_count,
