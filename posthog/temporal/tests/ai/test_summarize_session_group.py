@@ -598,7 +598,9 @@ class TestPatternExtractionChunking:
         mock_json_dumps.side_effect = lambda x: f"cleaned_{x}"
 
         # Mock token counts: base=1000, session0=80000, session1=70000, session2=500
-        # session0 goes alone (80k + 1k base > 80k), session1 and session2 fit together (70k + 500 + 1k base < 150k)
+        # - session0 goes alone (80k + 1k base)
+        # - session1 goes into the next chunk (80k + 70k + 1k base > 150k)
+        # - session2 fits together with session1 (70k + 500 + 1k base < 150k)
         mock_estimate_tokens.side_effect = [1000, 80000, 70000, 500]
 
         chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
