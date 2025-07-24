@@ -1996,6 +1996,7 @@ class RecordingOrder(StrEnum):
     INACTIVE_SECONDS = "inactive_seconds"
     ACTIVE_SECONDS = "active_seconds"
     START_TIME = "start_time"
+    FIELD_START_TIME = "-start_time"
     CONSOLE_ERROR_COUNT = "console_error_count"
     CLICK_COUNT = "click_count"
     KEYPRESS_COUNT = "keypress_count"

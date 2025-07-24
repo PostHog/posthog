@@ -429,6 +429,7 @@ export type RecordingOrder =
     | 'inactive_seconds'
     | 'active_seconds'
     | 'start_time'
+    | '-start_time'
     | 'console_error_count'
     | 'click_count'
     | 'keypress_count'

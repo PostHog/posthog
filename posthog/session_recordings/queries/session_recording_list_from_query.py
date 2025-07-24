@@ -1,4 +1,4 @@
-from typing import Any, cast, Optional, Union
+from typing import Any, cast, Optional, Union, Literal
 from datetime import datetime, timedelta, UTC
 
 from posthog.hogql import ast
@@ -12,7 +12,6 @@ from posthog.schema import (
     RecordingsQuery,
     PropertyGroupFilterValue,
     FilterLogicalOperator,
-    RecordingOrder,
 )
 
 import structlog
@@ -66,7 +65,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         WHERE {where_predicates}
         GROUP BY session_id
         HAVING {having_predicates}
-        ORDER BY {order_by} DESC
+            -- order by start
+        ORDER BY {order_by}
+            -- order by end
         """
 
     @staticmethod
@@ -159,10 +160,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             },
         )
 
-    def _order_by_clause(self) -> ast.Field:
-        # KLUDGE: we only need a default here because mypy is silly
-        order_by = self._query.order.value if self._query.order else RecordingOrder.START_TIME
-        return ast.Field(chain=[order_by])
+    def _order_by_clause(self) -> ast.OrderExpr:
+        order = self._query.order or "start_time"
+        is_desc = not order.startswith("-")
+        field = order.lstrip("-")
+
+        direction: Literal["ASC", "DESC"] = "DESC" if is_desc else "ASC"
+
+        return ast.OrderExpr(expr=ast.Field(chain=[field]), order=direction)
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
