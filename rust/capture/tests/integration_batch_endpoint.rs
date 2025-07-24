@@ -34,6 +34,41 @@ async fn simple_batch_events_payload() {
 }
 
 #[tokio::test]
+async fn base64_batch_events_payload() {
+    let title = "base64-batch-events-payload";
+    let raw_payload = load_request_payload(title, BATCH_EVENTS_JSON);
+    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
+
+    let (router, _sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
+    let client = TestClient::new(router);
+
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
+    let req_path = format!("/batch/?_={}compression=base64", unix_millis_sent_at);
+    let req = client
+        .post(&req_path)
+        .body(base64_payload)
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1");
+    let res = req.send().await;
+
+    // we expect this to fail while /batch/, /s/, and /i/v0/e/
+    // are processed by handle_common
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        res.status(),
+        "test {}: non-4xx response: {}",
+        title,
+        res.text().await
+    );
+
+    //validate_capture_response(title, res).await;
+
+    // extract the processed events from the in-mem sink and validate contents
+    //let got = sink.events();
+    //validate_batch_events_payload(title, got);
+}
+
+#[tokio::test]
 async fn gzipped_batch_events_payload() {
     let title = "gzipped-batch-events-payload";
     let raw_payload = load_request_payload(title, BATCH_EVENTS_JSON);
