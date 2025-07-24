@@ -1024,96 +1024,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             },
             format="multipart",
         )
-        self.assertEqual(response.status_code, 201, response.content)
-        plugin_config_id = response.json()["id"]
-        self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginConfig.objects.count(), 1)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": plugin_config_id,
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": {"bar": "moop"},
-                "error": None,
-                "team_id": self.team.pk,
-                "plugin_info": mock.ANY,  # Not testing plugin serialization in this endpoint
-                "delivery_rate_24h": None,
-                "created_at": mock.ANY,
-                "updated_at": mock.ANY,
-                "name": "name in ui",
-                "description": "description in ui",
-                "deleted": False,
-            },
-        )
-        plugin_config = PluginConfig.objects.first()
-        self.assertIsNotNone(plugin_config.web_token)  # type: ignore
+        self.assertEqual(response.status_code, 400, response.content)
 
-        response = self.client.patch(
-            f"/api/plugin_config/{plugin_config_id}",
-            {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},
-            format="multipart",
-        )
-        self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginConfig.objects.count(), 1)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": plugin_config_id,
-                "plugin": plugin_id,
-                "enabled": False,
-                "order": 1,
-                "config": {"bar": "soup"},
-                "error": None,
-                "team_id": self.team.pk,
-                "plugin_info": mock.ANY,
-                "delivery_rate_24h": None,
-                "created_at": mock.ANY,
-                "updated_at": mock.ANY,
-                "name": "name in ui",
-                "description": "description in ui",
-                "deleted": False,
-            },
-        )
-
-        # If we're trying to create another plugin config for the same plugin, we get a new one
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps({"bar": "second"}),
-                "name": "name in ui",
-                "description": "description in ui",
-            },
-            format="multipart",
-        )
-        self.assertEqual(response.status_code, 201, response.content)
-        plugin_config_id2 = response.json()["id"]
-        self.assertNotEqual(plugin_config_id, plugin_config_id2)
-        self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginConfig.objects.count(), 2)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": plugin_config_id2,
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": {"bar": "second"},
-                "error": None,
-                "team_id": self.team.pk,
-                "plugin_info": mock.ANY,  # Not testing plugin serialization in this endpoint
-                "delivery_rate_24h": None,
-                "created_at": mock.ANY,
-                "updated_at": mock.ANY,
-                "name": "name in ui",
-                "description": "description in ui",
-                "deleted": False,
-            },
-        )
+        assert "Plugin creation is no longer possible" in response.content.decode("utf-8")
 
     def test_update_plugin_config_no_longer_globally_managed_but_still_enabled(self, mock_get, mock_reload):
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.CONFIG
