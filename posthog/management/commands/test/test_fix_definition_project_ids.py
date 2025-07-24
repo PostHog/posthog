@@ -1,6 +1,7 @@
 from django.core.management import call_command
 from django.test import TestCase
 from io import StringIO
+from unittest.mock import patch
 
 from posthog.models import Organization, Team, EventDefinition, PropertyDefinition
 
@@ -23,8 +24,12 @@ class TestFixDefinitionProjectIds(TestCase):
         self.detached_team.project_id = self.detached_team.id
         self.detached_team.save()
 
-    def test_dry_run_mode(self):
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_dry_run_mode(self, mock_get_rollback_orgs):
         """Test that dry run mode doesn't make changes but reports what would be changed."""
+
+        # Mock Redis to return our test organization
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create misaligned EventDefinition
         event_def = EventDefinition.objects.create(
@@ -50,8 +55,10 @@ class TestFixDefinitionProjectIds(TestCase):
         self.assertIn("DRY RUN MODE", output)
         self.assertIn("Found 1 EventDefinitions", output)
         self.assertIn("Found 1 PropertyDefinitions", output)
-        self.assertIn("Would update EventDefinition", output)
-        self.assertIn("Would update PropertyDefinition", output)
+        self.assertIn("Organization: Test Organization", output)
+        self.assertIn("Team: Detached Team", output)
+        self.assertIn("EventDefinitions to update", output)
+        self.assertIn("PropertyDefinitions to update", output)
         self.assertIn("No changes were made", output)
 
         # Verify no actual changes were made
@@ -60,8 +67,12 @@ class TestFixDefinitionProjectIds(TestCase):
         self.assertEqual(event_def.project_id, self.main_project.id)  # Should remain unchanged
         self.assertEqual(property_def.project_id, self.main_project.id)  # Should remain unchanged
 
-    def test_actual_update_mode(self):
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_actual_update_mode(self, mock_get_rollback_orgs):
         """Test that actual update mode makes the expected changes."""
+
+        # Mock Redis to return our test organization
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create misaligned EventDefinition
         event_def = EventDefinition.objects.create(
@@ -104,8 +115,12 @@ class TestFixDefinitionProjectIds(TestCase):
         self.assertEqual(property_def.project_id, self.detached_team.project_id)  # Should be updated
         self.assertEqual(correct_event_def.project_id, self.main_project.id)  # Should remain unchanged
 
-    def test_no_misaligned_records(self):
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_no_misaligned_records(self, mock_get_rollback_orgs):
         """Test behavior when all records are already correctly aligned."""
+
+        # Mock Redis to return our test organization
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create correctly aligned definitions
         EventDefinition.objects.create(
@@ -131,8 +146,12 @@ class TestFixDefinitionProjectIds(TestCase):
         self.assertIn("No PropertyDefinitions need project_id alignment", output)
         self.assertIn("All definition records were already aligned", output)
 
-    def test_mixed_property_definition_types(self):
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_mixed_property_definition_types(self, mock_get_rollback_orgs):
         """Test that the command handles different PropertyDefinition types correctly."""
+
+        # Mock Redis to return our test organization
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create misaligned PropertyDefinitions of different types
         event_prop = PropertyDefinition.objects.create(
@@ -162,11 +181,11 @@ class TestFixDefinitionProjectIds(TestCase):
         call_command("fix_definition_project_ids", "--dry-run", stdout=out)
         output = out.getvalue()
 
-        # Verify all types are reported
+        # Verify all types are reported in the new summary format
         self.assertIn("Found 3 PropertyDefinitions", output)
-        self.assertIn("type=event", output)
-        self.assertIn("type=person", output)
-        self.assertIn("type=group", output)
+        self.assertIn("Organization: Test Organization", output)
+        self.assertIn("Team: Detached Team", output)
+        self.assertIn("3 PropertyDefinitions to update", output)
 
         # Run actual update
         out = StringIO()
@@ -181,8 +200,84 @@ class TestFixDefinitionProjectIds(TestCase):
         self.assertEqual(person_prop.project_id, self.detached_team.project_id)
         self.assertEqual(group_prop.project_id, self.detached_team.project_id)
 
-    def test_batch_size_option(self):
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_no_rollback_organizations(self, mock_get_rollback_orgs):
+        """Test behavior when no organizations have triggered rollback."""
+
+        # Mock Redis to return empty set
+        mock_get_rollback_orgs.return_value = set()
+
+        # Create some misaligned records that would normally be fixed
+        EventDefinition.objects.create(
+            team=self.detached_team,
+            name="test_event",
+            project_id=self.main_project.id,  # Wrong project_id
+        )
+
+        # Run the command
+        out = StringIO()
+        call_command("fix_definition_project_ids", stdout=out)
+        output = out.getvalue()
+
+        # Verify it exits early with no work done
+        self.assertIn("No organizations have triggered environment rollback", output)
+        self.assertIn("Exiting", output)
+        self.assertNotIn("Processing EventDefinitions", output)
+
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_filters_by_organization(self, mock_get_rollback_orgs):
+        """Test that only definitions from rollback organizations are processed."""
+
+        # Create a second organization that's not in rollback list
+        other_org = Organization.objects.create(name="Other Organization")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        # Mock Redis to only return our first organization
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
+
+        # Create misaligned records in both organizations
+        rollback_event = EventDefinition.objects.create(
+            team=self.detached_team,  # In rollback org
+            name="rollback_event",
+            project_id=self.main_project.id,  # Wrong project_id
+        )
+
+        # Create a project for the other team first
+        other_project = Team.objects.create(organization=other_org, name="Other Project")
+        other_team.project_id = other_project.id
+        other_team.save()
+
+        # Create a separate project to use as wrong project_id
+        wrong_project = Team.objects.create(organization=other_org, name="Wrong Project")
+
+        other_event = EventDefinition.objects.create(
+            team=other_team,  # Not in rollback org
+            name="other_event",
+            project_id=wrong_project.id,  # Wrong project_id
+        )
+
+        # Run the command
+        out = StringIO()
+        call_command("fix_definition_project_ids", stdout=out)
+        output = out.getvalue()
+
+        # Verify only rollback org records were processed
+        self.assertIn("Processing only rolled back organizations: 1 orgs", output)
+        self.assertIn("Updated 1 EventDefinitions", output)
+
+        # Verify the changes
+        rollback_event.refresh_from_db()
+        other_event.refresh_from_db()
+
+        self.assertEqual(rollback_event.project_id, self.detached_team.project_id)  # Should be updated
+        self.assertEqual(other_event.project_id, wrong_project.id)  # Should remain unchanged
+
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_batch_size_option(self, mock_get_rollback_orgs):
         """Test that batch size option works correctly."""
+
+        # Mock Redis to return our test organization
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create multiple misaligned records
         for i in range(5):
