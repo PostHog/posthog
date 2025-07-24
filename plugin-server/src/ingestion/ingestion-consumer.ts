@@ -161,10 +161,14 @@ export class IngestionConsumer {
                 optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             }
         )
-        const measuringPersonStore = new MeasuringPersonsStore(this.hub.db, {
-            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
-            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
-        })
+        const measuringPersonStore = new MeasuringPersonsStore(
+            this.hub.db,
+            new BasePersonRepository(this.hub.db.postgres),
+            {
+                personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
+                personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
+            }
+        )
         this.personStoreManager = new PersonStoreManager(this.hub, measuringPersonStore, batchWritingPersonStore)
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
