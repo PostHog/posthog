@@ -1,10 +1,8 @@
-from typing import Optional
-
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.hog_function_template import HogFunctionTemplates
 
 
-def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> Optional[HogFunctionSerializer]:
+def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> HogFunctionSerializer:
     plugin = plugin_config["plugin"]
     # Attempts to find a related HogFunctionTemplate for the plugin config
 

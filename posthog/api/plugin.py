@@ -693,7 +693,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         from posthog.event_usage import report_team_action
 
         report_team_action(
-            self.context["team"],
+            self.context["get_team"](),
             "plugin config create called",
             {
                 "plugin_id": validated_data["plugin"].id,
@@ -703,11 +703,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         try:
             hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
-
-            if not hog_function_serializer:
-                raise ValidationError(
-                    "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
-                )
 
             hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
             # A bit hacky - we return the non saved plugin config
@@ -727,7 +722,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         except Exception as e:
             # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
             capture_exception(e)
-            raise
+            raise ValidationError(
+                "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
+            )
 
     def update(  # type: ignore
         self,
