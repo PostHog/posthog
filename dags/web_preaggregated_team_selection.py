@@ -21,9 +21,11 @@ def get_team_ids_from_sources() -> list[int]:
             env_team_list = [int(tid.strip()) for tid in env_teams.split(",")]
             team_ids.update(env_team_list)
         except ValueError:
+            # Invalid team IDs in env var will be ignored
             pass
 
-    # TODO: Get teams from feature preview, or settings
+    # TODO: Source 2: Get teams from feature preview
+    # TODO: Source 3: Get teams from settings
 
     # Fallback to default teams if no other sources provided data
     if not team_ids:
@@ -39,43 +41,44 @@ def store_team_config_in_clickhouse(
 ) -> list[int]:
     context.log.info(f"Storing {len(team_ids)} enabled team IDs in ClickHouse")
 
-    if team_ids:
-
-        def insert(client: Client) -> bool:
-            try:
-                client.execute(
-                    WEB_ANALYTICS_TEAM_CONFIG_DATA_SQL(team_ids),
-                    settings=settings_with_log_comment(context),
-                )
-                context.log.info("Successfully inserted team configuration")
-                return True
-            except Exception as e:
-                context.log.warning(f"Failed to insert team configuration: {e}")
-                return False
-
-        def reload_dict(client: Client) -> bool:
-            try:
-                client.execute(
-                    f"SYSTEM RELOAD DICTIONARY {WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME}",
-                    settings=settings_with_log_comment(context),
-                )
-                context.log.info("Successfully reloaded team config dictionary")
-                return True
-            except Exception as e:
-                context.log.warning(f"Failed to reload team config dictionary: {e}")
-                return False
-
-        insert_results = cluster.map_all_hosts(insert).result()
-        reload_results = cluster.map_all_hosts(reload_dict).result()
-
-        if not all(insert_results.values()):
-            raise Exception(f"Failed to insert team configuration on some hosts: {insert_results}")
-
-        if not all(reload_results.values()):
-            raise Exception(f"Failed to reload dictionary on some hosts: {reload_results}")
-
-    else:
+    if not team_ids:
         context.log.warning("No team IDs to store")
+        return team_ids
+
+    def insert(client: Client) -> bool:
+        try:
+            client.execute(
+                WEB_ANALYTICS_TEAM_CONFIG_DATA_SQL(team_ids),
+                settings=settings_with_log_comment(context),
+            )
+            context.log.info("Successfully inserted team configuration")
+            return True
+        except Exception as e:
+            context.log.warning(f"Failed to insert team configuration: {e}")
+            return False
+
+    def reload_dict(client: Client) -> bool:
+        try:
+            client.execute(
+                f"SYSTEM RELOAD DICTIONARY {WEB_ANALYTICS_TEAM_CONFIG_DICTIONARY_NAME}",
+                settings=settings_with_log_comment(context),
+            )
+            context.log.info("Successfully reloaded team config dictionary")
+            return True
+        except Exception as e:
+            context.log.warning(f"Failed to reload team config dictionary: {e}")
+            return False
+
+    # Execute operations on all hosts
+    insert_results = cluster.map_all_hosts(insert).result()
+    reload_results = cluster.map_all_hosts(reload_dict).result()
+
+    # Check if all operations succeeded
+    if not all(insert_results.values()):
+        raise Exception(f"Failed to insert team configuration on some hosts: {insert_results}")
+
+    if not all(reload_results.values()):
+        raise Exception(f"Failed to reload dictionary on some hosts: {reload_results}")
 
     return team_ids
 
@@ -95,7 +98,7 @@ def web_analytics_team_config(
     This asset manages which teams have access to web analytics pre-aggregated tables.
     The configuration is then stored in a ClickHouse dictionary for fast lookups.
     """
-    context.log.info(f"Getting team IDs from sources")
+    context.log.info("Getting team IDs from sources")
     team_ids = get_team_ids_from_sources()
 
     context.log.info(f"Materializing team configuration for {len(team_ids)} teams")
