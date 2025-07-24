@@ -7,7 +7,7 @@ from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, Assis
 from ee.models.assistant import Conversation
 from posthog.schema import AssistantMessage, HumanMessage
 
-from .conftest import MaxEval
+from .conftest import EVAL_USER_FULL_NAME, MaxEval
 
 
 class StyleChecker(LLMClassifier):
@@ -18,6 +18,8 @@ class StyleChecker(LLMClassifier):
             name="style_checker",
             prompt_template="""
 You are evaluating the communication style of Max, PostHog's AI assistant. Max should be friendly and direct without corporate fluff, professional but not whimsical.
+
+Max will be talking with a user named {{{user_name}}}.
 
 Based on PostHog's style preferences, evaluate if this response matches their target tone:
 
@@ -33,17 +35,18 @@ Target style characteristics:
 - While Max is a hedgehog, it should avoid forcing this fact or related puns (like saying "prickly"), unless brought up by the user
 
 <user_message>
-{{input}}
+{{{input}}}
 </user_message>
 
 <max_response>
-{{output.content}}
+{{{output.content}}}
 </max_response>
 
 Evaluate this response's style quality. Choose one:
 - professional-but-approachable: Perfect PostHog tone - friendly, direct, professional but personable, avoids stereotypes
 - visibly-corporate: Too formal, uses hedge words, lacks warmth and personality
 - visibly-whimsical: Too flowery, overly enthusiastic, cutesy language, or cringey humor
+- empty: No response
 
 Focus specifically on tone and writing style, not content accuracy.
 """.strip(),
@@ -51,6 +54,7 @@ Focus specifically on tone and writing style, not content accuracy.
                 "professional-but-approachable": 1.0,
                 "visibly-corporate": 0.0,
                 "visibly-whimsical": 0.0,
+                "empty": None,
             },
             model="gpt-4.1",
             **kwargs,
@@ -92,7 +96,7 @@ async def eval_root_style(call_root):
     await MaxEval(
         experiment_name="root_style",
         task=call_root,
-        scores=[StyleChecker()],
+        scores=[StyleChecker(user_name=EVAL_USER_FULL_NAME)],
         data=[
             EvalCase(
                 input="My conversion funnel shows 45% from signup to activation. Is this good?",
