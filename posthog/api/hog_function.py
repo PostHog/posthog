@@ -63,6 +63,7 @@ class HogFunctionStatusSerializer(serializers.Serializer):
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
+    template = HogFunctionTemplateSerializer(read_only=True)
 
     class Meta:
         model = HogFunction
@@ -178,14 +179,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
-        template = HogFunctionTemplate.objects.get(template_id=data["template_id"]) if data["template_id"] else None
-        if not template:
-            properties = {"team_id": team.id, "template_id": data.get("template_id")}
-            if instance and instance.id:
-                properties["hog_function_id"] = instance.id
-            capture_exception(
-                Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
-            )
+        template = None
+        if data["template_id"]:
+            try:
+                template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
+            except HogFunctionTemplate.DoesNotExist:
+                properties = {"team_id": team.id, "template_id": data.get("template_id")}
+                if instance and instance.id:
+                    properties["hog_function_id"] = instance.id
+                capture_exception(
+                    Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
+                )
+
+                raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
 
         if data["type"] == "transformation":
             if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:

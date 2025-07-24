@@ -227,10 +227,12 @@ class HogFunctionTemplate(UUIDModel):
         if not isinstance(dataclass_template, HogFunctionTemplateDC):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
 
+        code = dataclass_template.code.strip()
+
         # Calculate sha based on content hash
         template_dict = {
             "id": dataclass_template.id,
-            "code": dataclass_template.code,
+            "code": code,
             "code_language": dataclass_template.code_language,
             "inputs_schema": dataclass_template.inputs_schema,
             "status": dataclass_template.status,
@@ -258,7 +260,7 @@ class HogFunctionTemplate(UUIDModel):
         # Compile bytecode only for hog
         if dataclass_template.code_language == "hog":
             try:
-                bytecode = compile_hog(dataclass_template.code, dataclass_template.type)
+                bytecode = compile_hog(code, dataclass_template.type)
             except Exception as e:
                 logger.error(
                     "Failed to compile template bytecode during creation",
@@ -284,7 +286,7 @@ class HogFunctionTemplate(UUIDModel):
                 "sha": sha,
                 "name": dataclass_template.name,
                 "description": dataclass_template.description,
-                "code": dataclass_template.code,  # still using hog for now
+                "code": code,
                 "code_language": dataclass_template.code_language,
                 "inputs_schema": dataclass_template.inputs_schema,
                 "bytecode": bytecode,

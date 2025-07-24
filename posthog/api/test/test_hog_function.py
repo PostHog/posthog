@@ -348,7 +348,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "category": webhook_template["category"],
             "code_language": "hog",
             "inputs_schema": webhook_template["inputs_schema"],
-            "hog": webhook_template["hog"].strip(),
+            "code": webhook_template["code"].strip(),
             "filters": None,
             "masking": None,
             "mappings": None,
@@ -373,7 +373,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == webhook_template["hog"].strip()
+        assert response.json()["hog"] == webhook_template["code"].strip()
         assert response.json()["inputs_schema"] == webhook_template["inputs_schema"]
         assert response.json()["name"] == webhook_template["name"]
         assert response.json()["description"] == webhook_template["description"]
@@ -2169,6 +2169,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             template_id="template-fk-test",
             sha="abcdef",
             name="FK Test Template",
+            description="FK Test Template",
             code="return event",
             code_language="hog",
             inputs_schema=[],
