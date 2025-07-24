@@ -70,7 +70,10 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that matches
                 the regex will be replaced with the alias. Rules are applied in the order that they're listed.
             </p>
-            <p>These will be applied in order. You can reorder them by dragging and dropping.</p>
+            <p>
+                <b>These will be applied in order, so make sure to put the most specific rules first.</b> You can
+                reorder them by dragging and dropping.
+            </p>
             <p>
                 <b>
                     Rules that you set here will be applied before wildcarding and other regex replacement if path

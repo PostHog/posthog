@@ -58,14 +58,11 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
             <tr
                 ref={setNodeRef}
                 style={style}
-                className={clsx(
-                    'border-b border-border hover:bg-gray-50 cursor-pointer transition-colors duration-150 bg-white',
-                    {
-                        'border-warning': isInvalidRegex,
-                        'bg-gray-100': isDragging,
-                        'shadow-lg': isDragging,
-                    }
-                )}
+                className={clsx('border-b border-border hover:bg-gray-50 transition-colors duration-150 bg-white', {
+                    'border-warning': isInvalidRegex,
+                    'bg-gray-100': isDragging,
+                    'shadow-lg': isDragging,
+                })}
             >
                 <td className="p-2 w-8">
                     <div
@@ -80,7 +77,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                 <td className="p-2">
                     <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : null}>
                         <code
-                            className={clsx('font-mono text-sm px-2 py-1 rounded bg-gray-100', {
+                            className={clsx('font-mono text-sm px-2 py-1 rounded bg-accent-light text-accent', {
                                 'text-danger border border-danger bg-red-50': isInvalidRegex,
                             })}
                         >
