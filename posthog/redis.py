@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional
 
 import asyncio
 import weakref
-import fakeredis
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -23,6 +22,9 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
 
     if not _client_map.get(redis_url):
         if settings.TEST:
+            # This import is only used in tests, we don't want to import it in production
+            import fakeredis
+
             client: Any = fakeredis.FakeRedis()
         elif redis_url:
             client = redis.from_url(redis_url, db=0)
@@ -104,6 +106,8 @@ def get_async_client(redis_url: Optional[str] = None):
         # For tests, use simple caching without per-loop complexity
         # since FakeAsyncRedis doesn't have the same event loop restrictions
         if redis_url not in _client_map:
+            import fakeredis
+
             _client_map[redis_url] = fakeredis.FakeAsyncRedis()
         return _client_map[redis_url]
     else:
