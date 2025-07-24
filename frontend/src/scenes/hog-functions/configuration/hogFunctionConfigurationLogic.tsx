@@ -85,7 +85,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     description: '',
     inputs_schema: [],
     code_language: 'hog',
-    hog: "print('Hello, world!');",
+    code: "print('Hello, world!');",
     status: 'stable',
 }
 
@@ -178,7 +178,7 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
                 inputs: getMappingInputs(mapping.inputs_schema),
             })
         ),
-        hog: template.hog,
+        hog: template.code,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
         enabled: true,
@@ -1126,7 +1126,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
             (hogFunction, configuration) => {
-                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+                return hogFunction?.template?.code && hogFunction.template.code !== configuration.hog
             },
         ],
         mappingTemplates: [
