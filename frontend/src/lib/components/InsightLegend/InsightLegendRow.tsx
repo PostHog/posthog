@@ -26,9 +26,15 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps, highlightedSeries } = useValues(insightLogic)
-    const { display, trendsFilter, breakdownFilter, isSingleSeries, hiddenLegendIndexes, getTrendsColor } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        display,
+        trendsFilter,
+        breakdownFilter,
+        isSingleSeries,
+        hiddenLegendIndexes,
+        getTrendsColor,
+        getTrendsHidden,
+    } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
 
     const highlighted = shouldHighlightThisRow(rowIndex, highlightedSeries, hiddenLegendIndexes)
@@ -55,6 +61,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
     const themeColor = getTrendsColor(item)
+    const isHidden = getTrendsHidden(item)
     const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
     return (
@@ -63,7 +70,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
                 <LemonCheckbox
                     className="text-xs mr-4"
                     color={mainColor}
-                    checked={!hiddenLegendIndexes.includes(rowIndex)}
+                    checked={!isHidden}
                     onChange={() => toggleHiddenLegendIndex(item)}
                     fullWidth
                     label={

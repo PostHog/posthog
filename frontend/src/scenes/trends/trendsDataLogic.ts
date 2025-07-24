@@ -11,6 +11,7 @@ import {
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
     getTrendDatasetKey,
+    getTrendResultCustomization,
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
@@ -330,6 +331,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 return (dataset: IndexedTrendResult) => {
                     const [colorTheme, colorToken] = getTrendsColorToken(dataset)
                     return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
+                }
+            },
+        ],
+        getTrendsHidden: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations],
+            (resultCustomizationBy, resultCustomizations) => {
+                return (dataset: IndexedTrendResult): boolean => {
+                    const resultCustomization = getTrendResultCustomization(
+                        resultCustomizationBy,
+                        dataset,
+                        resultCustomizations
+                    )
+                    return resultCustomization?.hidden || false
                 }
             },
         ],
