@@ -1,9 +1,7 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

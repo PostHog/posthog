@@ -1,28 +1,17 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
-import { AvailableFeature, PipelineStage, PluginType } from '~/types'
+import { AvailableFeature, PipelineStage } from '~/types'
 
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { NewDestinations } from './destinations/NewDestinations'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
-import { PipelineBackend } from './types'
-import { RenderApp } from './utils'
 
 const paramsToProps = ({
     params: { stage, id } = {},
@@ -51,30 +40,7 @@ export const scene: SceneExport = {
     paramsToProps,
 }
 
-type TableEntry = {
-    backend: PipelineBackend
-    id: string | number
-    name: string
-    description: string
-    url?: string
-    icon: JSX.Element
-}
-
-function convertPluginToTableEntry(plugin: PluginType): TableEntry {
-    return {
-        backend: PipelineBackend.Plugin,
-        id: plugin.id,
-        name: plugin.name,
-        description: plugin.description || '',
-        icon: <RenderApp plugin={plugin} />,
-        // TODO: ideally we'd link to docs instead of GitHub repo, so it can open in panel
-        // Same for transformations and destinations tables
-        url: plugin.url,
-    }
-}
-
 export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { stage, pluginId, batchExportDestination, hogFunctionId } = paramsToProps({ params })
 
     if (!stage) {
@@ -114,71 +80,4 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
         return <NewSourceWizardScene />
     }
     return <NotFound object="pipeline new options" />
-}
-
-function NodeOptionsTable({
-    stage,
-    targets,
-    loading,
-}: {
-    stage: PipelineStage
-    targets: TableEntry[]
-    loading: boolean
-}): JSX.Element {
-    const { hashParams } = useValues(router)
-    const { loadPlugins } = useActions(pipelineNodeNewLogic)
-
-    useEffect(() => {
-        loadPlugins()
-    }, [])
-
-    return (
-        <>
-            <LemonTable
-                dataSource={targets}
-                size="small"
-                loading={loading}
-                columns={[
-                    {
-                        title: 'App',
-                        width: 0,
-                        render: function RenderAppInfo(_, target) {
-                            return target.icon
-                        },
-                    },
-                    {
-                        title: 'Name',
-                        sticky: true,
-                        render: function RenderName(_, target) {
-                            return (
-                                <LemonTableLink
-                                    to={urls.pipelineNodeNew(stage, { id: target.id })}
-                                    title={target.name}
-                                    description={target.description}
-                                />
-                            )
-                        },
-                    },
-                    {
-                        title: 'Actions',
-                        width: 100,
-                        align: 'right',
-                        render: function RenderActions(_, target) {
-                            return (
-                                <LemonButton
-                                    type="primary"
-                                    data-attr={`new-${stage}-${target.id}`}
-                                    icon={<IconPlusSmall />}
-                                    // Preserve hash params to pass config in
-                                    to={combineUrl(urls.pipelineNodeNew(stage, { id: target.id }), {}, hashParams).url}
-                                >
-                                    Create
-                                </LemonButton>
-                            )
-                        },
-                    },
-                ]}
-            />
-        </>
-    )
 }
