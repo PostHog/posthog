@@ -98,11 +98,24 @@ describe('BatchWritingPersonStore', () => {
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
-            inRawTransaction: jest.fn().mockImplementation(async (description, transaction) => {
+            inTransaction: jest.fn().mockImplementation(async (description, transaction) => {
                 return await transaction(transaction)
             }),
         }
         return mockRepo
+    }
+
+    const createMockTransaction = () => {
+        const mockTransaction = {
+            createPerson: jest.fn().mockResolvedValue([person, []]),
+            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
+            deletePerson: jest.fn().mockResolvedValue([]),
+            addDistinctId: jest.fn().mockResolvedValue([]),
+            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
+            addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+            updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+        }
+        return mockTransaction
     }
 
     it('should update person in cache', async () => {
@@ -174,8 +187,7 @@ describe('BatchWritingPersonStore', () => {
                 properties: { test: 'test' },
             }),
             expect.anything(),
-            'updatePersonNoAssert',
-            undefined
+            'updatePersonNoAssert'
         )
     })
 
@@ -203,8 +215,7 @@ describe('BatchWritingPersonStore', () => {
             expect.objectContaining({
                 ...person,
                 properties: { new_value: 'new_value' },
-            }),
-            undefined
+            })
         )
 
         // Validate cache
@@ -448,8 +459,7 @@ describe('BatchWritingPersonStore', () => {
                     shared_prop: 'new_value',
                 },
             }),
-            'updatePersonNoAssert',
-            undefined
+            'updatePersonNoAssert'
         )
     })
 
@@ -513,8 +523,7 @@ describe('BatchWritingPersonStore', () => {
             expect.objectContaining({
                 ...person,
                 properties: { test: 'test' },
-            }),
-            undefined
+            })
         )
 
         // Only team 1 entries should be removed
@@ -558,8 +567,7 @@ describe('BatchWritingPersonStore', () => {
                 properties: { null_prop: null, undefined_prop: undefined, test: 'test' },
             }),
             expect.anything(),
-            'updatePersonNoAssert',
-            undefined
+            'updatePersonNoAssert'
         )
     })
 
@@ -926,8 +934,7 @@ describe('BatchWritingPersonStore', () => {
                     prop_from_distinctId2: 'value2',
                 },
             }),
-            'updatePersonNoAssert',
-            undefined
+            'updatePersonNoAssert'
         )
     })
 
@@ -997,7 +1004,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
 
             // Step 4: Verify that cached merged properties are preserved
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1051,7 +1058,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
 
             // Should create fresh cache from target person
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1095,7 +1102,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
 
             // Verify source cache is cleared
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
@@ -1165,7 +1172,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Verify the repository method was called
-            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
 
             // Step 4: Verify all merged properties are preserved
             const finalCache = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1220,7 +1227,7 @@ describe('BatchWritingPersonStore', () => {
 
             const result = await personStoreForBatch.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
 
-            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct', undefined)
+            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(true)
         })
 
@@ -1232,7 +1239,7 @@ describe('BatchWritingPersonStore', () => {
 
             const result = await personStoreForBatch.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
 
-            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct', undefined)
+            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(false)
         })
     })
@@ -1283,8 +1290,7 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
                 teamID,
                 sourcePersonID,
-                targetPersonID,
-                undefined
+                targetPersonID
             )
         })
 
@@ -1297,7 +1303,8 @@ describe('BatchWritingPersonStore', () => {
             const sourcePersonID = 'source-person-id'
             const targetPersonID = 'target-person-id'
             const distinctId = 'test-distinct'
-            const mockTransaction = {} as any
+
+            const mockTransaction = createMockTransaction()
 
             await personStoreForBatch.updateCohortsAndFeatureFlagsForMerge(
                 teamID,
@@ -1307,12 +1314,15 @@ describe('BatchWritingPersonStore', () => {
                 mockTransaction
             )
 
-            expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
+            // Verify the transaction was called instead of the repository
+            expect(mockTransaction.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
                 teamID,
                 sourcePersonID,
-                targetPersonID,
-                mockTransaction
+                targetPersonID
             )
+
+            // Verify the repository was NOT called
+            expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).not.toHaveBeenCalled()
         })
     })
 })

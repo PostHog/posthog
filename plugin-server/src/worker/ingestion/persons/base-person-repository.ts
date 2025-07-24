@@ -24,7 +24,7 @@ import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonUpdate } from './person-update-batch'
 import { RawPersonRepository } from './raw-person-repository'
 
-export class BasePersonRepository implements PersonRepository, RawPersonRepository {
+export class BasePersonRepository implements PersonRepository, RawPersonRepository, PersonRepositoryTransaction {
     constructor(private postgres: PostgresRouter) {}
 
     private toPerson(row: RawPerson): InternalPerson {

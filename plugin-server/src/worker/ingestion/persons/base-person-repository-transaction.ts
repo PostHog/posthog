@@ -6,19 +6,10 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team 
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
-import { PersonUpdate } from './person-update-batch'
 import { RawPersonRepository } from './raw-person-repository'
 
 export class BasePersonRepositoryTransaction implements PersonRepositoryTransaction {
     constructor(private transaction: TransactionClient, private repository: RawPersonRepository) {}
-
-    async fetchPerson(
-        teamId: Team['id'],
-        distinctId: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean }
-    ): Promise<InternalPerson | undefined> {
-        return await this.repository.fetchPerson(teamId, distinctId, options)
-    }
 
     async createPerson(
         createdAt: DateTime,
@@ -53,10 +44,6 @@ export class BasePersonRepositoryTransaction implements PersonRepositoryTransact
         return await this.repository.updatePerson(person, update, tag, this.transaction)
     }
 
-    async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
-        return await this.repository.updatePersonAssertVersion(personUpdate)
-    }
-
     async deletePerson(person: InternalPerson): Promise<TopicMessage[]> {
         return await this.repository.deletePerson(person, this.transaction)
     }
@@ -69,16 +56,8 @@ export class BasePersonRepositoryTransaction implements PersonRepositoryTransact
         return await this.repository.moveDistinctIds(source, target, this.transaction)
     }
 
-    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        return await this.repository.addPersonlessDistinctId(teamId, distinctId)
-    }
-
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
         return await this.repository.addPersonlessDistinctIdForMerge(teamId, distinctId, this.transaction)
-    }
-
-    async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
-        return await this.repository.personPropertiesSize(teamId, distinctId)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

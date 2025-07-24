@@ -14,7 +14,6 @@ import {
 } from '../../../types'
 import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
-import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 import { captureIngestionWarning } from '../utils'
@@ -34,10 +33,12 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { PersonRepository } from './person-repository'
+import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
-import { RawPersonRepository } from './raw-person-repository'
+import { PersonsStoreTransaction } from './persons-store-transaction'
 
 type MethodName =
     | 'fetchForChecking'
@@ -73,6 +74,95 @@ class MaxRetriesError extends Error {
     }
 }
 
+class BatchWritingPersonsStoreTransaction implements PersonsStoreTransaction {
+    constructor(private store: BatchWritingPersonsStoreForBatch, private tx: PersonRepositoryTransaction) {}
+
+    async createPerson(
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        teamId: number,
+        isUserId: number | null,
+        isIdentified: boolean,
+        uuid: string,
+        distinctIds?: { distinctId: string; version?: number }[]
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        return await this.store.createPerson(
+            createdAt,
+            properties,
+            propertiesLastUpdatedAt,
+            propertiesLastOperation,
+            teamId,
+            isUserId,
+            isIdentified,
+            uuid,
+            distinctIds,
+            this.tx
+        )
+    }
+
+    async updatePersonForMerge(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        _distinctId: string
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        return await this.store.updatePersonForMerge(person, update, _distinctId, this.tx)
+    }
+
+    async updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        _distinctId: string
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        return await this.store.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            _distinctId,
+            this.tx
+        )
+    }
+
+    async deletePerson(person: InternalPerson, _distinctId: string): Promise<TopicMessage[]> {
+        return await this.store.deletePerson(person, _distinctId, this.tx)
+    }
+
+    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
+        return await this.store.addDistinctId(person, distinctId, version, this.tx)
+    }
+
+    async moveDistinctIds(
+        source: InternalPerson,
+        target: InternalPerson,
+        _distinctId: string
+    ): Promise<MoveDistinctIdsResult> {
+        return await this.store.moveDistinctIds(source, target, _distinctId, this.tx)
+    }
+
+    async updateCohortsAndFeatureFlagsForMerge(
+        teamID: Team['id'],
+        sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        _distinctId: string
+    ): Promise<void> {
+        return await this.store.updateCohortsAndFeatureFlagsForMerge(
+            teamID,
+            sourcePersonID,
+            targetPersonID,
+            _distinctId,
+            this.tx
+        )
+    }
+
+    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
+        return await this.tx.addPersonlessDistinctIdForMerge(teamId, distinctId)
+    }
+}
+
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
     dbWriteMode: PersonBatchWritingDbWriteMode
@@ -99,7 +189,7 @@ export class BatchWritingPersonsStore implements PersonsStore {
 
     constructor(
         private db: DB,
-        private personRepository: RawPersonRepository = new BasePersonRepository(db.postgres),
+        private personRepository: PersonRepository = new BasePersonRepository(db.postgres),
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -130,7 +220,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     constructor(
         private db: DB,
-        private personRepository: RawPersonRepository,
+        private personRepository: PersonRepository,
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -307,8 +397,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
-        return await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, description, transaction)
+    async inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
+        return await this.personRepository.inTransaction(description, async (tx) => {
+            const transactionWrapper = new BatchWritingPersonsStoreTransaction(this, tx)
+            return await transaction(transactionWrapper)
+        })
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
@@ -392,7 +485,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
-        _tx?: TransactionClient
+        _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         this.incrementCount('updatePersonForMerge', distinctId)
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
@@ -404,7 +497,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
-        _tx?: TransactionClient
+        _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
             person,
@@ -416,14 +509,18 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return Promise.resolve([updatedPerson, kafkaMessages, false])
     }
 
-    async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
+    async deletePerson(
+        person: InternalPerson,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson', distinctId)
         this.incrementDatabaseOperation('deletePerson', distinctId)
         const start = performance.now()
         const cachedPersonUpdate = this.getCachedPersonForUpdateByPersonId(person.team_id, person.id)
         const personToDelete = cachedPersonUpdate ? toInternalPerson(cachedPersonUpdate) : person
 
-        const response = await this.personRepository.deletePerson(personToDelete, tx)
+        const response = await (tx || this.personRepository).deletePerson(personToDelete)
         observeLatencyByVersion(person, start, 'deletePerson')
 
         // Clear ALL caches related to this person id
@@ -436,12 +533,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<TopicMessage[]> {
         this.incrementCount('addDistinctId', distinctId)
         this.incrementDatabaseOperation('addDistinctId', distinctId)
         const start = performance.now()
-        const response = await this.personRepository.addDistinctId(person, distinctId, version, tx)
+        const response = await (tx || this.personRepository).addDistinctId(person, distinctId, version)
         observeLatencyByVersion(person, start, 'addDistinctId')
         this.setDistinctIdToPersonId(person.team_id, distinctId, person.id)
         return response
@@ -451,12 +548,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await this.personRepository.moveDistinctIds(source, target, tx)
+        const response = await (tx || this.personRepository).moveDistinctIds(source, target)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
@@ -483,10 +580,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         sourcePersonID: InternalPerson['id'],
         targetPersonID: InternalPerson['id'],
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<void> {
         this.incrementCount('updateCohortsAndFeatureFlagsForMerge', distinctId)
-        await this.personRepository.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, tx)
+        await (tx || this.personRepository).updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID)
     }
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
@@ -497,10 +594,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     async addPersonlessDistinctIdForMerge(
         teamId: Team['id'],
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        return await this.personRepository.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
+        return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
     }
 
     async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
@@ -707,11 +804,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
         this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
-        const [person, messages] = await this.personRepository.createPerson(
+        const [person, messages] = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
             propertiesLastUpdatedAt,
@@ -720,8 +817,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
-            tx
+            distinctIds
         )
         this.setCheckCachedPerson(teamId, distinctIds?.[0]?.distinctId ?? '', person)
         this.setCachedPersonForUpdate(
@@ -876,12 +972,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
 
-        const [_, messages] = await this.personRepository.updatePerson(
-            person,
-            updateFields,
-            'updatePersonNoAssert',
-            undefined
-        )
+        const [_, messages] = await this.personRepository.updatePerson(person, updateFields, 'updatePersonNoAssert')
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')
 
