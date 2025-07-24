@@ -8,6 +8,7 @@ from django.db.models import Prefetch, Q
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -135,7 +136,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "port",
             "user",
             "schema",
-            "ssh-tunnel",
+            "ssh_tunnel",
             "using_ssl",
             # vitally
             "payload",
@@ -163,27 +164,22 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
             # Reconstruct ssh-tunnel (if needed) structure for UI handling
-            if "ssh_tunnel_enabled" in job_inputs:
+            if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
+                existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
+                existing_auth: dict = existing_ssh_tunnel.get("auth", {})
                 ssh_tunnel = {
-                    "enabled": job_inputs.pop("ssh_tunnel_enabled", False),
-                    "host": job_inputs.pop("ssh_tunnel_host", None),
-                    "port": job_inputs.pop("ssh_tunnel_port", None),
-                    "auth_type": {
-                        "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
-                        "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
+                    "enabled": existing_ssh_tunnel.get("enabled", False),
+                    "host": existing_ssh_tunnel.get("host", None),
+                    "port": existing_ssh_tunnel.get("port", None),
+                    "auth": {
+                        "selection": existing_auth.get("type", None),
+                        "username": existing_auth.get("username", None),
                         "password": None,
                         "passphrase": None,
                         "private_key": None,
                     },
                 }
-                job_inputs["ssh-tunnel"] = ssh_tunnel
-
-            # Reconstruct BigQuery structure for UI handling
-            if job_inputs.get("using_temporary_dataset") == "True":  # encrypted as string
-                job_inputs["temporary-dataset"] = {
-                    "enabled": True,
-                    "temporary_dataset_id": job_inputs.pop("temporary_dataset_id", None),
-                }
+                job_inputs["ssh_tunnel"] = ssh_tunnel
 
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
@@ -240,39 +236,24 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
         existing_job_inputs = instance.job_inputs
 
-        new_job_inputs = validated_data.get("job_inputs", {})
-        self._normalize_ssh_tunnel_structure(new_job_inputs)
-
         source_type_model = ExternalDataSource.Type(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
-        source_config: Config = source.parse_config(new_job_inputs)
 
         if existing_job_inputs:
-            validated_data["job_inputs"] = {**existing_job_inputs, **source_config.to_dict()}
+            new_job_inputs = {**existing_job_inputs, **validated_data.get("job_inputs", {})}
         else:
-            validated_data["job_inputs"] = source_config.to_dict()
+            new_job_inputs = validated_data.get("job_inputs", {})
+
+        is_valid, errors = source.validate_config(new_job_inputs)
+        if not is_valid:
+            raise ValidationError(f"Invalid source config: {', '.join(errors)}")
+
+        source_config: Config = source.parse_config(new_job_inputs)
+        validated_data["job_inputs"] = source_config.to_dict()
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         return updated_source
-
-    def _normalize_ssh_tunnel_structure(self, job_inputs: dict) -> dict:
-        """Convert nested SSH tunnel structure to flat keys."""
-        if "ssh-tunnel" in job_inputs:
-            ssh_tunnel = job_inputs.pop("ssh-tunnel", {})  # Remove the nested structure after extracting
-            if ssh_tunnel:
-                job_inputs["ssh_tunnel_enabled"] = ssh_tunnel.get("enabled")
-                job_inputs["ssh_tunnel_host"] = ssh_tunnel.get("host")
-                job_inputs["ssh_tunnel_port"] = ssh_tunnel.get("port")
-
-                auth_type = ssh_tunnel.get("auth_type", {})
-                if auth_type:
-                    job_inputs["ssh_tunnel_auth_type"] = auth_type.get("selection")
-                    job_inputs["ssh_tunnel_auth_type_username"] = auth_type.get("username")
-                    job_inputs["ssh_tunnel_auth_type_password"] = auth_type.get("password")
-                    job_inputs["ssh_tunnel_auth_type_passphrase"] = auth_type.get("passphrase")
-                    job_inputs["ssh_tunnel_auth_type_private_key"] = auth_type.get("private_key")
-        return job_inputs
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -367,6 +348,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         source_type_model = ExternalDataSource.Type(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
         source_config: Config = source.parse_config(payload)
 
         new_source_model = ExternalDataSource.objects.create(
@@ -540,6 +527,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         source_type_model = ExternalDataSource.Type(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        is_valid, errors = source.validate_config(request.data)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
         source_config: Config = source.parse_config(request.data)
 
         # TODO: Validate the config object itself? Possible? idk
@@ -564,6 +557,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["label"]) > 0
                 else None,
                 "sync_type": None,
+                "rows": schema.row_count,
             }
             for schema in schemas
         ]
