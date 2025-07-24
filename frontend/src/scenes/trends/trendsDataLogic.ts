@@ -352,12 +352,17 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     listeners(({ actions, values }) => ({
         toggleHiddenLegendIndex: ({ dataset }) => {
             const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+            const resultCustomization = getTrendResultCustomization(
+                values.resultCustomizationBy,
+                dataset,
+                values.resultCustomizations
+            )
             actions.updateInsightFilter({
                 resultCustomizations: {
                     ...values.resultCustomizations,
                     [resultCustomizationKey]: {
                         assignmentBy: values.resultCustomizationBy,
-                        hidden: true, // TODO: actually toggle
+                        hidden: resultCustomization?.hidden ? false : true,
                     },
                 },
             } as Partial<TrendsFilter>)
