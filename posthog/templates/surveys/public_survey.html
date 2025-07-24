@@ -909,33 +909,8 @@
 
         posthog.init(window.projectConfig.token, config);
 
-        let surveyRendered = false;
-        let retryCount = 0;
-        const maxRetries = 5;
-
-        function renderSurveyWithRetry() {
-            if (surveyRendered) return;
-
-            try {
-                posthog.renderSurvey(window.surveyId, '#posthog-survey-container');
-                surveyRendered = true;
-            } catch (error) {
-                console.error('Error rendering survey:', error);
-                retryCount++;
-
-                if (retryCount < maxRetries) {
-                    // Retry after a delay
-                    setTimeout(renderSurveyWithRetry, 1000 * retryCount);
-                } else {
-                    // Show error message after max retries
-                    document.getElementById('posthog-survey-container').innerHTML =
-                        '<div class="error-message">Sorry, there was an error loading this survey. Please try refreshing the page.</div>';
-                }
-            }
-        }
-
         posthog.onSurveysLoaded(() => {
-            renderSurveyWithRetry();
+            posthog.renderSurvey(window.surveyId, '#posthog-survey-container');
         });
     </script>
 </body>
