@@ -1,13 +1,8 @@
-import { IconLock } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
-import { AvailableFeature, SurveyQuestionDescriptionContentType } from '~/types'
-
-import { surveysLogic } from './surveysLogic'
+import { SurveyQuestionDescriptionContentType } from '~/types'
 
 export function PresentationTypeCard({
     title,
@@ -58,8 +53,6 @@ export function HTMLEditor({
     activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
 }): JSX.Element {
-    const { surveysHTMLAvailable } = useValues(surveysLogic)
-
     return (
         <>
             <LemonTabs
@@ -83,60 +76,32 @@ export function HTMLEditor({
                         label: (
                             <div>
                                 <span className="text-sm">HTML</span>
-                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
                             </div>
                         ),
                         content: (
                             <div>
-                                {surveysHTMLAvailable ? (
-                                    <CodeEditor
-                                        className="border"
-                                        language="html"
-                                        value={value}
-                                        onChange={(v) => onChange(v ?? '')}
-                                        height={150}
-                                        options={{
-                                            minimap: {
-                                                enabled: false,
-                                            },
-                                            scrollbar: {
-                                                alwaysConsumeMouseWheel: false,
-                                            },
-                                            wordWrap: 'on',
-                                            scrollBeyondLastLine: false,
-                                            automaticLayout: true,
-                                            fixedOverflowWidgets: true,
-                                            lineNumbers: 'off',
-                                            glyphMargin: false,
-                                            folding: false,
-                                        }}
-                                    />
-                                ) : (
-                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
-                                        <CodeEditor
-                                            className="border"
-                                            language="html"
-                                            value={value}
-                                            onChange={(v) => onChange(v ?? '')}
-                                            height={150}
-                                            options={{
-                                                minimap: {
-                                                    enabled: false,
-                                                },
-                                                scrollbar: {
-                                                    alwaysConsumeMouseWheel: false,
-                                                },
-                                                wordWrap: 'on',
-                                                scrollBeyondLastLine: false,
-                                                automaticLayout: true,
-                                                fixedOverflowWidgets: true,
-                                                lineNumbers: 'off',
-                                                glyphMargin: false,
-                                                folding: false,
-                                            }}
-                                        />
-                                    </PayGateMini>
-                                )}
+                                <CodeEditor
+                                    className="border"
+                                    language="html"
+                                    value={value}
+                                    onChange={(v) => onChange(v ?? '')}
+                                    height={150}
+                                    options={{
+                                        minimap: {
+                                            enabled: false,
+                                        },
+                                        scrollbar: {
+                                            alwaysConsumeMouseWheel: false,
+                                        },
+                                        wordWrap: 'on',
+                                        scrollBeyondLastLine: false,
+                                        automaticLayout: true,
+                                        fixedOverflowWidgets: true,
+                                        lineNumbers: 'off',
+                                        glyphMargin: false,
+                                        folding: false,
+                                    }}
+                                />
                             </div>
                         ),
                     },

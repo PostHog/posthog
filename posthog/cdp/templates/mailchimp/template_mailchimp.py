@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Updates a contact in Mailchimp and subscribes new ones.",
     icon_url="/static/services/mailchimp.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')

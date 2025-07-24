@@ -3,32 +3,38 @@ import { DataTableNode, EventsQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
 const PERSON_COLUMN = 'person'
-const PERSON_EMAIL_COLUMN = 'person.properties.email'
 
 /**
- * Replaces the person column with the email column for performance reasons
+ /**
+ * Replaces the person column with a coalesce expression using personDisplayNameProperties for performance reasons
  */
-export function transformColumnsForExport(columns: string[]): string[] {
+export function transformColumnsForExport(columns: string[], personDisplayNameProperties: string[]): string[] {
+    const props = personDisplayNameProperties.map((key) => `person.properties.${key}`)
+    const expr = `coalesce(${[...props, 'distinct_id'].join(', ')})`
     return columns.map((column) => {
         const cleanColumn = removeExpressionComment(column)
 
-        // Replace 'person' with 'person.properties.email' for performance
+        // Replace 'person' with coalesce expression for performance
         if (cleanColumn === PERSON_COLUMN) {
-            return column.replace(/\bperson\b/, PERSON_EMAIL_COLUMN)
+            const newColumn = column.replace(/\bperson\b/, expr)
+            if (!column.includes('--')) {
+                return `${newColumn} -- Person`
+            }
+            return newColumn
         }
 
         return column
     })
 }
 
-export function transformQuerySourceForExport(source: EventsQuery): EventsQuery {
+export function transformQuerySourceForExport(source: EventsQuery, personDisplayNameProperties: string[]): EventsQuery {
     if (!isEventsQuery(source)) {
         return source
     }
 
     return {
         ...source,
-        select: transformColumnsForExport(source.select),
+        select: transformColumnsForExport(source.select, personDisplayNameProperties),
     }
 }
 

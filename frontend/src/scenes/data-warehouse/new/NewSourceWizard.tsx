@@ -25,7 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
-    logic: sourceWizardLogic,
+    // logic: sourceWizardLogic, // NOTE: We can't mount it here as it needs the availableSourcesDataLogic to be mounted first
 }
 
 export function NewSourceWizardScene(): JSX.Element {

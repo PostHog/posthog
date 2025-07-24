@@ -173,7 +173,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(toString(properties.a), '.*'), false)"),
+            self._parse_expr("ifNull(match(properties.a, '.*'), 0)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
@@ -257,9 +257,7 @@ class TestProperty(BaseTest):
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
             a,
-            self._parse_expr(
-                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
-            ),
+            self._parse_expr("ifNull(match(properties.a, 'b'), 0) or ifNull(match(properties.a, 'c'), 0)"),
         )
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
         self.assertIs(0, a.exprs[1].args[1].value)
@@ -437,9 +435,7 @@ class TestProperty(BaseTest):
                     "operator": "regex",
                 }
             ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), false), elements_chain_texts)"
-            ),
+            self._parse_expr("arrayExists(text -> ifNull(match(text, 'text-text.'), 0), elements_chain_texts)"),
         )
 
     def test_property_groups(self):

@@ -1,6 +1,10 @@
 import Ajv from 'ajv'
 
-import { RevenueAnalyticsPropertyFilters, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import {
+    CompareFilter,
+    RevenueAnalyticsPropertyFilters,
+    WebAnalyticsPropertyFilters,
+} from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'
@@ -45,4 +49,12 @@ export const isSessionPropertyFilters = (data: unknown): data is SessionProperty
         return false
     }
     return data.every((item) => validator(item))
+}
+
+export const isCompareFilter = (data: unknown): data is CompareFilter => {
+    const validator = ajv.getSchema('#/definitions/CompareFilter')
+    if (!validator) {
+        throw new Error('Could not find validator for CompareFilter')
+    }
+    return validator(data) as boolean
 }

@@ -1,6 +1,5 @@
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { Hub, PipelineEvent, Team } from '../../../types'
-import { sanitizeString } from '../../../utils/db/utils'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { tokenOrTeamPresentCounter } from './metrics'
@@ -27,9 +26,8 @@ export async function populateTeamDataStep(
         })
         .inc()
 
-    let team = null
-    // Events with no token or team_id are dropped, they should be blocked by capture
-    if (!event.token && !event.team_id) {
+    // Events with no token are dropped, they should be blocked by capture
+    if (!event.token) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -37,17 +35,9 @@ export async function populateTeamDataStep(
             })
             .inc()
         return null
-    } else if (event.team_id) {
-        team = await hub.teamManager.getTeam(event.team_id)
-    } else if (event.token) {
-        // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
-        // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing
-        // TODO: do we still need this? we also sanitize this token in `normalizeEvent` which is called in `parseKafkaBatch`
-        event.token = sanitizeString(event.token)
-        team = await hub.teamManager.getTeamByToken(event.token)
     }
 
-    // If the token or team_id does not resolve to an existing team, drop the events.
+    const team = await hub.teamManager.getTeamByToken(event.token)
     if (!team) {
         eventDroppedCounter
             .labels({

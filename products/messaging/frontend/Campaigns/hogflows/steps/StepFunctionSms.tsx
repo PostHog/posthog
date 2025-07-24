@@ -21,7 +21,7 @@ export const StepFunctionSms: HogFlowStep<'function_sms'> = {
                 type: 'function_sms',
                 on_error: 'continue',
                 config: {
-                    template_id: 'template-hogflow-send-sms-twilio',
+                    template_id: 'template-twilio',
                     inputs: {},
                 },
             },

@@ -4,11 +4,11 @@ from redis import asyncio as aioredis
 import structlog
 import temporalio
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO, PATTERNS_ASSIGNMENT_CHUNK_SIZE
-from ee.session_recordings.session_summary.llm.consume import (
+from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
 )
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
@@ -18,8 +18,11 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.summarize_session_group import (
+from ee.hogai.session_summaries.session.summarize_session import (
+    ExtraSummaryContext,
+    SingleSessionSummaryLlmInputs,
+)
+from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
