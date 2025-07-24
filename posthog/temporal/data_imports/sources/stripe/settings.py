@@ -5,7 +5,7 @@
 # These endpoints are converted into ExternalDataSchema objects when a source is linked.
 
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,

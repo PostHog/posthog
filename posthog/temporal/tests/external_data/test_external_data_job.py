@@ -49,12 +49,12 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 import psycopg
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
+from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
 
 BUCKET_NAME = "test-pipeline"
@@ -431,7 +431,7 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
 
 @pytest.fixture
 def mock_stripe_client():
-    with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()

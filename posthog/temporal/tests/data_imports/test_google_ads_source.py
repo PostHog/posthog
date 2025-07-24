@@ -7,7 +7,7 @@ from django.test import override_settings
 
 from posthog.models import Team
 from posthog.models.organization import Organization
-from posthog.temporal.data_imports.pipelines.google_ads import (
+from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas,
     google_ads_source,

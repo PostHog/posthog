@@ -10,8 +10,8 @@ from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.project import Project
-from posthog.temporal.data_imports.pipelines.bigquery import BigQuerySourceConfig
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
+from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -26,7 +26,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
 )
 
-from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
+from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -675,7 +675,7 @@ class TestExternalDataSource(APIBaseTest):
         with patch(
             "posthog.warehouse.api.external_data_source.validate_stripe_credentials"
         ) as validate_credentials_mock:
-            from posthog.temporal.data_imports.pipelines.stripe import (
+            from posthog.temporal.data_imports.sources.stripe.stripe import (
                 StripePermissionError,
             )
 

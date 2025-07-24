@@ -170,11 +170,11 @@ class FixSubTemplateIdsToTemplateIdsMigrationTest(NonAtomicTestMigrations):
         zendesk_config = ZendeskSourceConfig.from_dict(self.zendesk_source.job_inputs)
 
         # BigQuery
-        assert bigquery_config.key_file["project_id"] == "project_id"
-        assert bigquery_config.key_file["private_key_id"] == "private_key_id"
-        assert bigquery_config.key_file["private_key"] == "private_key"
-        assert bigquery_config.key_file["client_email"] == "client_email"
-        assert bigquery_config.key_file["token_uri"] == "token_uri"
+        assert bigquery_config.key_file.project_id == "project_id"
+        assert bigquery_config.key_file.private_key_id == "private_key_id"
+        assert bigquery_config.key_file.private_key == "private_key"
+        assert bigquery_config.key_file.client_email == "client_email"
+        assert bigquery_config.key_file.token_uri == "token_uri"
         assert bigquery_config.dataset_id == "dataset_id"
         assert bigquery_config.temporary_dataset is not None
         assert bigquery_config.temporary_dataset.enabled is True

@@ -42,7 +42,7 @@ from posthog.schema import (
 )
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -56,7 +56,7 @@ from posthog.warehouse.models import (
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
@@ -118,7 +118,7 @@ def mock_stripe_client(
     stripe_subscription,
     stripe_credit_note,
 ):
-    with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()
@@ -503,9 +503,9 @@ async def test_zendesk_brands(team, zendesk_brands):
         table_name="zendesk_brands",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_brands["brands"],
     )
@@ -520,9 +520,9 @@ async def test_zendesk_organizations(team, zendesk_organizations):
         table_name="zendesk_organizations",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_organizations["organizations"],
     )
@@ -537,9 +537,9 @@ async def test_zendesk_groups(team, zendesk_groups):
         table_name="zendesk_groups",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_groups["groups"],
     )
@@ -554,9 +554,9 @@ async def test_zendesk_sla_policies(team, zendesk_sla_policies):
         table_name="zendesk_sla_policies",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_sla_policies["sla_policies"],
     )
@@ -571,9 +571,9 @@ async def test_zendesk_users(team, zendesk_users):
         table_name="zendesk_users",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_users["users"],
     )
@@ -588,9 +588,9 @@ async def test_zendesk_ticket_fields(team, zendesk_ticket_fields):
         table_name="zendesk_ticket_fields",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_fields["ticket_fields"],
     )
@@ -605,9 +605,9 @@ async def test_zendesk_ticket_events(team, zendesk_ticket_events):
         table_name="zendesk_ticket_events",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_events["ticket_events"],
     )
@@ -622,9 +622,9 @@ async def test_zendesk_tickets(team, zendesk_tickets):
         table_name="zendesk_tickets",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_tickets["tickets"],
     )
@@ -639,9 +639,9 @@ async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
         table_name="zendesk_ticket_metric_events",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
         mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
     )
@@ -1081,9 +1081,9 @@ async def test_non_retryable_error(team, zendesk_brands):
         status="running",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
     )
 
@@ -1189,9 +1189,9 @@ async def test_inconsistent_types_in_data(team):
         status="running",
         source_type="Zendesk",
         job_inputs={
-            "zendesk_subdomain": "test",
-            "zendesk_api_key": "test_api_key",
-            "zendesk_email_address": "test@posthog.com",
+            "subdomain": "test",
+            "api_key": "test_api_key",
+            "email_address": "test@posthog.com",
         },
     )
 
@@ -1448,7 +1448,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1537,7 +1537,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2034,7 +2034,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
     )
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2283,9 +2283,9 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             table_name="zendesk_brands",
             source_type="Zendesk",
             job_inputs={
-                "zendesk_subdomain": "test",
-                "zendesk_api_key": "test_api_key",
-                "zendesk_email_address": "test@posthog.com",
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
             },
             mock_data_response=zendesk_brands["brands"],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
@@ -2469,9 +2469,9 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands):
             table_name="zendesk_brands",
             source_type="Zendesk",
             job_inputs={
-                "zendesk_subdomain": "test",
-                "zendesk_api_key": "test_api_key",
-                "zendesk_email_address": "test@posthog.com",
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
             },
             mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
             ignore_assertions=True,

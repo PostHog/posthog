@@ -127,7 +127,7 @@ class SourceConfigGenerator:
 
         if not field.required:
             if field_parts:
-                field_parts.append("default=None")
+                field_parts.append("default_factory=lambda: None")
             else:
                 field_def = f"    {python_field_name}: {python_type} = None"
                 return field_def
@@ -148,7 +148,7 @@ class SourceConfigGenerator:
         field_parts = []
 
         if not field.required and not field.defaultValue:
-            field_parts.append("default=None")
+            field_parts.append("default_factory=lambda: None")
 
         if field.defaultValue:
             if field.converter:
@@ -218,7 +218,7 @@ class SourceConfigGenerator:
             if field.required:
                 parent_field = f'    {python_field_name}: {nested_class_name} = config.value(alias="{field.name}")'
             else:
-                parent_field = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default=None)'
+                parent_field = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default_factory=lambda: None)'
         else:
             if field.required:
                 parent_field = f"    {python_field_name}: {nested_class_name}"
@@ -252,7 +252,7 @@ class SourceConfigGenerator:
 
         if should_alias:
             # Use alias to map back to original field name with dashes
-            field_def = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default=None)'
+            field_def = f'    {python_field_name}: {nested_class_name} | None = config.value(alias="{field.name}", default_factory=lambda: None)'
         else:
             field_def = f"    {python_field_name}: {nested_class_name} | None = None"
 
@@ -268,9 +268,9 @@ class SourceConfigGenerator:
                 return f"    {python_field_name}: int = config.value(converter=config.str_to_int)"
         else:
             if should_alias:
-                return f'    {python_field_name}: int | None = config.value(alias="{field.name}", converter=config.str_to_optional_int, default=None)'
+                return f'    {python_field_name}: int | None = config.value(alias="{field.name}", converter=config.str_to_optional_int, default_factory=lambda: None)'
             else:
-                return f"    {python_field_name}: int | None = config.value(converter=config.str_to_optional_int, default=None)"
+                return f"    {python_field_name}: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)"
 
     def _process_file_upload_field(self, field: SourceFieldFileUploadConfig, parent_class: str) -> tuple[str, str]:
         python_field_name, should_alias = self._make_python_identifier(field.name)
@@ -296,7 +296,7 @@ class SourceConfigGenerator:
         else:
             if should_alias:
                 return (
-                    f'    {python_field_name}: {literal_type} | None = config.value(alias="{field.name}", default=None)',
+                    f'    {python_field_name}: {literal_type} | None = config.value(alias="{field.name}", default_factory=lambda: None)',
                     nested_config,
                 )
             else:
@@ -311,9 +311,9 @@ class SourceConfigGenerator:
 
         if should_alias:
             # Use alias to map back to original field name with dashes
-            return f'    {python_field_name}: SSHTunnelConfig = config.value(alias="{field.name}")'
+            return f'    {python_field_name}: SSHTunnelConfig | None = config.value(alias="{field.name}", default_factory=lambda: None)'
         else:
-            return f"    {python_field_name}: SSHTunnelConfig"
+            return f"    {python_field_name}: SSHTunnelConfig | None = None"
 
     def _get_python_type(self, field_type: Type4) -> str:
         type_mapping = {
@@ -365,6 +365,7 @@ class SourceConfigGenerator:
 
         fields_without_defaults = []
         fields_with_config_annotations = []
+        fields_with_none_default = []
         fields_with_defaults = []
 
         for field in fields:
@@ -375,12 +376,16 @@ class SourceConfigGenerator:
             # If the field contains " = " it has a default, otherwise it doesn't
             if "config." in field_content and "default=" not in field_content:
                 fields_with_config_annotations.append(field)
+            elif " = " in field_content and "default_factory=lambda: None" in field_content:
+                fields_with_none_default.append(field)
             elif " = " in field_content:
                 fields_with_defaults.append(field)
             else:
                 fields_without_defaults.append(field)
 
-        return fields_without_defaults + fields_with_config_annotations + fields_with_defaults
+        return (
+            fields_without_defaults + fields_with_config_annotations + fields_with_none_default + fields_with_defaults
+        )
 
     def _generate_config_class(self, class_name: str, fields: list[str]) -> str:
         if fields:

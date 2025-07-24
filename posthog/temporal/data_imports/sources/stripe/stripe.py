@@ -6,11 +6,11 @@ from stripe import ListObject, StripeClient
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
+from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.warehouse.models.external_table_definitions import (
     get_dlt_mapping_for_external_table,
 )
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     REFUND_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.pipelines.stripe.settings import INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
 
 DEFAULT_LIMIT = 100
 

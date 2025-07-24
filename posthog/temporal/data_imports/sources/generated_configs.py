@@ -47,7 +47,9 @@ class VitallyRegionConfig(config.Config):
 class BigQuerySourceConfig(config.Config):
     key_file: BigQueryKeyFileConfig
     dataset_id: str
-    temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(alias="temporary-dataset", default=None)
+    temporary_dataset: BigQueryTemporaryDatasetConfig | None = config.value(
+        alias="temporary-dataset", default_factory=lambda: None
+    )
     dataset_project: BigQueryDatasetProjectConfig | None = None
 
 
@@ -96,7 +98,7 @@ class MSSQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")
+    ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)
 
 
 @config.config
@@ -128,7 +130,7 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")
+    ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
 
 
@@ -140,7 +142,7 @@ class PostgresSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig = config.value(alias="ssh-tunnel")
+    ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)
     connection_string: str | None = None
 
 
