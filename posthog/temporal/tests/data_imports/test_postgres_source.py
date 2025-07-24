@@ -195,7 +195,7 @@ def test_postgresql__source_config_loads():
         "schema": "schema",
         "database": "database",
         "password": "password",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "enabled": False,
             "host": "",
             "port": "",
@@ -227,7 +227,7 @@ def test_postgresql_source_config_loads_int_port():
         "schema": "schema",
         "database": "database",
         "password": "password",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "enabled": False,
             "host": "",
             "port": "",
@@ -259,7 +259,7 @@ def test_postgresql_source_config_loads_with_ssh_tunnel():
         "schema": "schema",
         "database": "database",
         "password": "password",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "enabled": True,
             "host": "other-host.com",
             "port": "55550",
@@ -296,7 +296,7 @@ def test_postgresql_source_config_loads_with_nested_dict_enabled_tunnel():
         "user": "Username",
         "password": "password",
         "schema": "schema",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "host": "other-host.com",
             "port": "55550",
             "enabled": "True",
@@ -332,7 +332,7 @@ def test_postgresql_source_config_loads_with_nested_dict_disabled_tunnel():
         "user": "Username",
         "password": "password",
         "schema": "schema",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "host": "",
             "port": "",
             "enabled": False,

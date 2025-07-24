@@ -65,7 +65,7 @@ class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabas
                     SourceFieldInputConfig(
                         name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="dbo"
                     ),
-                    SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
+                    SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
         )

@@ -163,7 +163,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
-            # Reconstruct ssh-tunnel (if needed) structure for UI handling
+            # Reconstruct ssh_tunnel (if needed) structure for UI handling
             if "ssh_tunnel" in job_inputs and isinstance(job_inputs["ssh_tunnel"], dict):
                 existing_ssh_tunnel: dict = job_inputs["ssh_tunnel"]
                 existing_auth: dict = existing_ssh_tunnel.get("auth", {})

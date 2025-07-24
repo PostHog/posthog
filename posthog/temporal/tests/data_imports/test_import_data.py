@@ -140,7 +140,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
         "password": "password",
         "database": "database",
         "schema": "schema",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "enabled": False,
             "host": "",
             "port": "",
@@ -191,7 +191,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         "password": "password",
         "database": "database",
         "schema": "schema",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "enabled": True,
             "host": "other-host.com",
             "port": "55550",

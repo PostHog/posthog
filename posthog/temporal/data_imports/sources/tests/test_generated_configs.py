@@ -85,7 +85,7 @@ def test_mssql_config():
             "user": "user",
             "password": "password",
             "schema": "schema",
-            "ssh-tunnel": {
+            "ssh_tunnel": {
                 "enabled": True,
                 "host": "host",
                 "port": 22,
@@ -139,7 +139,7 @@ def test_mysql_config():
             "password": "password",
             "schema": "schema",
             "using_ssl": "true",
-            "ssh-tunnel": {
+            "ssh_tunnel": {
                 "enabled": True,
                 "host": "host",
                 "port": 22,
@@ -182,7 +182,7 @@ def test_postgres_config():
             "user": "user",
             "password": "password",
             "schema": "schema",
-            "ssh-tunnel": {
+            "ssh_tunnel": {
                 "enabled": True,
                 "host": "host",
                 "port": 22,

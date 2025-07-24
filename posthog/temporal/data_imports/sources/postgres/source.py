@@ -77,7 +77,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                     SourceFieldInputConfig(
                         name="schema", label="Schema", type=Type4.TEXT, required=True, placeholder="public"
                     ),
-                    SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
+                    SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
         )

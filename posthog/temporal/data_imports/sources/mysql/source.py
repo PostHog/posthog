@@ -70,7 +70,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
                         converter=Converter.STR_TO_BOOL,
                         options=[Option(label="Yes", value="true"), Option(label="No", value="false")],
                     ),
-                    SourceFieldSSHTunnelConfig(name="ssh-tunnel", label="Use SSH tunnel?"),
+                    SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
         )

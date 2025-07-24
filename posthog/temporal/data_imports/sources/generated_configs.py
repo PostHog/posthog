@@ -98,7 +98,7 @@ class MSSQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -130,8 +130,8 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -142,8 +142,8 @@ class PostgresSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    ssh_tunnel: SSHTunnelConfig | None = config.value(alias="ssh-tunnel", default_factory=lambda: None)
     connection_string: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config

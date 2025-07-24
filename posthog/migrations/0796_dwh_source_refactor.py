@@ -44,7 +44,7 @@ def forwards(apps, schema_editor):
                 "schema": job_inputs["schema"],
                 "database": job_inputs["database"],
                 "password": job_inputs["password"],
-                "ssh-tunnel": {
+                "ssh_tunnel": {
                     "enabled": job_inputs["ssh_tunnel_enabled"],
                     "host": job_inputs["ssh_tunnel_host"],
                     "port": job_inputs["ssh_tunnel_port"],
@@ -68,7 +68,7 @@ def forwards(apps, schema_editor):
                 "database": job_inputs["database"],
                 "password": job_inputs["password"],
                 "using_ssl": job_inputs["using_ssl"],
-                "ssh-tunnel": {
+                "ssh_tunnel": {
                     "enabled": job_inputs["ssh_tunnel_enabled"],
                     "host": job_inputs["ssh_tunnel_host"],
                     "port": job_inputs["ssh_tunnel_port"],
@@ -91,7 +91,7 @@ def forwards(apps, schema_editor):
                 "schema": job_inputs["schema"],
                 "database": job_inputs["database"],
                 "password": job_inputs["password"],
-                "ssh-tunnel": {
+                "ssh_tunnel": {
                     "enabled": job_inputs["ssh_tunnel_enabled"],
                     "host": job_inputs["ssh_tunnel_host"],
                     "port": job_inputs["ssh_tunnel_port"],

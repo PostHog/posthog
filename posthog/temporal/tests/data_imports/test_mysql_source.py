@@ -369,7 +369,7 @@ def test_mysql_source_config_loads_with_ssh_tunnel():
         "schema": "schema",
         "database": "database",
         "password": "password",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "enabled": "True",
             "host": "other-host.com",
             "port": "55550",
@@ -406,7 +406,7 @@ def test_mysql_source_config_loads_with_nested_dict_enabled_tunnel():
         "user": "Username",
         "password": "password",
         "schema": "schema",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "host": "other-host.com",
             "port": "55550",
             "enabled": "True",
@@ -442,7 +442,7 @@ def test_mysql_source_config_loads_with_nested_dict_disabled_tunnel():
         "user": "Username",
         "password": "password",
         "schema": "schema",
-        "ssh-tunnel": {
+        "ssh_tunnel": {
             "host": None,
             "port": None,
             "enabled": False,
