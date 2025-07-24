@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     sql='ALTER TABLE "posthog_dashboarditem" ADD COLUMN IF NOT EXISTS "query_metadata" jsonb NULL;',
-                    reverse_sql='ALTER TABLE "posthog_dashboarditem" DROP COLUMN IF EXISTS "query_metadata";',
+                    reverse_sql='ALTER TABLE "posthog_dashboarditem" DROP COLUMN "query_metadata";',
                 ),
                 migrations.RunSQL(
                     sql=(
