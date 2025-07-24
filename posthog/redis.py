@@ -1,12 +1,15 @@
 # flake8: noqa
 from typing import Any, Dict, Optional
 
+
+from redis import asyncio as aioredis
 import asyncio
 import weakref
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 import redis
+import fakeredis
 
 
 _client_map: Dict[str, Any] = {}
@@ -21,8 +24,6 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
 
     if not _client_map.get(redis_url):
         if settings.TEST:
-            import fakeredis
-
             client: Any = fakeredis.FakeRedis()
         elif redis_url:
             import redis  # local import to avoid the heavy dependency at startup if unused
@@ -44,8 +45,6 @@ _loop_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, A
 
 def _close_pools(pool_map: Dict[str, Any]) -> None:
     """Close all Redis pools that belonged to a dead event-loop."""
-
-    import asyncio
 
     for client in pool_map.values():
         try:
@@ -100,8 +99,6 @@ def get_async_client(redis_url: Optional[str] = None):
     directly; but in 99 % of cases you want the cached client.
     """
 
-    from redis import asyncio as aioredis  # local import to avoid unnecessary dependency for sync paths
-
     redis_url = redis_url or settings.REDIS_URL
     if redis_url is None:
         raise ImproperlyConfigured("REDIS_URL is not configured")
@@ -140,3 +137,6 @@ def TEST_clear_clients():
     global _client_map
     for key in list(_client_map.keys()):
         del _client_map[key]
+    global _loop_clients
+    for key in list(_loop_clients.keys()):
+        del _loop_clients[key]
