@@ -7,15 +7,15 @@ from posthog.models.message_preferences import RESERVED_CATEGORY_KEYS
 
 class MessageCategorySerializer(serializers.ModelSerializer):
     def validate(self, data):
-        if self.instance is None and "key" in data:
+        if self.instance is None:
             # Ensure key is unique per team for new instances
             if MessageCategory.objects.filter(team_id=self.context["team_id"], key=data["key"], deleted=False).exists():
                 raise serializers.ValidationError({"key": "A message category with this key already exists."})
             if data["key"] in RESERVED_CATEGORY_KEYS:
                 raise serializers.ValidationError({"key": f"The key '{data['key']}' is reserved and cannot be used."})
-        elif self.instance is not None and "key" in data and data["key"] != self.instance.key:
-            # Forbid updates to the key field
-            raise serializers.ValidationError({"key": "The key field cannot be updated after creation."})
+        else:
+            if "key" in data and hasattr(self.instance, "key") and data["key"] != self.instance.key:
+                raise serializers.ValidationError({"key": "The key field cannot be updated after creation."})
         return data
 
     class Meta:

@@ -1,21 +1,23 @@
-import { IconInfo, IconPencil } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { toSentenceCase } from 'lib/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import {
-    InspectorListItemAnnotationComment,
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
-import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { RecordingCommentForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 export interface ItemCommentProps {
-    item: InspectorListItemComment
+    item: InspectorListItemComment | InspectorListItemNotebookComment
+}
+
+function isInspectorListItemNotebookComment(x: ItemCommentProps['item']): x is InspectorListItemNotebookComment {
+    return 'comment' in x.data
 }
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
@@ -30,7 +32,7 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
     )
 }
 
-function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element {
     // lazy but good enough check for markdown image urls
     // we don't want to render markdown in the list row if there's an image since it won't fit
     const hasMarkdownImage = (item.data.content ?? '').includes('![')
@@ -61,16 +63,8 @@ function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComm
     )
 }
 
-function isInspectorListItemNotebookComment(x: ItemCommentProps['item']): x is InspectorListItemNotebookComment {
-    return 'comment' in x.data
-}
-
-export function ItemComment({ item }: ItemCommentProps): JSX.Element {
-    return isInspectorListItemNotebookComment(item) ? (
-        <ItemNotebookComment item={item} />
-    ) : (
-        <ItemAnnotationComment item={item} />
-    )
+export function ItemAnyComment({ item }: ItemCommentProps): JSX.Element {
+    return isInspectorListItemNotebookComment(item) ? <ItemNotebookComment item={item} /> : <ItemComment item={item} />
 }
 
 function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
@@ -97,39 +91,31 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
     )
 }
 
-function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.Element {
     const { startCommenting } = useActions(playerCommentModel)
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
-            <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
-                <Tooltip title="Annotations can be scoped to the project or organization, or to individual insights or dashboards. Project and organization scoped annotations are shown in the recording timeline.">
-                    <div className="flex flex-row items-center gap-2">
-                        <IconInfo className="text-muted text-xs" />
-                        Scope: {toSentenceCase(item.data.scope)}
-                    </div>
-                </Tooltip>
+            <div className="px-2 py-1 text-xs border-t w-full flex justify-end items-center">
                 <LemonButton
                     type="secondary"
                     onClick={() => {
                         void (async () => {
                             // relying on the click here to set the player timestamp
                             // so this shouldn't swallow the click
-                            const annotationEditPayload: RecordingAnnotationForm = {
-                                annotationId: item.data.id,
-                                scope: item.data.scope,
+                            const commentEditPayload: RecordingCommentForm = {
+                                commentId: item.data.id,
                                 content: item.data.content ?? '',
-                                dateForTimestamp: item.data.date_marker,
-                                recordingId: item.data.recording_id ?? null,
-                                timeInRecording: null,
+                                dateForTimestamp: item.timestamp,
+                                recordingId: item.data.item_id ?? null,
                                 timestampInRecording: item.timeInRecording,
                             }
-                            startCommenting(annotationEditPayload)
+                            startCommenting(commentEditPayload)
                         })()
                     }}
                     size="xsmall"
                     icon={<IconPencil />}
                 >
-                    Edit annotation
+                    Edit
                 </LemonButton>
             </div>
 
@@ -140,20 +126,15 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                 />
             </div>
 
-            <ProfilePicture
-                user={item.data.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : item.data.created_by}
-                showName
-                size="md"
-                type={item.data.creation_type === 'GIT' ? 'bot' : 'person'}
-            />
+            <ProfilePicture user={item.data.created_by} showName size="md" type="person" />
         </div>
     )
 }
 
-export function ItemCommentDetail({ item }: ItemCommentProps): JSX.Element {
+export function ItemAnyCommentDetail({ item }: ItemCommentProps): JSX.Element {
     return isInspectorListItemNotebookComment(item) ? (
         <ItemCommentNotebookDetail item={item} />
     ) : (
-        <ItemCommentAnnotationDetail item={item} />
+        <ItemCommentDetail item={item} />
     )
 }

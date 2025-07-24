@@ -1320,8 +1320,8 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
     }
 
-    public messagingOptOuts(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_opt_outs')
+    public messagingPreferences(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences')
     }
 
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
@@ -3540,23 +3540,8 @@ const api = {
         async updateCategory(categoryId: string, data: any): Promise<any> {
             return await new ApiRequest().messagingCategory(categoryId).update({ data })
         },
-
-        // Marketing Opt-outs
-        async getMarketingOptOuts(): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest().messagingOptOuts().get()
-        },
-        async getMarketingOptOutsByCategory(categoryId: string): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest()
-                .messagingOptOuts()
-                .withAction('by_category')
-                .withQueryString({ category_id: categoryId })
-                .get()
-        },
-        async getOverallMarketingOptOuts(): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest().messagingOptOuts().withAction('overall').get()
-        },
-        async getMarketingCategories(): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest().messagingOptOuts().withAction('categories').get()
+        async deleteCategory(categoryId: string): Promise<void> {
+            return await new ApiRequest().messagingCategory(categoryId).delete()
         },
     },
     oauthApplication: {

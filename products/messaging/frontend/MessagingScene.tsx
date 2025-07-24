@@ -17,7 +17,7 @@ import { MessageChannels } from './Channels/MessageChannels'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { OptOutScene } from './OptOuts/OptOutScene'
 
-const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'optouts'] as const
+const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'opt-outs'] as const
 export type MessagingSceneTab = (typeof MESSAGING_SCENE_TABS)[number]
 
 export type MessagingSceneProps = {
@@ -155,7 +155,7 @@ export function MessagingScene(): JSX.Element {
         },
         {
             label: 'Opt-outs',
-            key: 'optouts',
+            key: 'opt-outs',
             content: <OptOutScene />,
         },
     ]
