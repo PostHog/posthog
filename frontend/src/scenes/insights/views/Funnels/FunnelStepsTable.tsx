@@ -374,15 +374,19 @@ export function FunnelStepsTable(): JSX.Element | null {
             firstColumnSticky
             useURLForSorting
             onSort={(newSorting) => {
-                if (!newSorting) return
+                if (!newSorting) {
+                    return
+                }
                 // Find the column definition by key
                 const findColumnByKey = (
                     columns: LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[],
                     key: string
-                ) => {
+                ): LemonTableColumnGroup<FlattenedFunnelStepByBreakdown> | null => {
                     for (const group of columns) {
                         for (const col of group.children) {
-                            if (col.key === key || col.dataIndex === key) return col
+                            if (col.key === key || col.dataIndex === key) {
+                                return col
+                            }
                         }
                     }
                     return null
