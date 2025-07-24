@@ -4,11 +4,29 @@ import { Hub, InternalPerson, PersonBatchWritingMode, TeamId } from '~/types'
 import { DB } from '~/utils/db/db'
 import { UUID7 } from '~/utils/utils'
 
-import { BasePersonRepository } from './base-person-repository'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
+import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonStoreManager, PersonStoreManagerForBatch } from './person-store-manager'
 import { fromInternalPerson } from './person-update-batch'
+
+// Mock helper for person repository - returns empty mocks without implementations
+const createMockPersonRepository = (_person?: InternalPerson) => {
+    return {
+        fetchPerson: jest.fn(),
+        createPerson: jest.fn(),
+        updatePerson: jest.fn(),
+        updatePersonAssertVersion: jest.fn(),
+        deletePerson: jest.fn(),
+        moveDistinctIds: jest.fn(),
+        addDistinctId: jest.fn(),
+        addPersonlessDistinctId: jest.fn(),
+        updateCohortsAndFeatureFlagsForMerge: jest.fn(),
+        addPersonlessDistinctIdForMerge: jest.fn(),
+        personPropertiesSize: jest.fn(),
+        inTransaction: jest.fn(),
+    }
+}
 
 describe('PersonStoreManager', () => {
     let hub: Hub
@@ -18,6 +36,7 @@ describe('PersonStoreManager', () => {
     let manager: PersonStoreManager
     let teamId: TeamId
     let person: InternalPerson
+    let mockPersonRepository: any
 
     beforeEach(() => {
         teamId = 1
@@ -36,74 +55,122 @@ describe('PersonStoreManager', () => {
             uuid: '1',
         }
 
+        // Create mock person repository
+        mockPersonRepository = createMockPersonRepository(person)
+
+        // Set up default implementations
         let dbCounter = 0
         let latestPerson = person
+        mockPersonRepository.fetchPerson.mockResolvedValue(latestPerson)
+        mockPersonRepository.createPerson.mockImplementation(
+            (
+                _createdAt: any,
+                properties: any,
+                _propertiesLastUpdatedAt: any,
+                _propertiesLastOperation: any,
+                _teamId: any,
+                _isUserId: any,
+                _isIdentified: any,
+                id: any,
+                _distinctIds: any
+            ) => {
+                dbCounter++
+                latestPerson = {
+                    ...latestPerson,
+                    version: dbCounter,
+                    id: latestPerson.id || id,
+                    properties: latestPerson.properties || properties,
+                }
+                return Promise.resolve([latestPerson, []])
+            }
+        )
+        mockPersonRepository.updatePerson.mockImplementation((personInput: any, update: any) => {
+            dbCounter++
+            latestPerson = {
+                ...personInput,
+                properties: { ...personInput.properties, ...update.properties },
+                version: dbCounter,
+            }
+            return Promise.resolve([latestPerson, [], false]) // no version disparity
+        })
+        mockPersonRepository.updatePersonAssertVersion.mockImplementation(() => {
+            dbCounter++
+            return Promise.resolve([dbCounter, []])
+        })
+        mockPersonRepository.deletePerson.mockResolvedValue([])
+        mockPersonRepository.moveDistinctIds.mockResolvedValue({ success: true, messages: [] })
+        mockPersonRepository.addDistinctId.mockResolvedValue([])
+        mockPersonRepository.addPersonlessDistinctId.mockResolvedValue(true)
+        mockPersonRepository.updateCohortsAndFeatureFlagsForMerge.mockResolvedValue()
+        mockPersonRepository.addPersonlessDistinctIdForMerge.mockResolvedValue(true)
+        mockPersonRepository.personPropertiesSize.mockResolvedValue(0)
+        mockPersonRepository.inTransaction.mockImplementation(
+            async (description: string, transaction: (tx: PersonRepositoryTransaction) => Promise<any>) => {
+                const mockTx = {
+                    createPerson: jest
+                        .fn()
+                        .mockImplementation(
+                            (
+                                _createdAt: any,
+                                properties: any,
+                                _propertiesLastUpdatedAt: any,
+                                _propertiesLastOperation: any,
+                                _teamId: any,
+                                _isUserId: any,
+                                _isIdentified: any,
+                                id: any,
+                                _distinctIds: any
+                            ) => {
+                                dbCounter++
+                                latestPerson = {
+                                    ...latestPerson,
+                                    version: dbCounter,
+                                    id: latestPerson.id || id,
+                                    properties: latestPerson.properties || properties,
+                                }
+                                return Promise.resolve([latestPerson, []])
+                            }
+                        ),
+                    updatePerson: jest.fn().mockImplementation((personInput: any, update: any) => {
+                        dbCounter++
+                        latestPerson = {
+                            ...personInput,
+                            properties: { ...personInput.properties, ...update.properties },
+                            version: dbCounter,
+                        }
+                        return Promise.resolve([latestPerson, [], false])
+                    }),
+                    updatePersonAssertVersion: jest.fn().mockImplementation(() => {
+                        dbCounter++
+                        return Promise.resolve([dbCounter, []])
+                    }),
+                    deletePerson: jest.fn().mockResolvedValue([]),
+                    moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
+                    addDistinctId: jest.fn().mockResolvedValue([]),
+                    updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+                    addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+                }
+                return await transaction(mockTx)
+            }
+        )
+
         db = {
             postgres: {
                 transaction: jest.fn().mockImplementation(async (_usage, _tag, transaction) => {
                     return await transaction(transaction)
                 }),
             },
-            fetchPerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve(latestPerson)
-            }),
-            createPerson: jest
-                .fn()
-                .mockImplementation(
-                    (
-                        _createdAt,
-                        properties,
-                        _propertiesLastUpdatedAt,
-                        _propertiesLastOperation,
-                        _teamId,
-                        _isUserId,
-                        _isIdentified,
-                        id,
-                        _distinctIds
-                    ) => {
-                        dbCounter++
-                        latestPerson = {
-                            ...latestPerson,
-                            version: dbCounter,
-                            id: latestPerson.id || id,
-                            properties: latestPerson.properties || properties,
-                        }
-                        return Promise.resolve([latestPerson, []])
-                    }
-                ),
-            updatePerson: jest.fn().mockImplementation((personInput, update) => {
-                dbCounter++
-                latestPerson = {
-                    ...personInput,
-                    properties: { ...personInput.properties, ...update.properties },
-                    version: dbCounter,
-                }
-                return Promise.resolve([latestPerson, [], false]) // no version disparity
-            }),
-            updatePersonAssertVersion: jest.fn().mockImplementation(() => {
-                dbCounter++
-                return Promise.resolve([dbCounter, []])
-            }),
-            deletePerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
-            }),
-            moveDistinctIds: jest.fn().mockImplementation(() => {
-                return Promise.resolve({ success: true, messages: [] })
-            }),
-            addDistinctId: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
-            }),
         } as unknown as DB
 
         hub = {
             PERSON_BATCH_WRITING_MODE: 'NONE' as PersonBatchWritingMode,
         } as Hub
 
-        measuringStore = new MeasuringPersonsStore(db, {
+        measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
-        batchStore = new BatchWritingPersonsStore(db, new BasePersonRepository(db.postgres))
+        batchStore = new BatchWritingPersonsStore(db, mockPersonRepository)
         manager = new PersonStoreManager(hub, measuringStore, batchStore)
     })
 
@@ -159,6 +226,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
     let shadowManager: PersonStoreManagerForBatch
     let teamId: TeamId
     let person: InternalPerson
+    let mockPersonRepository: any
 
     beforeEach(() => {
         teamId = 1
@@ -177,70 +245,118 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             uuid: '1',
         }
 
+        // Create mock person repository
+        mockPersonRepository = createMockPersonRepository(person)
+
+        // Set up default implementations
         let dbCounter = 0
         let latestPerson = person
+        mockPersonRepository.fetchPerson.mockResolvedValue(latestPerson)
+        mockPersonRepository.createPerson.mockImplementation(
+            (
+                _createdAt: any,
+                properties: any,
+                _propertiesLastUpdatedAt: any,
+                _propertiesLastOperation: any,
+                _teamId: any,
+                _isUserId: any,
+                _isIdentified: any,
+                id: any,
+                _distinctIds: any
+            ) => {
+                dbCounter++
+                latestPerson = {
+                    ...latestPerson,
+                    version: dbCounter,
+                    id: id || latestPerson.id,
+                    properties: properties || latestPerson.properties,
+                }
+                return Promise.resolve([latestPerson, []])
+            }
+        )
+        mockPersonRepository.updatePerson.mockImplementation((personInput: any, update: any) => {
+            dbCounter++
+            const updatedPerson = {
+                ...personInput,
+                properties: { ...personInput.properties, ...(update.properties || {}) },
+                version: dbCounter,
+            }
+            return Promise.resolve([updatedPerson, [], false]) // no version disparity
+        })
+        mockPersonRepository.updatePersonAssertVersion.mockImplementation(() => {
+            dbCounter++
+            return Promise.resolve([dbCounter, []])
+        })
+        mockPersonRepository.deletePerson.mockResolvedValue([])
+        mockPersonRepository.moveDistinctIds.mockResolvedValue({ success: true, messages: [] })
+        mockPersonRepository.addDistinctId.mockResolvedValue([])
+        mockPersonRepository.addPersonlessDistinctId.mockResolvedValue(true)
+        mockPersonRepository.updateCohortsAndFeatureFlagsForMerge.mockResolvedValue()
+        mockPersonRepository.addPersonlessDistinctIdForMerge.mockResolvedValue(true)
+        mockPersonRepository.personPropertiesSize.mockResolvedValue(0)
+        mockPersonRepository.inTransaction.mockImplementation(
+            async (description: string, transaction: (tx: PersonRepositoryTransaction) => Promise<any>) => {
+                const mockTx = {
+                    createPerson: jest
+                        .fn()
+                        .mockImplementation(
+                            (
+                                _createdAt: any,
+                                properties: any,
+                                _propertiesLastUpdatedAt: any,
+                                _propertiesLastOperation: any,
+                                _teamId: any,
+                                _isUserId: any,
+                                _isIdentified: any,
+                                id: any,
+                                _distinctIds: any
+                            ) => {
+                                dbCounter++
+                                latestPerson = {
+                                    ...latestPerson,
+                                    version: dbCounter,
+                                    id: latestPerson.id || id,
+                                    properties: latestPerson.properties || properties,
+                                }
+                                return Promise.resolve([latestPerson, []])
+                            }
+                        ),
+                    updatePerson: jest.fn().mockImplementation((personInput: any, update: any) => {
+                        dbCounter++
+                        latestPerson = {
+                            ...personInput,
+                            properties: { ...personInput.properties, ...update.properties },
+                            version: dbCounter,
+                        }
+                        return Promise.resolve([latestPerson, [], false])
+                    }),
+                    updatePersonAssertVersion: jest.fn().mockImplementation(() => {
+                        dbCounter++
+                        return Promise.resolve([dbCounter, []])
+                    }),
+                    deletePerson: jest.fn().mockResolvedValue([]),
+                    moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
+                    addDistinctId: jest.fn().mockResolvedValue([]),
+                    updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+                    addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+                }
+                return await transaction(mockTx)
+            }
+        )
+
         db = {
             postgres: {
                 transaction: jest.fn().mockImplementation(async (_usage, _tag, transaction) => {
                     return await transaction(transaction)
                 }),
             },
-            fetchPerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve(latestPerson)
-            }),
-            createPerson: jest
-                .fn()
-                .mockImplementation(
-                    (
-                        _createdAt,
-                        properties,
-                        _propertiesLastUpdatedAt,
-                        _propertiesLastOperation,
-                        _teamId,
-                        _isUserId,
-                        _isIdentified,
-                        id,
-                        _distinctIds
-                    ) => {
-                        dbCounter++
-                        latestPerson = {
-                            ...latestPerson,
-                            version: dbCounter,
-                            id: id || latestPerson.id,
-                            properties: properties || latestPerson.properties,
-                        }
-                        return Promise.resolve([latestPerson, []])
-                    }
-                ),
-            updatePerson: jest.fn().mockImplementation((personInput, update) => {
-                dbCounter++
-                const updatedPerson = {
-                    ...personInput,
-                    properties: { ...personInput.properties, ...(update.properties || {}) },
-                    version: dbCounter,
-                }
-                return Promise.resolve([updatedPerson, [], false]) // no version disparity
-            }),
-            updatePersonAssertVersion: jest.fn().mockImplementation(() => {
-                dbCounter++
-                return Promise.resolve([dbCounter, []])
-            }),
-            deletePerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
-            }),
-            moveDistinctIds: jest.fn().mockImplementation(() => {
-                return Promise.resolve({ success: true, messages: [] })
-            }),
-            addDistinctId: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
-            }),
         } as unknown as DB
 
-        const measuringStore = new MeasuringPersonsStore(db, {
+        const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })
-        const batchStore = new BatchWritingPersonsStore(db, new BasePersonRepository(db.postgres))
+        const batchStore = new BatchWritingPersonsStore(db, mockPersonRepository)
         measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
         batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
         shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
@@ -256,8 +372,10 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(result).toEqual(person)
 
             await shadowManager.flush()
-            expect(db.fetchPerson).toHaveBeenCalledWith(teamId, 'test-distinct', { useReadReplica: true })
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledWith(teamId, 'test-distinct', {
+                useReadReplica: true,
+            })
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledTimes(1)
 
             // Check that batch store cache was set
             const checkCache = batchStoreForBatch.getCheckCache()
@@ -271,8 +389,10 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(result).toEqual(person)
 
             await shadowManager.flush()
-            expect(db.fetchPerson).toHaveBeenCalledWith(teamId, 'test-distinct', { useReadReplica: false })
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledWith(teamId, 'test-distinct', {
+                useReadReplica: false,
+            })
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledTimes(1)
 
             // Check that batch store update cache was set
             const updateCache = batchStoreForBatch.getUpdateCache()
@@ -291,7 +411,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(result).toEqual(person)
 
             await shadowManager.flush()
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledTimes(1)
 
             // Cache should override properties, but keep changeset
             const updateCache = batchStoreForBatch.getUpdateCache()
@@ -318,7 +438,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(result[0].id).toBe('new-id')
 
             await shadowManager.flush()
-            expect(db.createPerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.createPerson).toHaveBeenCalledTimes(1)
 
             // Check that batch store cache was set
             const updateCache = batchStoreForBatch.getUpdateCache()
@@ -342,8 +462,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             await shadowManager.flush()
             // Only measuring store should make DB calls - batch store batches the update
-            expect(db.updatePerson).toHaveBeenCalledTimes(1)
-            expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.updatePerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
 
             // Check that final state was tracked
             const finalStates = shadowManager.getFinalStates()
@@ -366,8 +486,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.flush()
 
             // Only measuring store should make DB calls - batch store batches the update
-            expect(db.updatePerson).toHaveBeenCalledTimes(1)
-            expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.updatePerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
 
             // Check that final state was tracked
             const finalStates = shadowManager.getFinalStates()
@@ -388,8 +508,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.flush()
 
             expect(result).toEqual([])
-            expect(db.deletePerson).toHaveBeenCalledWith(person, undefined)
-            expect(db.deletePerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.deletePerson).toHaveBeenCalledWith(person)
+            expect(mockPersonRepository.deletePerson).toHaveBeenCalledTimes(1)
 
             // Check that final state was set to null
             const finalStates = shadowManager.getFinalStates()
@@ -421,11 +541,11 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.flush()
 
             // Verify flush makes no DB writes
-            expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
-            expect(db.updatePerson).toHaveBeenCalledTimes(1)
-            expect(db.createPerson).toHaveBeenCalledTimes(0)
-            expect(db.deletePerson).toHaveBeenCalledTimes(0)
-            expect(db.fetchPerson).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.updatePerson).toHaveBeenCalledTimes(1)
+            expect(mockPersonRepository.createPerson).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.deletePerson).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledTimes(0)
 
             const metrics = shadowManager.getShadowMetrics()
             expect(metrics).toBeDefined()
@@ -510,11 +630,20 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should detect concurrent modifications with version disparity', async () => {
-            // Mock version disparity in measuring store
-            db.updatePerson = jest.fn().mockImplementation((person, update) => {
-                const personCopy = { ...person, ...update, version: person.version + 1 }
+            // Mock version disparity in measuring store by updating the mock person repository
+            const mockPersonRepository = createMockPersonRepository(person)
+            mockPersonRepository.updatePerson = jest.fn().mockImplementation((personInput: any, update: any) => {
+                const personCopy = { ...personInput, ...update, version: personInput.version + 1 }
                 return Promise.resolve([personCopy, [], true]) // version disparity = true
             })
+
+            // Recreate the measuring store with the updated mock
+            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+                personCacheEnabledForUpdates: true,
+                personCacheEnabledForChecks: true,
+            })
+            const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
+            shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
 
             await shadowManager.updatePersonWithPropertiesDiffForUpdate(
                 person,
@@ -603,11 +732,11 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.flush()
 
             // Verify flush makes no DB writes
-            expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
-            expect(db.updatePerson).toHaveBeenCalledTimes(2)
-            expect(db.createPerson).toHaveBeenCalledTimes(0)
-            expect(db.deletePerson).toHaveBeenCalledTimes(0)
-            expect(db.fetchPerson).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.updatePersonAssertVersion).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.updatePerson).toHaveBeenCalledTimes(2)
+            expect(mockPersonRepository.createPerson).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.deletePerson).toHaveBeenCalledTimes(0)
+            expect(mockPersonRepository.fetchPerson).toHaveBeenCalledTimes(0)
 
             const metricsData = shadowManager.getShadowMetrics()
             expect(metricsData).toBeDefined()
@@ -690,7 +819,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Person 3: Concurrent modification (version disparity)
             // Mock version disparity for person3 only
-            db.updatePerson = jest.fn().mockImplementation((personInput, update) => {
+            mockPersonRepository.updatePerson = jest.fn().mockImplementation((personInput, update) => {
                 if (personInput.id === 'person3-id') {
                     const personCopy = {
                         ...personInput,
@@ -872,14 +1001,17 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 version: 2,
             }
 
-            db.createPerson = jest.fn().mockResolvedValue([createdPerson, []])
+            // Create mock person repository that returns the created person
+            const mockPersonRepository = createMockPersonRepository(createdPerson)
+            mockPersonRepository.createPerson = jest.fn().mockResolvedValue([createdPerson, []])
+            mockPersonRepository.moveDistinctIds = jest.fn().mockResolvedValue({ success: true, messages: [] })
 
             // Create shadow manager
-            const measuringStore = new MeasuringPersonsStore(db, {
+            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
                 personCacheEnabledForUpdates: true,
                 personCacheEnabledForChecks: true,
             })
-            const batchStore = new BatchWritingPersonsStore(db, new BasePersonRepository(db.postgres))
+            const batchStore = new BatchWritingPersonsStore(db, mockPersonRepository)
             const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
             const batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
             const shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
@@ -957,11 +1089,10 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 is_identified: true,
             }
 
-            // Mock DB to return the source person for fetchForUpdate
-            db.fetchPerson = jest.fn().mockResolvedValue(sourcePerson)
-
-            // Mock updatePerson to simulate merge operation
-            db.updatePerson = jest.fn().mockImplementation((person, update) => {
+            // Create mock person repository that returns the source person for fetchForUpdate
+            const mockPersonRepository = createMockPersonRepository(sourcePerson)
+            mockPersonRepository.fetchPerson = jest.fn().mockResolvedValue(sourcePerson)
+            mockPersonRepository.updatePerson = jest.fn().mockImplementation((person: any, update: any) => {
                 const updatedPerson = {
                     ...person,
                     ...update,
@@ -970,6 +1101,15 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 }
                 return Promise.resolve([updatedPerson, [], false])
             })
+            mockPersonRepository.moveDistinctIds = jest.fn().mockResolvedValue({ success: true, messages: [] })
+
+            // Recreate the measuring store with the updated mock
+            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+                personCacheEnabledForUpdates: true,
+                personCacheEnabledForChecks: true,
+            })
+            const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
+            shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
 
             // Step 1: fetchForUpdate
             const fetchedPerson = await shadowManager.fetchForUpdate(teamId, 'test-distinct')
@@ -1039,11 +1179,10 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 is_identified: true,
             }
 
-            // Mock DB to return the target person for fetchForUpdate
-            db.fetchPerson = jest.fn().mockResolvedValue(targetPerson)
-
-            // Mock updatePerson to simulate merge operation on target
-            db.updatePerson = jest.fn().mockImplementation((person, update) => {
+            // Create mock person repository that returns the target person for fetchForUpdate
+            const mockPersonRepository = createMockPersonRepository(targetPerson)
+            mockPersonRepository.fetchPerson = jest.fn().mockResolvedValue(targetPerson)
+            mockPersonRepository.updatePerson = jest.fn().mockImplementation((person: any, update: any) => {
                 const updatedPerson = {
                     ...person,
                     ...update,
@@ -1052,6 +1191,15 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 }
                 return Promise.resolve([updatedPerson, [], false])
             })
+            mockPersonRepository.moveDistinctIds = jest.fn().mockResolvedValue({ success: true, messages: [] })
+
+            // Recreate the measuring store with the updated mock
+            const measuringStore = new MeasuringPersonsStore(db, mockPersonRepository, {
+                personCacheEnabledForUpdates: true,
+                personCacheEnabledForChecks: true,
+            })
+            const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
+            shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
 
             // Step 1: fetchForUpdate on target person
             const fetchedPerson = await shadowManager.fetchForUpdate(teamId, 'target-distinct')
@@ -1302,7 +1450,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 },
                 version: 2,
             }
-            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+            mockPersonRepository.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
 
             // Mock secondary store with different nested value
             const secondaryPerson = {
@@ -1344,7 +1492,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Mock main store to return person with version 2
             const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
-            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+            mockPersonRepository.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
 
             // Mock secondary store to return same person but with version 3 (should be ignored)
             const secondaryPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 3 }

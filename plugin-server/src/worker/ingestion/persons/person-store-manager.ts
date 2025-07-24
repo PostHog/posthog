@@ -4,13 +4,14 @@ import { DateTime } from 'luxon'
 import { TopicMessage } from '../../../kafka/producer'
 import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
-import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
+import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { PersonsStoreTransaction } from './persons-store-transaction'
 
 interface FinalStateEntry {
     person: InternalPerson
@@ -125,7 +126,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
+    async inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
         return await this.mainStore.inTransaction(description, transaction)
     }
 
@@ -194,7 +195,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[]]> {
         const mainResult = await this.mainStore.createPerson(
             createdAt,
@@ -234,7 +235,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [[mainPersonResult, mainKafkaMessages, mainVersionDisparity], [secondaryPersonResult]] =
             await Promise.all([
@@ -270,7 +271,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         // We must make a clone of person since applyEventPropertyUpdates will mutate it
         const [mainPersonResult, mainKafkaMessages, mainVersionDisparity] =
@@ -314,7 +315,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
 
-    async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
+    async deletePerson(
+        person: InternalPerson,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<TopicMessage[]> {
         const kafkaMessages = await this.mainStore.deletePerson(person, distinctId, tx)
 
         // Clear ALL caches related to this person id
@@ -328,7 +333,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.addDistinctId(person, distinctId, version, tx)
 
@@ -345,7 +350,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
 
@@ -403,7 +408,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         sourcePersonID: InternalPerson['id'],
         targetPersonID: InternalPerson['id'],
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<void> {
         return this.mainStore.updateCohortsAndFeatureFlagsForMerge(
             teamID,
@@ -421,7 +426,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     async addPersonlessDistinctIdForMerge(
         teamId: number,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
         return this.mainStore.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
     }

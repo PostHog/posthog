@@ -167,7 +167,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
                     const start = performance.now()
-                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, { useReadReplica: true })
                     observeLatencyByVersion(person, start, 'fetchForChecking')
                     this.setCheckCachedPerson(teamId, distinctId, person ?? null)
                     return person ?? null
@@ -198,7 +198,9 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
-                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, {
+                        useReadReplica: false,
+                    })
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
                     this.setCachedPerson(teamId, distinctId, person ?? null)
                     return person ?? null
@@ -369,7 +371,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     }
 
     async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
-        return await this.db.personPropertiesSize(teamId, distinctId)
+        return await this.personRepository.personPropertiesSize(teamId, distinctId)
     }
 
     getMethodCountsPerDistinctId(): Map<string, Map<MethodName, number>> {
