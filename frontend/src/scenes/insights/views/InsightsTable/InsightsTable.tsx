@@ -84,13 +84,14 @@ export function InsightsTable({
         isSingleSeries,
         hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { weekStartDay, timezone } = useValues(teamLogic)
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -140,7 +141,7 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendIndexes={hiddenLegendIndexes}
+                    isHidden={getTrendsHidden(item)}
                     toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
