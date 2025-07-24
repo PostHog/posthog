@@ -1438,7 +1438,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter.",
+            "Query contains 'filters' both as placeholder and as a query parameter.",
         )
 
     def test_hogql_query_filters_alias(self):

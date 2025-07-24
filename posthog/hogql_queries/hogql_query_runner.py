@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -55,11 +55,14 @@ class HogQLQueryRunner(QueryRunner):
             elif isinstance(self.query, HogQLASTQuery):
                 parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
 
-        if self.query.filters:
-            with self.timings.measure("filters"):
-                placeholders_in_query = find_placeholders(parsed_select)
-                if "filters" in placeholders_in_query:
-                    parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+        finder = find_placeholders(parsed_select)
+        with self.timings.measure("filters"):
+            if self.query.filters and finder.has_filters:
+                parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+        if len(finder.field_strings) > 0 or finder.has_expr_placeholders:
+            with self.timings.measure("replace_placeholders"):
+                parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, values))
+
         return parsed_select
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

@@ -921,7 +921,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("this makes little sense", "mismatched input 'makes' expecting <EOF>")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
-        self._assert_expr_error("a -> { print(2) }", "You can not use expressions inside placeholders")
+        self._assert_expr_error("a -> { print(2) }", "Unresolved placeholder")
 
     def test_logic(self):
         self.assertEqual(

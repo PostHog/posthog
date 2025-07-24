@@ -1,4 +1,5 @@
 from typing import cast
+from common.hogvm.python.utils import HogVMException
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -10,7 +11,7 @@ from posthog.test.base import BaseTest
 class TestParser(BaseTest):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar}")
-        self.assertEqual(sorted(find_placeholders(expr)), sorted(["foo", "bar"]))
+        self.assertEqual(sorted(find_placeholders(expr).field_strings), sorted(["foo", "bar"]))
 
     def test_replace_placeholders_simple(self):
         expr = clear_locations(parse_expr("{foo}"))
@@ -26,16 +27,16 @@ class TestParser(BaseTest):
 
     def test_replace_placeholders_error(self):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(QueryError) as context:
+        with self.assertRaises(HogVMException) as context:
             replace_placeholders(expr, {})
         self.assertEqual(
-            "Unresolved placeholder: {foo}",
+            "Global variable not found: foo",
             str(context.exception),
         )
-        with self.assertRaises(QueryError) as context:
+        with self.assertRaises(HogVMException) as context:
             replace_placeholders(expr, {"bar": ast.Constant(value=123)})
         self.assertEqual(
-            "Placeholder {foo} is not available in this context. You can use the following: bar",
+            "Global variable not found: foo",
             str(context.exception),
         )
 
