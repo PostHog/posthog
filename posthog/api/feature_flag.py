@@ -3,6 +3,7 @@ import re
 import time
 import logging
 from typing import Any, Optional, cast
+from posthog.date_util import thirty_days_ago
 from datetime import datetime
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
@@ -726,7 +727,39 @@ class FeatureFlagViewSet(
 
         for key in filters:
             if key == "active":
-                queryset = queryset.filter(active=filters[key] == "true")
+                if filters[key] == "STALE":
+                    # Get flags that are at least 30 days old and active
+                    # This is an approximation - the serializer will compute the exact status
+                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        where=[
+                            """
+                            (
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                )
+                                OR
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'multivariate'->'variants') AS variant
+                                        WHERE variant->>'rollout_percentage' = '100'
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                )
+                            )
+                            """
+                        ]
+                    )
+                else:
+                    queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
@@ -799,7 +832,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["true", "false"],
+                enum=["true", "false", "STALE"],
             ),
             OpenApiParameter(
                 "created_by_id",
