@@ -18,10 +18,13 @@ import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/d
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../utils/utils'
+import { BasePersonRepositoryTransaction } from './base-person-repository-transaction'
 import { PersonRepository } from './person-repository'
+import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonUpdate } from './person-update-batch'
+import { RawPersonRepository } from './raw-person-repository'
 
-export class BasePersonRepository implements PersonRepository {
+export class BasePersonRepository implements PersonRepository, RawPersonRepository {
     constructor(private postgres: PostgresRouter) {}
 
     private toPerson(row: RawPerson): InternalPerson {
@@ -400,8 +403,8 @@ export class BasePersonRepository implements PersonRepository {
     async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        tx?: TransactionClient,
-        tag?: string
+        tag?: string,
+        tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
@@ -534,5 +537,19 @@ export class BasePersonRepository implements PersonRepository {
             [targetPersonID, sourcePersonID, teamID],
             'updateCohortAndFeatureFlagsPeople'
         )
+    }
+
+    async inTransaction<T>(
+        description: string,
+        transaction: (tx: PersonRepositoryTransaction) => Promise<T>
+    ): Promise<T> {
+        return await this.inRawTransaction(description, async (tx: TransactionClient) => {
+            const transactionClient = new BasePersonRepositoryTransaction(tx, this)
+            return await transaction(transactionClient)
+        })
+    }
+
+    async inRawTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
+        return await this.postgres.transaction(PostgresUse.PERSONS_WRITE, description, transaction)
     }
 }

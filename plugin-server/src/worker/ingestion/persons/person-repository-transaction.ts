@@ -4,10 +4,9 @@ import { DateTime } from 'luxon'
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
-import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonUpdate } from './person-update-batch'
 
-export interface PersonRepository {
+export interface PersonRepositoryTransaction {
     fetchPerson(
         teamId: Team['id'],
         distinctId: string,
@@ -34,11 +33,11 @@ export interface PersonRepository {
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
 
-    deletePerson(person: InternalPerson): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson, distinctId: string): Promise<TopicMessage[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
 
-    moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult>
+    moveDistinctIds(source: InternalPerson, target: InternalPerson, distinctId: string): Promise<MoveDistinctIdsResult>
 
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
@@ -48,8 +47,7 @@ export interface PersonRepository {
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
-        targetPersonID: InternalPerson['id']
+        targetPersonID: InternalPerson['id'],
+        distinctId: string
     ): Promise<void>
-
-    inTransaction<T>(description: string, transaction: (tx: PersonRepositoryTransaction) => Promise<T>): Promise<T>
 }

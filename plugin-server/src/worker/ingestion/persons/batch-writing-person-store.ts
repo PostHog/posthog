@@ -34,10 +34,10 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { PersonRepository } from './person-repository'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { RawPersonRepository } from './raw-person-repository'
 
 type MethodName =
     | 'fetchForChecking'
@@ -99,7 +99,7 @@ export class BatchWritingPersonsStore implements PersonsStore {
 
     constructor(
         private db: DB,
-        private personRepository: PersonRepository = new BasePersonRepository(db.postgres),
+        private personRepository: RawPersonRepository = new BasePersonRepository(db.postgres),
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -130,7 +130,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     constructor(
         private db: DB,
-        private personRepository: PersonRepository,
+        private personRepository: RawPersonRepository,
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -879,8 +879,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const [_, messages] = await this.personRepository.updatePerson(
             person,
             updateFields,
-            undefined,
-            'updatePersonNoAssert'
+            'updatePersonNoAssert',
+            undefined
         )
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')

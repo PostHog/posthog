@@ -98,6 +98,9 @@ describe('BatchWritingPersonStore', () => {
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+            inRawTransaction: jest.fn().mockImplementation(async (description, transaction) => {
+                return await transaction(transaction)
+            }),
         }
         return mockRepo
     }
@@ -171,8 +174,8 @@ describe('BatchWritingPersonStore', () => {
                 properties: { test: 'test' },
             }),
             expect.anything(),
-            undefined,
-            'updatePersonNoAssert'
+            'updatePersonNoAssert',
+            undefined
         )
     })
 
@@ -445,8 +448,8 @@ describe('BatchWritingPersonStore', () => {
                     shared_prop: 'new_value',
                 },
             }),
-            undefined,
-            'updatePersonNoAssert'
+            'updatePersonNoAssert',
+            undefined
         )
     })
 
@@ -555,8 +558,8 @@ describe('BatchWritingPersonStore', () => {
                 properties: { null_prop: null, undefined_prop: undefined, test: 'test' },
             }),
             expect.anything(),
-            undefined,
-            'updatePersonNoAssert'
+            'updatePersonNoAssert',
+            undefined
         )
     })
 
@@ -923,8 +926,8 @@ describe('BatchWritingPersonStore', () => {
                     prop_from_distinctId2: 'value2',
                 },
             }),
-            undefined,
-            'updatePersonNoAssert'
+            'updatePersonNoAssert',
+            undefined
         )
     })
 

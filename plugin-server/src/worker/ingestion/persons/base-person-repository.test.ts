@@ -821,7 +821,7 @@ describe('BasePersonRepository', () => {
 
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-transaction', async (tx) => {
                 const update = { properties: { name: 'Jane' } }
-                const [updatedPerson, messages] = await repository.updatePerson(person, update, tx)
+                const [updatedPerson, messages] = await repository.updatePerson(person, update, 'tx', tx)
 
                 expect(updatedPerson.properties).toEqual({ name: 'Jane' })
                 expect(messages).toHaveLength(1)
@@ -837,7 +837,7 @@ describe('BasePersonRepository', () => {
             const person = await createTestPerson(team.id, 'test-distinct', { name: 'John' })
 
             const update = { properties: { name: 'Jane' } }
-            const [updatedPerson, messages] = await repository.updatePerson(person, update, undefined, 'test-tag')
+            const [updatedPerson, messages] = await repository.updatePerson(person, update, 'test-tag')
 
             expect(updatedPerson.properties).toEqual({ name: 'Jane' })
             expect(messages).toHaveLength(1)
