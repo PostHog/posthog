@@ -98,6 +98,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                           const { index, points } = point
 
                           const dataset = points.referencePoint.dataset
+                          dataset.action = dataset.actions?.[index]
+
                           const label = dataset.labels?.[point.index]
 
                           if (context?.onDataPointClick) {
