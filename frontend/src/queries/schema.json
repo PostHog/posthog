@@ -22828,6 +22828,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "confidenceLevel": {
+                    "type": "number"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -22896,6 +22899,9 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showConfidenceIntervals": {
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {

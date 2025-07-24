@@ -1,6 +1,5 @@
 import {
     IconBolt,
-    IconCheck,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -27,11 +26,11 @@ import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconOpenInNew, IconSync } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { twMerge } from 'tailwind-merge'
@@ -405,10 +404,13 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     isEditingInsight: boolean
 }): JSX.Element | null {
     const { insight } = useValues(insightSceneLogic)
-    const { setQuery } = useActions(insightVizDataLogic({ dashboardItemId: insight?.short_id }))
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const [isApplied, setIsApplied] = useState(false)
+    // Get insight props for the logic
+    const insightProps = { dashboardItemId: insight?.short_id }
+
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -451,18 +453,21 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight ? (
+                              {isEditingInsight && suggestedQuery && (
                                   <LemonButton
                                       onClick={() => {
-                                          setQuery(query)
-                                          setIsApplied(true)
+                                          if (previousQuery) {
+                                              onRejectSuggestedInsight()
+                                          } else {
+                                              onReapplySuggestedInsight()
+                                          }
                                       }}
-                                      sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                                       size="xsmall"
-                                  >
-                                      Apply to current insight
-                                  </LemonButton>
-                              ) : (
+                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                                  />
+                              )}
+                              {!isEditingInsight && (
                                   <LemonButton
                                       to={urls.insightNew({ query })}
                                       icon={<IconOpenInNew />}
