@@ -175,9 +175,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
                                             disabledReason:
-                                                startingMaterialization || currentJobStatus === 'Running'
-                                                    ? false
-                                                    : 'Materialization is not running',
+                                                currentJobStatus !== 'Running' && 'Materialization is not running',
                                         }}
                                     >
                                         {startingMaterialization
