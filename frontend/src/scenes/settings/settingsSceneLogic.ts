@@ -3,15 +3,15 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
+import { SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
+// @ts-ignore: typegen is missing, but logic works fine
 import type { settingsSceneLogicType } from './settingsSceneLogicType'
-import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
@@ -28,7 +28,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     selectors({
         breadcrumbs: [
             (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
-            (selectedLevel, selectedSectionId, sections): Breadcrumb[] => [
+            (selectedLevel: string, selectedSectionId: any, sections: any[]): Breadcrumb[] => [
                 {
                     key: Scene.Settings,
                     name: `Settings`,
@@ -37,14 +37,14 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 {
                     key: [Scene.Settings, selectedSectionId || selectedLevel],
                     name: selectedSectionId
-                        ? sections.find((x) => x.id === selectedSectionId)?.title
+                        ? sections.find((x: { id: any }) => x.id === selectedSectionId)?.title
                         : capitalizeFirstLetter(selectedLevel),
                 },
             ],
         ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({}) => ({
         // Removed clipboard copy on selectSetting to prevent unwanted copying when navigating settings
     })),
 
@@ -72,7 +72,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             } else if (section !== values.selectedSectionId) {
                 actions.selectSection(
                     section as SettingSectionId,
-                    values.sections.find((x) => x.id === section)?.level || 'user'
+                    values.sections.find((x: { id: string }) => x.id === section)?.level || 'user'
                 )
             }
         },
