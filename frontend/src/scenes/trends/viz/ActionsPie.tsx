@@ -36,54 +36,55 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
-        hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
+        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     const onDataPointClick = context?.onDataPointClick
 
     const showAggregation = !pieChartVizOptions?.hideAggregation
 
-    function updateData(): void {
-        const days = indexedResults.length > 0 ? indexedResults[0].days : []
-
-        const colorList = indexedResults.map(getTrendsColor)
-
-        setData([
-            {
-                id: 0,
-                labels: indexedResults.map((item) => item.label),
-                data: indexedResults.map((item) => item.aggregated_value),
-                actions: indexedResults.map((item) => item.action),
-                breakdownValues: indexedResults.map((item) => item.breakdown_value),
-                breakdownLabels: indexedResults.map((item) => {
-                    return formatBreakdownLabel(
-                        item.breakdown_value,
-                        breakdownFilter,
-                        allCohorts.results,
-                        formatPropertyValueForDisplay
-                    )
-                }),
-                compareLabels: indexedResults.map((item) => item.compare_label),
-                personsValues: indexedResults.map((item) => item.persons),
-                days,
-                backgroundColor: colorList,
-                borderColor: colorList, // For colors to display in the tooltip
-            },
-        ])
-        setTotal(
-            indexedResults.reduce(
-                (prev, item, i) => prev + (!hiddenLegendIndexes?.includes(i) ? item.aggregated_value : 0),
-                0
-            )
-        )
-    }
-
     useEffect(() => {
         if (indexedResults) {
-            updateData()
+            const days = indexedResults.length > 0 ? indexedResults[0].days : []
+
+            const colorList = indexedResults.map(getTrendsColor)
+
+            setData([
+                {
+                    id: 0,
+                    labels: indexedResults.map((item) => item.label),
+                    data: indexedResults.map((item) => item.aggregated_value),
+                    actions: indexedResults.map((item) => item.action),
+                    breakdownValues: indexedResults.map((item) => item.breakdown_value),
+                    breakdownLabels: indexedResults.map((item) => {
+                        return formatBreakdownLabel(
+                            item.breakdown_value,
+                            breakdownFilter,
+                            allCohorts.results,
+                            formatPropertyValueForDisplay
+                        )
+                    }),
+                    compareLabels: indexedResults.map((item) => item.compare_label),
+                    personsValues: indexedResults.map((item) => item.persons),
+                    days,
+                    backgroundColor: colorList,
+                    borderColor: colorList, // For colors to display in the tooltip
+                },
+            ])
+            setTotal(
+                indexedResults.reduce((prev, item) => prev + (!getTrendsHidden(item) ? item.aggregated_value : 0), 0)
+            )
         }
-    }, [indexedResults, hiddenLegendIndexes])
+    }, [
+        indexedResults,
+        breakdownFilter,
+        getTrendsColor,
+        getTrendsHidden,
+        allCohorts.results,
+        formatPropertyValueForDisplay,
+    ])
 
     let onClick: ((payload: GraphPointPayload) => void) | undefined = undefined
     if (onDataPointClick) {
