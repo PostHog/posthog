@@ -32,7 +32,6 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 from decimal import Decimal
-from posthog.hogql.errors import ExposedHogQLError
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1429,7 +1428,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
-        with self.assertRaises(ExposedHogQLError) as e:
+        with self.assertRaises(ValueError) as e:
             execute_hogql_query(
                 query,
                 team=self.team,
