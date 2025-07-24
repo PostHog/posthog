@@ -220,7 +220,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if template_id:
                 template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
-                    data["hog"] = data.get("hog") or template.hog
+                    data["hog"] = data.get("hog") or template.code
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
                     data["icon_url"] = data.get("icon_url") or template.icon_url

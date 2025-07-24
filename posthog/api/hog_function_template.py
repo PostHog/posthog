@@ -1,13 +1,14 @@
 import structlog
-from django.db.models import QuerySet
-from rest_framework import permissions, mixins, viewsets
-from rest_framework import serializers
+from django.db.models import QuerySet, Count
+from rest_framework import permissions, mixins, viewsets, serializers
+from rest_framework.request import Request
 
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
 )
 from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.models.hog_functions import HogFunction
 from posthog.models.hog_function_template import HogFunctionTemplate
 
 
@@ -82,3 +83,29 @@ class PublicHogFunctionTemplateViewSet(
             queryset = queryset.exclude(status="hidden")
 
         return queryset
+
+    def list(self, request: Request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+
+        # Load the counts of usage for these templates and re-order the results by usage
+        results = response.data["results"]
+        template_ids = [result["id"] for result in results]
+
+        template_usage = (
+            HogFunction.objects.filter(deleted=False, enabled=True, template_id__in=template_ids)
+            .values("template_id")
+            .annotate(count=Count("template_id"))
+            .order_by("-count")[:500]
+        )
+
+        popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
+
+        for result in results:
+            if result["id"] not in popularity_dict:
+                popularity_dict[result["id"]] = 0
+
+        results.sort(key=lambda template: (-popularity_dict[template["id"]], template["name"].lower()))
+
+        response.data["results"] = results
+
+        return response

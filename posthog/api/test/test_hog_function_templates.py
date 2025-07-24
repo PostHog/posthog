@@ -5,7 +5,6 @@ from rest_framework import status
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import HogFunction
-from django.core.cache import cache
 from posthog.models.hog_function_template import HogFunctionTemplate
 
 MOCK_NODE_TEMPLATES = json.loads(
@@ -152,38 +151,6 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         for template_item in response.json()["results"]:
             assert template_item["status"] != "hidden", f"Hidden template {template_item['id']} should not be returned"
 
-    def test_templates_are_sorted_by_usage(self):
-        HogFunction.objects.create(
-            team=self.team,
-            name="Test Function 1",
-            template_id="template-slack",
-            type="destination",
-            enabled=True,
-        )
-        HogFunction.objects.create(
-            team=self.team,
-            name="Test Function 2",
-            template_id="template-slack",
-            type="destination",
-            enabled=True,
-        )
-        HogFunction.objects.create(
-            team=self.team,
-            name="Test Function 3",
-            template_id="template-webhook",
-            type="destination",
-            enabled=True,
-        )
-
-        cache.delete("hog_function/template_usage")
-
-        response = self.client.get("/api/public_hog_function_templates/")
-        assert response.status_code == status.HTTP_200_OK, response.json()
-
-        results = response.json()["results"]
-        assert results[0]["id"] == "template-slack"
-        assert results[1]["id"] == "template-webhook"
-
     def test_get_specific_deprecated_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Test getting a specific template via API endpoint
@@ -224,3 +191,29 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert updated_response.status_code == status.HTTP_200_OK
         assert updated_response.json()["name"] == "Updated Slack"
         assert updated_response.json()["description"] == "This template was updated"
+
+    def test_public_hog_function_templates_are_sorted_by_usage(self):
+        for i in range(10):
+            HogFunction.objects.create(
+                team=self.team,
+                name=f"Test Function {i}",
+                template_id="template-slack",
+                type="destination",
+                enabled=True,
+            )
+
+        HogFunction.objects.create(
+            team=self.team,
+            name="Test Function 1",
+            template_id="template-test-2",
+            type="destination",
+            enabled=True,
+        )
+
+        response = self.client.get("/api/public_hog_function_templates/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        results = response.json()["results"]
+        assert results[0]["id"] == "template-slack"
+        assert results[1]["id"] == "template-test-2"
+        assert results[2]["id"] == "template-test-0"
