@@ -714,6 +714,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
             capture_exception(e)
 
+        if settings.DISABLE_ALL_PLUGIN_CREATION:
+            raise ValidationError(
+                "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
+            )
+
         plugin_config = super().create(validated_data)
         log_enabled_change_activity(
             new_plugin_config=plugin_config,
