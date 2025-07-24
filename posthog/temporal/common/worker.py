@@ -87,7 +87,7 @@ async def create_worker(
                         itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
-                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0]},
+                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
     )
