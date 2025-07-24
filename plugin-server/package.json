@@ -25,7 +25,7 @@
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd plugin-server && pnpm run setup:test:cyclotron && pnpm run setup:test:cassandra",
         "setup:test:cyclotron": "CYCLOTRON_DATABASE_NAME=test_cyclotron ../rust/bin/migrate-cyclotron",
-        "setup:test:cassandra": "./bin/migrate-cassandra",
+        "setup:test:cassandra": "CASSANDRA_KEYSPACE=test_posthog ./bin/migrate-cassandra",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",

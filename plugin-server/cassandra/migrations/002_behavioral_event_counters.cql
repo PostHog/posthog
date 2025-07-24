@@ -13,8 +13,7 @@ CREATE TABLE IF NOT EXISTS behavioral_event_counters (
     date DATE,
     count COUNTER,
     PRIMARY KEY (team_id, filter_hash, person_id, date)
-) WITH CLUSTERING ORDER BY (filter_hash ASC, person_id ASC, date DESC)
-COMMENT = 'Stores real-time counters for behavioral event matches to support fast cohort filtering';
+) WITH CLUSTERING ORDER BY (filter_hash ASC, person_id ASC, date DESC);
 
 -- Create index on date for efficient time-range queries
 CREATE INDEX IF NOT EXISTS behavioral_counters_date_idx 

@@ -23,18 +23,6 @@ describe('CdpBehaviouralEventsConsumer', () => {
         cassandra = hub.cassandra
         processor = new CdpBehaviouralEventsConsumer(hub)
 
-        // Ensure the table exists for tests
-        await cassandra.execute(`
-            CREATE TABLE IF NOT EXISTS behavioral_event_counters (
-                team_id INT,
-                filter_hash TEXT,
-                person_id UUID,
-                date DATE,
-                count COUNTER,
-                PRIMARY KEY (team_id, filter_hash, person_id, date)
-            ) WITH CLUSTERING ORDER BY (filter_hash ASC, person_id ASC, date DESC)
-        `)
-
         // Clean up test data
         await cassandra.execute('TRUNCATE behavioral_event_counters')
     })

@@ -47,7 +47,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_SECURE: false,
         CASSANDRA_HOST: 'localhost',
         CASSANDRA_PORT: 9042,
-        CASSANDRA_KEYSPACE: 'posthog',
+        CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
         CASSANDRA_USER: null,
         CASSANDRA_PASSWORD: null,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
