@@ -99,7 +99,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     actions({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleHiddenLegendIndex: (index: number) => ({ index }),
+        toggleHiddenLegendIndex: (dataset: IndexedTrendResult) => ({ dataset }),
     }),
 
     reducers({
@@ -327,15 +327,15 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        toggleHiddenLegendIndex: ({ index }) => {
-            if ((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes?.includes(index)) {
+        toggleHiddenLegendIndex: ({ dataset }) => {
+            if ((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes?.includes(dataset.id)) {
                 actions.updateHiddenLegendIndexes(
-                    (values.insightFilter as TrendsFilter).hiddenLegendIndexes?.filter((idx) => idx !== index)
+                    (values.insightFilter as TrendsFilter).hiddenLegendIndexes?.filter((idx) => idx !== dataset.id)
                 )
             } else {
                 actions.updateHiddenLegendIndexes([
                     ...((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes || []),
-                    index,
+                    dataset.id,
                 ])
             }
         },

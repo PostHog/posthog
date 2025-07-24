@@ -64,7 +64,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
                     className="text-xs mr-4"
                     color={mainColor}
                     checked={!hiddenLegendIndexes.includes(rowIndex)}
-                    onChange={() => toggleHiddenLegendIndex(rowIndex)}
+                    onChange={() => toggleHiddenLegendIndex(item)}
                     fullWidth
                     label={
                         <InsightLabel
