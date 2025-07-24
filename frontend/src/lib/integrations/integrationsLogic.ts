@@ -29,6 +29,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
         deleteIntegration: (id: number) => ({ id }),
         openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
         closeNewIntegrationModal: true,
+        openSetupModal: (id: number) => ({ id }),
+        closeSetupModal: true,
     }),
     reducers({
         newIntegrationModalKind: [
@@ -36,6 +38,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
             {
                 openNewIntegrationModal: (_, { kind }: { kind: IntegrationKind }) => kind,
                 closeNewIntegrationModal: () => null,
+            },
+        ],
+        setupModalOpen: [
+            null as number | null,
+            {
+                openSetupModal: (_, { id }) => id,
+                closeSetupModal: () => null,
             },
         ],
     }),
