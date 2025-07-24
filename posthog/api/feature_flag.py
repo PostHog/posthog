@@ -3,6 +3,7 @@ import re
 import time
 import logging
 from typing import Any, Optional, cast
+from posthog.date_util import thirty_days_ago
 from datetime import datetime
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
@@ -724,7 +725,39 @@ class FeatureFlagViewSet(
 
         for key in filters:
             if key == "active":
-                queryset = queryset.filter(active=filters[key] == "true")
+                if filters[key] == "STALE":
+                    # Get flags that are at least 30 days old and active
+                    # This is an approximation - the serializer will compute the exact status
+                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        where=[
+                            """
+                            (
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                )
+                                OR
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'multivariate'->'variants') AS variant
+                                        WHERE variant->>'rollout_percentage' = '100'
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                )
+                            )
+                            """
+                        ]
+                    )
+                else:
+                    queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
@@ -797,7 +830,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["true", "false"],
+                enum=["true", "false", "STALE"],
             ),
             OpenApiParameter(
                 "created_by_id",
@@ -942,6 +975,56 @@ class FeatureFlagViewSet(
             }
             for feature_flag in all_serialized_flags
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_keys(self, request: request.Request, **kwargs):
+        """
+        Get feature flag keys by IDs.
+        Accepts a list of feature flag IDs and returns a mapping of ID to key.
+        """
+        flag_ids = request.data.get("ids", [])
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Convert to integers and track invalid IDs
+        validated_ids = []
+        invalid_ids = []
+        for flag_id in flag_ids:
+            if str(flag_id).isdigit():
+                try:
+                    validated_ids.append(int(flag_id))
+                except (ValueError, TypeError):
+                    invalid_ids.append(flag_id)
+            else:
+                invalid_ids.append(flag_id)
+
+        # If no valid IDs were provided, return error
+        if not validated_ids and flag_ids:
+            return Response({"error": "Invalid flag IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not validated_ids:
+            return Response({"keys": {}})
+
+        flag_ids = validated_ids
+
+        # Prepare response data
+        response_data: dict[str, Any] = {"keys": {}}
+
+        # Add warning if there were invalid IDs
+        if invalid_ids:
+            response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
+
+        # Fetch flags by IDs
+        flags = FeatureFlag.objects.filter(
+            id__in=flag_ids, team__project_id=self.project_id, deleted=False
+        ).values_list("id", "key")
+
+        # Create mapping of ID to key
+        keys_mapping = {str(flag_id): key for flag_id, key in flags}
+        response_data["keys"] = keys_mapping
+
+        return Response(response_data)
 
     @action(
         methods=["GET"],

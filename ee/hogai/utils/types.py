@@ -1,16 +1,19 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union, TypeVar
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage as LangchainBaseMessage
+from langchain_core.messages import (
+    BaseMessage as LangchainBaseMessage,
+)
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
 from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
+    AssistantGenerationStatusEvent,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
@@ -20,13 +23,18 @@ from posthog.schema import (
 )
 
 AIMessageUnion = Union[
-    AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
+    AssistantMessage,
+    VisualizationMessage,
+    FailureMessage,
+    ReasoningMessage,
+    AssistantToolCallMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
 )
 
 
@@ -88,7 +96,20 @@ def merge_retry_counts(left: int, right: int) -> int:
     return max(left, right)
 
 
-class _SharedAssistantState(BaseModel):
+StateType = TypeVar("StateType", bound=BaseModel)
+PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
+
+
+class BaseState(BaseModel):
+    """Base state class with reset functionality."""
+
+    @classmethod
+    def get_reset_state(cls: type[StateType]) -> StateType:
+        """Returns a new instance with all fields reset to their default values."""
+        return cls(**{k: v.default for k, v in cls.model_fields.items()})
+
+
+class _SharedAssistantState(BaseState):
     """
     The state of the root node.
     """
@@ -164,10 +185,11 @@ class _SharedAssistantState(BaseModel):
 
 
 class AssistantState(_SharedAssistantState):
-    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
     """
     Messages exposed to the user.
     """
+
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
 
 
 class PartialAssistantState(_SharedAssistantState):
@@ -176,10 +198,6 @@ class PartialAssistantState(_SharedAssistantState):
     """
 
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
-
-    @classmethod
-    def get_reset_state(cls) -> "PartialAssistantState":
-        return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
 
 class AssistantNodeName(StrEnum):

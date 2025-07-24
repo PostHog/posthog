@@ -1068,6 +1068,8 @@ export type TrendsFilter = {
         | Record<numerical_key, ResultCustomizationByPosition>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
 }
 
 export type CalendarHeatmapFilter = {
@@ -1786,6 +1788,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     limit?: integer
+    offset?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
     types?: unknown[]
@@ -2054,6 +2057,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     volumeResolution: integer
     withAggregations?: boolean
     withFirstEvent?: boolean
+    withLastEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -2101,6 +2105,11 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
     first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    last_event?: {
         uuid: string
         timestamp: string
         properties: string
@@ -3346,8 +3355,8 @@ export interface MarketingAnalyticsTableQuery
     offset?: integer
     /** Filter test accounts */
     filterTestAccounts?: boolean
-    /** Dynamic conversion goal that can be set in the UI without saving */
-    dynamicConversionGoal?: ConversionGoalFilter | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter | null
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {

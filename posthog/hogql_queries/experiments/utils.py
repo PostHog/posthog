@@ -15,9 +15,11 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
+    StatisticError,
 )
 from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.errors import ExposedCHQueryError
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
@@ -123,13 +125,19 @@ def get_frequentist_experiment_result_legacy_format(
     significance_code = ExperimentSignificanceCode.LOW_WIN_PROBABILITY
     significant = False
 
-    control_stat = metric_variant_to_statistic(metric, control_variant)
+    try:
+        control_stat = metric_variant_to_statistic(metric, control_variant)
+    except StatisticError as e:
+        raise ExposedCHQueryError(str(e), code=None) from e
     mu_control = control_stat.sum / control_stat.n
 
     # Run the test for each test variant.
     for test_variant in test_variants:
-        test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
+        try:
+            test_stat = metric_variant_to_statistic(metric, test_variant)
+            result = method.run_test(test_stat, control_stat)
+        except StatisticError as e:
+            raise ExposedCHQueryError(str(e), code=None) from e
 
         # For now, we just store the p-values in the probabilties dict.
         probabilities[test_variant.key] = result.p_value
@@ -178,13 +186,22 @@ def get_frequentist_experiment_result_new_format(
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
     method = FrequentistMethod(config)
 
-    control_stat = metric_variant_to_statistic(metric, control_variant)
+    try:
+        control_stat = metric_variant_to_statistic(metric, control_variant)
+    except StatisticError as e:
+        raise ExposedCHQueryError(str(e), code=None) from e
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
     for test_variant in test_variants:
-        test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
+        try:
+            test_stat = metric_variant_to_statistic(metric, test_variant)
+        except StatisticError as e:
+            raise ExposedCHQueryError(str(e), code=None) from e
+        try:
+            result = method.run_test(test_stat, control_stat)
+        except StatisticError as e:
+            raise ExposedCHQueryError(str(e), code=None) from e
         variants.append(
             ExperimentVariantResultFrequentist(
                 key=test_variant.key,
@@ -221,13 +238,22 @@ def get_bayesian_experiment_result_new_format(
     )
     method = BayesianMethod(config)
 
-    control_stat = metric_variant_to_statistic(metric, control_variant)
+    try:
+        control_stat = metric_variant_to_statistic(metric, control_variant)
+    except StatisticError as e:
+        raise ExposedCHQueryError(str(e), code=None) from e
 
     variants: list[ExperimentVariantResultBayesian] = []
 
     for test_variant in test_variants:
-        test_stat = metric_variant_to_statistic(metric, test_variant)
-        result = method.run_test(test_stat, control_stat)
+        try:
+            test_stat = metric_variant_to_statistic(metric, test_variant)
+        except StatisticError as e:
+            raise ExposedCHQueryError(str(e), code=None) from e
+        try:
+            result = method.run_test(test_stat, control_stat)
+        except StatisticError as e:
+            raise ExposedCHQueryError(str(e), code=None) from e
 
         # Convert credible interval to percentage
         credible_interval = [result.credible_interval[0], result.credible_interval[1]]
