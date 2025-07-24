@@ -19,7 +19,7 @@ import { LemonMenu } from '@posthog/lemon-ui'
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
+import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
@@ -29,9 +29,9 @@ interface MarketingAnalyticsTableProps {
 const QUERY_ORDER_BY_START_INDEX = 1
 
 export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
-    const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy, saveDynamicConversionGoal } =
+    const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy, saveDraftConversionGoal } =
         useActions(marketingAnalyticsLogic)
-    const { marketingAnalyticsOrderBy, conversion_goals, dynamicConversionGoal } = useValues(marketingAnalyticsLogic)
+    const { marketingAnalyticsOrderBy, conversion_goals, draftConversionGoal } = useValues(marketingAnalyticsLogic)
     const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
 
     // Create a new query object with the orderBy field when sorting state changes
@@ -54,14 +54,14 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     // Combined conversion goals - static from settings + dynamic goal
     const allConversionGoals = useMemo(() => {
         const goals: ConversionGoalFilter[] = []
-        if (dynamicConversionGoal) {
-            goals.push(dynamicConversionGoal)
+        if (draftConversionGoal) {
+            goals.push(draftConversionGoal)
         }
         if (conversion_goals) {
             goals.push(...conversion_goals)
         }
         return goals
-    }, [conversion_goals, dynamicConversionGoal])
+    }, [conversion_goals, draftConversionGoal])
 
     const makeMarketingSortableCell = useCallback(
         (name: string, index: number, isConversionGoal = false) => {
@@ -108,9 +108,9 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                                           label: 'Save as conversion goal',
                                           icon: <IconBookmarkBorder />,
                                           onClick: () => {
-                                              if (dynamicConversionGoal) {
-                                                  addOrUpdateConversionGoal(dynamicConversionGoal)
-                                                  saveDynamicConversionGoal()
+                                              if (draftConversionGoal) {
+                                                  addOrUpdateConversionGoal(draftConversionGoal)
+                                                  saveDraftConversionGoal()
                                               }
                                           },
                                       },
@@ -150,9 +150,9 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             marketingAnalyticsOrderBy,
             setMarketingAnalyticsOrderBy,
             clearMarketingAnalyticsOrderBy,
-            dynamicConversionGoal,
+            draftConversionGoal,
             addOrUpdateConversionGoal,
-            saveDynamicConversionGoal,
+            saveDraftConversionGoal,
         ]
     )
 
@@ -170,7 +170,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX + 1
 
             // Check if this is the dynamic conversion goal (the one being created/edited)
-            const isDynamicGoal = goal === dynamicConversionGoal
+            const isDynamicGoal = goal === draftConversionGoal
 
             // Add conversion count column
             columns[goalName] = {
@@ -186,7 +186,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         })
 
         return columns
-    }, [allConversionGoals, makeMarketingSortableCell, dynamicConversionGoal])
+    }, [allConversionGoals, makeMarketingSortableCell, draftConversionGoal])
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -208,7 +208,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <DynamicConversionGoalControls />
+                <DraftConversionGoalControls />
             </div>
             <div className="relative marketing-analytics-table-container">
                 <Query query={queryWithOrderBy} readOnly={false} context={marketingAnalyticsContext} />

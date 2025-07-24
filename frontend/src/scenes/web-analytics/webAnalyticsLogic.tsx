@@ -447,7 +447,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
+            ['loading', 'createMarketingDataWarehouseNodes', 'draftConversionGoal'],
         ],
     })),
     actions({
@@ -2469,7 +2469,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.dateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
-                s.dynamicConversionGoal,
+                s.draftConversionGoal,
                 s.conversion_goals,
             ],
             (
@@ -2477,7 +2477,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
-                dynamicConversionGoal: ConversionGoalFilter | null,
+                draftConversionGoal: ConversionGoalFilter | null,
                 conversionGoals: ConversionGoalFilter[]
             ): DataTableNode | null => {
                 if (loading) {
@@ -2494,11 +2494,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
-                        dynamicConversionGoal: dynamicConversionGoal,
+                        draftConversionGoal: draftConversionGoal,
                         limit: 200,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         select: [
-                            dynamicConversionGoal ? dynamicConversionGoal.conversion_goal_name : null,
+                            draftConversionGoal ? draftConversionGoal.conversion_goal_name : null,
                             ...conversionGoals.map((goal) => goal.conversion_goal_name),
                         ].filter(isNotNil),
                     } as MarketingAnalyticsTableQuery,

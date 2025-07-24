@@ -12,10 +12,10 @@ import { defaultConversionGoalFilter } from '../settings/constants'
 import { LemonInput } from '@posthog/lemon-ui'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 
-export const DynamicConversionGoalControls = (): JSX.Element => {
-    const { setDynamicConversionGoal, setLocalConversionGoal, resetLocalConversionGoal, saveDynamicConversionGoal } =
+export const DraftConversionGoalControls = (): JSX.Element => {
+    const { setDraftConversionGoal, setConversionGoalInput, resetConversionGoalInput, saveDraftConversionGoal } =
         useActions(marketingAnalyticsLogic)
-    const { dynamicConversionGoal, localConversionGoal, uniqueConversionGoalName } = useValues(marketingAnalyticsLogic)
+    const { draftConversionGoal, conversionGoalInput, uniqueConversionGoalName } = useValues(marketingAnalyticsLogic)
     const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
 
     const [isExpanded, setIsExpanded] = useState<boolean>(false)
@@ -23,35 +23,35 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     // Dynamic conversion goal handlers
     const handleConversionGoalChange = useCallback(
         (filter: ConversionGoalFilter): void => {
-            setLocalConversionGoal({
+            setConversionGoalInput({
                 ...filter,
                 conversion_goal_name:
-                    localConversionGoal?.conversion_goal_name || filter.custom_name || filter.name || 'No name',
+                    conversionGoalInput?.conversion_goal_name || filter.custom_name || filter.name || 'No name',
             })
         },
-        [localConversionGoal?.conversion_goal_name]
+        [conversionGoalInput?.conversion_goal_name]
     )
 
     const handleApplyConversionGoal = useCallback((): void => {
-        if (localConversionGoal) {
-            setDynamicConversionGoal({ ...localConversionGoal, conversion_goal_name: uniqueConversionGoalName })
+        if (conversionGoalInput) {
+            setDraftConversionGoal({ ...conversionGoalInput, conversion_goal_name: uniqueConversionGoalName })
             // Keep the input value by updating the local goal with the unique name
-            setLocalConversionGoal({
-                ...localConversionGoal,
+            setConversionGoalInput({
+                ...conversionGoalInput,
                 conversion_goal_name: uniqueConversionGoalName,
             })
         }
-    }, [localConversionGoal, setDynamicConversionGoal, setLocalConversionGoal, uniqueConversionGoalName])
+    }, [conversionGoalInput, setDraftConversionGoal, setConversionGoalInput, uniqueConversionGoalName])
 
     const handleSaveConversionGoal = useCallback((): void => {
-        addOrUpdateConversionGoal({ ...localConversionGoal, conversion_goal_name: uniqueConversionGoalName })
-        saveDynamicConversionGoal()
-    }, [localConversionGoal, addOrUpdateConversionGoal, saveDynamicConversionGoal, uniqueConversionGoalName])
+        addOrUpdateConversionGoal({ ...conversionGoalInput, conversion_goal_name: uniqueConversionGoalName })
+        saveDraftConversionGoal()
+    }, [conversionGoalInput, addOrUpdateConversionGoal, saveDraftConversionGoal, uniqueConversionGoalName])
 
     // Check if there are changes to apply
-    const hasEvent = localConversionGoal?.name !== defaultConversionGoalFilter.name
-    const hasChanges = localConversionGoal && !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent
-    const hasAppliedGoal = !!dynamicConversionGoal
+    const hasEvent = conversionGoalInput?.name !== defaultConversionGoalFilter.name
+    const hasChanges = conversionGoalInput && !objectsEqual(conversionGoalInput, draftConversionGoal) && hasEvent
+    const hasAppliedGoal = !!draftConversionGoal
 
     return (
         <div className="flex flex-col gap-4">
@@ -70,10 +70,10 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
                         <div className="flex gap-2 w-full">
                             <LemonInput
                                 className="w-full"
-                                value={localConversionGoal?.conversion_goal_name || ''}
+                                value={conversionGoalInput?.conversion_goal_name || ''}
                                 onChange={(value) => {
-                                    setLocalConversionGoal({
-                                        ...localConversionGoal,
+                                    setConversionGoalInput({
+                                        ...conversionGoalInput,
                                         conversion_goal_name: value,
                                     })
                                 }}
@@ -90,7 +90,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={resetLocalConversionGoal}
+                                onClick={resetConversionGoalInput}
                                 disabledReason={!hasAppliedGoal ? 'No active goal to clear' : undefined}
                             >
                                 Clear
@@ -108,7 +108,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
                         </div>
                     </div>
                     <ConversionGoalDropdown
-                        value={localConversionGoal || defaultConversionGoalFilter}
+                        value={conversionGoalInput || defaultConversionGoalFilter}
                         onChange={handleConversionGoalChange}
                         typeKey="dynamic-conversion-goal"
                     />

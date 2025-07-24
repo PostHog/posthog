@@ -65,10 +65,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     actions({
         setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
-        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
-        setLocalConversionGoal: (goal: ConversionGoalFilter) => ({ goal }),
-        resetLocalConversionGoal: () => true,
-        saveDynamicConversionGoal: () => true,
+        setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
+        resetConversionGoalInput: () => true,
+        saveDraftConversionGoal: () => true,
     }),
     reducers({
         marketingAnalyticsOrderBy: [
@@ -78,13 +78,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 clearMarketingAnalyticsOrderBy: () => null,
             },
         ],
-        dynamicConversionGoal: [
+        draftConversionGoal: [
             null as ConversionGoalFilter | null,
             {
-                setDynamicConversionGoal: (_, { goal }) => goal,
+                setDraftConversionGoal: (_, { goal }) => goal,
             },
         ],
-        localConversionGoal: [
+        conversionGoalInput: [
             (() => {
                 return {
                     ...defaultConversionGoalFilter,
@@ -93,8 +93,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }
             })() as ConversionGoalFilter,
             {
-                setLocalConversionGoal: (_, { goal }) => goal,
-                resetLocalConversionGoal: () => {
+                setConversionGoalInput: (_, { goal }) => goal,
+                resetConversionGoalInput: () => {
                     return {
                         ...defaultConversionGoalFilter,
                         conversion_goal_id: uuid(),
@@ -225,9 +225,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         uniqueConversionGoalName: [
-            (s) => [s.localConversionGoal, s.conversion_goals],
-            (localConversionGoal: ConversionGoalFilter | null, conversion_goals: ConversionGoalFilter[]): string => {
-                const baseName = localConversionGoal?.conversion_goal_name || localConversionGoal?.name || 'No name'
+            (s) => [s.conversionGoalInput, s.conversion_goals],
+            (conversionGoalInput: ConversionGoalFilter | null, conversion_goals: ConversionGoalFilter[]): string => {
+                const baseName = conversionGoalInput?.conversion_goal_name || conversionGoalInput?.name || 'No name'
                 const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
                 return generateUniqueName(baseName, existingNames)
             },
@@ -290,13 +290,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         },
     })),
     listeners(({ actions }) => ({
-        saveDynamicConversionGoal: () => {
+        saveDraftConversionGoal: () => {
             // Create a new local conversion goal with new id
-            actions.resetLocalConversionGoal()
+            actions.resetConversionGoalInput()
         },
-        resetLocalConversionGoal: () => {
+        resetConversionGoalInput: () => {
             // Clear the dynamic goal when resetting local goal
-            actions.setDynamicConversionGoal(null)
+            actions.setDraftConversionGoal(null)
         },
     })),
 ])
