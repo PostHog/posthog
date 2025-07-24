@@ -61,7 +61,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+from posthog.session_recordings.queries_to_delete.session_recording_list_from_query import (
     SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
 )
 from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
