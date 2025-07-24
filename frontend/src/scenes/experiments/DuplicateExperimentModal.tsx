@@ -34,15 +34,17 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
 
                 <div className="flex items-center justify-between p-3 border rounded bg-bg-light">
                     <div>
-                        <div className="font-semibold">Use same feature flag</div>
+                        <div className="font-semibold">Use the same flag</div>
                         <div className="text-sm text-muted">{experiment.feature_flag?.key}</div>
                     </div>
                     <LemonButton type="primary" onClick={() => handleDuplicate()}>
-                        Duplicate
+                        Select
                     </LemonButton>
                 </div>
 
-                <div className="text-center text-muted">or choose a different flag</div>
+                <div className="text-center text-muted">
+                    or choose a different flag. To use a new flag, create it first then select it here.
+                </div>
 
                 <LemonTable
                     dataSource={featureFlags.results}
