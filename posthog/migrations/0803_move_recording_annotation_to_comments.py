@@ -6,12 +6,6 @@ from django.db import migrations
 CHUNK_SIZE = 500
 
 
-# NB: sort of duplicates migration 789
-# we were still creating saved filters on team creation with no type set
-# so we end up with rows in DB with no type
-# uses bigger chunks than 789
-# we know for this migration that all the rows with no type
-# are definitely saved filters and not collections
 def migrate_recording_annotations(apps, schema_editor):
     Annotation = apps.get_model("posthog", "Annotation")
     Comment = apps.get_model("posthog", "Comment")
