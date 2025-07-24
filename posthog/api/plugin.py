@@ -690,25 +690,39 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         # Try and create a hog function if possible, otherwise create plugin
         from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
+        from posthog.event_usage import report_team_action
+
+        report_team_action(
+            self.context["team"],
+            "plugin config create called",
+            {
+                "plugin_id": validated_data["plugin"].id,
+                "team_id": self.context["team_id"],
+            },
+        )
 
         try:
             hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
 
-            if hog_function_serializer:
-                hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
-                # A bit hacky - we return the non saved plugin config
-
-                report_user_action(
-                    self.context["request"].user,
-                    "hog function created from plugin config api",
-                    {
-                        "hog_function_id": hog_function.id,
-                        "plugin_id": validated_data["plugin"].id,
-                        "team_id": self.context["team_id"],
-                    },
+            if not hog_function_serializer:
+                raise ValidationError(
+                    "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
                 )
-                # Return plugin config without saving if hog function was created successfully
-                return PluginConfig(**validated_data)
+
+            hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
+            # A bit hacky - we return the non saved plugin config
+
+            report_user_action(
+                self.context["request"].user,
+                "hog function created from plugin config api",
+                {
+                    "hog_function_id": hog_function.id,
+                    "plugin_id": validated_data["plugin"].id,
+                    "team_id": self.context["team_id"],
+                },
+            )
+            # Return plugin config without saving if hog function was created successfully
+            return PluginConfig(**validated_data)
 
         except Exception as e:
             # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
