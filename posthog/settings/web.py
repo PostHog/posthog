@@ -451,12 +451,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-####
-# Hog
-
-# Teams allowed to modify transformation code (comma-separated list of team IDs),
-# keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
 # Livestream
