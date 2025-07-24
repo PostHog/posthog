@@ -442,17 +442,44 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
         title,
     );
 
-    // introspect on extracted event.properties.$snapshot_data map
+    // introspect on $snapshot_data elements from replay event.properties
     let err_msg = format!(
         "failed to extract event.properties.$snapshot_data in case: {}",
         title
     );
-    let snap_data = props["$snapshot_data"].as_array().expect(&err_msg);
-
+    let snap_items = props["$snapshot_items"].as_array().expect(&err_msg);
     assert_eq!(
-        20_usize,
-        snap_data.len(),
-        "mismatched event.properties.$snapshot_data length in case: {}",
+        22_usize,
+        snap_items.len(),
+        "mismatched event.properties.$snapshot_items length in case: {}",
+        title,
+    );
+
+    // introspect on first data element of $snapshot_items array
+    let err_msg = format!(
+        "failed to extract event.properties.$snapshot_items[0] in case: {}",
+        title
+    );
+    let elem1 = snap_items[0].as_object().expect(&err_msg);
+    assert_eq!(
+        3_usize,
+        elem1.len(),
+        "mismatched event.properties.$snapshot_items[0] in case: {}",
+        title,
+    );
+    assert!(
+        elem1["data"].is_object(),
+        "event.properties.$snapshot_items[0].data should be an object in case: {}",
+        title,
+    );
+    assert!(
+        elem1["timestamp"].is_i64(),
+        "event.properties.$snapshot_items[0].timestamp should be a number in case: {}",
+        title,
+    );
+    assert!(
+        elem1["type"].is_number(),
+        "event.properties.$snapshot_items[0].type should be a number in case: {}",
         title,
     );
 }
