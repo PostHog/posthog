@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -19,7 +18,6 @@ import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { NewDestinations } from './destinations/NewDestinations'
-import { frontendAppsLogic } from './frontendAppsLogic'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
@@ -111,21 +109,11 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     } else if (stage === PipelineStage.Destination) {
         return <NewDestinations types={DESTINATION_TYPES} />
     } else if (stage === PipelineStage.SiteApp) {
-        return featureFlags[FEATURE_FLAGS.SITE_APP_FUNCTIONS] ? (
-            <NewDestinations types={SITE_APP_TYPES} />
-        ) : (
-            <SiteAppOptionsTable />
-        )
+        return <NewDestinations types={SITE_APP_TYPES} />
     } else if (stage === PipelineStage.Source) {
         return <NewSourceWizardScene />
     }
     return <NotFound object="pipeline new options" />
-}
-
-function SiteAppOptionsTable(): JSX.Element {
-    const { plugins, loading } = useValues(frontendAppsLogic)
-    const targets = Object.values(plugins).map(convertPluginToTableEntry)
-    return <NodeOptionsTable stage={PipelineStage.SiteApp} targets={targets} loading={loading} />
 }
 
 function NodeOptionsTable({

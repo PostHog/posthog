@@ -13,7 +13,6 @@ import { DataPipelinesSources } from '../data-pipelines/DataPipelinesSources'
 import { AppsManagement } from './AppsManagement'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { Destinations } from './destinations/Destinations'
-import { FrontendApps } from './FrontendApps'
 import { ImportApps } from './ImportApps'
 import { importAppsLogic } from './importAppsLogic'
 import { Overview } from './Overview'
@@ -25,7 +24,6 @@ export function Pipeline(): JSX.Element {
     const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)
     const { currentTab } = useValues(pipelineLogic)
     const { hasEnabledImportApps } = useValues(importAppsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const tabs: Pick<ConcreteLemonTab<PipelineTab>, 'key' | 'content'>[] = [
         { key: PipelineTab.Overview, content: <Overview /> },
@@ -37,11 +35,7 @@ export function Pipeline(): JSX.Element {
         { key: PipelineTab.Destinations, content: <Destinations types={DESTINATION_TYPES} /> },
         {
             key: PipelineTab.SiteApps,
-            content: featureFlags[FEATURE_FLAGS.SITE_APP_FUNCTIONS] ? (
-                <Destinations types={SITE_APP_TYPES} />
-            ) : (
-                <FrontendApps />
-            ),
+            content: <Destinations types={SITE_APP_TYPES} />,
         },
     ]
 
