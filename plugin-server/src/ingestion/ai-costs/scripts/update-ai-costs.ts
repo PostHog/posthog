@@ -26,6 +26,7 @@ const supportedProviderList = [
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 
 const main = async () => {
+    // eslint-disable-next-line no-restricted-globals
     const res = await fetch('https://openrouter.ai/api/v1/models', {})
     if (!res.ok) {
         throw new Error(`Failed to fetch models: ${res.status} ${res.statusText}`)

@@ -446,6 +446,60 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?event_names={event_name_json}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_property_definition_without_taxonomy_entitlement(self, mock_is_feature_available):
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="test_property", property_type="String"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
+            {"property_type": "Numeric"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        property_definition.refresh_from_db()
+        assert property_definition.property_type == "Numeric"
+        assert property_definition.is_numerical
+        assert response.json()["property_type"] == "Numeric"
+
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_property_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
+        """Test that enterprise-only fields require license"""
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="test_property", property_type="String"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
+            {"verified": True},  # This should be blocked since it's enterprise-only
+        )
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_update_property_definition_with_taxonomy_entitlement(self, *mocks):
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="test_property", property_type="String"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
+            {"property_type": "Numeric", "verified": True},  # verified field only exists in enterprise serializer
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        property_definition.refresh_from_db()
+        assert property_definition.property_type == "Numeric"
+        assert property_definition.is_numerical
+        assert response.json()["property_type"] == "Numeric"
+
+        # Verify the enterprise-only field was updated
+        assert response.json()["verified"]
+
     def test_can_report_event_property_coexistence_when_custom_event_has_no_session_id(self) -> None:
         EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id")
 

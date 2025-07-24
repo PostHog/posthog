@@ -18,10 +18,6 @@ class SurveyEventProperties(StrEnum):
     SURVEY_COMPLETED = "$survey_completed"
 
 
-class SurveyFeatureFlags(StrEnum):
-    SURVEYS_PARTIAL_RESPONSES = "surveys-partial-responses"
-
-
 def get_survey_response_clickhouse_query(
     question_index: int, question_id: str | None = None, is_multiple_choice: bool = False
 ) -> str:

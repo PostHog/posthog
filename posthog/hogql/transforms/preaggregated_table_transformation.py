@@ -5,7 +5,12 @@ from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.helpers.timestamp_visitor import (
+    is_simple_timestamp_field_expression,
+    is_start_of_day_constant,
+    is_end_of_day_constant,
+)
+from posthog.hogql.visitor import CloningVisitor
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
@@ -22,25 +27,25 @@ class PageviewCheckResult:
     has_unsupported: bool
 
 
-def flatten_and(node: Optional[ast.Expr]) -> Optional[ast.Expr]:
+def flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
     """Flatten AND expressions in the AST."""
+    if node is None:
+        return []
     if isinstance(node, ast.And):
         # If it's an AND expression, recursively flatten its children
         flattened_exprs = []
         for expr in node.exprs:
             flattened_child = flatten_and(expr)
             if flattened_child:
-                flattened_exprs.append(flattened_child)
+                flattened_exprs.extend(flattened_child)
         # Remove any constant True or 1 expressions
-        flattened_exprs = [expr for expr in flattened_exprs if not _is_simple_constant_comparison(expr)]
-        if len(flattened_exprs) <= 1:
-            return ast.Constant(value=True)
-        return ast.And(exprs=flattened_exprs)
+        flattened_exprs = [e for e in flattened_exprs if not _is_simple_constant_comparison(e)]
+        return flattened_exprs
 
     if isinstance(node, ast.Call) and node.name == "and":
         return flatten_and(ast.And(exprs=node.args))
 
-    return node
+    return [node]
 
 
 def is_event_field(field: ast.Field) -> bool:
@@ -74,26 +79,19 @@ def is_pageview_filter(expr: ast.Expr) -> bool:
     return False
 
 
-def is_timestamp_field(field: ast.Expr) -> bool:
-    """Check if a field represents a timestamp."""
-    if not isinstance(field, ast.Field):
-        return False
-
-    return (
-        field.chain == ["timestamp"]
-        or (len(field.chain) == 2 and field.chain[1] == "timestamp")  # table_alias.timestamp
-    )
-
-
-def is_to_start_of_day_timestamp_call(expr: ast.Call) -> bool:
+def is_to_start_of_day_timestamp_field(expr: ast.Call, context: HogQLContext) -> bool:
     """Check if a call represents a toStartOfDay timestamp operation."""
-    if expr.name == "toStartOfDay" and len(expr.args) == 1 and is_timestamp_field(expr.args[0]):
+    if (
+        expr.name == "toStartOfDay"
+        and len(expr.args) == 1
+        and is_simple_timestamp_field_expression(expr.args[0], context)
+    ):
         return True
     # also accept toStartOfInterval(timestamp, toIntervalDay(1))
     if (
         expr.name == "toStartOfInterval"
         and len(expr.args) == 2
-        and is_timestamp_field(expr.args[0])
+        and is_simple_timestamp_field_expression(expr.args[0], context)
         and isinstance(expr.args[1], ast.Call)
         and expr.args[1].name == "toIntervalDay"
         and len(expr.args[1].args) == 1
@@ -104,57 +102,35 @@ def is_to_start_of_day_timestamp_call(expr: ast.Call) -> bool:
     return False
 
 
-class CheckedUnsupportedWhereClauseVisitor(TraversingVisitor):
-    """Visitor to check if the query references the event column."""
+def _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
+    expr: ast.Call, context: HogQLContext
+) -> Optional[ast.Call]:
+    """
+    timestamp >= toStartOfDay('2024-11-24') is equivalent to toStartOfDay(timestamp) >= toStartOfDay('2024-11-24')
+    which can be transformed into period_bucket >= toStartOfDay('2024-11-24')
 
-    has_unsupported_where_clause: bool
+    The valid variants of this expression are:
+    timestamp >= toStartOfDay(date) is equivalent to toStartOfDay(timestamp) >= toStartOfDay(date)
+    timestamp <  toStartOfDay(date) is equivalent to toStartOfDay(timestamp) <  toStartOfDay(date)
+    toStartOfDay(date) <= timestamp is equivalent to toStartOfDay(date) <= toStartOfDay(timestamp)
+    toStartOfDay(date) >  timestamp is equivalent to toStartOfDay(date) >  toStartOfDay(timestamp)
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.has_unsupported_where_clause = False
-
-    def visit_field(self, node: ast.Field) -> None:
-        # Any references to anything BUT supported event/session properties or timestamp is unsupported
-        is_supported_property = _get_supported_property_field(node)
-        is_timestamp = is_timestamp_field(node)
-        if not is_supported_property and not is_timestamp:
-            self.has_unsupported_where_clause = True
-
-
-def _check_unsupported_expr_for_where_clause(node: ast.Expr) -> bool:
-    """Check if the query references the event column."""
-    checker = CheckedUnsupportedWhereClauseVisitor()
-    checker.visit(node)
-    return checker.has_unsupported_where_clause
-
-
-def _check_where_clause(expr: Optional[ast.Expr]) -> bool:
-    """Check if expression contains straightforward event="$pageview" and no other event filters."""
-    # Flatten the where clause to make life a bit easier
-    expr = flatten_and(expr)
-
-    if not expr:
-        return False
-
-    if isinstance(expr, ast.And):
-        exprs = expr.exprs
-    else:
-        exprs = [expr]
-
-    # Exactly one top-level expr here should be an equality check for event="$pageview"
-    has_pageview = False
-    for sub_expr in exprs:
-        # is this sub_expr an equality check for event="$pageview"?
-        if is_pageview_filter(sub_expr):
-            if has_pageview:
-                # More than one pageview filter - not allowed
-                return False
-            has_pageview = True
-        elif _check_unsupported_expr_for_where_clause(sub_expr):
-            # If it references event but is not a pageview filter, it's unsupported
-            return False
-
-    return has_pageview
+    We don't have a toEndOfDay function but we can approximate it, if we did then the following variants would also be valid:
+    """
+    if expr.name not in ["greaterOrEquals", "lessOrEquals", "greater", "less"] or len(expr.args) != 2:
+        return None
+    arg0 = expr.args[0]
+    arg1 = expr.args[1]
+    name = expr.name
+    if is_simple_timestamp_field_expression(arg0, context):
+        if name in ["greaterOrEquals", "less"] and is_start_of_day_constant(arg1):
+            return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
+        if name in ["lessOrEquals"] and is_end_of_day_constant(arg1):
+            return ast.Call(name=name, args=[ast.Field(chain=["period_bucket"]), arg1])
+    if is_simple_timestamp_field_expression(arg1, context):
+        if name in ["lessOrEquals", "greater"] and is_start_of_day_constant(arg0):
+            return ast.Call(name=expr.name, args=[arg0, ast.Field(chain=["period_bucket"])])
+    return None
 
 
 def _is_person_id_field(field: ast.Field) -> bool:
@@ -190,6 +166,9 @@ def _is_count_pageviews_call(call: ast.Call) -> bool:
     if call.name != "count":
         return False
 
+    if call.distinct:
+        return False
+
     if len(call.args) == 0:
         # count() - valid
         return True
@@ -201,11 +180,11 @@ def _is_count_pageviews_call(call: ast.Call) -> bool:
 
 
 def _is_uniq_persons_call(call: ast.Call) -> bool:
-    """Check if a call is uniq(person_id) or similar for person counting."""
-    if call.name != "uniq":
+    """Check if a call is uniq(person_id), count(DISTINCT person_id), or similar for person counting."""
+    if len(call.args) != 1:
         return False
 
-    if len(call.args) == 1:
+    if call.name == "uniq" or (call.name == "count" and call.distinct):
         arg = call.args[0]
         if isinstance(arg, ast.Field):
             return _is_person_id_field(arg)
@@ -214,11 +193,11 @@ def _is_uniq_persons_call(call: ast.Call) -> bool:
 
 
 def _is_uniq_sessions_call(call: ast.Call) -> bool:
-    """Check if a call is uniq(session.id) or similar for session counting."""
-    if call.name != "uniq":
+    """Check if a call is uniq(session.id), count(DISTINCT session.id) or similar for session counting."""
+    if len(call.args) != 1:
         return False
 
-    if len(call.args) == 1:
+    if call.name == "uniq" or (call.name == "count" and call.distinct):
         arg = call.args[0]
         if isinstance(arg, ast.Field):
             return _is_session_id_field(arg)
@@ -226,196 +205,135 @@ def _is_uniq_sessions_call(call: ast.Call) -> bool:
     return False
 
 
-def _validate_preaggregated_query(node: ast.SelectQuery, context: HogQLContext) -> bool:
-    """Check if a single SelectQuery can be transformed to use preaggregated tables."""
-    # TODO simplify this by just throwing on something invalid
-
-    # Check FROM clause - must be from events table
-    if not node.select_from or not isinstance(node.select_from.table, ast.Field):
-        return False
-    if node.select_from.table.chain != ["events"]:
-        return False
-
-    has_sample = False
-    sample_value = None
-
-    # Check SAMPLE clause
-    if node.select_from.sample:
-        has_sample = True
-        if isinstance(node.select_from.sample.sample_value, ast.Constant):
-            sample_value = node.select_from.sample.sample_value.value
-        elif isinstance(node.select_from.sample.sample_value, ast.RatioExpr):
-            # Handle ratio expressions like "1" (which becomes RatioExpr with left=1, right=None)
-            if node.select_from.sample.sample_value.right is None:
-                if isinstance(node.select_from.sample.sample_value.left, ast.Constant):
-                    sample_value = node.select_from.sample.sample_value.left.value
-
-    # Check WHERE clause for pageview filter
-    if not _check_where_clause(node.where):
-        return False
-
-    # Check SELECT clause for supported aggregations
-    for expr in node.select:
-        if not _is_select_expr_valid(expr):
-            return False
-
-    # Check GROUP BY clause
-    if node.group_by:
-        for expr in node.group_by:
-            if isinstance(expr, ast.Field):
-                # Check if this looks like a property field pattern
-                # Only reject if it's a property-like pattern that's not supported
-                is_property_pattern = (
-                    (len(expr.chain) >= 2 and expr.chain[0] == "properties")
-                    or (len(expr.chain) >= 3 and expr.chain[0] == "events" and expr.chain[1] == "properties")
-                    or (len(expr.chain) >= 2 and expr.chain[0] == "session")
-                    or (len(expr.chain) >= 3 and expr.chain[0] == "events" and expr.chain[1] == "session")
-                )
-
-                if is_property_pattern and _get_supported_property_field(expr) is None:
-                    return False
-
-    # If sample is specified, it must be 1
-    if has_sample and sample_value != 1:
-        return False
-
-    return True
-
-
 def _is_simple_constant_comparison(expr: ast.Expr) -> bool:
     """Check if an expression is a simple constant that can be safely ignored."""
     return isinstance(expr, ast.Constant) and expr.value in (1, True, "1")
 
 
-def _is_safe_timestamp_comparison(call: ast.Call) -> bool:
-    """Check if a function call is a safe timestamp comparison that can be ignored during validation."""
-    # Common timestamp comparison functions that don't affect aggregation logic
-    timestamp_functions = {
-        "greaterOrEquals",
-        "lessOrEquals",
-        "greater",
-        "less",
-        "greaterEquals",
-        "lessEquals",
-        "gte",
-        "lte",
-        "gt",
-        "lt",
-    }
-
-    if call.name not in timestamp_functions:
-        return False
-
-    if len(call.args) != 2:
-        return False
-
-    # Check if first argument is likely a timestamp field
-    first_arg = call.args[0]
-    if isinstance(first_arg, ast.Field):
-        # Allow timestamp field comparisons
-        if first_arg.chain == ["timestamp"] or (len(first_arg.chain) == 2 and first_arg.chain[1] == "timestamp"):
-            return True
-
-    return False
-
-
-def _get_supported_property_field(field: ast.Field) -> tuple[str, str] | None:
+def _get_supported_field(field: ast.Field) -> tuple[str, ast.Field] | None:
     """
-    Check if a field represents a supported property and return (property_name, field_name) if valid.
-
-    Returns:
-        tuple[str, str] | None: (property_name, field_name) if supported, None otherwise
+    Check if a field represents a supported property and return (property_name, field) if valid.
     """
     # Handle properties.x pattern
     if len(field.chain) == 2 and field.chain[0] == "properties":
         property_name = field.chain[1]
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle events.properties.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "properties":
         property_name = field.chain[2]
         if isinstance(property_name, str) and property_name in EVENT_PROPERTY_TO_FIELD:
-            return (property_name, EVENT_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle session.x pattern
     elif len(field.chain) == 2 and field.chain[0] == "session":
         property_name = field.chain[1]
         if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
-            return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
 
     # Handle events.session.x pattern
     elif len(field.chain) == 3 and field.chain[0] == "events" and field.chain[1] == "session":
         property_name = field.chain[2]
         if isinstance(property_name, str) and property_name in SESSION_PROPERTY_TO_FIELD:
-            return (property_name, SESSION_PROPERTY_TO_FIELD[property_name])
+            return (property_name, ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]]))
+
+    # Handle team_id and events.team_id
+    elif (len(field.chain) == 1 and field.chain[0] == "team_id") or (
+        len(field.chain) == 2 and field.chain[1] == "team_id"
+    ):
+        return ("team_id", ast.Field(chain=["team_id"]))
 
     return None
 
 
-def _is_select_expr_valid(expr: ast.Expr) -> bool:
-    """Check a SELECT expression for supported aggregations."""
-    if isinstance(expr, ast.Call):
-        if _is_count_pageviews_call(expr):
-            return True
-        elif _is_uniq_persons_call(expr):
-            return True
-        elif _is_uniq_sessions_call(expr):
-            return True
-        if is_to_start_of_day_timestamp_call(expr):
-            return True
-    elif isinstance(expr, ast.Alias):
-        return _is_select_expr_valid(expr.expr)
-    elif isinstance(expr, ast.Field):
-        # Check if this is a supported property field
-        property_result = _get_supported_property_field(expr)
-        return property_result is not None
-    return False
+class ExprTransformer(CloningVisitor):
+    """Visitor to transform SELECT expressions to use preaggregated fields."""
 
+    has_transformed_aggregation: bool = False
+    seen_aliases: set[str] = set()
 
-def _transform_select_expr(expr: ast.Expr) -> ast.Expr:
-    """Transform a SELECT expression to use preaggregated fields."""
-    if isinstance(expr, ast.Call):
-        # Transform aggregations to use preaggregated state fields
-        if _is_count_pageviews_call(expr):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+
+    def visit_call(self, node: ast.Call) -> ast.Call:
+        if _is_count_pageviews_call(node):
             # count() and count(*) both become sumMerge(pageviews_count_state)
+            self.has_transformed_aggregation = True
             return ast.Call(name="sumMerge", args=[ast.Field(chain=["pageviews_count_state"])])
-        elif _is_uniq_persons_call(expr):
+        elif _is_uniq_persons_call(node):
             # uniq(person_id) variants become uniqMerge(persons_uniq_state)
+            self.has_transformed_aggregation = True
             return ast.Call(name="uniqMerge", args=[ast.Field(chain=["persons_uniq_state"])])
-        elif _is_uniq_sessions_call(expr):
+        elif _is_uniq_sessions_call(node):
             # uniq(session.id) variants become uniqMerge(sessions_uniq_state)
+            self.has_transformed_aggregation = True
             return ast.Call(name="uniqMerge", args=[ast.Field(chain=["sessions_uniq_state"])])
-        elif is_to_start_of_day_timestamp_call(expr):
+        elif is_to_start_of_day_timestamp_field(node, self.context):
+            self.has_transformed_aggregation = True
             # toStartOfDay(timestamp) becomes toStartOfDay(period_bucket)
             return ast.Call(name="toStartOfDay", args=[ast.Field(chain=["period_bucket"])])
+        elif transformed_call := _try_transform_timestamp_comparsion_with_start_of_day_time_constant(
+            node, self.context
+        ):
+            return transformed_call
+        # For other calls, just return the node unchanged
+        return super().visit_call(node)
 
-    elif isinstance(expr, ast.Field):
-        # Transform properties.x to the corresponding field in the preaggregated table
-        property_result = _get_supported_property_field(expr)
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        # Transform the field expression
+        property_result = _get_supported_field(node)
         if property_result is not None:
-            property_name, field_name = property_result
-            return ast.Field(chain=[field_name])
-    elif isinstance(expr, ast.Alias):
-        # Transform the inner expression but keep the alias
-        return ast.Alias(alias=expr.alias, expr=_transform_select_expr(expr.expr))
+            _, field = property_result
+            return field
+        # if it's referencing an alias we've seen, allow it
+        if len(node.chain) == 1 and node.chain[0] in self.seen_aliases:
+            return node
+        # any other field access is not supported
+        raise ValueError("Unsupported field: {}".format(node.chain))
 
-    raise ValueError("Unsupported expression type in SELECT clause: {}".format(type(expr)))
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        # We already handle this stuff in visit_call, don't duplicate it here
+        if node.op == CompareOperationOp.Gt:
+            return self.visit(ast.Call(name="greater", args=[node.left, node.right]))
+        elif node.op == CompareOperationOp.GtEq:
+            return self.visit(ast.Call(name="greaterOrEquals", args=[node.left, node.right]))
+        elif node.op == CompareOperationOp.Lt:
+            return self.visit(ast.Call(name="less", args=[node.left, node.right]))
+        elif node.op == CompareOperationOp.LtEq:
+            return self.visit(ast.Call(name="lessOrEquals", args=[node.left, node.right]))
+        elif node.op == CompareOperationOp.Eq:
+            return self.visit(ast.Call(name="equals", args=[node.left, node.right]))
+        elif node.op == CompareOperationOp.NotEq:
+            return self.visit(ast.Call(name="notEquals", args=[node.left, node.right]))
+        else:
+            return super().visit_compare_operation(node)
+
+    def visit_alias(self, node: ast.Alias):
+        self.seen_aliases.add(node.alias)
+        return super().visit_alias(node)
 
 
-def _transform_group_by_expr(expr: ast.Expr) -> ast.Expr:
-    """Transform a GROUP BY expression to use preaggregated fields."""
-    if isinstance(expr, ast.Field):
-        # Transform properties.x to the corresponding field in the preaggregated table
-        property_result = _get_supported_property_field(expr)
-        if property_result is not None:
-            property_name, field_name = property_result
-            return ast.Field(chain=[field_name])
-        # Pass through other fields unchanged
-        return expr
-    else:
-        # Pass through other expressions unchanged
-        return expr
+def _is_constant_one(expr: ast.Expr) -> bool:
+    """Check if an expression is a constant with value 1."""
+    return isinstance(expr, ast.Constant) and expr.value == 1
+
+
+def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
+    if not node or not isinstance(node.table, ast.Field):
+        return False
+    if node.table.chain != ["events"]:
+        return False
+    if node.constraint:
+        return False
+    if node.sample:
+        sample_value = node.sample.sample_value
+        if not _is_constant_one(sample_value.left) or not (
+            sample_value.right is None or _is_constant_one(sample_value.right)
+        ):
+            return False
+    return True
 
 
 def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
@@ -424,50 +342,87 @@ def _shallow_transform_select(node: ast.SelectQuery, context: HogQLContext) -> a
     # TODO this should iterate over all possible preaggregated tables and apply the best one
     table_name = "web_stats_daily"
 
-    # Check if the query can be transformed to use preaggregated tables
-    if not _validate_preaggregated_query(node, context):
-        # Return the node unchanged - it already has any CTEs that were set
+    # Bail if any unsupported part of the SELECT query exist
+    # Some of these could be supported in the future, if you add them, make sure you add some tests!
+    if (
+        node.array_join_list
+        or node.array_join_op
+        or node.limit_by
+        or node.limit_with_ties
+        or node.window_exprs
+        or node.prewhere
+        or node.view_name
+        or node.distinct
+    ):
+        return node
+
+    if not _is_valid_select_from(node.select_from):
+        return node
+
+    visitor = ExprTransformer(context)
+
+    try:
+        # Transform the SELECT clause
+        select = [visitor.visit(expr) for expr in node.select]
+
+        # Transform the WHERE clause, but flatten first
+        flat_where = flatten_and(node.where)
+        has_pageview_filter = False
+        transformed_where = []
+        for where_expr in flat_where:
+            if is_pageview_filter(where_expr):
+                has_pageview_filter = True
+            else:
+                transformed_where.append(visitor.visit(where_expr))
+        if len(transformed_where) > 1:
+            where = ast.And(exprs=transformed_where)
+        elif len(transformed_where) == 1:
+            where = transformed_where[0]
+        else:
+            where = None
+
+        # Tranform the GROUP BY clause
+        group_by = [visitor.visit(expr) for expr in node.group_by] if node.group_by else None
+    except ValueError:
+        # We ran into an unsupported expression, just return the original node
+        return node
+
+    # If we didn't find a pageview filter, we can't use preaggregated tables
+    if not has_pageview_filter:
+        return node
+    # If there was no aggregation in the SELECT clause, we can't use preaggregated tables
+    if not visitor.has_transformed_aggregation:
         return node
 
     # Transform the query to use the preaggregated table
-    new_select_from = ast.JoinExpr(
+    select_from = ast.JoinExpr(
         table=ast.Field(chain=[table_name]),
         alias=node.select_from.alias if node.select_from else None,
         constraint=None,
         next_join=None,
-        sample=None,  # Remove sample clause for preaggregated tables
+        sample=None,  # Safe to drop this, as we only support sample=1 anyway
     )
-
-    # Transform SELECT clause
-    new_select = [_transform_select_expr(expr) for expr in node.select]
-
-    # Transform GROUP BY clause
-    new_group_by = None
-    if node.group_by:
-        new_group_by = [_transform_group_by_expr(expr) for expr in node.group_by]
 
     # Create the transformed query, preserving CTEs from the original
     new_query = ast.SelectQuery(
-        select=new_select,
-        select_from=new_select_from,
-        group_by=new_group_by,
+        select=select,
+        select_from=select_from,
+        group_by=group_by,
+        where=where,
+        array_join_list=None,
+        array_join_op=None,
+        limit_by=None,
+        limit_with_ties=None,
+        window_exprs=None,
+        prewhere=None,
+        view_name=None,
+        distinct=None,
         limit=node.limit,
         offset=node.offset,
         order_by=node.order_by,
         having=node.having,
-        # Don't include WHERE clause since preaggregated tables already filter to pageviews
-        where=None,
-        prewhere=None,
-        # Preserve all other attributes from the original node
-        distinct=node.distinct,
-        limit_by=node.limit_by,
-        limit_with_ties=node.limit_with_ties,
         settings=node.settings,
-        ctes=node.ctes,  # Preserve CTEs
-        array_join_op=node.array_join_op,
-        array_join_list=node.array_join_list,
-        window_exprs=node.window_exprs,
-        view_name=node.view_name,
+        ctes=node.ctes,  # Preserve CTEs, they should get transformed by the outer visitor
     )
     return new_query
 

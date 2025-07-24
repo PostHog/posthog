@@ -40,7 +40,7 @@
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "posthog-js": "^1.257.1",
+        "posthog-js": "^1.258.1",
         "posthog-js-lite": "^4.1.0",
         "turbo": "^2.4.2",
         "uuid": "^10.0.0"

@@ -9,10 +9,10 @@ import pytest
 import dataclasses
 from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
+from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,
     EnrichedSessionGroupSummaryPatternsList,
@@ -99,9 +99,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
     )
     # Execute the activity and verify results
     with (
-        patch(
-            "ee.session_recordings.session_summary.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())
-        ),
+        patch("ee.hogai.session_summaries.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())),
         patch("temporalio.activity.info") as mock_activity_info,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
@@ -151,7 +149,7 @@ async def test_extract_session_group_patterns_activity_standalone(
 
     # Execute the activity
     with (
-        patch("ee.session_recordings.session_summary.llm.consume.call_llm") as mock_call_llm,
+        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
@@ -255,7 +253,7 @@ async def test_assign_events_to_patterns_activity_standalone(
 
     # Execute the activity
     with (
-        patch("ee.session_recordings.session_summary.llm.consume.call_llm") as mock_call_llm,
+        patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
@@ -321,7 +319,7 @@ class TestSummarizeSessionGroupWorkflow:
         with (
             # Mock LLM call
             patch(
-                "ee.session_recordings.session_summary.llm.consume.call_llm",
+                "ee.hogai.session_summaries.llm.consume.call_llm",
                 new=AsyncMock(side_effect=call_llm_side_effects),
             ),
             # Mock DB calls
