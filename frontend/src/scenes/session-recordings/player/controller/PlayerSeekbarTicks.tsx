@@ -22,15 +22,21 @@ function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
 }
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
-    return x.type === 'comment' && 'source' in x && x.source === 'notebook'
+    if (x.type !== 'comment') {
+        return false
+    }
+    return 'source' in x && x.source === 'notebook'
 }
 
 function isComment(x: InspectorListItem): x is InspectorListItemComment {
-    return x.type === 'comment' && 'source' in x && x.source === 'comment'
+    if (x.type !== 'comment') {
+        return false
+    }
+    return 'source' in x && x.source === 'comment'
 }
 
-function isAnyComment(x: InspectorListItem): x is InspectorListItemComment {
-    return isComment(x) || isNotebookComment(x)
+function isAnyComment(x: InspectorListItem): x is InspectorListItemComment | InspectorListItemNotebookComment {
+    return x.type === 'comment'
 }
 
 function isEmojiComment(x: InspectorListItem): x is InspectorListItemComment {
@@ -43,7 +49,7 @@ function PlayerSeekbarTick({
     zIndex,
     onClick,
 }: {
-    item: InspectorListItemComment | InspectorListItemEvent
+    item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
@@ -120,7 +126,7 @@ export const PlayerSeekbarTicks = memo(
         seekToTime,
         hoverRef,
     }: {
-        seekbarItems: (InspectorListItemEvent | InspectorListItemComment)[]
+        seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
