@@ -187,13 +187,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
             )
 
-        if data["type"] == "transformation":
-            if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
-                if not template:
-                    raise serializers.ValidationError(
-                        {"template_id": "Transformation functions must be created from a template."}
-                    )
-        elif not has_addon:
+        if data["type"] != "transformation" and not has_addon:
             if not bypass_addon_check:
                 # If they don't have the addon, they can only use free templates and can't modify them
                 if not template:
