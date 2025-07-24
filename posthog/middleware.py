@@ -644,3 +644,20 @@ class Fix204Middleware:
                 response.headers.pop(h, None)
 
         return response
+
+
+# Add CSP to Admin tooling
+class AdminCSPMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path.startswith("/admin/"):
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=1"'
+            )
+            response.headers["Content-Security-Policy-Report-Only"] = (
+                "default-src 'self'; worker-src 'none'; child-src 'none'; object-src 'none'; frame-ancestors 'none'; manifest-src 'none'; report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=1; report-to posthog"
+            )
+        return response
