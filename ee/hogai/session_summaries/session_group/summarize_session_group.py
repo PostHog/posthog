@@ -115,9 +115,9 @@ def generate_session_group_patterns_combination_prompt(
 
     # Convert all pattern chunks to YAML format for the prompt
     patterns_chunks_yaml = []
-    for chunk in patterns_chunks:
-        patterns_chunks_yaml.append(chunk.model_dump_json(exclude_none=True))
-    combined_patterns_chunks = "\n---\n".join(patterns_chunks_yaml)
+    for i, chunk in enumerate(patterns_chunks):
+        patterns_chunks_yaml.append(f"Patterns chunk #{i+1}:\n\n{chunk.model_dump_json(exclude_none=True)}")
+    combined_patterns_chunks = "\n\n---\n\n".join(patterns_chunks_yaml)
 
     # Render templates
     template_dir = Path(__file__).parent / "templates" / "patterns_combining"
