@@ -471,7 +471,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token in case: {}",
         title,
     );
