@@ -13,9 +13,9 @@ from posthog.temporal.data_imports.sources.generated_configs import (
 )
 
 
-class FixSubTemplateIdsToTemplateIdsMigrationTest(NonAtomicTestMigrations):
-    migrate_from = "0795_add_progress_tracking_to_datamodelingjob"
-    migrate_to = "0796_dwh_source_refactor"
+class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
+    migrate_from = "0802_messagecategory_category_type_and_more_fix"
+    migrate_to = "0803_dwh_source_refactor"
 
     CLASS_DATA_LEVEL_SETUP = False
 
