@@ -22,11 +22,11 @@ function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
 }
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
-    return x.type === 'comment' && x.source === 'notebook'
+    return x.type === 'comment' && 'source' in x && x.source === 'notebook'
 }
 
 function isComment(x: InspectorListItem): x is InspectorListItemComment {
-    return x.type === 'comment' && x.source === 'comment'
+    return x.type === 'comment' && 'source' in x && x.source === 'comment'
 }
 
 function isAnyComment(x: InspectorListItem): x is InspectorListItemComment {
