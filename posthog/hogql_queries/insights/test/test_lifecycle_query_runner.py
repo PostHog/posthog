@@ -27,6 +27,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.models import Action, Cohort
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 
 
@@ -573,6 +575,93 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                 },
             ],
             response.results,
+        )
+
+    def test_lifecycle_query_group_with_different_created_at(self):
+        """Test that lifecycle query uses group's created_at, not person's created_at when aggregating by groups."""
+        # Create group type mapping
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        # Create groups with specific created_at times that are DIFFERENT from person's created_at
+        with freeze_time("2020-01-05T12:00:00Z"):  # Group created before the test period
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:early",
+                properties={"name": "early org"},
+            )
+
+        with freeze_time("2020-01-12T12:00:00Z"):  # Group created during the test period
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:new",
+                properties={"name": "new org"},
+            )
+
+        # Create events where person is created much later than the group
+        # This would cause incorrect results if person.created_at is used instead of group.created_at
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        # Person p1 is created on Jan 11th (during test period)
+                        # but interacts with org:early (created Jan 5th, before test period)
+                        ("2020-01-11T12:00:00Z", {"$group_0": "org:early"}),
+                        ("2020-01-13T12:00:00Z", {"$group_0": "org:early"}),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        # Person p2 is created on Jan 10th (during test period)
+                        # but interacts with org:new (created Jan 12th, also during test period)
+                        ("2020-01-10T12:00:00Z", {"$group_0": "org:new"}),
+                        ("2020-01-14T12:00:00Z", {"$group_0": "org:new"}),
+                    ],
+                ),
+            ]
+        )
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self._run_lifecycle_query(date_from, date_to, IntervalType.DAY, 0)
+
+        # Find the "new" status result
+        new_result = None
+        for res in response.results:
+            if res["status"] == "new":
+                new_result = res
+                break
+
+        self.assertIsNotNone(new_result, "Should have a 'new' result")
+
+        # The key test: org:early should NOT appear as "new" because it was created before the test period (Jan 5th)
+        # org:new should appear as "new" only on Jan 12th when the group was created
+        # This verifies that group.created_at is being used, not person.created_at
+
+        expected_data = [
+            0.0,  # 2020-01-09 - no new groups
+            0.0,  # 2020-01-10 - no new groups (org:early is old, org:new not created yet)
+            0.0,  # 2020-01-11 - no new groups (org:early is old, org:new not created yet)
+            1.0,  # 2020-01-12 - org:new becomes "new" on its creation date
+            0.0,  # 2020-01-13 - no new groups
+            0.0,  # 2020-01-14 - no new groups
+            0.0,  # 2020-01-15 - no new groups
+            0.0,  # 2020-01-16 - no new groups
+            0.0,  # 2020-01-17 - no new groups
+            0.0,  # 2020-01-18 - no new groups
+            0.0,  # 2020-01-19 - no new groups
+        ]
+
+        self.assertEqual(
+            new_result["data"],
+            expected_data,
+            f"Expected new groups to appear based on group.created_at, got: {new_result['data']}",
         )
 
 
