@@ -6,7 +6,7 @@ import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryF
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isDataTableNode, isHogQLQuery, trimQuotes } from '~/queries/utils'
+import { isDataTableNode, isGroupsQuery, isHogQLQuery, trimQuotes } from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -28,6 +28,8 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
     const queryContextColumn =
         (queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined) ?? context?.columns?.[key]
 
+    const propertyName = key.startsWith('properties.') ? trimQuotes(key.substring(11)) : undefined
+
     if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
         const Component = queryContextColumn.renderTitle
         title = Component ? <Component columnName={queryContextColumnName} query={query} /> : queryContextColumn.title
@@ -41,6 +43,9 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
             title =
                 tagName === '__hx_obj' ? 'Object' : tagName === 'RecordingButton' ? 'Recording' : '<' + tagName + ' />'
         }
+    } else if (propertyName && isGroupsQuery(query.source)) {
+        const splitPropertyName = propertyName.split('--')
+        title = splitPropertyName.length > 1 ? splitPropertyName[1].trim() : propertyName
     } else if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {
