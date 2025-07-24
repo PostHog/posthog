@@ -25,7 +25,6 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentFunnelMetric,
     ExperimentDataWarehouseNode,
-    EventsNode,
     ExperimentStatsBase,
 )
 
@@ -33,11 +32,12 @@ logger = logging.getLogger(__name__)
 
 
 class ExperimentTimeseries:
-    def __init__(self, experiment: Experiment):
-        """Initialize the ExperimentTimeseries with an Experiment object"""
+    def __init__(self, experiment: Experiment, metric: Union[ExperimentFunnelMetric, ExperimentMeanMetric]):
+        """Initialize the ExperimentTimeseries with an Experiment and metric objects"""
         self.experiment = experiment
         self.feature_flag = experiment.feature_flag
         self.team = experiment.team
+        self.metric = metric
 
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
@@ -55,35 +55,26 @@ class ExperimentTimeseries:
 
         self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
 
-        # Get the first metric and parse it
-        self.metric: Union[ExperimentFunnelMetric, ExperimentMeanMetric]
-        if self.experiment.metrics:
-            raw_metric = self.experiment.metrics[0]
-            if raw_metric.get("metric_type") == "funnel":
-                self.metric = ExperimentFunnelMetric(
-                    series=[EventsNode(**step) for step in raw_metric["series"]],
-                    conversion_window=raw_metric.get("conversion_window"),
-                    conversion_window_unit=raw_metric.get("conversion_window_unit"),
-                )
-            else:
-                series_data = raw_metric["series"][0] if raw_metric.get("series") else {}
-                self.metric = ExperimentMeanMetric(
-                    source=EventsNode(**series_data),
-                    conversion_window=raw_metric.get("conversion_window"),
-                    conversion_window_unit=raw_metric.get("conversion_window_unit"),
-                )
-        else:
-            raise ValueError("No metrics found for this experiment")
-
         self.is_data_warehouse_query = isinstance(self.metric, ExperimentMeanMetric) and isinstance(
             self.metric.source, ExperimentDataWarehouseNode
         )
 
-    # NEW FUNCTION: Get daily exposure counts based on first exposure date
     def _get_daily_exposure_counts_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
-        Returns a query that counts users who were first exposed on each day
-        Columns: variant, date, daily_new_users
+        Counts how many users were first exposed to each variant on each day.
+
+        INPUT (exposure_query): One row per user with their first exposure
+        | entity_id | variant | first_exposure_time     |
+        |-----------|---------|-------------------------|
+        | user_1    | control | 2025-05-27 14:30:00     |
+        | user_2    | control | 2025-05-27 16:45:00     |
+        | user_3    | test-1  | 2025-05-28 09:15:00     |
+
+        OUTPUT: One row per variant per day (counts of new exposures)
+        | variant | date       | daily_new_users |
+        |---------|------------|-----------------|
+        | control | 2025-05-27 | 2               |
+        | test-1  | 2025-05-28 | 1               |
         """
         return ast.SelectQuery(
             select=[
@@ -113,18 +104,30 @@ class ExperimentTimeseries:
             ],
         )
 
-    # CORRECTED FUNCTION: Get daily entity metrics from exposed users only
     def _get_daily_entity_metrics_from_exposed_users_query(
-        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
+        self, metric_events_query: ast.SelectQuery
     ) -> ast.SelectQuery:
         """
-        Returns daily metric values per entity from exposed users (simplified - no double join needed)
-        metric_events_query already contains variant from exposure and is filtered to exposed users
-        Columns: variant, entity_id, date, value
+        Aggregates each user's metric events by day (for users who were exposed to the experiment).
+
+        INPUT (metric_events_query): One row per metric event from exposed users
+        | variant | entity_id | timestamp           | value |
+        |---------|-----------|---------------------|-------|
+        | control | user_1    | 2025-05-27 14:35:00 | 1     |
+        | control | user_1    | 2025-05-27 18:20:00 | 1     |
+        | control | user_2    | 2025-05-28 10:15:00 | 1     |
+        | test-1  | user_3    | 2025-05-27 12:30:00 | 1     |
+
+        OUTPUT: One row per user per day (aggregated metric values)
+        | variant | entity_id | date       | value |
+        |---------|-----------|------------|-------|
+        | control | user_1    | 2025-05-27 | 2     |
+        | control | user_2    | 2025-05-28 | 1     |
+        | test-1  | user_3    | 2025-05-27 | 1     |
         """
         return ast.SelectQuery(
             select=[
-                ast.Field(chain=["metric_events", "variant"]),  # Already from exposure data
+                ast.Field(chain=["metric_events", "variant"]),
                 ast.Field(chain=["metric_events", "entity_id"])
                 if not self.is_data_warehouse_query
                 else ast.Field(chain=["metric_events", "entity_identifier"]),
@@ -153,11 +156,22 @@ class ExperimentTimeseries:
             ],
         )
 
-    # NEW FUNCTION: Aggregate daily metrics by variant and date
     def _get_daily_metric_aggregations_query(self, daily_entity_metrics_query: ast.SelectQuery) -> ast.SelectQuery:
         """
-        Aggregates entity+date metrics to variant+date level
-        Columns: variant, date, daily_metric_sum, daily_sum_of_squares
+        Rolls up individual user metrics to daily variant totals.
+
+        INPUT (daily_entity_metrics_query): One row per user per day
+        | variant | entity_id | date       | value |
+        |---------|-----------|------------|-------|
+        | control | user_1    | 2025-05-27 | 10    |
+        | control | user_2    | 2025-05-27 | 15    |
+        | test-1  | user_3    | 2025-05-27 | 8     |
+
+        OUTPUT: One row per variant per day (summed across all users)
+        | variant | date       | daily_metric_sum | daily_sum_of_squares |
+        |---------|------------|------------------|----------------------|
+        | control | 2025-05-27 | 25               | 325                  |
+        | test-1  | 2025-05-27 | 8                | 64                   |
         """
         return ast.SelectQuery(
             select=[
@@ -193,13 +207,33 @@ class ExperimentTimeseries:
             ],
         )
 
-    # NEW FUNCTION: Combine the two parallel data streams
     def _get_combined_daily_query(
         self, daily_exposure_counts_query: ast.SelectQuery, daily_metric_aggregations_query: ast.SelectQuery
     ) -> ast.SelectQuery:
         """
-        Combines daily exposure counts with daily metric aggregations
-        Columns: variant, date, daily_new_users, daily_metric_sum, daily_sum_of_squares
+        Combines daily user exposures with daily metric totals using FULL OUTER JOIN.
+
+        INPUT Stream A (daily_exposure_counts_query): Daily new user counts
+        | variant | date       | daily_new_users |
+        |---------|------------|-----------------|
+        | control | 2025-05-27 | 100             |
+        | test-1  | 2025-05-27 | 95              |
+        | control | 2025-05-28 | 120             |
+
+        INPUT Stream B (daily_metric_aggregations_query): Daily metric totals
+        | variant | date       | daily_metric_sum | daily_sum_of_squares |
+        |---------|------------|------------------|----------------------|
+        | control | 2025-05-27 | 25               | 325                  |
+        | test-1  | 2025-05-27 | 18               | 198                  |
+        | test-1  | 2025-05-28 | 30               | 450                  |
+
+        OUTPUT: Combined daily data (coalesce handles missing values)
+        | variant | date       | daily_new_users | daily_metric_sum | daily_sum_of_squares |
+        |---------|------------|-----------------|------------------|----------------------|
+        | control | 2025-05-27 | 100             | 25               | 325                  |
+        | test-1  | 2025-05-27 | 95              | 18               | 198                  |
+        | control | 2025-05-28 | 120             | 0                | 0                    |
+        | test-1  | 2025-05-28 | 0               | 30               | 450                  |
         """
         return ast.SelectQuery(
             select=[
@@ -282,11 +316,25 @@ class ExperimentTimeseries:
             ),
         )
 
-    # UPDATED FUNCTION: Apply cumulative calculations to combined daily data
     def _get_cumulative_timeseries_query(self, combined_daily_query: ast.SelectQuery) -> ast.SelectQuery:
         """
-        Creates the final timeseries query with cumulative calculations using window functions
-        Columns: variant, date, num_users, total_sum, total_sum_of_squares
+        Applies window functions to create cumulative running totals over time.
+
+        INPUT (combined_daily_query): Daily values for each variant
+        | variant | date       | daily_new_users | daily_metric_sum | daily_sum_of_squares |
+        |---------|------------|-----------------|------------------|----------------------|
+        | control | 2025-05-27 | 100             | 25               | 325                  |
+        | control | 2025-05-28 | 120             | 15               | 150                  |
+        | test-1  | 2025-05-27 | 95              | 30               | 450                  |
+        | test-1  | 2025-05-28 | 110             | 20               | 200                  |
+
+        OUTPUT: Cumulative totals (window functions sum over date order)
+        | variant | date       | num_users | total_sum | total_sum_of_squares |
+        |---------|------------|-----------|-----------|----------------------|
+        | control | 2025-05-27 | 100       | 25        | 325                  |
+        | control | 2025-05-28 | 220       | 40        | 475                  |
+        | test-1  | 2025-05-27 | 95        | 30        | 450                  |
+        | test-1  | 2025-05-28 | 205       | 50        | 650                  |
         """
         return ast.SelectQuery(
             select=[
@@ -362,11 +410,21 @@ class ExperimentTimeseries:
 
     def _get_experiment_timeseries_query(self) -> ast.SelectQuery:
         """
-        Creates a timeseries query that returns cumulative daily results for each variant
-        Returns one row per (variant, date) combination with cumulative statistics
-        Columns: variant, date, num_users, total_sum, total_sum_of_squares
+        FLOW:
+        1. Get exposures → daily exposure counts (by exposure date)
+        2. Get metric events → daily entity metrics → daily totals (by event date)
+        3. Combine both streams with FULL OUTER JOIN
+        4. Apply window functions for cumulative totals
+
+        FINAL OUTPUT: Cumulative experiment results over time
+        | variant | date       | num_users | total_sum | total_sum_of_squares |
+        |---------|------------|-----------|-----------|----------------------|
+        | control | 2025-05-27 | 100       | 25        | 325                  |
+        | control | 2025-05-28 | 220       | 40        | 475                  |
+        | test-1  | 2025-05-27 | 95        | 30        | 450                  |
+        | test-1  | 2025-05-28 | 205       | 50        | 650                  |
         """
-        # Get all entities that should be included in the experiment
+
         exposure_query = get_experiment_exposure_query(
             self.experiment,
             self.feature_flag,
@@ -378,7 +436,6 @@ class ExperimentTimeseries:
             self.multiple_variant_handling,
         )
 
-        # Get all metric events from exposed users (maintaining the exposure connection)
         metric_events_query = get_metric_events_query(
             self.metric,
             exposure_query,
@@ -391,10 +448,8 @@ class ExperimentTimeseries:
         # Stream A: Get daily user exposure counts (based on first_exposure_time)
         daily_exposure_counts_query = self._get_daily_exposure_counts_query(exposure_query)
 
-        # Stream B: Get daily metric aggregations from exposed users (based on metric event timestamps)
-        daily_entity_metrics_query = self._get_daily_entity_metrics_from_exposed_users_query(
-            exposure_query, metric_events_query
-        )
+        # Stream B: Get daily metric aggregations from exposed users
+        daily_entity_metrics_query = self._get_daily_entity_metrics_from_exposed_users_query(metric_events_query)
 
         # Winsorize if needed
         if isinstance(self.metric, ExperimentMeanMetric) and (
@@ -402,15 +457,12 @@ class ExperimentTimeseries:
         ):
             daily_entity_metrics_query = get_winsorized_metric_values_query(self.metric, daily_entity_metrics_query)
 
-        # Aggregate entity+date metrics to variant+date level
         daily_metric_aggregations_query = self._get_daily_metric_aggregations_query(daily_entity_metrics_query)
 
-        # Combine the two parallel streams
         combined_daily_query = self._get_combined_daily_query(
             daily_exposure_counts_query, daily_metric_aggregations_query
         )
 
-        # Final timeseries query with cumulative calculations using window functions
         return self._get_cumulative_timeseries_query(combined_daily_query)
 
     def _transform_timeseries_results(self, results: list[tuple]) -> list[dict]:
