@@ -6,10 +6,6 @@ from posthog.hogql.utils import is_simple_value, deserialize_hx_ast
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
-def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
-    return ReplacePlaceholders(placeholders).visit(node)
-
-
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
@@ -43,6 +39,7 @@ class ReplacePlaceholders(CloningVisitor):
         self.placeholders = placeholders
 
     def visit_placeholder(self, node):
+        # avoid circular imports
         from common.hogvm.python.execute import execute_bytecode
         from posthog.hogql.compiler.bytecode import create_bytecode
 
@@ -68,3 +65,7 @@ class ReplacePlaceholders(CloningVisitor):
             f"Placeholder {{{node.field}}} returned an unexpected type: {type(response.result).__name__}. "
             "Expected an AST node or a simple value."
         )
+
+
+def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
+    return ReplacePlaceholders(placeholders).visit(node)

@@ -90,14 +90,10 @@ class TestBytecodePlaceholders(BaseTest):
     sql() helpers and HogQLX JSX tags – are compiled and substituted correctly.
     """
 
-    # --- helpers ----------------------------------------------------------- #
-
     def _first_select_expr(self, select_query: ast.SelectQuery):
         """Small helper to grab the first expression in the SELECT list."""
         self.assertGreater(len(select_query.select), 0)
         return select_query.select[0]
-
-    # --- simple literal / arithmetic -------------------------------------- #
 
     def test_numeric_arithmetic_placeholder(self):
         """
@@ -127,8 +123,6 @@ class TestBytecodePlaceholders(BaseTest):
         self.assertIsInstance(first_expr, ast.Constant)
         self.assertEqual(first_expr.value, "hello")
 
-    # --- sql() helper ------------------------------------------------------ #
-
     def test_sql_field_placeholder(self):
         """
         `select {sql(event)}` should yield an AST Field chain ["event"].
@@ -154,8 +148,6 @@ class TestBytecodePlaceholders(BaseTest):
         expr = self._first_select_expr(replaced)
         self.assertNotIsInstance(expr, ast.Constant)
         self.assertEqual(to_printed_hogql(expr, team=self.team), "plus(1, 2)")
-
-    # --- immediately‑executed lambda returning HogQLXTag ------------------- #
 
     def test_immediate_function_placeholder_with_hogqlx(self):
         """
@@ -205,8 +197,6 @@ class TestBytecodePlaceholders(BaseTest):
         # WHERE clause: constant true
         assert isinstance(replaced.where, ast.Constant)
         assert replaced.where.value is True
-
-    # --- find_placeholders behaviour -------------------------------------- #
 
     def test_find_placeholders_on_expression(self):
         """

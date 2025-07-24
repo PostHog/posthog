@@ -85,7 +85,6 @@ class HogQLQueryExecutor:
 
     def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
-            # placeholders_in_query = find_placeholders(self.select_query)
             if not self.placeholders:
                 self.placeholders = {}
             finder = find_placeholders(self.select_query)
