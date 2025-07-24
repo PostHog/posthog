@@ -120,12 +120,18 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     const [startingMaterialization, setStartingMaterialization] = useState(false)
 
+    const currentJobStatus = dataModelingJobs?.results?.[0]?.status
     useEffect(() => {
-        const mostRecentJob = dataModelingJobs?.results?.[0]
-        if (mostRecentJob?.status) {
+        if (
+            currentJobStatus &&
+            (currentJobStatus === 'Running' ||
+                currentJobStatus === 'Completed' ||
+                currentJobStatus === 'Failed' ||
+                currentJobStatus === 'Cancelled')
+        ) {
             setStartingMaterialization(false)
         }
-    }, [dataModelingJobs?.results])
+    }, [currentJobStatus])
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
@@ -161,12 +167,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
                                         className="whitespace-nowrap"
-                                        loading={startingMaterialization || savedQuery?.status === 'Running'}
+                                        loading={startingMaterialization || currentJobStatus === 'Running'}
                                         disabledReason={
-                                            startingMaterialization
-                                                ? 'Materialization is starting...'
-                                                : savedQuery?.status === 'Running'
-                                                ? 'Materialization is running'
+                                            currentJobStatus === 'Running'
+                                                ? 'Materialization is already running'
+                                                : startingMaterialization
+                                                ? 'Materialization is starting'
                                                 : false
                                         }
                                         onClick={() =>
@@ -180,21 +186,20 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
                                             disabledReason:
-                                                !startingMaterialization &&
-                                                savedQuery?.status !== 'Running' &&
+                                                !(startingMaterialization || currentJobStatus === 'Running') &&
                                                 'Materialization is not running',
                                         }}
                                     >
                                         {startingMaterialization
                                             ? 'Starting...'
-                                            : savedQuery?.status === 'Running'
+                                            : currentJobStatus === 'Running'
                                             ? 'Running...'
                                             : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
                                         disabledReason={
-                                            savedQuery?.status === 'Running'
+                                            currentJobStatus === 'Running'
                                                 ? 'Materialization is already running'
                                                 : false
                                         }
@@ -223,7 +228,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             size="small"
                                             tooltip="Revert materialized view to view"
                                             disabledReason={
-                                                savedQuery?.status === 'Running' &&
+                                                currentJobStatus === 'Running' &&
                                                 'Cannot revert while materialization is running'
                                             }
                                             icon={<IconRevert />}
