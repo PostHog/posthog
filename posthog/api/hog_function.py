@@ -192,6 +192,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
+            except Exception as e:
+                capture_exception(e)
+                raise serializers.ValidationError({"template_id": f"Error loading template '{data['template_id']}'"})
 
         if data["type"] == "transformation":
             if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:

@@ -139,14 +139,16 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-
         if self.hog_function_template:
             return self.hog_function_template
 
         if not self.template_id:
             return None
 
-        template = HogFunctionTemplate.objects.get
+        try:
+            template = HogFunctionTemplate.objects.get(template_id=self.template_id)
+        except HogFunctionTemplate.DoesNotExist:
+            return None
 
         if template:
             return template
