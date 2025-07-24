@@ -239,12 +239,11 @@ services:
             service: jaeger
 
     cassandra:
-        image: cassandra:4.1
-        container_name: posthog-cassandra
+        extends:
+            file: docker-compose.base.yml
+            service: cassandra
         ports:
             - '9042:9042'
-        volumes:
-            - cassandra_data:/var/lib/cassandra
 
 networks:
     otel_network:
