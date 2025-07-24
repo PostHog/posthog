@@ -11,6 +11,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
+from posthog.hogql.variables import replace_variables
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
@@ -59,6 +60,9 @@ class HogQLQueryRunner(QueryRunner):
         with self.timings.measure("filters"):
             if self.query.filters and finder.has_filters:
                 parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+        if self.query.variables:
+            with self.timings.measure("replace_variables"):
+                parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
         if len(finder.field_strings) > 0 or finder.has_expr_placeholders:
             with self.timings.measure("replace_placeholders"):
                 parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, values))
