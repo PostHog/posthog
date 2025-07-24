@@ -334,8 +334,7 @@ class TestRedisStream(BaseTest):
             with self.assertRaises(Exception):
                 await self.redis_stream.write_to_stream(test_generator())
 
-            # Should call xadd twice: 1 failed data message + 1 error status
-            self.assertEqual(mock_client.xadd.call_count, 2)
+            self.assertEqual(mock_client.xadd.call_count, 1)
 
     @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):

@@ -1,15 +1,14 @@
 # flake8: noqa
 from typing import Any, Dict, Optional
 
-
-from redis import asyncio as aioredis
 import asyncio
 import weakref
+import fakeredis
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 import redis
-import fakeredis
+from redis import asyncio as aioredis
 
 
 _client_map: Dict[str, Any] = {}
@@ -26,8 +25,6 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
         if settings.TEST:
             client: Any = fakeredis.FakeRedis()
         elif redis_url:
-            import redis  # local import to avoid the heavy dependency at startup if unused
-
             client = redis.from_url(redis_url, db=0)
         else:
             client = None
@@ -103,34 +100,31 @@ def get_async_client(redis_url: Optional[str] = None):
     if redis_url is None:
         raise ImproperlyConfigured("REDIS_URL is not configured")
 
-    # When tests use fakeredis we *still* want the per-loop safety guarantees.
     if settings.TEST:
-        import fakeredis
-
-        ClientCls = fakeredis.FakeAsyncRedis
+        # For tests, use simple caching without per-loop complexity
+        # since FakeAsyncRedis doesn't have the same event loop restrictions
+        if redis_url not in _client_map:
+            _client_map[redis_url] = fakeredis.FakeAsyncRedis()
+        return _client_map[redis_url]
     else:
-        ClientCls = aioredis.from_url
+        # Production code: use per-loop caching for real Redis connections
+        loop = asyncio.get_running_loop()
 
-    loop = asyncio.get_running_loop()
+        # Get (or create) the per-loop sub-map
+        pool_map = _loop_clients.get(loop)
+        if pool_map is None:
+            pool_map = {}
+            _loop_clients[loop] = pool_map
+            # As soon as loop is garbage collected call _close_pools(pool_map)
+            weakref.finalize(loop, _close_pools, pool_map)
 
-    # Get (or create) the per-loop sub-map
-    pool_map = _loop_clients.get(loop)
-    if pool_map is None:
-        pool_map = {}
-        _loop_clients[loop] = pool_map
-        # As soon as loop is garbage collected call _close_pools(pool_map)
-        weakref.finalize(loop, _close_pools, pool_map)
+        # Get (or create) the Redis instance for redis_url
+        client = pool_map.get(redis_url)
+        if client is None:
+            client = aioredis.from_url(redis_url, db=0)
+            pool_map[redis_url] = client
 
-    # Get (or create) the Redis instance for redis_url
-    client = pool_map.get(redis_url)
-    if client is None:
-        if settings.TEST:
-            client = ClientCls()
-        else:
-            client = ClientCls(redis_url, db=0)
-        pool_map[redis_url] = client
-
-    return client
+        return client
 
 
 def TEST_clear_clients():
