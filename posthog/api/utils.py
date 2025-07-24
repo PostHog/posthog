@@ -574,3 +574,13 @@ class ServerTimingsGathered:
             current_length = new_length
 
         return ", ".join(result)
+
+
+def is_activity_unread(activity_created_at, bookmark_date):
+    """
+    Returns True if the activity was created after the bookmark date (i.e., is unread).
+    Handles None for bookmark_date (always unread).
+    """
+    if bookmark_date is None:
+        return True
+    return bookmark_date < activity_created_at

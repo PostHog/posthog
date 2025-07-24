@@ -5,7 +5,7 @@ from drf_spectacular.utils import extend_schema
 
 from rest_framework import serializers, status, viewsets
 
-from posthog.api.utils import ServerTimingsGathered, action
+from posthog.api.utils import ServerTimingsGathered, action, is_activity_unread
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,13 +34,8 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
             user=self.context["user"]
         ).first()
 
-        if user_bookmark is None:
-            return True
-        else:
-           
-            # The frontend sends microseconds via toISOString() and we should respect that precision
-            bookmark_date = user_bookmark.last_viewed_activity_date
-            return bookmark_date < obj.created_at
+        bookmark_date = user_bookmark.last_viewed_activity_date if user_bookmark else None
+        return is_activity_unread(obj.created_at, bookmark_date)
 
 
 class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
