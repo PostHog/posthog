@@ -214,13 +214,7 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
         "mismatched Kafka topic assignment in case: {}",
         title,
     );
-    assert_eq!(
-        // in CaptureMode::Recording, this is: Some("019833a9-eaf4-753e-adaf-6c21075e4fd4".to_string()),
-        None,
-        meta.session_id,
-        "wrong session_id in case: {}",
-        title,
-    );
+    assert_eq!(None, meta.session_id, "wrong session_id in case: {}", title,);
 
     // introspect on extracted event attributes
     let event = &got.event;
@@ -331,6 +325,118 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     );
 }
 
+// utility to validate tests/fixtures/single_engage_event_payload.json
+pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+    let expected_event_count = 1;
+    let expected_timestamp = OffsetDateTime::parse(DEFAULT_TEST_TIME, &Rfc3339).unwrap();
+
+    assert_eq!(
+        expected_event_count,
+        got_events.len(),
+        "event count: expected {}, got {}",
+        expected_event_count,
+        got_events.len(),
+    );
+
+    // should only be one event in this batch
+    let got = got_events[0].to_owned();
+
+    // introspect on extracted event parsing metadata
+    let meta = &got.metadata;
+    assert_eq!(
+        DataType::AnalyticsMain,
+        meta.data_type,
+        "mismatched Kafka topic assignment in case: {}",
+        title,
+    );
+    assert_eq!(None, meta.session_id, "wrong session_id in case: {}", title,);
+
+    // introspect on extracted event attributes
+    let event = &got.event;
+    assert_eq!(
+        "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "mismatched token in case: {}",
+        title,
+    );
+    assert_eq!(
+        "01983d85-e613-7067-a70e-21bb63f8b8ee", &event.distinct_id,
+        "mismatched distinct_id in case: {}",
+        title,
+    );
+    assert_eq!(
+        DEFAULT_TEST_TIME, &event.now,
+        "mismatched 'now' timestamp in case: {}",
+        title,
+    );
+    assert_eq!(
+        36_usize,
+        event.uuid.to_string().len(),
+        "invalid UUID in case: {}",
+        title,
+    );
+
+    assert_eq!(
+        Some(expected_timestamp),
+        event.sent_at,
+        "mismatched sent_at in case: {}",
+        title,
+    );
+    assert!(
+        !event.is_cookieless_mode,
+        "mismatched cookieless flag in case: {}",
+        title,
+    );
+
+    // introspect on event data to be processed by plugin-server
+    let event_data_err_msg = format!("failed to hydrate test event.data in case: {}", title);
+    let event: Value = from_str(&event.data).expect(&event_data_err_msg);
+
+    // /engage/ events get post-processed into "$identify" events
+    assert_eq!(
+        "$identify",
+        event["event"].as_str().unwrap(),
+        "mismatched event.event in case: {}",
+        title,
+    );
+    assert_eq!(
+        "2025-07-01T11:00:00Z",
+        event["timestamp"].as_str().unwrap(),
+        "mismatched event.timestamp in case: {}",
+        title,
+    );
+    assert_eq!(
+        "01983d85-e613-7067-a70e-21bb63f8b8ee", event["distinct_id"],
+        "mismatched event.distinct_id in case: {}",
+        title,
+    );
+
+    // introspect on extracted event.properties map
+    let err_msg = format!("failed to extract event.properties in case: {}", title);
+    let props = event["properties"].as_object().expect(&err_msg);
+
+    assert_eq!(
+        1_usize,
+        props.len(),
+        "mismatched event.properties length in case: {}",
+        title,
+    );
+
+    let err_msg = format!("failed to extract event.properties.$set in case: {}", title);
+    let set_props = props["$set"].as_object().expect(&err_msg);
+    assert_eq!(
+        Some("bar"),
+        set_props["foo"].as_str(),
+        "mismatched event.properties.$set.foo in case: {}",
+        title,
+    );
+    assert_eq!(
+        Some(&Number::from(42)),
+        set_props["baz"].as_number(),
+        "mismatched event.properties.$set.baz in case: {}",
+        title,
+    );
+}
+
 // utility to validate tests/fixtures/single_replay_event_payload.json
 pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<ProcessedEvent>) {
     let expected_event_count = 1;
@@ -365,7 +471,7 @@ pub fn validate_single_replay_event_payload(title: &str, got_events: Vec<Process
     // introspect on extracted event attributes
     let event = &got.event;
     assert_eq!(
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3", &event.token,
+        "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3", &event.token,
         "mismatched token in case: {}",
         title,
     );
