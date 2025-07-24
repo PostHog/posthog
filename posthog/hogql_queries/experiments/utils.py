@@ -230,7 +230,7 @@ def get_frequentist_experiment_result_new_format(
 
             confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
-            # Set stastical analysis fields
+            # Set statistical analysis fields
             experiment_variant_result.p_value = result.p_value
             experiment_variant_result.confidence_interval = confidence_interval
             experiment_variant_result.significant = result.is_significant
@@ -288,7 +288,7 @@ def get_bayesian_experiment_result_new_format(
             # Convert credible interval to percentage
             credible_interval = [result.credible_interval[0], result.credible_interval[1]]
 
-            # Set stastical analysis fields
+            # Set statistical analysis fields
             experiment_variant_result.chance_to_win = result.chance_to_win
             experiment_variant_result.credible_interval = credible_interval
             experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
