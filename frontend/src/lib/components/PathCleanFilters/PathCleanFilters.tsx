@@ -1,12 +1,15 @@
-import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { restrictToParentElement } from '@dnd-kit/modifiers'
-import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable'
-import { useState } from 'react'
-
+import { useState, useEffect } from 'react'
+import { useValues } from 'kea'
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
+import { PathCleanFiltersTable } from './PathCleanFiltersTable'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { restrictToParentElement } from '@dnd-kit/modifiers'
+import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PathCleanFiltersProps {
     filters?: PathCleaningFilter[]
@@ -19,10 +22,18 @@ export const keyFromFilter = (filter: PathCleaningFilter): string => {
 
 export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState(filters)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
 
-    const updateFilters = (filters: PathCleaningFilter[]): void => {
+    // Sync local state with props
+    useEffect(() => {
         setLocalFilters(filters)
-        setFilters(filters)
+    }, [filters])
+
+    const updateFilters = (newFilters: PathCleaningFilter[]): void => {
+        // Optimistic update
+        setLocalFilters(newFilters)
+        setFilters(newFilters)
     }
 
     const onAddFilter = (filter: PathCleaningFilter): void => {
@@ -30,12 +41,7 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
     }
 
     const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
-        const newFilters = filters.map((f, i) => {
-            if (i === index) {
-                return filter
-            }
-            return f
-        })
+        const newFilters = filters.map((f, i) => (i === index ? filter : f))
         updateFilters(newFilters)
     }
 
@@ -47,13 +53,25 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
         function move(arr: PathCleaningFilter[], from: number, to: number): PathCleaningFilter[] {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
-            return clone.map((child, order) => ({ ...child, order }))
+            return clone
         }
-        updateFilters(move(filters, oldIndex, newIndex))
+        updateFilters(move(localFilters, oldIndex, newIndex))
     }
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
 
+    if (useTableUI) {
+        return (
+            <div className="flex flex-col gap-4">
+                <PathCleanFiltersTable filters={localFilters} setFilters={updateFilters} />
+                <div>
+                    <PathCleanFilterAddItemButton onAdd={onAddFilter} />
+                </div>
+            </div>
+        )
+    }
+
+    // Original pills UI
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 flex-wrap">
@@ -63,7 +81,7 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
                             return
                         }
 
-                        const aliases = filters.map((filter) => filter.alias)
+                        const aliases = localFilters.map((filter) => filter.alias)
                         onSortEnd({
                             oldIndex: aliases.indexOf(String(active.id)),
                             newIndex: aliases.indexOf(String(over.id)),
