@@ -44,13 +44,17 @@ class ScheduledChange(RootTeamMixin, models.Model):
                 retry_exhausted = failure_context.get("retry_exhausted", False)
                 error_classification = failure_context.get("error_classification")
                 retry_count = failure_context.get("retry_count", 0)
+                max_retries = failure_context.get("max_retries")
 
                 # Only include the basic error message, not sensitive context
                 message = str(error)
 
                 # Add retry status info if available
                 if will_retry is False and retry_exhausted:
-                    message += f" (failed after {retry_count} attempts)"
+                    if max_retries is not None:
+                        message += f" (failed after {retry_count} out of {max_retries} attempts)"
+                    else:
+                        message += f" (failed after {retry_count} attempts)"
                 elif will_retry is False and error_classification == "unrecoverable":
                     message += " (permanent error)"
                 elif will_retry:

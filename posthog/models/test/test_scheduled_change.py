@@ -63,7 +63,7 @@ class TestScheduledChange(BaseTest):
         }
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
-        expected = "Database connection lost (failed after 5 attempts)"
+        expected = "Database connection lost (failed after 5 out of 5 attempts)"
         self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
 
     def test_formatted_failure_reason_json_will_retry(self):
