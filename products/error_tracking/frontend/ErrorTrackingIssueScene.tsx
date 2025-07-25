@@ -51,14 +51,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const tagRenderer = useErrorTagRenderer()
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
-    const hasIntegrations = useFeatureFlag('ERROR_TRACKING_INTEGRATIONS')
 
     return (
         <ErrorTrackingSetupPrompt>
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        {hasIntegrations ? <ConnectIssueButton /> : null}
+                        <ConnectIssueButton />
                         {hasDiscussions && (
                             <LemonButton
                                 type="secondary"
