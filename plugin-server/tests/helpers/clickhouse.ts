@@ -57,19 +57,28 @@ export class Clickhouse {
     }
 
     async resetTestDatabase(): Promise<void> {
-        await this.truncate('sharded_events')
-        await this.truncate('person')
-        await this.truncate('person_distinct_id')
-        await this.truncate('person_distinct_id2')
-        await this.truncate('person_distinct_id_overrides')
-        await this.truncate('person_static_cohort')
-        await this.truncate('sharded_session_recording_events')
-        await this.truncate('plugin_log_entries')
-        await this.truncate('events_dead_letter_queue')
-        await this.truncate('groups')
-        await this.truncate('ingestion_warnings')
-        await this.truncate('sharded_ingestion_warnings')
-        await this.truncate('sharded_app_metrics')
+        // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
+        await Promise.all([
+            this.truncate('sharded_events'),
+            this.truncate('person'),
+            this.truncate('person_distinct_id'),
+            this.truncate('person_distinct_id2'),
+            this.truncate('person_distinct_id_overrides'),
+        ])
+
+        await Promise.all([
+            this.truncate('person_static_cohort'),
+            this.truncate('sharded_session_recording_events'),
+            this.truncate('plugin_log_entries'),
+            this.truncate('events_dead_letter_queue'),
+            this.truncate('groups'),
+        ])
+
+        await Promise.all([
+            this.truncate('ingestion_warnings'),
+            this.truncate('sharded_ingestion_warnings'),
+            this.truncate('sharded_app_metrics'),
+        ])
     }
 
     async delayUntilEventIngested<T extends any[] | number>(
