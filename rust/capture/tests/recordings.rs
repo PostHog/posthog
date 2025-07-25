@@ -1,4 +1,4 @@
-use crate::common::*;
+use crate::common::utils::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use capture::config::CaptureMode;
