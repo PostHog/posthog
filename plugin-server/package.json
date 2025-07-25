@@ -79,7 +79,6 @@
         "kafkajs-snappy": "^1.1.0",
         "liquidjs": "^10.21.1",
         "lodash": "^4.17.21",
-        "chance": "^1.1.13",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
         "lz4-kafkajs": "1.0.0",
@@ -157,6 +156,7 @@
         "supertest": "^7.0.0",
         "ts-node": "^10.9.1",
         "tsc-alias": "^1.8.16",
+        "chance": "^1.1.13",
         "tsconfig-paths": "^4.2.0"
     },
     "cyclotron": {
