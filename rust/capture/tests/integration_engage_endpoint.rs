@@ -2,7 +2,8 @@
 mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_lz64_urlencoded_payload, form_urlencoded_payload,
-    gzipped_payload, plain_json_payload, TestCase, DEFAULT_TEST_TIME, SINGLE_ENGAGE_EVENT_JSON,
+    form_data_base64_payload, gzipped_payload, plain_json_payload, TestCase,
+    DEFAULT_TEST_TIME, SINGLE_ENGAGE_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
@@ -137,6 +138,31 @@ fn test_cases() -> Vec<Box<TestCase>> {
             StatusCode::OK,
             // type of pre-processing and formatting to apply to payload
             Box::new(gzipped_payload),
+        ),
+        // single event JSON payload in POST form with "data" attribute base64 encoded
+        TestCase::new(
+            // test case title
+            "engage_post-form-data-base64-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/engage",
+            // JSON payload to use as input
+            SINGLE_ENGAGE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_data_base64_payload),
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
