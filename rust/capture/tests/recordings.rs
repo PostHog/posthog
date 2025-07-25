@@ -1,15 +1,17 @@
-use crate::common::utils::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use capture::config::CaptureMode;
 use chrono::Utc;
+
+#[path = "common/utils.rs"]
+mod utils;
+use utils::*;
+
 use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::{json, value::Value};
 use time::Duration;
 use uuid::Uuid;
-
-mod common;
 
 #[tokio::test]
 async fn it_captures_one_recording() -> Result<()> {
