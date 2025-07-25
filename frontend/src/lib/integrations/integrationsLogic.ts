@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getCookie } from 'lib/api'
@@ -11,6 +11,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
 import { ICONS } from './utils'
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
@@ -27,8 +28,41 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
+        openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        closeNewIntegrationModal: true,
+        openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
+        closeSetupModal: true,
     }),
-
+    reducers({
+        newIntegrationModalKind: [
+            null as IntegrationKind | null,
+            {
+                openNewIntegrationModal: (_, { kind }: { kind: IntegrationKind }) => kind,
+                closeNewIntegrationModal: () => null,
+            },
+        ],
+        setupModalOpen: [
+            false,
+            {
+                openSetupModal: () => true,
+                closeSetupModal: () => false,
+            },
+        ],
+        setupModalType: [
+            null as ChannelType | null,
+            {
+                openSetupModal: (_, { channelType }) => channelType ?? null,
+                closeSetupModal: () => null,
+            },
+        ],
+        selectedIntegration: [
+            null as IntegrationType | null,
+            {
+                openSetupModal: (_, { integration }) => integration ?? null,
+                closeSetupModal: () => null,
+            },
+        ],
+    }),
     loaders(({ values }) => ({
         integrations: [
             null as IntegrationType[] | null,

@@ -1191,35 +1191,43 @@ class MetaAdsIntegration:
 
 class TwilioIntegration:
     integration: Integration
+    twilio_provider: TwilioProvider
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "twilio":
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+        self.twilio_provider = TwilioProvider(
+            account_sid=self.integration.config["account_sid"],
+            auth_token=self.integration.sensitive_config["auth_token"],
+        )
 
-    @classmethod
-    def integration_from_keys(
-        cls, account_sid: str, auth_token: str, phone_number: str, team_id: int, created_by: Optional[User] = None
-    ) -> Integration:
-        twilio_provider = TwilioProvider(account_sid=account_sid, auth_token=auth_token)
-        is_phone_verified = twilio_provider.verify_phone_number(phone_number)
+    def list_twilio_phone_numbers(self) -> list[dict]:
+        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
 
-        if not is_phone_verified:
-            raise ValidationError({"phone_number": f"Failed to verify ownership of phone number {phone_number}"})
+        if not twilio_phone_numbers:
+            raise Exception(f"There was an internal error")
+
+        return twilio_phone_numbers
+
+    def integration_from_keys(self) -> Integration:
+        account_info = self.twilio_provider.get_account_info()
+
+        if not account_info.get("sid"):
+            raise ValidationError({"account_info": "Failed to get account info"})
 
         integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
+            team_id=self.integration.team_id,
             kind="twilio",
-            integration_id=phone_number,
+            integration_id=account_info["sid"],
             defaults={
                 "config": {
-                    "account_sid": account_sid,
-                    "phone_number": phone_number,
+                    "account_sid": account_info["sid"],
                 },
                 "sensitive_config": {
-                    "auth_token": auth_token,
+                    "auth_token": self.integration.sensitive_config["auth_token"],
                 },
-                "created_by": created_by,
+                "created_by": self.integration.created_by,
             },
         )
         if integration.errors:

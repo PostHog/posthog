@@ -3,6 +3,7 @@ import re
 import time
 import logging
 from typing import Any, Optional, cast
+from posthog.date_util import thirty_days_ago
 from datetime import datetime
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
@@ -724,7 +725,39 @@ class FeatureFlagViewSet(
 
         for key in filters:
             if key == "active":
-                queryset = queryset.filter(active=filters[key] == "true")
+                if filters[key] == "STALE":
+                    # Get flags that are at least 30 days old and active
+                    # This is an approximation - the serializer will compute the exact status
+                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        where=[
+                            """
+                            (
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                )
+                                OR
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'multivariate'->'variants') AS variant
+                                        WHERE variant->>'rollout_percentage' = '100'
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                )
+                            )
+                            """
+                        ]
+                    )
+                else:
+                    queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
@@ -797,7 +830,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["true", "false"],
+                enum=["true", "false", "STALE"],
             ),
             OpenApiParameter(
                 "created_by_id",
@@ -1353,6 +1386,22 @@ class FeatureFlagViewSet(
 
 @receiver(model_activity_signal, sender=FeatureFlag)
 def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    # Extract scheduled change context if present
+    scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})
+    scheduled_change_id = scheduled_change_context.get("scheduled_change_id")
+    is_scheduled_change = scheduled_change_id is not None
+
+    # Create trigger info for scheduled changes
+    trigger = None
+    if is_scheduled_change:
+        from posthog.models.activity_logging.activity_log import Trigger
+
+        trigger = Trigger(
+            job_type="scheduled_change",
+            job_id=str(scheduled_change_id),
+            payload={"scheduled_change_id": scheduled_change_id},
+        )
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -1362,7 +1411,9 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.key
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.key,
+            trigger=trigger,
         ),
     )
 

@@ -1,15 +1,22 @@
 import {
     IconCopy,
+    IconShare,
     IconExpand45,
     IconPin,
     IconPinFilled,
     IconRewindPlay,
     IconStar,
     IconStarFilled,
+    IconComment,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneDataAttrKeyProps } from './utils'
+import { useActions } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import posthog from 'posthog-js'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { SidePanelTab } from '~/types'
 
 type SceneCommonButtonsButtonProps = {
     onClick?: () => void
@@ -20,19 +27,26 @@ type SceneCommonButtonsButtonProps = {
 type SceneCommonButtonsProps = SceneDataAttrKeyProps & {
     duplicate?: SceneCommonButtonsButtonProps
     favorite?: SceneCommonButtonsButtonProps
+    share?: SceneCommonButtonsButtonProps
     pinned?: SceneCommonButtonsButtonProps
     fullscreen?: SceneCommonButtonsButtonProps
     recordings?: SceneCommonButtonsButtonProps
+    comment?: boolean
 }
 
 export function SceneCommonButtons({
     duplicate,
     favorite,
+    share,
     pinned,
     fullscreen,
     recordings,
+    comment,
     dataAttrKey,
 }: SceneCommonButtonsProps): JSX.Element {
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const { openSidePanel } = useActions(sidePanelLogic)
+
     return (
         <div className="flex gap-1">
             {favorite && (
@@ -44,6 +58,29 @@ export function SceneCommonButtons({
                     menuItem
                 >
                     {favorite.active ? <IconStarFilled className="text-warning" /> : <IconStar />}
+                </ButtonPrimitive>
+            )}
+
+            {comment && (
+                <ButtonPrimitive
+                    onClick={() => {
+                        if (!hasDiscussions) {
+                            posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                        }
+                        openSidePanel(SidePanelTab.Discussion)
+                    }}
+                    tooltip="Comment"
+                    fullWidth
+                    className="justify-center"
+                    menuItem
+                >
+                    <IconComment />
+                </ButtonPrimitive>
+            )}
+
+            {share && (
+                <ButtonPrimitive onClick={share.onClick} tooltip="Share" fullWidth className="justify-center" menuItem>
+                    <IconShare />
                 </ButtonPrimitive>
             )}
 
