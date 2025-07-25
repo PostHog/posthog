@@ -17,6 +17,7 @@ def forwards(apps, schema_editor):
 
         if source_type == ExternalDataSourceModel.Type.BIGQUERY:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "key_file": {
                     "token_uri": job_inputs["token_uri"],
                     "project_id": job_inputs["project_id"],
@@ -38,6 +39,7 @@ def forwards(apps, schema_editor):
             source.save()
         elif source_type == ExternalDataSourceModel.Type.MSSQL:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "host": job_inputs["host"],
                 "port": job_inputs["port"],
                 "user": job_inputs["user"],
@@ -61,6 +63,7 @@ def forwards(apps, schema_editor):
             source.save()
         elif source_type == ExternalDataSourceModel.Type.MYSQL:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "host": job_inputs["host"],
                 "port": job_inputs["port"],
                 "user": job_inputs["user"],
@@ -85,6 +88,7 @@ def forwards(apps, schema_editor):
             source.save()
         elif source_type == ExternalDataSourceModel.Type.POSTGRES:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "host": job_inputs["host"],
                 "port": job_inputs["port"],
                 "user": job_inputs["user"],
@@ -108,6 +112,7 @@ def forwards(apps, schema_editor):
             source.save()
         elif source_type == ExternalDataSourceModel.Type.SNOWFLAKE:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "account_id": job_inputs["account_id"],
                 "database": job_inputs["database"],
                 "warehouse": job_inputs["warehouse"],
@@ -125,6 +130,7 @@ def forwards(apps, schema_editor):
             source.save()
         elif source_type == ExternalDataSourceModel.Type.VITALLY:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "secret_token": job_inputs["secret_token"],
                 "region": {"selection": job_inputs["region"], "subdomain": job_inputs["subdomain"]},
             }
@@ -132,6 +138,7 @@ def forwards(apps, schema_editor):
             source.save()
         elif source_type == ExternalDataSourceModel.Type.ZENDESK:
             new_job_inputs = {
+                "pre_migration_job_inputs": job_inputs,
                 "subdomain": job_inputs["zendesk_subdomain"],
                 "api_key": job_inputs["zendesk_api_key"],
                 "email_address": job_inputs["zendesk_email_address"],

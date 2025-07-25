@@ -145,6 +145,14 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         )
 
     def test_migration(self):
+        bigquery_source_pre_migrated_job_inputs = self.bigquery_source.job_inputs
+        mssql_source_pre_migrated_job_inputs = self.mssql_source.job_inputs
+        mysql_source_pre_migrated_job_inputs = self.mysql_source.job_inputs
+        postgres_source_pre_migrated_job_inputs = self.postgres_source.job_inputs
+        snowflake_source_pre_migrated_job_inputs = self.snowflake_source.job_inputs
+        vitally_source_pre_migrated_job_inputs = self.vitally_source.job_inputs
+        zendesk_source_pre_migrated_job_inputs = self.zendesk_source.job_inputs
+
         self.bigquery_source.refresh_from_db()
         self.mssql_source.refresh_from_db()
         self.mysql_source.refresh_from_db()
@@ -168,6 +176,15 @@ class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
         snowflake_config = SnowflakeSourceConfig.from_dict(self.snowflake_source.job_inputs)
         vitally_config = VitallySourceConfig.from_dict(self.vitally_source.job_inputs)
         zendesk_config = ZendeskSourceConfig.from_dict(self.zendesk_source.job_inputs)
+
+        # Pre-migration job inputs
+        assert bigquery_source_pre_migrated_job_inputs == self.bigquery_source.job_inputs["pre_migration_job_inputs"]
+        assert mssql_source_pre_migrated_job_inputs == self.mssql_source.job_inputs["pre_migration_job_inputs"]
+        assert mysql_source_pre_migrated_job_inputs == self.mysql_source.job_inputs["pre_migration_job_inputs"]
+        assert postgres_source_pre_migrated_job_inputs == self.postgres_source.job_inputs["pre_migration_job_inputs"]
+        assert snowflake_source_pre_migrated_job_inputs == self.snowflake_source.job_inputs["pre_migration_job_inputs"]
+        assert vitally_source_pre_migrated_job_inputs == self.vitally_source.job_inputs["pre_migration_job_inputs"]
+        assert zendesk_source_pre_migrated_job_inputs == self.zendesk_source.job_inputs["pre_migration_job_inputs"]
 
         # BigQuery
         assert bigquery_config.key_file.project_id == "project_id"
