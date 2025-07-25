@@ -19,10 +19,16 @@ export class BehavioralCounterRepository {
     constructor(private cassandra: CassandraClient) {}
 
     /**
-     * Truncates the behavioral_event_counters table (useful for tests)
+     * Maps a Cassandra row to a BehavioralCounterRow
      */
-    async truncateCounters(): Promise<void> {
-        await this.cassandra.execute('TRUNCATE behavioral_event_counters')
+    private mapRowToBehavioralCounter(row: any): BehavioralCounterRow {
+        return {
+            team_id: row.team_id,
+            filter_hash: row.filter_hash,
+            person_id: row.person_id.toString(),
+            date: row.date,
+            count: row.count.toNumber(),
+        }
     }
 
     /**
@@ -46,13 +52,7 @@ export class BehavioralCounterRepository {
         }
 
         const row = result.rows[0]
-        return {
-            team_id: row.team_id,
-            filter_hash: row.filter_hash,
-            person_id: row.person_id.toString(),
-            date: row.date,
-            count: row.count.toNumber(),
-        }
+        return this.mapRowToBehavioralCounter(row)
     }
 
     /**
@@ -65,30 +65,7 @@ export class BehavioralCounterRepository {
             { prepare: true }
         )
 
-        return result.rows.map((row) => ({
-            team_id: row.team_id,
-            filter_hash: row.filter_hash,
-            person_id: row.person_id.toString(),
-            date: row.date,
-            count: row.count.toNumber(),
-        }))
-    }
-
-    /**
-     * Increments a single behavioral counter
-     */
-    async incrementCounter(params: {
-        teamId: number
-        filterHash: string
-        personId: string
-        date: string
-    }): Promise<void> {
-        const { teamId, filterHash, personId, date } = params
-        await this.cassandra.execute(
-            'UPDATE behavioral_event_counters SET count = count + 1 WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-            [teamId, filterHash, CassandraTypes.Uuid.fromString(personId), date],
-            { prepare: true }
-        )
+        return result.rows.map((row) => this.mapRowToBehavioralCounter(row))
     }
 
     /**

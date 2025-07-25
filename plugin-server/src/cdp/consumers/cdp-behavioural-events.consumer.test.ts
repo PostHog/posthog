@@ -1,6 +1,7 @@
 import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 
+import { truncateBehavioralCounters } from '../../../tests/helpers/cassandra'
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioural-counter.repository'
@@ -113,7 +114,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
         await cassandra.connect()
         const repository = processor.getBehavioralCounterRepository()!
-        await repository.truncateCounters()
+        await truncateBehavioralCounters(cassandra)
 
         return { hub, team, processor, cassandra, repository }
     }

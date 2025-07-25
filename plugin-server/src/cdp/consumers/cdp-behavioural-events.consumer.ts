@@ -49,6 +49,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected kafkaConsumer: KafkaConsumer
     protected cassandra: CassandraClient | null
     protected behavioralCounterRepository: BehavioralCounterRepository | null
+    private filterHashCache = new Map<string, string>()
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
@@ -188,7 +189,16 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
     private createFilterHash(bytecode: any): string {
         const data = typeof bytecode === 'string' ? bytecode : JSON.stringify(bytecode)
-        return createHash('sha256').update(data).digest('hex').substring(0, 16)
+
+        // Check cache first
+        if (this.filterHashCache.has(data)) {
+            return this.filterHashCache.get(data)!
+        }
+
+        // Calculate hash and cache it
+        const hash = createHash('sha256').update(data).digest('hex').substring(0, 16)
+        this.filterHashCache.set(data, hash)
+        return hash
     }
 
     // This consumer always parses from kafka
