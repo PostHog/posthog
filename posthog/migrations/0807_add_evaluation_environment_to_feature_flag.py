@@ -57,13 +57,15 @@ class Migration(migrations.Migration):
             backfill_evaluation_environment,
             reverse_backfill_evaluation_environment,
         ),
-        # Step 3: Add NOT NULL constraint and default
+        # Step 3: Add default (keep nullable to avoid table locks)
         migrations.AlterField(
             model_name="featureflag",
             name="evaluation_environment",
             field=models.CharField(
                 choices=[("server", "Server"), ("client", "Client"), ("all", "All")],
                 default="all",
+                null=True,
+                blank=True,
                 help_text="Specifies where this feature flag should be evaluated",
                 max_length=10,
             ),
