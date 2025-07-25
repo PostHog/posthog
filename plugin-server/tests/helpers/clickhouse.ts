@@ -17,6 +17,19 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
             output_format_json_quote_64bit_integers: false,
         },
     })
+
+    let connectionAttempts = 0
+
+    while (connectionAttempts < 10) {
+        try {
+            console.log('Waiting for ClickHouse to be ready...', connectionAttempts)
+            await clickhouse.querying('SELECT 1')
+            break
+        } catch (error) {
+            console.log('ClickHouse not ready...', connectionAttempts)
+            connectionAttempts++
+        }
+    }
     await Promise.all([
         clickhouse.querying('TRUNCATE sharded_events'),
         clickhouse.querying('TRUNCATE person'),
