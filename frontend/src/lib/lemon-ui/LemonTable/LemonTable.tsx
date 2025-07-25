@@ -146,7 +146,7 @@ export function LemonTable<T extends Record<string, any>>({
                 )
             }
         },
-        [location, searchParams, hashParams, push]
+        [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
     const columnGroups = (
@@ -196,7 +196,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting])
+    }, [dataSource, currentSorting, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -290,7 +290,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         columnGroup.children
                                             .filter((column) => !column.isHidden)
                                             .map((column, columnIndex) => {
-                                                const columnKey = determineColumnKey(column, 'header')
+                                                const columnKey = determineColumnKey(column) ?? `${columnIndex}`
                                                 const pinnedInfo = getPinnedColumnInfo(
                                                     columnKey,
                                                     pinnedColumns,
@@ -301,7 +301,7 @@ export function LemonTable<T extends Record<string, any>>({
 
                                                 return (
                                                     <th
-                                                        key={`LemonTable-th-${columnGroupIndex}-${columnIndex}`}
+                                                        key={`LemonTable-th-${columnGroupIndex}-${columnKey}`}
                                                         className={clsx(
                                                             'LemonTable__header',
                                                             column.sorter && 'LemonTable__header--actionable',
