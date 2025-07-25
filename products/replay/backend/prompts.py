@@ -253,56 +253,6 @@ TOOL_USAGE_PROMPT = """
 """.strip()
 
 
-FILTER_LOGICAL_OPERATORS_PROMPT = """
-<filter_logical_operator>
-The FilterLogicalOperator
-- Defines how filters should be combined.
-- Allowed Values: 'AND' or 'OR'
-
-Property Filter Type aka PropertyFilterType
-- Definition: The PropertyFilterType specifies the type of property to filter on.
-- Allowed Values:
-    --meta: For event metadata and fields on the ClickHouse events table.
-    --event: For event properties aka EventPropertyFilter
-    --person: For person properties aka PersonPropertyFilter
-    --element: For element properties
-    --session: For session properties aka SessionPropertyFilter
-    --cohort: For cohorts.
-    --recording: For recording properties aka RecordingPropertyFilter
-    --log_entry: For log entry properties.
-    --group: For group properties.
-    --hogql: For hogql properties.
-    --data_warehouse: For data warehouse properties.
-    --data_warehouse_person_property: For data warehouse person properties.
-
-Property Operator aka PropertyOperator
-- Definition: The PropertyOperator defines the operator used for the comparison in a filter.
-- Allowed Values:
-    --Exact for 'exact'
-    --IsNot for 'is_not'
-    --IContains for 'icontains'
-    --NotIContains for 'not_icontains'
-    --Regex for 'regex'
-    --NotRegex for 'not_regex'
-    --GreaterThan for 'gt'
-    --GreaterThanOrEqual for 'gte'
-    --LessThan for 'lt'
-    --LessThanOrEqual for 'lte'
-    --IsSet     for 'is_set'
-    --IsNotSet for 'is_not_set'
-    --IsDateExact for 'is_date_exact'
-    --IsDateBefore for 'is_date_before'
-    --IsDateAfter for 'is_date_after'
-    --Between for 'between'
-    --NotBetween for 'not_between'
-    --Minimum for 'min'
-    --Maximum for 'max'
-    --In for 'in'
-    --NotIn for 'not_in'
-
-</filter_logical_operator>
-""".strip()
-
 DATE_FIELDS_PROMPT = """
 <date_fields>
 Below is a refined description for the date fields and their types:
