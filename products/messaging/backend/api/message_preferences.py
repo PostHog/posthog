@@ -8,7 +8,7 @@ from posthog.models.message_preferences import PreferenceStatus
 
 class MessagePreferencesSerializer(serializers.Serializer):
     identifier = serializers.CharField()
-    opt_out_date = serializers.DateTimeField(source="updated_at")
+    updated_at = serializers.DateTimeField()
     category_id = serializers.UUIDField(required=False)
     category_name = serializers.CharField(required=False)
     source = serializers.CharField(default="manual")
@@ -18,7 +18,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
 
     @action(detail=False, methods=["get"])
-    def opt_outs(self, request):
+    def opt_outs(self, request, **kwargs):
         """Get opt-outs filtered by category or overall opt-outs if no category specified"""
         category_id = request.query_params.get("category_id")
 
@@ -40,10 +40,9 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         {
                             "id": str(recipient.id),
                             "identifier": recipient.identifier,
-                            "opt_out_date": recipient.updated_at,
+                            "updated_at": recipient.updated_at,
                             "category_id": str(category.id),
                             "category_name": category.name,
-                            "source": "preference_page",
                         }
                     )
 
@@ -75,10 +74,31 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     {
                         "id": str(recipient.id),
                         "identifier": recipient.identifier,
-                        "opt_out_date": recipient.updated_at,
-                        "source": "preference_page",
+                        "updated_at": recipient.updated_at,
                     }
                 )
 
         serializer = MessagePreferencesSerializer(overall_opt_outs, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["post"])
+    def generate_link(self, request, **kwargs):
+        """Generate an unsubscribe link for the current user's email address"""
+        user = request.user
+        if not user or not user.email:
+            return Response({"error": "User email not found"}, status=400)
+
+        # Get or create preferences for the user's email
+        recipient = MessageRecipientPreference.get_or_create_for_identifier(team_id=self.team_id, identifier=user.email)
+
+        # Generate the preferences token
+        token = recipient.generate_preferences_token()
+
+        # Build the full URL
+        preferences_url = f"{request.build_absolute_uri('/')[:-1]}/messaging-preferences/{token}/"
+
+        return Response(
+            {
+                "preferences_url": preferences_url,
+            }
+        )
