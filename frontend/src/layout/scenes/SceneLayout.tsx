@@ -3,7 +3,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { Label } from 'lib/ui/Label/Label'
+import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import React, { PropsWithChildren, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -11,8 +11,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { Label, LabelProps } from 'lib/ui/Label/Label'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
     children: React.ReactNode
