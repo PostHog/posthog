@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-messaging",
+    "dependencies": {
+        "posthog-js": "1.258.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
@@ -13,7 +16,6 @@
         "kea-loaders": "*",
         "kea-subscriptions": "*",
         "kea-router": "*",
-        "posthog-js": "*",
         "react": "*",
         "zod": "*"
     }

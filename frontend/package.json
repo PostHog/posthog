@@ -184,6 +184,8 @@
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
         "prettier": "^2.8.8",
+        "posthog-js": "1.258.1",
+        "posthog-js-lite": "4.1.0",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
         "query-selector-shadow-dom": "^1.0.0",
@@ -297,10 +299,6 @@
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
         "whatwg-fetch": "^3.6.2"
-    },
-    "peerDependencies": {
-        "posthog-js": "*",
-        "posthog-js-lite": "*"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"

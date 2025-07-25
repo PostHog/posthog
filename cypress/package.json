@@ -10,7 +10,8 @@
         "cypress-axe": "^1.5.0",
         "cypress-network-idle": "^1.14.2",
         "cypress-terminal-report": "^6.1.0",
-        "typescript": "5.2.2"
+        "typescript": "5.2.2",
+        "posthog-js": "1.258.1"
     },
     "devDependencies": {
         "@babel/core": "^7.22.10",
@@ -28,7 +29,6 @@
         "process": "^0.11.10"
     },
     "peerDependencies": {
-        "posthog-js": "*",
         "typescript": "*",
         "babel-loader": "*",
         "style-loader": "*",

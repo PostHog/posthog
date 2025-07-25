@@ -1,9 +1,11 @@
 {
     "name": "@posthog/products-user-interviews",
+    "dependencies": {
+        "posthog-js": "1.258.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
-        "posthog-js": "*",
         "clsx": "*",
         "kea": "*",
         "kea-loaders": "*",
