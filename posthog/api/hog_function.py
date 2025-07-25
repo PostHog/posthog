@@ -195,7 +195,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 capture_exception(e)
                 raise serializers.ValidationError({"template_id": f"Error loading template '{data['template_id']}'"})
 
-        if data["type"] == "transformation" and not has_addon:
+        if data["type"] != "transformation" and not has_addon:
             if not template:
                 raise serializers.ValidationError(
                     {"template_id": "The Data Pipelines addon is required to create custom functions."}
