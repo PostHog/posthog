@@ -2,7 +2,6 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
-    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
@@ -85,46 +84,6 @@ export function isDynamicConversionGoalColumn(
 }
 
 /**
- * Inject the dynamic conversion goal into the select list after the base columns
- * and before the conversion goal columns.
- * @param selectList - The select list to inject the dynamic conversion goal into
- * @param dynamicConversionGoal - The dynamic conversion goal to inject
- * @returns The select list with the dynamic conversion goal injected
- */
-export const injectDynamicConversionGoal = (
-    selectList: string[],
-    dynamicConversionGoal: ConversionGoalFilter | null
-): string[] => {
-    if (!dynamicConversionGoal) {
-        return selectList
-    }
-
-    const selectWithoutDynamicConversionGoal = selectList.filter(
-        (column) => !isDynamicConversionGoalColumn(column, dynamicConversionGoal)
-    )
-
-    let lastIndex = 0
-    const newSelect = []
-    for (const selectColumn of selectWithoutDynamicConversionGoal) {
-        // if in the base column add the cost per goal
-        if (
-            Object.values(MarketingAnalyticsBaseColumns)
-                .map((column) => column.toString())
-                .includes(selectColumn)
-        ) {
-            lastIndex++
-        }
-    }
-    newSelect.push(
-        ...selectWithoutDynamicConversionGoal.slice(0, lastIndex),
-        `${dynamicConversionGoal.conversion_goal_name}`,
-        `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal.conversion_goal_name}`,
-        ...selectWithoutDynamicConversionGoal.slice(lastIndex)
-    )
-    return newSelect
-}
-
-/**
  * Get the order by for the query and ensure that the order by is in the columns
  * @param query - The query to get the order by for
  * @param columns - The columns to include in the order by
@@ -139,4 +98,48 @@ export function getOrderBy(
         return columns.includes(columnName)
     })
     return orderBy
+}
+
+/**
+ * Order the array by the preference
+ * @param array - The array to order
+ * @param preference - The preference to order the array by
+ * @returns The ordered array preserving the order of the items in the original array
+ * This is used to prioritize pinned columns over the rest of the columns but preserving
+ * the order of the items in the original array.
+ * example:
+ * orderArrayByPreference(['a', 'b', 'c'], ['c', 'b']) -> ['b', 'c', 'a']
+ */
+export function orderArrayByPreference(array: string[], preference: string[]): string[] {
+    return [
+        ...array.filter((column) => preference.includes(column)),
+        ...array.filter((column) => !preference.includes(column)),
+    ]
+}
+
+/**
+ * Get the sorted columns by the array
+ * @param array - The array to get the sorted columns for
+ * @param sortedArray - The array to sort the columns by
+ * @returns The sorted columns by the sorted array preference. This is used
+ * to sort the columns by the default order of the columns.
+ * example:
+ * getSortedColumnsByArray(['a', 'b', 'c', 'c'], ['c', 'b', 'c']) -> ['c', 'c', 'b', 'a']
+ */
+export function getSortedColumnsByArray(array: string[], sortedArray: string[]): string[] {
+    const amountPerItem: Record<string, number> = {}
+    for (const column of array) {
+        amountPerItem[column] = (amountPerItem[column] || 0) + 1
+    }
+
+    const newArray: string[] = []
+    for (const column of sortedArray) {
+        if (array.includes(column) && !newArray.includes(column)) {
+            for (let i = 0; i < amountPerItem[column]; i++) {
+                newArray.push(column)
+            }
+        }
+    }
+
+    return [...newArray, ...array.filter((column) => !sortedArray.includes(column))]
 }

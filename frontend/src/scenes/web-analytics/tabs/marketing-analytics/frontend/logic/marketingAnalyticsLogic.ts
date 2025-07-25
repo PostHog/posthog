@@ -65,6 +65,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setLocalConversionGoal: (goal: ConversionGoalFilter) => ({ goal }),
         resetLocalConversionGoal: () => true,
         saveDynamicConversionGoal: () => true,
+        showColumnConfigModal: true,
+        hideColumnConfigModal: true,
     }),
     reducers({
         dynamicConversionGoal: [
@@ -90,6 +92,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         conversion_goal_name: '',
                     }
                 },
+            },
+        ],
+        columnConfigModalVisible: [
+            false,
+            {
+                showColumnConfigModal: () => true,
+                hideColumnConfigModal: () => false,
             },
         ],
     }),

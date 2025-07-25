@@ -70,3 +70,96 @@ export function statusColumn<T extends { enabled: boolean }>(): LemonTableColumn
         sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
     }
 }
+
+export const DEFAULT_COLUMN_WIDTH = 120
+
+interface PinnedColumnInfo {
+    isPinned: boolean
+    isLastPinned: boolean
+    leftPosition: number
+}
+
+/**
+ * Get the pinned column info
+ * @param columnKey - The key of the column
+ * @param pinnedColumns - The pinned columns
+ * @param pinnedColumnWidths - The widths of the pinned columns
+ * @param allColumns - The all columns
+ * @returns The pinned column info
+ * example:
+ * getPinnedColumnInfo(
+ *     'source',
+ *     ['source', 'campaign'],
+ *     [100, 200],
+ *     [
+ *         { key: 'campaign', dataIndex: 'campaign' },
+ *         { key: 'source', dataIndex: 'source' },
+ *     ]
+ * ) -> {
+ *     isPinned: true,
+ *     isLastPinned: false,
+ *     leftPosition: 100
+ * }
+ */
+export function getPinnedColumnInfo<T extends Record<string, any>>(
+    columnKey: string,
+    pinnedColumns: string[] | undefined,
+    pinnedColumnWidths: number[] | undefined,
+    allColumns: LemonTableColumn<T, any>[] | undefined
+): PinnedColumnInfo {
+    if (!pinnedColumns?.length) {
+        return { isPinned: false, isLastPinned: false, leftPosition: 0 }
+    }
+
+    const isPinned = pinnedColumns.includes(columnKey)
+
+    // Find the last pinned column based on actual table positions
+    let isLastPinned = false
+    if (isPinned && allColumns) {
+        const pinnedColumnPositions = pinnedColumns
+            .map((pinnedKey) => {
+                const colIndex = allColumns.findIndex((col) => (col.key || col.dataIndex) === pinnedKey)
+                return { key: pinnedKey, position: colIndex }
+            })
+            .sort((a, b) => b.position - a.position) // Sort by position descending
+
+        const lastPinnedColumn = pinnedColumnPositions[0] // Highest position
+        isLastPinned = columnKey === lastPinnedColumn?.key
+    }
+
+    // Calculate left position (for css) based on actual column positions
+    let leftPosition = 0
+    if (isPinned && pinnedColumnWidths && allColumns) {
+        // Find all pinned columns that come before this one in the table
+        const pinnedColumnsBeforeThis = pinnedColumns.filter((pinnedKey) => {
+            const pinnedKeyIndex = allColumns.findIndex((col) => (col.key || col.dataIndex) === pinnedKey)
+            const thisColumnIndex = allColumns.findIndex((col) => (col.key || col.dataIndex) === columnKey)
+            return pinnedKeyIndex < thisColumnIndex
+        })
+
+        // Sum up widths of pinned columns that come before this one
+        for (const beforeKey of pinnedColumnsBeforeThis) {
+            const beforePinnedIndex = pinnedColumns.indexOf(beforeKey)
+            if (beforePinnedIndex >= 0) {
+                leftPosition += pinnedColumnWidths[beforePinnedIndex] || DEFAULT_COLUMN_WIDTH
+            }
+        }
+    }
+
+    return { isPinned, isLastPinned, leftPosition }
+}
+
+/**
+ * Determine the column's key, using `dataIndex` as fallback.
+ * If `obligationReason` is specified, will throw an error if the key can't be determined.
+ */
+export function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason: string): string
+export function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
+export function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
+    const columnKey = column.key || column.dataIndex
+    if (obligationReason && columnKey == null) {
+        // == is intentional to catch undefined too
+        throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
+    }
+    return columnKey
+}

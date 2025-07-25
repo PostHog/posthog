@@ -7,6 +7,11 @@ import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import './MarketingAnalyticsTableStyleOverride.scss'
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -15,6 +20,7 @@ export type MarketingAnalyticsTableProps = {
 
 export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
+    const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -25,17 +31,27 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <DynamicConversionGoalControls />
+                <div className="flex gap-4">
+                    <div className="flex-1">
+                        <DynamicConversionGoalControls />
+                    </div>
+                    <div className="self-start">
+                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                            Configure columns
+                        </LemonButton>
+                    </div>
+                </div>
             </div>
             <div className="relative marketing-analytics-table-container">
                 <Query
                     query={query}
                     readOnly={false}
                     context={marketingAnalyticsContext}
-                    columnFeatures={[ColumnFeature.canSort]}
+                    columnFeatures={[ColumnFeature.canSort, ColumnFeature.canRemove]}
                     setQuery={setQuery}
                 />
             </div>
+            <MarketingAnalyticsColumnConfigModal />
         </div>
     )
 }

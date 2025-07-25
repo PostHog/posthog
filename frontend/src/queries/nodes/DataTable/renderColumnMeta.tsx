@@ -4,9 +4,14 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    EventsQuery,
+    MarketingAnalyticsTableQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isDataTableNode, isHogQLQuery, trimQuotes } from '~/queries/utils'
+import { isDataTableNode, isHogQLQuery, isMarketingAnalyticsTableQuery, trimQuotes } from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -92,7 +97,24 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
-    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && isDataTableNode(query) && !query.allowSorting) {
+    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && isMarketingAnalyticsTableQuery(query.source)) {
+        const marketingQuery = query.source as MarketingAnalyticsTableQuery
+        const sortKey = marketingQuery.orderBy?.[0]?.[0]
+        const isSortedByKey = key === sortKey
+        const order = isSortedByKey ? (marketingQuery.orderBy?.[0]?.[1] === 'DESC' ? -1 : 1) : undefined
+        if (order) {
+            title = (
+                <>
+                    {title}
+                    <SortingIndicator order={order} />
+                </>
+            )
+        }
+    } else if (
+        queryFeatures.has(QueryFeature.selectAndOrderByColumns) &&
+        isDataTableNode(query) &&
+        !query.allowSorting
+    ) {
         query
         const sortKey = queryFeatures.has(QueryFeature.selectAndOrderByColumns)
             ? (query.source as EventsQuery)?.orderBy?.[0]

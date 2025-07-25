@@ -3,7 +3,8 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { HTMLProps, useState } from 'react'
 
-import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
+import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation, LemonTableColumn } from './types'
+import { getPinnedColumnInfo } from './columnUtils'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -17,6 +18,9 @@ export interface TableRowProps<T extends Record<string, any>> {
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
     rowCount: number
+    pinnedColumns?: string[]
+    pinnedColumnWidths?: number[]
+    allColumns?: LemonTableColumn<T, any>[]
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -31,6 +35,9 @@ function TableRowRaw<T extends Record<string, any>>({
     expandable,
     firstColumnSticky,
     rowCount,
+    pinnedColumns,
+    pinnedColumnWidths,
+    allColumns,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -100,6 +107,16 @@ function TableRowRaw<T extends Record<string, any>>({
                                 ? column.render(value as T[keyof T], record, recordIndex, rowCount)
                                 : value
                             const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
+
+                            // Check if this column is pinned
+                            const columnKey = columnKeyRaw ? String(columnKeyRaw) : columnIndex.toString()
+                            const { isPinned, isLastPinned, leftPosition } = getPinnedColumnInfo(
+                                columnKey,
+                                pinnedColumns,
+                                pinnedColumnWidths,
+                                allColumns
+                            )
+
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
                             return (
@@ -108,17 +125,22 @@ function TableRowRaw<T extends Record<string, any>>({
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
                                         isSticky && 'LemonTable__cell--sticky',
+                                        isPinned && 'LemonTable__cell--pinned',
+                                        isLastPinned && 'LemonTable__cell--pinned-last',
                                         column.align && `text-${column.align}`,
                                         typeof column.className === 'function'
                                             ? column.className(value as T[keyof T], record, recordIndex)
                                             : column.className
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={
-                                        typeof column.style === 'function'
+                                    style={{
+                                        ...(typeof column.style === 'function'
                                             ? column.style(value as T[keyof T], record, recordIndex)
-                                            : column.style
-                                    }
+                                            : column.style),
+                                        ...(isPinned && pinnedColumnWidths && pinnedColumnWidths.length > 0
+                                            ? { left: `${leftPosition}px` }
+                                            : {}),
+                                    }}
                                     {...extraCellProps}
                                 >
                                     {isTableCellRepresentation(contents) ? contents.children : contents}
