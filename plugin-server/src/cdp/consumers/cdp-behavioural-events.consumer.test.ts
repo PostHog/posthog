@@ -21,6 +21,83 @@ class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
 
 jest.setTimeout(5000)
 
+const TEST_FILTERS = {
+    // Simple pageview event filter: event == '$pageview'
+    pageview: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11],
+
+    // Chrome browser AND pageview event filter: properties.$browser == 'Chrome' AND event == '$pageview'
+    chromePageview: [
+        '_H',
+        1,
+        32,
+        'Chrome',
+        32,
+        '$browser',
+        32,
+        'properties',
+        1,
+        2,
+        11,
+        32,
+        '$pageview',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        3,
+        2,
+        4,
+        1,
+    ],
+
+    // Complex filter: pageview event AND (Chrome browser contains match OR has IP property)
+    complexChromeWithIp: [
+        '_H',
+        1,
+        32,
+        '$pageview',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        32,
+        '%Chrome%',
+        32,
+        '$browser',
+        32,
+        'properties',
+        1,
+        2,
+        2,
+        'toString',
+        1,
+        18,
+        3,
+        2,
+        32,
+        '$pageview',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        31,
+        32,
+        '$ip',
+        32,
+        'properties',
+        1,
+        2,
+        12,
+        3,
+        2,
+        4,
+        2,
+    ],
+}
+
 describe('CdpBehaviouralEventsConsumer', () => {
     // Helper function to setup test environment with Cassandra enabled
     async function setupWithCassandraEnabled() {
@@ -86,33 +163,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
         describe('action matching with actual database', () => {
             it('should match action when event matches bytecode filter', async () => {
-                // Create an action with bytecode
-                const bytecode = [
-                    '_H',
-                    1,
-                    32,
-                    'Chrome',
-                    32,
-                    '$browser',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    11,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    3,
-                    2,
-                    4,
-                    1,
-                ]
-
-                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+                // Create an action with Chrome + pageview filter
+                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
                 // Create a matching event
                 const matchingEvent = createIncomingEvent(team.id, {
@@ -139,33 +191,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             })
 
             it('should not match action when event does not match bytecode filter', async () => {
-                // Create an action with bytecode
-                const bytecode = [
-                    '_H',
-                    1,
-                    32,
-                    'Chrome',
-                    32,
-                    '$browser',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    11,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    3,
-                    2,
-                    4,
-                    1,
-                ]
-
-                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+                // Create an action with Chrome + pageview filter
+                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
                 // Create a non-matching event
                 const nonMatchingEvent = createIncomingEvent(team.id, {
@@ -192,56 +219,9 @@ describe('CdpBehaviouralEventsConsumer', () => {
             })
 
             it('should return count of matched actions when multiple actions match', async () => {
-                // Create multiple actions with different bytecode
-                const pageViewBytecode = ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11]
-
-                const filterBytecode = [
-                    '_H',
-                    1,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    32,
-                    '%Chrome%',
-                    32,
-                    '$browser',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    2,
-                    'toString',
-                    1,
-                    18,
-                    3,
-                    2,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    31,
-                    32,
-                    '$ip',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    12,
-                    3,
-                    2,
-                    4,
-                    2,
-                ]
-
-                await createAction(hub.postgres, team.id, 'Pageview action', pageViewBytecode)
-                await createAction(hub.postgres, team.id, 'Filter action', filterBytecode)
+                // Create multiple actions with different filters
+                await createAction(hub.postgres, team.id, 'Pageview action', TEST_FILTERS.pageview)
+                await createAction(hub.postgres, team.id, 'Complex filter action', TEST_FILTERS.complexChromeWithIp)
 
                 // Create an event that matches both actions
                 const matchingEvent = createIncomingEvent(team.id, {
@@ -267,32 +247,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             it('should write counter to Cassandra when action matches', async () => {
                 // Arrange
                 const personId = '550e8400-e29b-41d4-a716-446655440000'
-                const bytecode = [
-                    '_H',
-                    1,
-                    32,
-                    'Chrome',
-                    32,
-                    '$browser',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    11,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    3,
-                    2,
-                    4,
-                    1,
-                ]
 
-                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
                 // Create a matching event with person ID
                 const matchingEvent = createIncomingEvent(team.id, {
@@ -334,32 +290,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             it('should increment existing counter', async () => {
                 // Arrange
                 const personId = '550e8400-e29b-41d4-a716-446655440000'
-                const bytecode = [
-                    '_H',
-                    1,
-                    32,
-                    'Chrome',
-                    32,
-                    '$browser',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    11,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    3,
-                    2,
-                    4,
-                    1,
-                ]
 
-                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
                 const matchingEvent = createIncomingEvent(team.id, {
                     event: '$pageview',
@@ -401,32 +333,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
             it('should not write counter when event does not match', async () => {
                 // Arrange
                 const personId = '550e8400-e29b-41d4-a716-446655440000'
-                const bytecode = [
-                    '_H',
-                    1,
-                    32,
-                    'Chrome',
-                    32,
-                    '$browser',
-                    32,
-                    'properties',
-                    1,
-                    2,
-                    11,
-                    32,
-                    '$pageview',
-                    32,
-                    'event',
-                    1,
-                    1,
-                    11,
-                    3,
-                    2,
-                    4,
-                    1,
-                ]
 
-                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+                await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
                 // Create a non-matching event
                 const nonMatchingEvent = createIncomingEvent(team.id, {
@@ -528,32 +436,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
         it('should not write to Cassandra when WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA is false', async () => {
             // Arrange
             const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
 
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
+            await createAction(hub.postgres, team.id, 'Test action', TEST_FILTERS.chromePageview)
 
             // Create a matching event with person ID
             const matchingEvent = createIncomingEvent(team.id, {
