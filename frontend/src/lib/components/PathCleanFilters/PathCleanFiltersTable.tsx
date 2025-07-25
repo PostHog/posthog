@@ -1,0 +1,232 @@
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent,
+} from '@dnd-kit/core'
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { isValidRegexp } from 'lib/utils/regexp'
+import { useState, useEffect } from 'react'
+
+import { PathCleaningFilter } from '~/types'
+
+import { PathRegexModal } from './PathRegexModal'
+import { parseAliasToReadable } from './PathCleanFilterItem'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+
+export interface PathCleanFiltersTableProps {
+    filters?: PathCleaningFilter[]
+    setFilters: (filters: PathCleaningFilter[]) => void
+}
+
+interface SortableRowProps {
+    filter: PathCleaningFilter
+    index: number
+    onEdit: (filter: PathCleaningFilter) => void
+    onRemove: () => void
+}
+
+function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX.Element {
+    const [isModalVisible, setIsModalVisible] = useState(false)
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+        id: `filter-${index}`,
+    })
+
+    const regex = filter.regex ?? ''
+    const isInvalidRegex = !isValidRegexp(regex)
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition: isDragging ? 'none' : transition,
+        opacity: isDragging ? 0.8 : 1,
+        zIndex: isDragging ? 1000 : 'auto',
+    }
+
+    return (
+        <>
+            {isModalVisible && (
+                <PathRegexModal
+                    filter={filter}
+                    isOpen={isModalVisible}
+                    onClose={() => setIsModalVisible(false)}
+                    onSave={(updatedFilter: PathCleaningFilter) => {
+                        onEdit(updatedFilter)
+                        setIsModalVisible(false)
+                    }}
+                />
+            )}
+            <tr
+                ref={setNodeRef}
+                style={style}
+                className={clsx('border-b border-border hover:bg-gray-50 transition-colors duration-150 bg-white', {
+                    'border-warning': isInvalidRegex,
+                    'bg-gray-100': isDragging,
+                    'shadow-lg': isDragging,
+                })}
+            >
+                <td className="p-2 w-8">
+                    <div
+                        className="flex items-center justify-center cursor-grab active:cursor-grabbing"
+                        {...attributes}
+                        {...listeners}
+                    >
+                        <SortableDragIcon className="text-muted-alt" />
+                    </div>
+                </td>
+                <td className="p-2 w-12 text-center text-muted font-medium">{index + 1}</td>
+                <td className="p-2">
+                    <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : null}>
+                        <code
+                            className={clsx('font-mono text-sm px-2 py-1 rounded bg-accent-light text-accent', {
+                                'text-danger border border-danger bg-red-50': isInvalidRegex,
+                            })}
+                        >
+                            {regex || '(Empty)'}
+                        </code>
+                    </Tooltip>
+                </td>
+                <td className="p-2">
+                    <div className="font-mono text-sm">{parseAliasToReadable(filter.alias || '(Empty)')}</div>
+                </td>
+                <td className="p-2 w-24">
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            icon={<IconPencil />}
+                            size="xsmall"
+                            onClick={() => setIsModalVisible(true)}
+                            tooltip="Edit rule"
+                        />
+                        <LemonButton
+                            icon={<IconTrash />}
+                            size="xsmall"
+                            status="danger"
+                            onClick={onRemove}
+                            tooltip="Delete rule"
+                        />
+                    </div>
+                </td>
+            </tr>
+        </>
+    )
+}
+
+export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFiltersTableProps): JSX.Element {
+    const [localFilters, setLocalFilters] = useState(filters)
+    const [isDragging, setIsDragging] = useState(false)
+
+    // Sync local state with props, but not during drag to avoid flicker
+    useEffect(() => {
+        if (!isDragging) {
+            setLocalFilters(filters)
+        }
+    }, [filters, isDragging])
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    )
+
+    const updateFilters = (newFilters: PathCleaningFilter[]): void => {
+        // Optimistic update
+        setLocalFilters(newFilters)
+        setFilters(newFilters)
+    }
+
+    const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
+        const newFilters = localFilters.map((f, i) => (i === index ? filter : f))
+        updateFilters(newFilters)
+    }
+
+    const onRemoveFilter = (index: number): void => {
+        updateFilters(localFilters.filter((_, i) => i !== index))
+    }
+
+    const handleDragStart = (): void => {
+        setIsDragging(true)
+    }
+
+    const handleDragEnd = (event: DragEndEvent): void => {
+        setIsDragging(false)
+        const { active, over } = event
+
+        if (over && active.id !== over.id) {
+            const oldIndex = localFilters.findIndex((_, index) => `filter-${index}` === active.id)
+            const newIndex = localFilters.findIndex((_, index) => `filter-${index}` === over.id)
+
+            if (oldIndex !== -1 && newIndex !== -1) {
+                updateFilters(arrayMove(localFilters, oldIndex, newIndex))
+            }
+        }
+    }
+
+    if (localFilters.length === 0) {
+        return (
+            <div className="text-center py-8 text-muted">
+                No path cleaning rules configured. Add your first rule to get started.
+            </div>
+        )
+    }
+
+    return (
+        <div className="border border-border rounded-lg overflow-hidden bg-white">
+            <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                modifiers={[restrictToVerticalAxis]}
+            >
+                <table className="w-full bg-white">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="p-3 w-8" />
+                            <th className="p-3 w-12 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                                Order
+                            </th>
+                            <th className="p-3 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                                Regex Pattern
+                            </th>
+                            <th className="p-3 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                                Alias
+                            </th>
+                            <th className="p-3 w-24 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                                Actions
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <SortableContext
+                            items={localFilters.map((_, index) => `filter-${index}`)}
+                            strategy={verticalListSortingStrategy}
+                        >
+                            {localFilters.map((filter, index) => (
+                                <SortableRow
+                                    key={`filter-${index}`}
+                                    filter={filter}
+                                    index={index}
+                                    onEdit={(updatedFilter) => onEditFilter(index, updatedFilter)}
+                                    onRemove={() => onRemoveFilter(index)}
+                                />
+                            ))}
+                        </SortableContext>
+                    </tbody>
+                </table>
+            </DndContext>
+        </div>
+    )
+}
