@@ -5,7 +5,6 @@ import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUIDT } from '../../utils/utils'
-import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocationHogFunction,
@@ -95,10 +94,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         try {
             // TODO: Add error handling and logging
-            const globalsWithInputs = await buildGlobalsWithInputs(globals, {
-                ...hogFunction.inputs,
-                ...hogFunction.encrypted_inputs,
-            })
+            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
             // TODO: Do we want to use hogwatcher here as well?
             const invocation = createInvocation(globalsWithInputs, hogFunction)

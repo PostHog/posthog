@@ -1166,7 +1166,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprCall(expr=expr, args=[self.visit(ctx.selectSetStmt())])
 
     def visitHogqlxChildElement(self, ctx: HogQLParser.HogqlxChildElementContext):
-        return self.visit(ctx.hogqlxTagElement() or ctx.columnExpr())
+        if ctx.hogqlxTagElement():
+            return self.visit(ctx.hogqlxTagElement())
+        if ctx.hogqlxText():
+            return self.visit(ctx.hogqlxText())
+        return self.visit(ctx.columnExpr())
+
+    def visitHogqlxText(self, ctx: HogQLParser.HogqlxTextContext):
+        return ast.Constant(value=ctx.HOGQLX_TEXT_TEXT().getText())
 
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
         kind = self.visit(ctx.identifier())
@@ -1181,14 +1188,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
 
-        if ctx.hogqlxChildElement():
-            for a in attributes:
-                if a.name == "children":
-                    raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
-            children = []
-            for element in ctx.hogqlxChildElement():
-                children.append(self.visit(element))
-            attributes.append(ast.HogQLXAttribute(name="children", value=children))
+        # ── collect child nodes, discarding pure-indentation whitespace ──
+        kept_children = []
+        for element in ctx.hogqlxChildElement():
+            child = self.visit(element)
+
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                v = child.value
+                only_ws = v.isspace()
+                has_nl = "\n" in v or "\r" in v
+                if only_ws and has_nl:
+                    continue  # drop indentation text node
+
+            kept_children.append(child)
+
+        if kept_children:
+            if any(a.name == "children" for a in attributes):
+                raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
+            attributes.append(ast.HogQLXAttribute(name="children", value=kept_children))
+
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):

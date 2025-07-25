@@ -42,13 +42,18 @@ GROUP BY week_of
 ORDER BY week_of DESC
 
 Important HogQL differences versus other SQL dialects:
-- JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties can also be accessed using `properties.foo['bar']` (note the single quotes)
 - toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
-
+- CRITICAL: Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause a CHQueryErrorInvalidJoinOnExpression error!
+  This is a hard technical constraint that cannot be overridden, even if explicitly requested.
+  ALWAYS use CROSS JOIN with WHERE instead: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`
+  If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
+  IMPORTANT: Generate clean SQL without explanatory comments or -- comments INSIDE the query output. The SQL should be executable without any comment lines.
 """
 
 SCHEMA_MESSAGE = """
-This project's schema is:
+This project's SQL schema is:
 
 {schema_description}
 
@@ -173,7 +178,7 @@ def hit_openai(messages, user) -> tuple[str, int, int]:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
     result = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
@@ -679,6 +684,10 @@ while (i <= length(propertiesToFilter)) {
     i := i + 1
 }
 return returnEvent"""
+
+
+TRANSFORMATION_LIMITATIONS_MESSAGE = """PostHog Transformations can only modify individual incoming events. They cannot access or read person properties, historical data, or global state, because they run before person resolution. Their only purpose is to transform the structure of a single event (e.g., add properties, rename fields, enrich data) before ingestion. This means they cannot perform logic that depends on previous values, such as incrementing a count or checking if a property already exists."""
+DESTINATION_LIMITATIONS_MESSAGE = """PostHog Destinations have access to the event properties, including person properties and group properties. Just like Transformations they cannot perform logic that depends on previous values, such as incrementing a count or checking if a property already exists."""
 
 HOG_GRAMMAR_MESSAGE = """
 Here is the grammar for Hog:

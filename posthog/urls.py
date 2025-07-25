@@ -24,10 +24,10 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    capture,
     decide,
     hog_function_template,
     remote_config,
+    report,
     router,
     sharing,
     signup,
@@ -36,10 +36,11 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.api.web_experiment import web_experiments
 from posthog.api.utils import hostname_in_allowed_url_list
 from products.early_access_features.backend.api import early_access_features
-from posthog.api.survey import surveys
+from posthog.api.survey import surveys, public_survey_page
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -51,6 +52,7 @@ from .views import (
     login_required,
     preflight_check,
     redis_values_view,
+    api_key_search_view,
     robots_txt,
     security_txt,
     stats,
@@ -165,6 +167,7 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
+    re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -172,6 +175,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
@@ -180,6 +184,7 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -219,7 +224,7 @@ urlpatterns = [
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
+    opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth

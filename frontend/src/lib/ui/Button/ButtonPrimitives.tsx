@@ -9,7 +9,7 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline'
+type ButtonVariant = 'default' | 'outline' | 'danger'
 
 export type ButtonSize = 'xxs' | 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
@@ -40,6 +40,8 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
+    // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
+    inert?: boolean
 } & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
@@ -120,6 +122,8 @@ export const buttonPrimitiveVariants = cva({
         variant: {
             // Bordereless variant (aka posthog tertiary button)
             default: 'button-primitive--variant-default',
+            // Bordereless danger variant (aka posthog danger tertiary button)
+            danger: 'button-primitive--variant-danger',
             // Outline variant (aka posthog secondary button)
             outline: 'button-primitive--variant-outline',
         },
@@ -131,6 +135,10 @@ export const buttonPrimitiveVariants = cva({
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
             fit: 'px-0',
+        },
+        autoHeight: {
+            true: 'button-primitive--height-auto',
+            false: '',
         },
         iconOnly: {
             true: 'icon-only p-0 justify-center items-center shrink-0',
@@ -149,7 +157,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded-sm button-primitive--full-width justify-start shrink-0',
+            true: 'rounded-sm button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -158,6 +166,10 @@ export const buttonPrimitiveVariants = cva({
         },
         disabled: {
             true: 'disabled:opacity-50',
+            false: '',
+        },
+        inert: {
+            true: 'cursor-default hover:bg-inherit',
             false: '',
         },
         hasSideActionRight: {
@@ -174,6 +186,7 @@ export const buttonPrimitiveVariants = cva({
         fullWidth: false,
         isGroup: false,
         menuItem: false,
+        autoHeight: false,
     },
     compoundVariants: [
         {
@@ -203,7 +216,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const {
         className,
         variant,
-        size,
+        size = 'base',
         fullWidth,
         children,
         iconOnly,
@@ -216,6 +229,8 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
+        autoHeight,
+        inert,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -236,6 +251,8 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     disabled,
                     hasSideActionRight,
                     isSideActionRight,
+                    autoHeight,
+                    inert,
                     className,
                 })
             ),
@@ -244,6 +261,9 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
             ...rest,
             'aria-disabled': disabled,
             'data-active': active,
+            style: {
+                '--button-height': `var(--button-icon-size-${effectiveSize})`,
+            },
         },
         children
     )

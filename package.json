@@ -23,8 +23,8 @@
         "taxonomy:build": "pnpm run taxonomy:build:json",
         "taxonomy:build:json": "python bin/build-taxonomy-json.py",
         "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
-        "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
-        "grammar:build:cpp": "cd posthog/hogql/grammar && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
+        "grammar:build:python": "cd posthog/hogql/grammar && cat HogQLLexer.python.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 |sed s/isOpeningTag/self.isOpeningTag/ >> HogQLLexer.g4 && antlr -Dlanguage=Python3 HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
+        "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "mypy-baseline-sync": "TEST=1 mypy -p posthog | mypy-baseline sync",
@@ -47,25 +47,24 @@
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
         "@types/uuid": "^10.0.0",
-        "oxlint": "^1.1.0",
+        "oxlint": "^1.8.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
-        "stylelint-config-recess-order": "^4.3.0",
+        "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
-        "stylelint-order": "^6.0.3",
-        "syncpack": "^13.0.1"
+        "stylelint-order": "^6.0.4",
+        "syncpack": "^13.0.4"
     },
     "optionalDependencies": {
-        "fsevents": "^2.3.2"
+        "fsevents": "^2.3.3"
     },
     "pnpm": {
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.24.0"
+            "@posthog/icons": "0.26.0"
         },
         "patchedDependencies": {
-            "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
         }

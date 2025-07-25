@@ -27,6 +27,7 @@ jobs:
                   filters: |
                       python:
                         - 'dags/**'
+                        - 'ee/**/*.py'
                         - 'posthog/**/*'
                         - 'products/**/*.py'
                         # Make sure we run if someone is explicitly change the workflows

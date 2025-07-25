@@ -8,6 +8,7 @@ import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import './MaxFloatingInput.scss'
 import { useFloatingMaxPosition } from './utils/floatingMaxPositioning'
+import { WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 export function MaxFloatingInput(): JSX.Element | null {
     const { threadLogicKey, conversation } = useValues(maxLogic)
@@ -70,11 +71,15 @@ export function MaxFloatingInput(): JSX.Element | null {
                         : floatingMaxPositionStyle
                 }
             >
-                {isFloatingMaxExpanded ? (
-                    <ExpandedFloatingMax onCollapse={handleCollapse} onDismiss={handleDismiss} />
-                ) : (
-                    <CollapsedFloatingMax onExpand={handleExpand} onPositionChange={setFloatingMaxPosition} />
-                )}
+                {/* To obtain the same `target="_blank"` Link behavior as in side panel form of Max
+                    (for "Open as new insight" button), let's wrap the content in WithinSidePanelContext */}
+                <WithinSidePanelContext.Provider value={true}>
+                    {isFloatingMaxExpanded ? (
+                        <ExpandedFloatingMax onCollapse={handleCollapse} onDismiss={handleDismiss} />
+                    ) : (
+                        <CollapsedFloatingMax onExpand={handleExpand} onPositionChange={setFloatingMaxPosition} />
+                    )}
+                </WithinSidePanelContext.Provider>
             </div>
         </BindLogic>
     )

@@ -3,7 +3,7 @@ import './EditSurvey.scss'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -297,12 +297,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 newChoices[index] = val
                                                                 onChange(newChoices)
                                                             }}
+                                                            suffix={
+                                                                isOpenChoice && (
+                                                                    <LemonTag type="highlight">open-ended</LemonTag>
+                                                                )
+                                                            }
                                                         />
-                                                        {isOpenChoice && (
-                                                            <span className="question-choice-open-ended-footer">
-                                                                open-ended
-                                                            </span>
-                                                        )}
                                                         <LemonButton
                                                             icon={<IconTrash />}
                                                             size="small"

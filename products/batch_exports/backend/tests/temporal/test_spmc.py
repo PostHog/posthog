@@ -8,12 +8,10 @@ import pyarrow as pa
 import pytest
 
 from posthog.batch_exports.service import BackfillDetails
-from posthog.hogql.hogql import ast
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
-    SessionsRecordBatchModel,
     compose_filters_clause,
     slice_record_batch,
     use_distributed_events_recent_table,
@@ -286,38 +284,3 @@ def test_compose_filters_clause(
     result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
     assert result_clause == expected_clause
     assert result_values == expected_values
-
-
-async def test_sessions_record_batch_model(ateam, data_interval_start, data_interval_end):
-    model = SessionsRecordBatchModel(
-        team_id=ateam.id,
-    )
-    hogql_query = model.get_hogql_query(data_interval_start, data_interval_end)
-    team_id_filter = ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["sessions", "team_id"]),
-        right=ast.Constant(value=ateam.id),
-    )
-    printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
-
-    assert hogql_query.where is not None
-    assert isinstance(hogql_query.where, ast.And)
-    assert team_id_filter in hogql_query.where.exprs
-
-    assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
-    assert "FORMAT ArrowStream" in printed_query
-    assert (
-        f"greaterOrEquals(_inserted_at, toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
-        in printed_query
-    )
-    assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
-
-    # check that we have a date range set on the inner query using the session ID
-    assert (
-        "lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus("
-        in printed_query
-    )
-    assert (
-        "greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus("
-        in printed_query
-    )

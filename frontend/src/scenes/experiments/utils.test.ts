@@ -858,6 +858,61 @@ describe('filterToMetricConfig', () => {
                 math: ExperimentMetricMathType.TotalCount,
                 math_property: undefined,
                 math_hogql: undefined,
+                properties: undefined,
+            },
+        })
+    })
+    it('returns the correct metric config for a data warehouse metric with properties', () => {
+        const dataWarehouse = {
+            kind: NodeKind.EventsNode,
+            id: 'mysql_payments',
+            name: 'mysql_payments',
+            type: 'data_warehouse',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+            properties: [
+                {
+                    key: 'amount',
+                    value: 100,
+                    operator: PropertyOperator.GreaterThan,
+                    type: PropertyFilterType.Event,
+                },
+                {
+                    key: 'currency',
+                    value: 'USD',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        } as Record<string, any>
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
+        expect(metricConfig).toEqual({
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'mysql_payments',
+                name: 'mysql_payments',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person.properties.email',
+                data_warehouse_join_key: 'customer.email',
+                math: ExperimentMetricMathType.TotalCount,
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [
+                    {
+                        key: 'amount',
+                        value: 100,
+                        operator: PropertyOperator.GreaterThan,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: 'currency',
+                        value: 'USD',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
             },
         })
     })

@@ -2,8 +2,9 @@ import './TextInputPrimitive.scss'
 import { cva, type VariantProps } from 'cva'
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, useCallback, useEffect, useRef } from 'react'
+import './TextInputPrimitive.css'
 
-const textInputVariants = cva({
+export const textInputVariants = cva({
     base: 'text-input-primitive w-full rounded border border-primary p-2 text-sm outline-none focus-visible:border-secondary',
     variants: {
         variant: {
@@ -14,14 +15,19 @@ const textInputVariants = cva({
             default: 'h-[var(--text-input-height-base)]',
             lg: 'h-[var(--text-input-height-lg)]',
         },
+        error: {
+            true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
+            false: '',
+        },
     },
     defaultVariants: {
         variant: 'default',
         size: 'default',
+        error: false,
     },
 })
 
-type TextInputBaseProps = {
+export type TextInputBaseProps = {
     onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
     autoFocus?: boolean
     dataAttr?: string

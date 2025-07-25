@@ -2,26 +2,12 @@ import { IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { membershipLevelToName } from 'lib/utils/permissioning'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-
 import { AvailableFeature, OrganizationBasicType } from '~/types'
-
 import { globalModalsLogic } from '../GlobalModals'
+import { AccessLevelIndicator } from './AccessLevelIndicator'
 import { navigationLogic } from './navigationLogic'
-
-export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
-    return (
-        <LemonTag className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
-            {(organization.membership_level ? membershipLevelToName.get(organization.membership_level) : null) || '?'}
-        </LemonTag>
-    )
-}
 
 export function OtherOrganizationButton({
     organization,
@@ -78,35 +64,5 @@ export function NewOrganizationButton(): JSX.Element {
     )
 }
 
-export function OrganizationSwitcherOverlay(): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
-    const { otherOrganizations } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    return (
-        <div>
-            <h5>Organizations</h5>
-            <LemonDivider />
-            {currentOrganization && (
-                <LemonButton
-                    icon={
-                        <UploadedLogo
-                            name={currentOrganization.name}
-                            entityId={currentOrganization.id}
-                            mediaId={currentOrganization.logo_media_id}
-                        />
-                    }
-                    title={`Switch to organization ${currentOrganization.name}`}
-                    active
-                    fullWidth
-                >
-                    {currentOrganization.name}
-                    <AccessLevelIndicator organization={currentOrganization} />
-                </LemonButton>
-            )}
-            {otherOrganizations.map((otherOrganization, i) => (
-                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} index={i} />
-            ))}
-            {preflight?.can_create_org && <NewOrganizationButton />}
-        </div>
-    )
-}
+// OrganizationSwitcherOverlay has been replaced with the OrganizationDropdownMenu,
+// the above code is still in use for the AccountPopover, for now.

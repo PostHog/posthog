@@ -1,6 +1,6 @@
 import { cva } from 'cva'
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, HTMLAttributes } from 'react'
+import { forwardRef, LabelHTMLAttributes } from 'react'
 
 const labelVariants = cva({
     base: 'font-semibold',
@@ -11,12 +11,12 @@ const labelVariants = cva({
     },
 })
 
-interface LabelProps extends HTMLAttributes<HTMLDivElement> {
+export interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
     intent?: 'menu'
 }
 
-export const Label = forwardRef<HTMLDivElement, LabelProps>(({ className, intent, ...props }, ref) => {
-    return <div className={cn(labelVariants({ intent }), className)} {...props} ref={ref} />
+export const Label = forwardRef<HTMLLabelElement, LabelProps>(({ className, intent, ...props }, ref) => {
+    return <label className={cn(labelVariants({ intent }), className)} {...props} ref={ref} />
 })
 
 Label.displayName = 'Label'

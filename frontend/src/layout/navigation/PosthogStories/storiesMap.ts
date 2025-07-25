@@ -34,6 +34,7 @@ export interface story {
     mediaUrl?: string
     type: StoryType
     durationMs?: number
+    aspectRatio?: '4:3' | '16:9' | 'auto'
     seeMoreLink?: string
     seeMoreOverlay?: (closeOverlay: (action?: CloseOverlayAction) => void) => JSX.Element
     seeMoreOptions?: SeeMoreOptions
@@ -50,9 +51,79 @@ export interface storyGroup {
 // Important: we use the first thumbnail of the first story in each group as the thumbnail of the group.
 export const storiesMap: storyGroup[] = [
     {
+        id: 'deskhog',
+        title: 'DeskHog',
+        stories: [
+            {
+                id: 'deskhog-minidoc',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/deskhog_minidoc_ea362ae944.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'deskhog-infomercial',
+                title: 'DeskHog',
+                description: 'ORDER NOW!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/deskhog_infomercial_a50a1dd4ec.mp4',
+                type: StoryType.Video,
+                aspectRatio: '4:3',
+            },
+            {
+                id: 'deskhog-kit',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_kit_657f1da249.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
+                type: StoryType.Image,
+            },
+            {
+                id: 'deskhog-colors',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_colors_84c91ae075.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
+                type: StoryType.Image,
+            },
+            {
+                id: 'deskhog-cta',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_cta_513a9e19f4.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
+                type: StoryType.Image,
+            },
+        ],
+    },
+    {
         id: 'changelog',
         title: 'Changelog',
         stories: [
+            {
+                id: 'changelog-55-cdp-destinations',
+                title: 'Changelog',
+                description: '55 new CDP destinations',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_cdp_destinations_0e8b58be75.mp4',
+                type: StoryType.Video,
+            },
             {
                 id: 'changelog-hog-templating',
                 title: 'Changelog',
@@ -234,6 +305,33 @@ export const storiesMap: storyGroup[] = [
                 seeMoreOptions: {
                     backgroundColor: 'black',
                     text: 'Say hi',
+                },
+            },
+        ],
+    },
+    {
+        id: 'feature-flags',
+        title: 'Feature flags',
+        stories: [
+            {
+                id: 'feature-flags-overview',
+                title: 'Feature flags',
+                description: 'Roll out changes',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_79e6f410ae.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'feature-flags-cta',
+                title: 'Feature flags',
+                description: 'Try feature flags',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/feature_flags',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get started',
                 },
             },
         ],

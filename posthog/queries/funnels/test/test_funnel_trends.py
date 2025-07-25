@@ -506,14 +506,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, friday["conversion_rate"])
 
     def test_period_not_final(self):
-        now = datetime.now()
+        # Use timezone-aware datetime to ensure consistent behavior across environments
+        now = datetime.now(tz=ZoneInfo("UTC"))
 
         journeys_for(
             {
                 "user_eight": [
-                    {"event": "step one", "timestamp": now},
-                    {"event": "step two", "timestamp": now + timedelta(minutes=1)},
-                    {"event": "step three", "timestamp": now + timedelta(minutes=2)},
+                    {"event": "step one", "timestamp": now.strftime("%Y-%m-%d %H:%M:%S.%f")},
+                    {"event": "step two", "timestamp": (now + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f")},
+                    {"event": "step three", "timestamp": (now + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f")},
                 ]
             },
             self.team,

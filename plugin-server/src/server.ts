@@ -8,11 +8,9 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
+import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
-import { CdpCyclotronWorkerNative } from './cdp/consumers/cdp-cyclotron-worker-native.consumer'
-import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
-import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -27,7 +25,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { setupCommonRoutes } from './router'
+import { setupCommonRoutes, setupExpressApp } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -72,8 +70,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = express()
-        this.expressApp.use(express.json({ limit: '200kb' }))
+        this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
@@ -123,7 +120,6 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
-                        await initPlugins()
                         const consumer = new IngestionConsumer(hub, {
                             INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                             INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
@@ -134,7 +130,6 @@ export class PluginServer {
                 }
             } else if (capabilities.ingestionV2) {
                 serviceLoaders.push(async () => {
-                    await initPlugins()
                     const consumer = new IngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
@@ -239,17 +234,9 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorker(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpCyclotronWorkerPlugins) {
                 await initPlugins()
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerPlugins(hub)
+                    const worker = new CdpCyclotronWorker(hub)
                     await worker.start()
                     return worker.service
                 })
@@ -264,24 +251,15 @@ export class PluginServer {
             }
 
             // The service commands is always created
-            serviceLoaders.push(async () => {
+            serviceLoaders.push(() => {
                 const serverCommands = new ServerCommands(hub)
                 this.expressApp.use('/', serverCommands.router())
-                await serverCommands.start()
-                return serverCommands.service
+                return Promise.resolve(serverCommands.service)
             })
 
-            if (capabilities.cdpCyclotronWorkerSegment) {
+            if (capabilities.cdpBehaviouralEvents) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerSegment(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpCyclotronWorkerNative) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerNative(hub)
+                    const worker = new CdpBehaviouralEventsConsumer(hub)
                     await worker.start()
                     return worker.service
                 })

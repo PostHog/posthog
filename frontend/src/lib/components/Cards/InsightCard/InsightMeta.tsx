@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -40,6 +41,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'refreshEnabled'
         | 'loading'
+        | 'loadingQueued'
         | 'rename'
         | 'duplicate'
         | 'dashboardId'
@@ -65,6 +67,7 @@ export function InsightMeta({
     refresh,
     refreshEnabled,
     loading,
+    loadingQueued,
     rename,
     duplicate,
     moveToDashboard,
@@ -89,7 +92,7 @@ export function InsightMeta({
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
-            : loading || !refreshEnabled
+            : loading || loadingQueued || !refreshEnabled
             ? 'Refreshing...'
             : undefined
 
@@ -109,6 +112,7 @@ export function InsightMeta({
                     fallbackTitle={summary}
                     description={insight.description}
                     loading={loading}
+                    loadingQueued={loadingQueued}
                     tags={insight.tags}
                 />
             }
@@ -302,6 +306,7 @@ export function InsightMetaContent({
     description,
     link,
     loading,
+    loadingQueued,
     tags,
 }: {
     title: string
@@ -309,19 +314,20 @@ export function InsightMetaContent({
     description?: string
     link?: string
     loading?: boolean
+    loadingQueued?: boolean
     tags?: string[]
 }): JSX.Element {
     let titleEl: JSX.Element = (
         <h4 title={title} data-attr="insight-card-title">
             {title || <i>{fallbackTitle || 'Untitled'}</i>}
-            {loading && (
+            {(loading || loadingQueued) && (
                 <Tooltip
-                    title="This insight is queued to check for newer results. It will be updated soon."
+                    title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
                     placement="top-end"
                 >
-                    <span className="text-accent text-sm font-medium ml-1.5">
-                        <Spinner className="mr-1.5 text-base" />
-                        Refreshing
+                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
+                        <Spinner className="mr-1.5 text-base" textColored />
+                        {loading ? 'Loading' : 'Waiting to load'}
                     </span>
                 </Tooltip>
             )}

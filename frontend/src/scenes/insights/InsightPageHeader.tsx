@@ -1,4 +1,4 @@
-import { IconInfo, IconWarning } from '@posthog/icons'
+import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -14,6 +14,16 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneNotificationDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneNotificationDropdownMenu'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import {
     TEMPLATE_LINK_HEADING,
@@ -24,6 +34,7 @@ import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -32,6 +43,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
@@ -49,7 +61,17 @@ import { projectLogic } from 'scenes/projectLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import {
+    ScenePanel,
+    ScenePanelActions,
+    ScenePanelCommonActions,
+    ScenePanelDivider,
+    ScenePanelMetaInfo,
+} from '~/layout/scenes/SceneLayout'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -63,6 +85,8 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+
+const RESOURCE_TYPE = 'insight'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -102,6 +126,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
     const [tags, setTags] = useState(insight.tags)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
@@ -115,6 +141,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
     const siteUrl = preflight?.site_url || window.location.origin
+
+    async function handleDuplicateInsight(): Promise<void> {
+        // We do not want to duplicate the dashboard filters that might be included in this insight
+        // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
+        // irreversibly in apply_dashboard_filters and return that to the front-end
+        if (insight.short_id) {
+            const cleanInsight = await insightsApi.getByShortId(insight.short_id)
+            if (cleanInsight) {
+                duplicateInsight(cleanInsight, true)
+                return
+            }
+        }
+        // Fallback to original behavior if load failed
+        duplicateInsight(insight as QueryBasedInsightModel, true)
+    }
 
     return (
         <>
@@ -184,7 +225,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
-                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
+                        {!newSceneLayout && insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
                                 <AlertsButton
                                     insight={insight}
@@ -251,301 +292,580 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         )}
 
-                        <More
-                            overlay={
-                                <>
-                                    {hasDashboardItemId && (
-                                        <>
+                        {!newSceneLayout && (
+                            <More
+                                overlay={
+                                    <>
+                                        {hasDashboardItemId && (
+                                            <>
+                                                <LemonButton
+                                                    onClick={() => void handleDuplicateInsight()}
+                                                    fullWidth
+                                                    data-attr="duplicate-insight-from-insight-view"
+                                                >
+                                                    Duplicate
+                                                </LemonButton>
+
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        setInsightMetadata({
+                                                            favorited: !insight.favorited,
+                                                        })
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                                </LemonButton>
+
+                                                <LemonButton
+                                                    onClick={() => setAddToDashboardModalOpenModal(true)}
+                                                    fullWidth
+                                                >
+                                                    Add to dashboard
+                                                </LemonButton>
+
+                                                <LemonDivider />
+
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        insight.short_id
+                                                            ? push(urls.insightSharing(insight.short_id))
+                                                            : null
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    Share or embed
+                                                </LemonButton>
+
+                                                <SubscribeButton insightShortId={insight.short_id} />
+
+                                                {exportContext ? (
+                                                    <ExportButton
+                                                        fullWidth
+                                                        items={[
+                                                            {
+                                                                export_format: ExporterFormat.PNG,
+                                                                insight: insight.id,
+                                                            },
+                                                            {
+                                                                export_format: ExporterFormat.CSV,
+                                                                export_context: exportContext,
+                                                            },
+                                                            {
+                                                                export_format: ExporterFormat.XLSX,
+                                                                export_context: exportContext,
+                                                            },
+                                                        ]}
+                                                    />
+                                                ) : null}
+
+                                                <LemonDivider />
+                                            </>
+                                        )}
+
+                                        {!insight.short_id && (
                                             <LemonButton
                                                 onClick={() => {
-                                                    void (async () => {
-                                                        // We do not want to duplicate the dashboard filters that might be included in this insight
-                                                        // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
-                                                        // irreversibly in apply_dashboard_filters and return that to the front-end
-                                                        if (insight.short_id) {
-                                                            const cleanInsight = await insightsApi.getByShortId(
-                                                                insight.short_id
-                                                            )
-                                                            if (cleanInsight) {
-                                                                duplicateInsight(cleanInsight, true)
-                                                                return
-                                                            }
-                                                        }
-                                                        // Fallback to original behavior if load failed
-                                                        duplicateInsight(insight as QueryBasedInsightModel, true)
-                                                    })()
+                                                    const templateLink = getInsightDefinitionUrl({ query }, siteUrl)
+                                                    LemonDialog.open({
+                                                        title: (
+                                                            <span className="flex items-center gap-2">
+                                                                <TitleWithIcon
+                                                                    icon={
+                                                                        <Tooltip title={TEMPLATE_LINK_TOOLTIP}>
+                                                                            <IconInfo />
+                                                                        </Tooltip>
+                                                                    }
+                                                                >
+                                                                    <b>{TEMPLATE_LINK_HEADING}</b>
+                                                                </TitleWithIcon>
+                                                            </span>
+                                                        ),
+                                                        content: (
+                                                            <TemplateLinkSection
+                                                                templateLink={templateLink}
+                                                                heading={undefined}
+                                                                tooltip={undefined}
+                                                                piiWarning={TEMPLATE_LINK_PII_WARNING}
+                                                            />
+                                                        ),
+                                                        width: 600,
+                                                        primaryButton: {
+                                                            children: 'Close',
+                                                            type: 'secondary',
+                                                        },
+                                                    })
                                                 }}
                                                 fullWidth
-                                                data-attr="duplicate-insight-from-insight-view"
                                             >
-                                                Duplicate
+                                                Share as template
                                             </LemonButton>
+                                        )}
 
-                                            <LemonButton
-                                                onClick={() =>
-                                                    setInsightMetadata({
-                                                        favorited: !insight.favorited,
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
-                                                {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
-                                            </LemonButton>
-
-                                            <LemonButton
-                                                onClick={() => setAddToDashboardModalOpenModal(true)}
-                                                fullWidth
-                                            >
-                                                Add to dashboard
-                                            </LemonButton>
-
-                                            <LemonDivider />
-
-                                            <LemonButton
-                                                onClick={() =>
-                                                    insight.short_id
-                                                        ? push(urls.insightSharing(insight.short_id))
-                                                        : null
-                                                }
-                                                fullWidth
-                                            >
-                                                Share or embed
-                                            </LemonButton>
-
-                                            <SubscribeButton insightShortId={insight.short_id} />
-
-                                            {exportContext ? (
-                                                <ExportButton
-                                                    fullWidth
-                                                    items={[
-                                                        {
-                                                            export_format: ExporterFormat.PNG,
-                                                            insight: insight.id,
-                                                        },
-                                                        {
-                                                            export_format: ExporterFormat.CSV,
-                                                            export_context: exportContext,
-                                                        },
-                                                        {
-                                                            export_format: ExporterFormat.XLSX,
-                                                            export_context: exportContext,
-                                                        },
-                                                    ]}
-                                                />
-                                            ) : null}
-
-                                            <LemonDivider />
-                                        </>
-                                    )}
-
-                                    {!insight.short_id && (
-                                        <LemonButton
-                                            onClick={() => {
-                                                const templateLink = getInsightDefinitionUrl({ query }, siteUrl)
-                                                LemonDialog.open({
-                                                    title: (
-                                                        <span className="flex items-center gap-2">
-                                                            <TitleWithIcon
-                                                                icon={
-                                                                    <Tooltip title={TEMPLATE_LINK_TOOLTIP}>
-                                                                        <IconInfo />
-                                                                    </Tooltip>
-                                                                }
-                                                            >
-                                                                <b>{TEMPLATE_LINK_HEADING}</b>
-                                                            </TitleWithIcon>
-                                                        </span>
-                                                    ),
-                                                    content: (
-                                                        <TemplateLinkSection
-                                                            templateLink={templateLink}
-                                                            heading={undefined}
-                                                            tooltip={undefined}
-                                                            piiWarning={TEMPLATE_LINK_PII_WARNING}
-                                                        />
-                                                    ),
-                                                    width: 600,
-                                                    primaryButton: {
-                                                        children: 'Close',
-                                                        type: 'secondary',
-                                                    },
-                                                })
-                                            }}
-                                            fullWidth
-                                        >
-                                            Share as template
-                                        </LemonButton>
-                                    )}
-
-                                    <LemonSwitch
-                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                        className="px-2 py-1"
-                                        checked={showQueryEditor}
-                                        onChange={() => {
-                                            // for an existing insight in view mode
-                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                // enter edit mode
-                                                setInsightMode(ItemMode.Edit, null)
-
-                                                // exit early if query editor doesn't need to be toggled
-                                                if (showQueryEditor) {
-                                                    return
-                                                }
-                                            }
-                                            toggleQueryEditorPanel()
-                                        }}
-                                        fullWidth
-                                        label="View source"
-                                    />
-
-                                    {hasDashboardItemId &&
-                                    (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
                                         <LemonSwitch
-                                            data-attr="toggle-debug-panel"
+                                            data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
                                             className="px-2 py-1"
-                                            checked={showDebugPanel}
+                                            checked={showQueryEditor}
                                             onChange={() => {
-                                                toggleDebugPanel()
+                                                // for an existing insight in view mode
+                                                if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                    // enter edit mode
+                                                    setInsightMode(ItemMode.Edit, null)
+
+                                                    // exit early if query editor doesn't need to be toggled
+                                                    if (showQueryEditor) {
+                                                        return
+                                                    }
+                                                }
+                                                toggleQueryEditorPanel()
                                             }}
                                             fullWidth
-                                            label="Debug panel"
+                                            label="View source"
                                         />
-                                    ) : null}
 
-                                    {(hogQL || showCohortButton) && <LemonDivider />}
-                                    {hogQL &&
-                                        !isHogQLQuery(query) &&
-                                        !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
+                                        {hasDashboardItemId &&
+                                        (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
+                                            <LemonSwitch
+                                                data-attr="toggle-debug-panel"
+                                                className="px-2 py-1"
+                                                checked={showDebugPanel}
+                                                onChange={() => {
+                                                    toggleDebugPanel()
+                                                }}
+                                                fullWidth
+                                                label="Debug panel"
+                                            />
+                                        ) : null}
+
+                                        {(hogQL || showCohortButton) && <LemonDivider />}
+                                        {hogQL &&
+                                            !isHogQLQuery(query) &&
+                                            !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
+                                                <LemonButton
+                                                    data-attr="edit-insight-sql"
+                                                    onClick={() => {
+                                                        router.actions.push(urls.sqlEditor(hogQL))
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Edit SQL directly
+                                                </LemonButton>
+                                            )}
+                                        {hogQL && showCohortButton && (
                                             <LemonButton
                                                 data-attr="edit-insight-sql"
                                                 onClick={() => {
-                                                    router.actions.push(urls.sqlEditor(hogQL))
+                                                    LemonDialog.openForm({
+                                                        title: 'Save as static cohort',
+                                                        description: (
+                                                            <div className="mt-2">
+                                                                Your query must export a <code>person_id</code>,{' '}
+                                                                <code>actor_id</code> or <code>id</code> column, which
+                                                                must match the <code>id</code> of the{' '}
+                                                                <code>persons</code> table
+                                                            </div>
+                                                        ),
+                                                        initialValues: {
+                                                            name: '',
+                                                        },
+                                                        content: (
+                                                            <LemonField name="name">
+                                                                <LemonInput
+                                                                    data-attr="insight-name"
+                                                                    placeholder="Name of the new cohort"
+                                                                    autoFocus
+                                                                />
+                                                            </LemonField>
+                                                        ),
+                                                        errors: {
+                                                            name: (name) =>
+                                                                !name ? 'You must enter a name' : undefined,
+                                                        },
+                                                        onSubmit: async ({ name }) => {
+                                                            createStaticCohort(name, {
+                                                                kind: NodeKind.HogQLQuery,
+                                                                query: hogQL,
+                                                            })
+                                                        },
+                                                    })
                                                 }}
                                                 fullWidth
                                             >
-                                                Edit SQL directly
+                                                Save as static cohort
                                             </LemonButton>
                                         )}
-                                    {hogQL && showCohortButton && (
-                                        <LemonButton
-                                            data-attr="edit-insight-sql"
-                                            onClick={() => {
-                                                LemonDialog.openForm({
-                                                    title: 'Save as static cohort',
-                                                    description: (
-                                                        <div className="mt-2">
-                                                            Your query must export a <code>person_id</code>,{' '}
-                                                            <code>actor_id</code> or <code>id</code> column, which must
-                                                            match the <code>id</code> of the <code>persons</code> table
-                                                        </div>
-                                                    ),
-                                                    initialValues: {
-                                                        name: '',
-                                                    },
-                                                    content: (
-                                                        <LemonField name="name">
-                                                            <LemonInput
-                                                                data-attr="insight-name"
-                                                                placeholder="Name of the new cohort"
-                                                                autoFocus
-                                                            />
-                                                        </LemonField>
-                                                    ),
-                                                    errors: {
-                                                        name: (name) => (!name ? 'You must enter a name' : undefined),
-                                                    },
-                                                    onSubmit: async ({ name }) => {
-                                                        createStaticCohort(name, {
-                                                            kind: NodeKind.HogQLQuery,
-                                                            query: hogQL,
-                                                        })
-                                                    },
-                                                })
-                                            }}
-                                            fullWidth
-                                        >
-                                            Save as static cohort
-                                        </LemonButton>
-                                    )}
 
-                                    {hasDashboardItemId && (
-                                        <>
-                                            <LemonDivider />
-                                            <AccessControlledLemonButton
-                                                userAccessLevel={insight.user_access_level}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                                resourceType={AccessControlResourceType.Insight}
-                                                status="danger"
-                                                onClick={() =>
-                                                    void deleteInsightWithUndo({
-                                                        object: insight as QueryBasedInsightModel,
-                                                        endpoint: `projects/${currentProjectId}/insights`,
-                                                        callback: () => {
-                                                            loadInsights()
-                                                            push(urls.savedInsights())
-                                                        },
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
-                                                Delete insight
-                                            </AccessControlledLemonButton>
-                                        </>
-                                    )}
-                                </>
-                            }
-                        />
+                                        {hasDashboardItemId && (
+                                            <>
+                                                <LemonDivider />
+                                                <AccessControlledLemonButton
+                                                    userAccessLevel={insight.user_access_level}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    resourceType={AccessControlResourceType.Insight}
+                                                    status="danger"
+                                                    onClick={() =>
+                                                        void deleteInsightWithUndo({
+                                                            object: insight as QueryBasedInsightModel,
+                                                            endpoint: `projects/${currentProjectId}/insights`,
+                                                            callback: () => {
+                                                                loadInsights()
+                                                                push(urls.savedInsights())
+                                                            },
+                                                        })
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    Delete insight
+                                                </AccessControlledLemonButton>
+                                            </>
+                                        )}
+                                    </>
+                                }
+                            />
+                        )}
                     </div>
                 }
                 caption={
                     <>
-                        {!!(canEditInsight || insight.description) && (
-                            <EditableField
-                                multiline
-                                markdown
-                                name="description"
-                                value={insight.description || ''}
-                                placeholder="Description (optional)"
-                                onSave={(value) => setInsightMetadata({ description: value })}
-                                saveOnBlur={true}
-                                maxLength={400} // Sync with Insight model
-                                mode={!canEditInsight ? 'view' : undefined}
-                                data-attr="insight-description"
-                                compactButtons
-                            />
+                        {!newSceneLayout && (
+                            <>
+                                {!!(canEditInsight || insight.description) && (
+                                    <EditableField
+                                        multiline
+                                        markdown
+                                        name="description"
+                                        value={insight.description || ''}
+                                        placeholder="Description (optional)"
+                                        onSave={(value) => setInsightMetadata({ description: value })}
+                                        saveOnBlur={true}
+                                        maxLength={400} // Sync with Insight model
+                                        mode={!canEditInsight ? 'view' : undefined}
+                                        data-attr="insight-description"
+                                        compactButtons
+                                    />
+                                )}
+                                {canEditInsight ? (
+                                    <ObjectTags
+                                        tags={tags ?? []}
+                                        saving={insightSaving}
+                                        onChange={(tags) => setTags(tags)}
+                                        onBlur={() => {
+                                            if (tags !== insight.tags) {
+                                                setInsightMetadata({ tags: tags ?? [] })
+                                            }
+                                        }}
+                                        tagsAvailable={allExistingTags}
+                                        className="mt-2"
+                                        data-attr="insight-tags"
+                                    />
+                                ) : tags?.length ? (
+                                    <ObjectTags
+                                        tags={tags}
+                                        saving={insightSaving}
+                                        className="mt-2"
+                                        data-attr="insight-tags"
+                                        staticOnly
+                                    />
+                                ) : null}
+                                <UserActivityIndicator
+                                    at={insight.last_modified_at}
+                                    by={insight.last_modified_by}
+                                    className="mt-2"
+                                />
+                            </>
                         )}
-                        {canEditInsight ? (
-                            <ObjectTags
-                                tags={tags ?? []}
-                                saving={insightSaving}
-                                onChange={(tags) => setTags(tags)}
-                                onBlur={() => {
-                                    if (tags !== insight.tags) {
-                                        setInsightMetadata({ tags: tags ?? [] })
-                                    }
-                                }}
-                                tagsAvailable={allExistingTags}
-                                className="mt-2"
-                                data-attr="insight-tags"
-                            />
-                        ) : tags?.length ? (
-                            <ObjectTags
-                                tags={tags}
-                                saving={insightSaving}
-                                className="mt-2"
-                                data-attr="insight-tags"
-                                staticOnly
-                            />
-                        ) : null}
-                        <UserActivityIndicator
-                            at={insight.last_modified_at}
-                            by={insight.last_modified_by}
-                            className="mt-2"
-                        />
                     </>
                 }
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
+
+            <ScenePanel>
+                <>
+                    <ScenePanelMetaInfo>
+                        <SceneName
+                            defaultValue={insight.name || insight.derived_name || ''}
+                            onSave={(value) => setInsightMetadata({ name: value })}
+                            dataAttrKey={RESOURCE_TYPE}
+                            canEdit={canEditInsight}
+                        />
+
+                        <SceneDescription
+                            defaultValue={insight.description || ''}
+                            onSave={(value) => setInsightMetadata({ description: value })}
+                            dataAttrKey={RESOURCE_TYPE}
+                            optional
+                            canEdit={canEditInsight}
+                        />
+
+                        <SceneTags
+                            onSave={(tags) => {
+                                setInsightMetadata({ tags })
+                                setTags(tags)
+                            }}
+                            tags={tags}
+                            tagsAvailable={allExistingTags}
+                            dataAttrKey={RESOURCE_TYPE}
+                            canEdit={canEditInsight}
+                        />
+
+                        <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                        <SceneActivityIndicator
+                            at={insight.last_modified_at}
+                            by={insight.last_modified_by}
+                            prefix="Last modified"
+                        />
+                    </ScenePanelMetaInfo>
+
+                    <ScenePanelDivider />
+
+                    <ScenePanelCommonActions>
+                        <SceneCommonButtons
+                            dataAttrKey={RESOURCE_TYPE}
+                            duplicate={
+                                hasDashboardItemId
+                                    ? {
+                                          onClick: () => void handleDuplicateInsight(),
+                                      }
+                                    : undefined
+                            }
+                            favorite={{
+                                active: insight.favorited,
+                                onClick: () => {
+                                    setInsightMetadata({ favorited: !insight.favorited })
+                                },
+                            }}
+                        />
+                    </ScenePanelCommonActions>
+
+                    <ScenePanelActions>
+                        {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
+
+                        <SceneAddToDropdownMenu
+                            notebook={hasDashboardItemId}
+                            dashboard={
+                                hasDashboardItemId
+                                    ? {
+                                          onClick: () => {
+                                              setAddToDashboardModalOpenModal(true)
+                                          },
+                                      }
+                                    : undefined
+                            }
+                            shortId={insight.short_id}
+                            dataAttrKey={RESOURCE_TYPE}
+                        />
+
+                        {hasDashboardItemId && (
+                            <SceneNotificationDropdownMenu
+                                insight={insight}
+                                insightLogicProps={insightLogicProps}
+                                dataAttrKey={RESOURCE_TYPE}
+                            />
+                        )}
+
+                        {hasDashboardItemId && (
+                            <SceneShareButton
+                                buttonProps={{
+                                    menuItem: true,
+                                    onClick: () =>
+                                        insight.short_id ? push(urls.insightSharing(insight.short_id)) : null,
+                                }}
+                                dataAttrKey={RESOURCE_TYPE}
+                            >
+                                <IconShare />
+                                Share or embed
+                            </SceneShareButton>
+                        )}
+
+                        {!insight.short_id && (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    const templateLink = getInsightDefinitionUrl({ query }, siteUrl)
+                                    LemonDialog.open({
+                                        title: (
+                                            <span className="flex items-center gap-2">
+                                                <TitleWithIcon
+                                                    icon={
+                                                        <Tooltip title={TEMPLATE_LINK_TOOLTIP}>
+                                                            <IconInfo />
+                                                        </Tooltip>
+                                                    }
+                                                >
+                                                    <b>{TEMPLATE_LINK_HEADING}</b>
+                                                </TitleWithIcon>
+                                            </span>
+                                        ),
+                                        content: (
+                                            <TemplateLinkSection
+                                                templateLink={templateLink}
+                                                heading={undefined}
+                                                tooltip={undefined}
+                                                piiWarning={TEMPLATE_LINK_PII_WARNING}
+                                            />
+                                        ),
+                                        width: 600,
+                                        primaryButton: {
+                                            children: 'Close',
+                                            type: 'secondary',
+                                        },
+                                    })
+                                }}
+                                menuItem
+                            >
+                                <IconShare />
+                                Share as template
+                            </ButtonPrimitive>
+                        )}
+
+                        {exportContext ? (
+                            <SceneExportDropdownMenu
+                                dropdownMenuItems={[
+                                    {
+                                        format: ExporterFormat.PNG,
+                                        insight: insight.id,
+                                        dataAttr: `${RESOURCE_TYPE}-export-png`,
+                                    },
+                                    {
+                                        format: ExporterFormat.CSV,
+                                        context: exportContext,
+                                        dataAttr: `${RESOURCE_TYPE}-export-csv`,
+                                    },
+                                    {
+                                        format: ExporterFormat.XLSX,
+                                        context: exportContext,
+                                        dataAttr: `${RESOURCE_TYPE}-export-xlsx`,
+                                    },
+                                ]}
+                            />
+                        ) : null}
+
+                        {hogQL &&
+                            !isHogQLQuery(query) &&
+                            !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
+                                <ButtonPrimitive
+                                    data-attr={`${RESOURCE_TYPE}-edit-sql`}
+                                    onClick={() => {
+                                        router.actions.push(urls.sqlEditor(hogQL))
+                                    }}
+                                    menuItem
+                                >
+                                    <IconPencil />
+                                    Edit in SQL editor
+                                </ButtonPrimitive>
+                            )}
+
+                        {hogQL && showCohortButton && (
+                            <ButtonPrimitive
+                                data-attr={`${RESOURCE_TYPE}-save-as-cohort`}
+                                onClick={() => {
+                                    LemonDialog.openForm({
+                                        title: 'Save as static cohort',
+                                        description: (
+                                            <div className="mt-2">
+                                                Your query must export a <code>person_id</code>, <code>actor_id</code>{' '}
+                                                or <code>id</code> column, which must match the <code>id</code> of the{' '}
+                                                <code>persons</code> table
+                                            </div>
+                                        ),
+                                        initialValues: {
+                                            name: '',
+                                        },
+                                        content: (
+                                            <LemonField name="name">
+                                                <LemonInput
+                                                    data-attr={`${RESOURCE_TYPE}-save-as-cohort-name`}
+                                                    placeholder="Name of the new cohort"
+                                                    autoFocus
+                                                />
+                                            </LemonField>
+                                        ),
+                                        errors: {
+                                            name: (name) => (!name ? 'You must enter a name' : undefined),
+                                        },
+                                        onSubmit: async ({ name }) => {
+                                            createStaticCohort(name, {
+                                                kind: NodeKind.HogQLQuery,
+                                                query: hogQL,
+                                            })
+                                        },
+                                    })
+                                }}
+                            >
+                                Save as static cohort
+                            </ButtonPrimitive>
+                        )}
+
+                        <ScenePanelDivider />
+
+                        <LemonSwitch
+                            data-attr={`${RESOURCE_TYPE}-${showQueryEditor ? 'hide' : 'show'}-source`}
+                            className="px-2 py-1"
+                            checked={showQueryEditor}
+                            onChange={() => {
+                                // for an existing insight in view mode
+                                if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                    // enter edit mode
+                                    setInsightMode(ItemMode.Edit, null)
+
+                                    // exit early if query editor doesn't need to be toggled
+                                    if (showQueryEditor) {
+                                        return
+                                    }
+                                }
+                                toggleQueryEditorPanel()
+                            }}
+                            fullWidth
+                            label="View source"
+                        />
+
+                        {hasDashboardItemId && (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
+                            <LemonSwitch
+                                data-attr={`${RESOURCE_TYPE}-toggle-debug-panel`}
+                                className="px-2 py-1"
+                                checked={showDebugPanel}
+                                onChange={() => {
+                                    toggleDebugPanel()
+                                }}
+                                fullWidth
+                                label="Debug panel"
+                            />
+                        ) : null}
+
+                        {hasDashboardItemId && (
+                            <>
+                                <ScenePanelDivider />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Notebook}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    {({ disabledReason }) => (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            variant="danger"
+                                            disabled={!!disabledReason}
+                                            {...(disabledReason && { tooltip: disabledReason })}
+                                            data-attr={`${RESOURCE_TYPE}-delete`}
+                                            onClick={() =>
+                                                void deleteInsightWithUndo({
+                                                    object: insight as QueryBasedInsightModel,
+                                                    endpoint: `projects/${currentProjectId}/insights`,
+                                                    callback: () => {
+                                                        loadInsights()
+                                                        push(urls.savedInsights())
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            <IconTrash />
+                                            Delete insight
+                                        </ButtonPrimitive>
+                                    )}
+                                </AccessControlAction>
+                            </>
+                        )}
+                    </ScenePanelActions>
+                </>
+            </ScenePanel>
         </>
     )
 }

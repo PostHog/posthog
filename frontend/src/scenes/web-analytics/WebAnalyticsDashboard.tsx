@@ -1,5 +1,5 @@
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -10,7 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
@@ -388,10 +388,43 @@ const MainContent = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    return productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS] ? (
-        <PageReports />
-    ) : (
-        <Tiles />
+    if (productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+        return <PageReports />
+    }
+
+    if (productTab === ProductTab.MARKETING) {
+        return <MarketingDashboard />
+    }
+
+    return <Tiles />
+}
+
+const MarketingDashboard = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+        // fallback in case the user is able to access the page but the feature flag is not enabled
+        return (
+            <LemonBanner type="info">
+                You can enable marketing analytics in the feature preview settings{' '}
+                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <>
+            <LemonBanner
+                type="info"
+                dismissKey="marketing-analytics-beta-banner"
+                className="mb-2 mt-4"
+                action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            >
+                Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
+                directly to us!
+            </LemonBanner>
+            <Tiles />
+        </>
     )
 }
 

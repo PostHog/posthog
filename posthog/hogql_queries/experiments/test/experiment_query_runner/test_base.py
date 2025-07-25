@@ -25,7 +25,6 @@ from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
     EventsNode,
-    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -385,108 +384,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.count, 60)
         self.assertEqual(test_variant.count, 120)
 
-    @snapshot_clickhouse_queries
-    def test_query_runner_group_aggregation_data_warehouse_mean_metric(self):
-        feature_flag = self.create_feature_flag()
-        feature_flag.filters["aggregation_group_type_index"] = 0
-        feature_flag.save()
-
-        experiment = self.create_experiment(
-            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
-        )
-        experiment.save()
-
-        table_name = self.create_data_warehouse_table_with_usage()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.TOTAL,
-                math_property=None,
-            ),
-        )
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        GroupTypeMapping.objects.create(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:1",
-            properties={"name": "org 1"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:2",
-            properties={"name": "org 2"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:3",
-            properties={"name": "org 3"},
-        )
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                if variant == "test":
-                    group_key = "org:2" if i > 5 else "org:3"
-                else:
-                    group_key = "org:1"
-
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
-                        "$group_0": group_key,
-                        "$groups": {
-                            "organization": group_key,
-                        },
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-        self.assertEqual(control_result.absolute_exposure, 1)
-        self.assertEqual(test_result.absolute_exposure, 2)
-        self.assertEqual(control_result.count, 1)
-        self.assertEqual(test_result.count, 3)
-
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_standard_flow_v2_stats(self):
@@ -599,142 +496,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.count, 5.0)
         # In the new query runner, the exposure value is the same as the absolute exposure value
         self.assertEqual(test_variant.exposure, 2.0)
-
-    @snapshot_clickhouse_queries
-    def test_query_runner_data_warehouse_count_metric(self):
-        table_name = self.create_data_warehouse_table_with_usage()
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
-        )
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.TOTAL,
-                math_property=None,
-            ),
-        )
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-        experiment.exposure_criteria = {"filterTestAccounts": False}
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
-                        "$group_0": "my_awesome_group",
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_result.count, 1)
-        self.assertEqual(test_result.count, 3)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
-
-    @snapshot_clickhouse_queries
-    def test_query_runner_data_warehouse_continuous_metric(self):
-        table_name = self.create_data_warehouse_table_with_usage()
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
-        )
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.SUM,
-                math_property="usage",
-            ),
-        )
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-        experiment.exposure_criteria = {"filterTestAccounts": False}
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
-                        "$group_0": "my_awesome_group",
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_result.count, 1000)
-        self.assertEqual(test_result.count, 2050)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure(self):
@@ -1556,388 +1317,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.count, expected_results["control_count"])
         self.assertEqual(test_variant.count, expected_results["test_count"])
 
-    @parameterized.expand(
-        [
-            [
-                "person_properties",
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_absolute_exposure": 7,
-                    "test_absolute_exposure": 9,
-                },
-            ],
-            [
-                "event_properties",
-                {
-                    "key": "$host",
-                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                    "operator": "not_regex",
-                    "type": "event",
-                },
-                {
-                    "control_absolute_exposure": 7,
-                    "test_absolute_exposure": 9,
-                },
-            ],
-            [
-                "feature_flags",
-                {
-                    "key": "$feature/flag_doesnt_exist",
-                    "type": "event",
-                    "value": ["test", "control"],
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 0,
-                    "test_absolute_exposure": 0,
-                },
-            ],
-            [
-                "cohort_static",
-                {
-                    "key": "id",
-                    "type": "cohort",
-                    # value is generated in the test
-                    "value": None,
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 1,
-                    "test_absolute_exposure": 1,
-                },
-            ],
-            [
-                "cohort_dynamic",
-                {
-                    "key": "id",
-                    "type": "cohort",
-                    # value is generated in the test
-                    "value": None,
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 1,
-                    "test_absolute_exposure": 1,
-                },
-            ],
-            [
-                "group",
-                {
-                    "key": "name",
-                    "type": "group",
-                    # Value is generated in the test
-                    "value": None,
-                    "operator": "exact",
-                    "group_type_index": 0,
-                },
-                {
-                    "control_absolute_exposure": 7,
-                    "test_absolute_exposure": 9,
-                },
-            ],
-            [
-                "element",
-                {
-                    "key": "tag_name",
-                    "type": "element",
-                    "value": ["button"],
-                    "operator": "exact",
-                },
-                {
-                    "control_absolute_exposure": 0,
-                    "test_absolute_exposure": 0,
-                },
-            ],
-        ]
-    )
-    @snapshot_clickhouse_queries
-    def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: dict, filter_expected: dict):
-        table_name = self.create_data_warehouse_table_with_usage()
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2023, 1, 1),
-            end_date=datetime(2023, 1, 31),
-        )
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        cohort = None
-        if name == "cohort_static":
-            cohort = Cohort.objects.create(
-                team=self.team,
-                name="cohort_static",
-                is_static=True,
-            )
-            filter["value"] = cohort.pk
-        elif name == "cohort_dynamic":
-            cohort = Cohort.objects.create(
-                team=self.team,
-                name="cohort_dynamic",
-                groups=[
-                    {
-                        "properties": [
-                            {"key": "email", "operator": "not_icontains", "value": "@posthog.com", "type": "person"}
-                        ]
-                    }
-                ],
-            )
-            filter["value"] = cohort.pk
-        elif name == "group":
-            GroupTypeMapping.objects.create(
-                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-            )
-            create_group(
-                team_id=self.team.pk,
-                group_type_index=0,
-                group_key="my_awesome_group",
-                properties={"name": "Test Group"},
-            )
-            filter["value"] = ["Test Group"]
-
-        self.team.test_account_filters = [filter]
-        self.team.save()
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.SUM,
-                math_property="usage",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-        experiment.exposure_criteria = {"filterTestAccounts": True}
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
-                        "$group_0": "my_awesome_group",
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["distinct_control_0"],
-        )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["distinct_test_3"],
-        )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["internal_test_1"],
-            properties={"email": "internal_test_1@posthog.com"},
-        )
-        # 10th exposure for 'test'
-        # filtered out by "event_properties" , "person_properties", and "group"
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="internal_test_1",
-            properties={
-                feature_flag_property: "test",
-                "$feature_flag_response": "test",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "internal_test_1",
-                "$host": "127.0.0.1",
-            },
-            timestamp=datetime(2023, 1, 3),
-        )
-
-        flush_persons_and_events()
-
-        if name == "cohort_static" and cohort:
-            cohort.insert_users_by_list(["distinct_control_0", "internal_test_1"])
-            self.assertEqual(cohort.people.count(), 2)
-        elif name == "cohort_dynamic" and cohort:
-            cohort.calculate_people_ch(pending_version=0)
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        # "feature_flags" and "element" filter out all events
-        if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValidationError) as context:
-                query_runner.calculate()
-
-            expected_errors = json.dumps(
-                {
-                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                }
-            )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-        else:
-            with freeze_time("2023-01-07"):
-                result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-            self.assertEqual(len(result.variants), 2)
-
-            control_result = cast(
-                ExperimentVariantTrendsBaseStats,
-                next(variant for variant in result.variants if variant.key == "control"),
-            )
-            test_result = cast(
-                ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-            )
-
-            self.assertEqual(control_result.absolute_exposure, filter_expected["control_absolute_exposure"])
-            self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
-
-        # Run the query again without filtering
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=table_name,
-                events_join_key="properties.$user_id",
-                data_warehouse_join_key="userid",
-                timestamp_field="ds",
-                math=ExperimentMetricMathType.SUM,
-                math_property="usage",
-            ),
-        )
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-        experiment.exposure_criteria = {"filterTestAccounts": False}
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 10)
-
-    @snapshot_clickhouse_queries
-    def test_query_runner_with_data_warehouse_subscriptions_table(self):
-        subscriptions_table_name = self.create_data_warehouse_table_with_subscriptions()
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2023, 1, 1),
-            end_date=datetime(2023, 1, 10),
-        )
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMeanMetric(
-            source=ExperimentDataWarehouseNode(
-                table_name=subscriptions_table_name,
-                events_join_key="person.properties.email",
-                data_warehouse_join_key="subscription_customer.customer_email",
-                timestamp_field="subscription_created_at",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        # Populate exposure events
-        for variant, count in [("control", 7), ("test", 9)]:
-            for i in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=f"user_{variant}_{i}",
-                    properties={
-                        "$feature_flag_response": variant,
-                        feature_flag_property: variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                    timestamp=datetime(2023, 1, i + 1),
-                )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_0"],
-            properties={"email": "john.doe@example.com"},
-        )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_1"],
-            properties={"email": "jane.doe@example.com"},
-        )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_2"],
-            properties={"email": "john.smith@example.com"},
-        )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_3"],
-            properties={"email": "jane.smith@example.com"},
-        )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-
-        with freeze_time("2023-01-10"):
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_result.count, 1)
-        self.assertEqual(test_result.count, 3)
-        self.assertEqual(control_result.absolute_exposure, 7)
-        self.assertEqual(test_result.absolute_exposure, 9)
-
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_excludes_multiple_variants(self):
@@ -2370,3 +1749,247 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both should have 5 exposures each
         self.assertEqual(control_variant.absolute_exposure, 5)
         self.assertEqual(test_variant.absolute_exposure, 5)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_aggregation_expressions(self):
+        """Test that HogQL aggregation expressions work end-to-end."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with sum aggregation expression
+        metric_sum = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="sum(toFloat(properties.revenue) - toFloat(properties.cost))",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_sum,
+        )
+
+        experiment.metrics = [metric_sum.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data with revenue and cost properties
+        for variant, user_count in [("control", 10), ("test", 10)]:
+            for i in range(user_count):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase events with different revenue/cost values
+                purchase_count = 6 if variant == "control" else 8
+                if i < purchase_count:
+                    if variant == "control":
+                        revenue = 100 + (i * 10)  # revenue: 100, 110, 120, 130, 140, 150
+                        cost = 20 + (i * 5)  # cost: 20, 25, 30, 35, 40, 45
+                    else:  # test variant
+                        revenue = 120 + (i * 15)  # revenue: 120, 135, 150, 165, 180, 195, 210, 225
+                        cost = 30 + (i * 3)  # cost: 30, 33, 36, 39, 42, 45, 48, 51
+
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: variant,
+                            "revenue": revenue,
+                            "cost": cost,
+                        },
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Control: 6 purchases with (revenue - cost) = (80, 85, 90, 95, 100, 105) = sum = 555
+        expected_control_sum = sum([80, 85, 90, 95, 100, 105])
+        self.assertEqual(control_variant.count, expected_control_sum)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+
+        # Test: 8 purchases with (revenue - cost) = (90, 102, 114, 126, 138, 150, 162, 174) = sum = 1056
+        expected_test_sum = sum([90, 102, 114, 126, 138, 150, 162, 174])
+        self.assertEqual(test_variant.count, expected_test_sum)
+        self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_aggregation_end_to_end(self):
+        """Test that HogQL aggregation expressions work end-to-end with the experiment query runner."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with avg aggregation expression - this should use avg() not sum()
+        metric_avg = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql="avg(properties.amount)"
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_avg,
+        )
+
+        experiment.metrics = [metric_avg.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data - simple case with one event per user
+        for variant, amounts in [("control", [10, 20, 30]), ("test", [15, 25, 35, 45])]:
+            for i, amount in enumerate(amounts):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase event
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "amount": amount,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # With one event per user, avg(amount) per user = amount, so we get:
+        # Control: 10 + 20 + 30 = 60
+        # Test: 15 + 25 + 35 + 45 = 120
+        self.assertEqual(control_variant.count, 60)
+        self.assertEqual(test_variant.count, 120)
+        self.assertEqual(control_variant.absolute_exposure, 3)
+        self.assertEqual(test_variant.absolute_exposure, 4)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_fallback_to_sum(self):
+        """Test that HogQL expressions without aggregation functions default to sum."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with simple property expression (no aggregation function)
+        metric_simple = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="properties.price",  # No aggregation function, should default to sum
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_simple,
+        )
+
+        experiment.metrics = [metric_simple.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data
+        for variant, prices in [("control", [50, 75]), ("test", [60, 80, 100])]:
+            for i, price in enumerate(prices):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase event
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "price": price,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Control: sum(50, 75) = 125
+        self.assertEqual(control_variant.count, 125)
+        self.assertEqual(control_variant.absolute_exposure, 2)
+
+        # Test: sum(60, 80, 100) = 240
+        self.assertEqual(test_variant.count, 240)
+        self.assertEqual(test_variant.absolute_exposure, 3)

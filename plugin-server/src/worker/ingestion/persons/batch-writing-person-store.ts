@@ -12,7 +12,7 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
@@ -35,7 +35,7 @@ import {
 } from './metrics'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 
 type MethodName =
     | 'fetchForChecking'
@@ -140,7 +140,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    async flush(): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
@@ -163,7 +163,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         try {
             const results = await Promise.all(
                 updateEntries.map(([cacheKey, update]) =>
-                    limit(async (): Promise<TopicMessage[]> => {
+                    limit(async (): Promise<FlushResult[]> => {
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
@@ -171,7 +171,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 outcome: 'attempt',
                             })
 
-                            let kafkaMessages: TopicMessage[] = []
+                            let kafkaMessages: FlushResult[] = []
                             switch (this.options.dbWriteMode) {
                                 case 'NO_ASSERT': {
                                     const result = await this.withMergeRetry(
@@ -181,7 +181,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = result.messages
+                                    kafkaMessages = result.messages.map((message) => ({
+                                        topicMessage: message,
+                                        teamId: update.team_id,
+                                        uuid: update.uuid,
+                                        distinctId: update.distinct_id,
+                                    }))
                                     break
                                 }
                                 case 'ASSERT_VERSION': {
@@ -192,7 +197,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = result.messages
+                                    kafkaMessages = result.messages.map((message) => ({
+                                        topicMessage: message,
+                                        teamId: update.team_id,
+                                        uuid: update.uuid,
+                                        distinctId: update.distinct_id,
+                                    }))
                                     break
                                 }
                             }
@@ -246,7 +256,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     outcome: 'success',
                                 })
 
-                                return fallbackMessages
+                                return fallbackMessages.map((message) => ({
+                                    topicMessage: message,
+                                    teamId: error.latestPersonUpdate.team_id,
+                                    uuid: error.latestPersonUpdate.uuid,
+                                    distinctId: error.latestPersonUpdate.distinct_id,
+                                }))
                             }
 
                             // Re-throw any other errors
@@ -439,7 +454,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
@@ -558,6 +573,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             this.distinctIdToPersonId.delete(distinctCacheKey)
             this.personCheckCache.delete(distinctCacheKey)
         }
+    }
+
+    removeDistinctIdFromCache(teamId: number, distinctId: string): void {
+        this.distinctIdToPersonId.delete(this.getDistinctCacheKey(teamId, distinctId))
     }
 
     clearAllCachesForDistinctId(teamId: number, distinctId: string): void {

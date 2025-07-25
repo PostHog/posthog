@@ -9,6 +9,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Enable extra debugging tools on your posthog-js",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom"],
+    code_language="javascript",
     hog="""
 export function onLoad({ inputs, posthog }) {
     console.log("Enabling PostHog.js debugging", posthog)

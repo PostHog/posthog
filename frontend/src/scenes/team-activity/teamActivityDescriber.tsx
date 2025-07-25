@@ -30,6 +30,15 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 
+const isNumberOrNull = (x: unknown): x is number | null => {
+    if (typeof x === 'number') {
+        return !isNaN(x)
+    } else if (typeof x === 'string') {
+        return !isNaN(parseFloat(x))
+    }
+    return false
+}
+
 // Helper functions for common change description patterns
 function createBooleanToggleHandler(featureName: string, options: { verb?: [string, string] } = {}) {
     return (change: ActivityChange): ChangeMapping | null => {
@@ -310,11 +319,27 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             : null
     },
     session_recording_sample_rate: (change) => {
+        // purposefully not double equal
+        const hasBefore = change.before != undefined
+        const hasAfter = change.after != undefined
+        if (!hasAfter && !hasBefore) {
+            return null
+        }
+        if (change.before === change.after) {
+            return null
+        }
+        if (!isNumberOrNull(change.after)) {
+            return null
+        }
+
+        // removing the sample rate is equivalent to 100%
+        const chosenSampleRate = change.after ?? 1
+
         return {
             description: [
                 <>
                     {change.action === 'created' ? 'set' : 'changed'} the session recording sample rate to{' '}
-                    {change.after}%
+                    {(chosenSampleRate * 100).toFixed(0)}%
                 </>,
             ],
         }

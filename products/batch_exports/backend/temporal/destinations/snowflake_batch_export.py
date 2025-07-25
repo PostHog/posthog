@@ -36,7 +36,6 @@ from posthog.temporal.common.logger import (
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -48,11 +47,12 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -62,6 +62,7 @@ from products.batch_exports.backend.temporal.temporary_file import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_non_retryable_errors,
     set_status_to_running_task,
 )
 
@@ -71,7 +72,7 @@ EXTERNAL_LOGGER = get_external_logger()
 # One batch export allowed to connect at a time (in theory) per worker.
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
-NON_RETRYABLE_ERROR_TYPES = [
+NON_RETRYABLE_ERROR_TYPES = (
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
@@ -87,7 +88,7 @@ NON_RETRYABLE_ERROR_TYPES = [
     "InvalidPrivateKeyError",
     # Raised when a valid authentication method is not provided.
     "SnowflakeAuthenticationError",
-]
+)
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -317,7 +318,7 @@ class SnowflakeClient:
         self._connection = connection
 
         # Call this again in case level was reset.
-        self.ensure_snowflake_logger_level("DEBUG")
+        self.ensure_snowflake_logger_level("INFO")
 
         await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE", fetch_results=False)
@@ -785,7 +786,8 @@ def get_snowflake_fields_from_record_schema(
 
 
 @activity.defn
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> RecordsCompleted:
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
@@ -853,7 +855,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 inputs.data_interval_end or "END",
             )
 
-            return details.records_completed
+            return BatchExportResult(records_completed=details.records_completed)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -919,7 +921,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     inputs.table_name, data_interval_end_str, table_fields, delete=False
                 ) as snow_table,
                 snow_client.managed_table(
-                    stagle_table_name, data_interval_end_str, table_fields, create=requires_merge, delete=requires_merge
+                    stagle_table_name,
+                    data_interval_end_str,
+                    table_fields,
+                    create=requires_merge,
+                    delete=requires_merge,
                 ) as snow_stage_table,
             ):
                 consumer = SnowflakeConsumer(
@@ -959,7 +965,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                             update_key=update_key,
                         )
 
-        return details.records_completed
+        return BatchExportResult(records_completed=details.records_completed)
 
 
 @workflow.defn(name="snowflake-export", failure_exception_types=[workflow.NondeterminismError])
@@ -1042,6 +1048,5 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             insert_into_snowflake_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
         )

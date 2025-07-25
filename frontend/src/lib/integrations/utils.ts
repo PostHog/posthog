@@ -11,6 +11,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconTwilio from 'public/services/twilio.png'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
@@ -29,6 +30,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     linear: IconLinear,
     github: IconGitHub,
     'meta-ads': IconMetaAds,
+    twilio: IconTwilio,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

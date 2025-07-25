@@ -6,6 +6,7 @@ import contextlib
 import gzip
 import io
 import json
+import multiprocessing as mp
 import typing
 
 import brotli
@@ -95,7 +96,9 @@ class JSONLStreamTransformer:
         """
         current_file_size = 0
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+        ) as executor:
             async with _record_batches_producer(
                 record_batches,
                 executor=executor,
@@ -154,9 +157,13 @@ class JSONLBrotliStreamTransformer:
 
         See `JSONLStreamTransformer` for an outline of the pipeline.
         """
+        loop = asyncio.get_running_loop()
+
         current_file_size = 0
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+        ) as executor:
             async with _record_batches_producer(
                 record_batches,
                 executor=executor,
@@ -181,13 +188,12 @@ class JSONLBrotliStreamTransformer:
                         self._futures_pending.remove(future)
 
                         for chunk in chunks:
-                            chunk = self._compress(chunk)
-                            await asyncio.sleep(0)  # In case compressing took too long.
+                            chunk = await loop.run_in_executor(None, self._compress, chunk)
 
                             yield Chunk(chunk, False)
 
                             if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                                data = await asyncio.to_thread(self._finish_brotli_compressor)
+                                data = await loop.run_in_executor(None, self._finish_brotli_compressor)
 
                                 yield Chunk(data, True)
                                 current_file_size = 0
@@ -218,7 +224,9 @@ class JSONLBrotliStreamTransformer:
     @property
     def brotli_compressor(self) -> brotli._brotli.Compressor:
         if self._brotli_compressor is None:
-            self._brotli_compressor = brotli.Compressor()
+            # Quality goes from 0 to 11.
+            # Default is 11, aka maximum compression and worst performance.
+            self._brotli_compressor = brotli.Compressor(quality=5)
         return self._brotli_compressor
 
 

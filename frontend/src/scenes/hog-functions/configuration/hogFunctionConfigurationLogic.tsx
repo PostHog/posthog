@@ -84,6 +84,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     name: '',
     description: '',
     inputs_schema: [],
+    code_language: 'hog',
     hog: "print('Hello, world!');",
     status: 'stable',
 }
@@ -142,7 +143,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
-const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
+export const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
     function getInputs(inputs_schema?: CyclotronJobInputSchemaType[] | null): Record<string, CyclotronJobInputType> {
         const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
