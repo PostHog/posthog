@@ -1,4 +1,4 @@
-import { LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSkeleton, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -10,20 +10,31 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { ICONS } from 'lib/integrations/utils'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { IconPlus } from '@posthog/icons'
+
+const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
-export const ConnectIssueButton = (): JSX.Element | null => {
+export const ExternalReferences = (): JSX.Element | null => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
     const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
     if (!issue || integrationsLoading) {
-        return null
+        return <LemonSkeleton />
     }
 
-    const errorTrackingIntegrations = getIntegrationsByKind(['linear', 'github'])
+    const errorTrackingIntegrations = getIntegrationsByKind(ERROR_TRACKING_INTEGRATIONS)
     const externalReferences = issue.external_issues ?? []
+    const creatingIssue = issue && issueLoading
 
     const onClickCreateIssue = (integration: IntegrationType): void => {
         if (integration.kind === 'github') {
@@ -33,55 +44,57 @@ export const ConnectIssueButton = (): JSX.Element | null => {
         }
     }
 
-    if (externalReferences.length > 0) {
-        const reference = externalReferences[0]
-        return (
-            <LemonButton
-                type="secondary"
-                to={reference.external_url}
-                targetBlank
-                loading={issueLoading}
-                icon={<IntegrationIcon kind={reference.integration.kind} />}
-            >
-                {reference.integration.display_name}
-            </LemonButton>
-        )
-    } else if (errorTrackingIntegrations.length == 1) {
-        const integration = errorTrackingIntegrations[0]
-        return (
-            <LemonButton
-                type="secondary"
-                onClick={() => onClickCreateIssue(integration)}
-                loading={issueLoading}
-                icon={<IntegrationIcon kind={integration.kind} />}
-            >
-                {issue && issueLoading ? 'Creating issue...' : 'Create issue'}
-            </LemonButton>
-        )
-    } else if (errorTrackingIntegrations.length >= 1) {
-        const items = errorTrackingIntegrations.map((integration) => ({
-            label: (
-                <div className="flex items-center gap-2">
-                    <IntegrationIcon kind={integration.kind} />
-                    <span>{integration.display_name}</span>
-                </div>
-            ),
-            onClick: () => onClickCreateIssue(integration),
-        }))
-
-        return (
-            <LemonMenu items={items} matchWidth>
-                <LemonButton type="secondary" loading={issueLoading}>
-                    Create external issue
-                </LemonButton>
-            </LemonMenu>
-        )
-    }
-
     return (
-        <LemonButton type="secondary" to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}>
-            Setup integrations
-        </LemonButton>
+        <div>
+            {externalReferences.map((reference) => (
+                <Link key={reference.id} to={reference.external_url} target="_blank">
+                    <ButtonPrimitive fullWidth disabled={issueLoading}>
+                        <IntegrationIcon kind={reference.integration.kind} />
+                        {reference.integration.display_name}
+                    </ButtonPrimitive>
+                </Link>
+            ))}
+            {errorTrackingIntegrations.length === 0 ? (
+                <SetupIntegrationsButton />
+            ) : errorTrackingIntegrations.length > 1 ? (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive fullWidth disabled={creatingIssue}>
+                            <IconPlus />
+                            {creatingIssue ? 'Creating issue...' : 'Create issue'}
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+
+                    <DropdownMenuContent loop matchTriggerWidth>
+                        {errorTrackingIntegrations.map((integration) => (
+                            <DropdownMenuItem key={integration.id} asChild>
+                                <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
+                                    <IntegrationIcon kind={integration.kind} />
+                                    {integration.display_name}
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            ) : (
+                <ButtonPrimitive
+                    fullWidth
+                    onClick={() => onClickCreateIssue(errorTrackingIntegrations[0])}
+                    disabled={issueLoading}
+                >
+                    <IntegrationIcon kind={errorTrackingIntegrations[0].kind} />
+                    {creatingIssue ? 'Creating issue...' : 'Create issue'}
+                </ButtonPrimitive>
+            )}
+        </div>
+    )
+}
+
+function SetupIntegrationsButton(): JSX.Element {
+    return (
+        <Link to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}>
+            <ButtonPrimitive fullWidth>Setup integrations</ButtonPrimitive>
+        </Link>
     )
 }
 
