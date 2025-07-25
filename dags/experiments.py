@@ -12,16 +12,17 @@ Files:
 """
 
 import dagster
-from typing import Dict, Any, List
-
-from posthog.models import Experiment
+from typing import Any
+from posthog.models.experiment import Experiment
 from dags.common import JobOwners
+from datetime import datetime, UTC
 
 # =============================================================================
 # Assets
 # =============================================================================
 
-def _get_experiment_metrics() -> List[tuple[int, int, Dict[str, Any]]]:
+
+def _get_experiment_metrics() -> list[tuple[int, int, dict[str, Any]]]:
     """
     Discover all experiment-metric combinations that need Dagster assets
 
@@ -33,28 +34,29 @@ def _get_experiment_metrics() -> List[tuple[int, int, Dict[str, Any]]]:
         Example: [(123, 0, {...}), (123, 1, {...}), (456, 0, {...})]
     """
     experiment_metrics = []
-    
+
     # Query experiments that are eligible
     experiments = Experiment.objects.filter(
-        deleted=False,                      # Exclude soft-deleted experiments
-        metrics__isnull=False,              # Must have metrics defined
-        stats_config__timeseries="true"     # Must be configured for timeseries analysis
-    ).exclude(metrics=[])                   # Exclude experiments with empty metrics list
+        deleted=False,  # Exclude soft-deleted experiments
+        metrics__isnull=False,  # Must have metrics defined
+        stats_config__timeseries="true",  # Must be configured for timeseries analysis
+    ).exclude(metrics=[])  # Exclude experiments with empty metrics list
 
     for experiment in experiments:
         metrics = experiment.metrics or []
 
         for metric_index, metric in enumerate(metrics):
             experiment_metrics.append((experiment.id, metric_index, metric))
-    
+
     return experiment_metrics
 
-def _create_experiment_asset(experiment_id: int, metric_index: int, metric: Dict[str, Any]) -> dagster.AssetsDefinition:
+
+def _create_experiment_asset(experiment_id: int, metric_index: int, metric: dict[str, Any]) -> dagster.AssetsDefinition:
     """
     Create a single Dagster asset for an experiment-metric combination.
     """
     asset_name = f"experiment_{experiment_id}_{metric_index}"
-    
+
     @dagster.asset(
         name=asset_name,
         group_name="experiments",
@@ -66,33 +68,32 @@ def _create_experiment_asset(experiment_id: int, metric_index: int, metric: Dict
         },
         tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
     )
-    def experiment_metric_asset(context: dagster.AssetExecutionContext) -> Dict[str, Any]:
+    def experiment_metric_asset(context: dagster.AssetExecutionContext) -> dict[str, Any]:
         """
         Compute timeseries results for this experiment-metric combination.
         """
         context.log.info(f"Computing results for experiment {experiment_id}, metric {metric_index}")
-        
-        # TODO: Implement calculation logic
 
+        # TODO: Replace this placeholder with actual experiment analysis logic
         return {
             "experiment_id": experiment_id,
             "metric_index": metric_index,
             "metric_definition": metric,
             "results": {
-                "metric_name": metric.get("name", f"Metric {metric_index}"),
                 "placeholder": True,
                 "message": "Calculation logic to be implemented",
+                "metric_name": metric.get("name", f"Metric {metric_index}"),
             },
-            "computed_at": context.instance.get_current_timestamp()
+            "computed_at": datetime.now(UTC).isoformat(),
         }
-    
+
     return experiment_metric_asset
+
 
 _experiment_metrics = _get_experiment_metrics()
 
 experiment_assets = [
-    _create_experiment_asset(exp_id, metric_idx, metric)
-    for exp_id, metric_idx, metric in _experiment_metrics
+    _create_experiment_asset(exp_id, metric_idx, metric) for exp_id, metric_idx, metric in _experiment_metrics
 ]
 
 # =============================================================================
@@ -108,13 +109,13 @@ if experiment_assets:
 
     @dagster.schedule(
         job=experiment_computation_job,
-        cron_schedule="0 2 * * *",        # Daily at 2 AM UTC
+        cron_schedule="0 2 * * *",  # Daily at 2 AM UTC
         execution_timezone="UTC",
         tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
     )
     def daily_experiment_computation_schedule():
         """
-            Trigger scheduled computation of experiment assets.
+        Trigger scheduled computation of experiment assets.
         """
         return dagster.RunRequest()
 
@@ -124,5 +125,5 @@ else:
     def experiment_computation_job():
         """Placeholder job when no experiments are available for asset generation."""
         pass
-    
+
     daily_experiment_computation_schedule = None
