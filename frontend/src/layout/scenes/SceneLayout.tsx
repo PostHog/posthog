@@ -5,7 +5,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
@@ -70,6 +70,23 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
     const { registerScenePanelElement, setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
+    const [outerRight, setOuterRight] = useState<number>(0)
+
+    useEffect(() => {
+        const updateOuterRight = (): void => {
+            if (sceneLayoutContainer.current) {
+                setOuterRight(sceneLayoutContainer.current.getBoundingClientRect().right)
+            }
+        }
+
+        // Update on mount and when window resizes
+        updateOuterRight()
+        window.addEventListener('resize', updateOuterRight)
+
+        return () => {
+            window.removeEventListener('resize', updateOuterRight)
+        }
+    }, [])
 
     return (
         <div
@@ -77,7 +94,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             ref={sceneLayoutContainer}
             style={
                 {
-                    '--scene-layout-outer-right': sceneLayoutContainer.current?.getBoundingClientRect().right + 'px',
+                    '--scene-layout-outer-right': outerRight + 'px',
                 } as React.CSSProperties
             }
         >
@@ -94,7 +111,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
+                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
                                 {
                                     hidden: !scenePanelOpen,
                                 }
