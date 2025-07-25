@@ -583,10 +583,10 @@
     <!-- PostHog JavaScript -->
     <script>
         // Project config from Django and helper functions
-        window.projectConfig = {{ project_config_json | safe }};
-        window.surveyName = "{{ name }}";
-        window.surveyId = "{{ id }}";
-        window.surveyAppearance = {{ appearance | safe }};
+        const projectConfig = {{ project_config_json | safe }};
+        const surveyName = "{{ name }}";
+        const surveyId = "{{ id }}";
+        const surveyAppearance = {{ appearance | safe }};
 
         const BLACK_TEXT_COLOR = '#020617'
 
@@ -876,8 +876,8 @@
         }
 
         // Apply survey appearance if available
-        if (window.surveyAppearance) {
-            applySurveyAppearance(window.surveyAppearance);
+        if (surveyAppearance) {
+            applySurveyAppearance(surveyAppearance);
         }
     </script>
     <script>
@@ -888,7 +888,7 @@
 
         // Initialize PostHog with project configuration
         const config = {
-            api_host: window.projectConfig.api_host,
+            api_host: projectConfig.api_host,
             disable_surveys_automatic_display: true,
             debug: searchParams.get('__posthog_debug__') === 'true',
             advanced_disable_toolbar_metrics: true,
@@ -905,14 +905,14 @@
         }
 
         // Add ui_host if available (for reverse proxy setups)
-        if (window.projectConfig.ui_host) {
-            config.ui_host = window.projectConfig.ui_host;
+        if (projectConfig.ui_host) {
+            config.ui_host = projectConfig.ui_host;
         }
 
-        posthog.init(window.projectConfig.token, config);
+        posthog.init(projectConfig.token, config);
 
         posthog.onSurveysLoaded(() => {
-            posthog.surveys["_renderExternalSurvey"](window.surveyId, '#posthog-survey-container');
+            posthog.surveys["_renderExternalSurvey"](surveyId, '#posthog-survey-container');
         });
     </script>
 </body>
