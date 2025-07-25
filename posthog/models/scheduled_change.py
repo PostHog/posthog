@@ -58,7 +58,12 @@ class ScheduledChange(RootTeamMixin, models.Model):
                 elif will_retry is False and error_classification == "unrecoverable":
                     message += " (permanent error)"
                 elif will_retry:
-                    message += " (will retry automatically)"
+                    if max_retries is not None:
+                        remaining_retries = max_retries - retry_count
+                        attempt_word = "attempt" if remaining_retries == 1 else "attempts"
+                        message += f" (will retry automatically, {remaining_retries} {attempt_word} remaining)"
+                    else:
+                        message += " (will retry automatically)"
 
                 return message
         except (json.JSONDecodeError, TypeError):

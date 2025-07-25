@@ -79,7 +79,23 @@ class TestScheduledChange(BaseTest):
         }
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
-        expected = "Temporary service unavailable (will retry automatically)"
+        expected = "Temporary service unavailable (will retry automatically, 3 attempts remaining)"
+        self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
+
+    def test_formatted_failure_reason_json_will_retry_one_attempt(self):
+        """Test JSON format for retryable errors with only one attempt remaining"""
+        failure_context = {
+            "error": "API rate limit exceeded",
+            "error_type": "RateLimitError",
+            "error_classification": "recoverable",
+            "will_retry": True,
+            "retry_count": 4,
+            "max_retries": 5,
+            "timestamp": "2025-07-22T22:47:00Z",
+        }
+        self.scheduled_change.failure_reason = json.dumps(failure_context)
+
+        expected = "API rate limit exceeded (will retry automatically, 1 attempt remaining)"
         self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
 
     def test_formatted_failure_reason_json_no_error_field(self):
