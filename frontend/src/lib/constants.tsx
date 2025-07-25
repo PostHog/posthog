@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
+    EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
@@ -285,6 +286,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_NEW_METRICS_TABLE: 'experiments-new-metrics-table', // owner: @andehen #team-experiments
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     FLAG_EVALUATION_ENVIRONMENTS: 'flag-evaluation-environments', // owner: @dylan #team-feature-flags
+    PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

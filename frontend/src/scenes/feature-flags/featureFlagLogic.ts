@@ -851,7 +851,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                    return await api.surveys.create(newSurvey as NewSurvey)
+                    const response = await api.surveys.create(newSurvey as NewSurvey)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_CREATED,
+                        metadata: {
+                            survey_id: response.id,
+                        },
+                    })
+                    return response
                 },
             },
         ],

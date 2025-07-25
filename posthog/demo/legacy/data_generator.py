@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import produce_replay_summary
 
 
 class DataGenerator:

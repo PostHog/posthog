@@ -399,7 +399,7 @@ export function SlowQuerySuggestions({
         ) : null,
         slowQueryPossibilities.includes('first_time_for_user') ? (
             <li key="first_time_for_user">
-                When possible, avoid <CodeWrapper>First time for user</CodeWrapper> metric types.
+                When possible, avoid <CodeWrapper>First-ever occurrence</CodeWrapper> metric types.
             </li>
         ) : null,
         slowQueryPossibilities.includes('strict_funnel') ? (

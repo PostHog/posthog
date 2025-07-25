@@ -1,4 +1,9 @@
 :root {
+    --button-icon-size-xxs: 12px;
+    --button-icon-size-xs: 12px;
+    --button-icon-size-sm: 12px;
+    --button-icon-size-base: 16px;
+    --button-icon-size-lg: 20px;
     --button-padding-x-xxs: 4px;
     --button-padding-x-xs: 4px;
     --button-padding-x-sm: 4px;
@@ -193,8 +198,8 @@
     padding-left: var(--button-padding-x-xxs);
 
     svg {
-        width: 12px;
-        height: 12px;
+        width: var(--button-icon-size-xxs);
+        height: var(--button-icon-size-xxs);
     }
 }
 
@@ -203,8 +208,8 @@
     padding-left: var(--button-padding-x-xs);
 
     svg {
-        width: 12px;
-        height: 12px;
+        width: var(--button-icon-size-xs);
+        height: var(--button-icon-size-xs);
     }
 }
 
@@ -212,8 +217,8 @@
     padding: var(--button-padding-y-sm) var(--button-padding-x-sm);
 
     svg {
-        width: 12px;
-        height: 12px;
+        width: var(--button-icon-size-sm);
+        height: var(--button-icon-size-sm);
     }
 }
 
@@ -221,8 +226,8 @@
     padding: var(--button-padding-y-base) var(--button-padding-x-base);
 
     svg {
-        width: 16px;
-        height: 16px;
+        width: var(--button-icon-size-base);
+        height: var(--button-icon-size-base);
     }
 }
 
@@ -230,8 +235,8 @@
     padding: var(--button-padding-y-lg) var(--button-padding-x-lg);
 
     svg {
-        width: 20px;
-        height: 20px;
+        width: var(--button-icon-size-lg);
+        height: var(--button-icon-size-lg);
     }
 }
 
