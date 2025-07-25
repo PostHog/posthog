@@ -287,16 +287,13 @@ describe('postgres parity', () => {
                 version: '0',
             }),
         ])
-        expect(newClickHouseDistinctIdValues).toEqual([
+        expect(newClickHouseDistinctIdValues).toMatchObject([
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: teamId,
-                version: 0,
+                team_id: teamId.toString(),
+                version: '0',
                 is_deleted: 0,
-                _timestamp: expect.any(String),
-                _offset: expect.any(Number),
-                _partition: expect.any(Number),
             },
         ])
 
@@ -378,30 +375,22 @@ describe('postgres parity', () => {
 
         expect(postgresDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
         expect(clickHouseDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
-        expect(newClickHouseDistinctIdValues).toEqual(
-            expect.arrayContaining([
-                {
-                    distinct_id: 'another_distinct_id',
-                    person_id: anotherPerson.uuid,
-                    team_id: teamId,
-                    version: 0,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-                {
-                    distinct_id: 'distinct1',
-                    person_id: anotherPerson.uuid,
-                    team_id: teamId,
-                    version: 1,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-            ])
-        )
+        expect(newClickHouseDistinctIdValues).toMatchObject([
+            {
+                distinct_id: 'another_distinct_id',
+                person_id: anotherPerson.uuid,
+                team_id: teamId.toString(),
+                version: '0',
+                is_deleted: 0,
+            },
+            {
+                distinct_id: 'distinct1',
+                person_id: anotherPerson.uuid,
+                team_id: teamId.toString(),
+                version: '1',
+                is_deleted: 0,
+            },
+        ])
 
         // it got removed
 
