@@ -154,7 +154,7 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         return inputs
     }
 
-    let mappings: HogFunctionMappingType[] = []
+    let mappings: HogFunctionMappingType[] | undefined
 
     if (template?.mapping_templates) {
         mappings = template.mapping_templates
