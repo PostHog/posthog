@@ -44,7 +44,7 @@ export CASSANDRA_KEYSPACE
 
 # Run migrations using our custom Node.js script
 echo "Running migrations using custom migration runner..."
-cd cassandra
+cd "$SCRIPT_DIR/../cassandra"
 node migrate.js
 
 echo "Cassandra migrations completed successfully!"
