@@ -44,7 +44,7 @@ class SelectorPart:
             self.ch_attributes["nth-child"] = self.data["nth_child"]
             tag = parts[0]
         if "." in tag:
-            parts = tag.split(".")
+            parts = self._split_css_classes(tag)
             # Strip all slashes that are not followed by another slash
             self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]
             tag = parts[0]
@@ -75,6 +75,46 @@ class SelectorPart:
     def _unescape_class(self, class_name):
         r"""Separate all double slashes "\\" (replace them with "\") and remove all single slashes between them."""
         return "\\".join([p.replace("\\", "") for p in class_name.split("\\\\")])
+
+    def _split_css_classes(self, tag: str) -> list[str]:
+        """
+        Splits a tag string into its base name and CSS classes.
+        Handles Tailwind arbitrary values with square brackets properly.
+
+        Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500'
+        Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'text-blue-500']
+        """
+        if "." not in tag:
+            return [tag]
+
+        parts = []
+        current_part = ""
+        bracket_depth = 0
+        i = 0
+
+        while i < len(tag):
+            char = tag[i]
+
+            if char == "[":
+                bracket_depth += 1
+                current_part += char
+            elif char == "]":
+                bracket_depth -= 1
+                current_part += char
+            elif char == "." and bracket_depth == 0:
+                # Only split on dots when we're not inside brackets
+                if current_part:
+                    parts.append(current_part)
+                current_part = ""
+            else:
+                current_part += char
+
+            i += 1
+
+        if current_part:
+            parts.append(current_part)
+
+        return parts
 
 
 class Selector:

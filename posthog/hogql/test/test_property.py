@@ -625,7 +625,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
                 elements_chain_match(
-                    '(^|;).*?\\.sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;)sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -635,7 +635,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
                 elements_chain_match(
-                    '(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;)w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -645,7 +645,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    '(^|;).*?\\.1\\)\\]\\..*?shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;)shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
