@@ -164,6 +164,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
+            },
+        ],
         columnConfigModalVisible: [
             false,
             {

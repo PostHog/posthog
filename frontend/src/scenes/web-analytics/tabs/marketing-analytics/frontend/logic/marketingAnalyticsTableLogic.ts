@@ -181,13 +181,13 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             }
         },
         setQuery: ({ query }: { query: DataTableNode }) => {
-            // If we remove one column from the dynamic conversion goal, we clear the dynamic conversion goal completely
+            // If we remove one column from the draft conversion goal, we clear the draft conversion goal completely
             const marketingQuery = query.source as MarketingAnalyticsTableQuery | undefined
             const selectArray = marketingQuery?.select?.filter((column: string) =>
-                isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
+                isDraftConversionGoalColumn(column, values.draftConversionGoal)
             )
             if (selectArray && selectArray.length === 1) {
-                actions.setDynamicConversionGoal(null)
+                actions.setDraftConversionGoal(null)
             }
         },
     })),
