@@ -138,6 +138,8 @@ class TemplateAvoMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         apiKey = obj.config.get("avoApiKey", "")
         environment = obj.config.get("environment", "dev")

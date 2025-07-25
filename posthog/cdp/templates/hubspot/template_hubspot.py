@@ -371,6 +371,8 @@ class TemplateHubspotMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         # Must reauthenticate with HubSpot
         hubspotAccessToken = obj.config.get("hubspotAccessToken", "")

@@ -119,6 +119,8 @@ class TemplateSendGridMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         sendgridApiKey = obj.config.get("sendgridApiKey", "")
         customFields = obj.config.get("customFields", "")
