@@ -28,6 +28,8 @@ handler = BraintrustCallbackHandler()
 if os.environ.get("BRAINTRUST_API_KEY"):
     set_global_handler(handler)
 
+EVAL_USER_FULL_NAME = "Karen Smith"
+
 
 async def MaxEval(
     experiment_name: str,
@@ -137,7 +139,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
                 # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
                 # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
                 org, team, user = matrix_manager.ensure_account_and_save(
-                    f"eval-{today.isoformat()}", "Eval Doe", "Hedgebox Inc."
+                    f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
                 )
         else:
             print(f"Using existing demo data for evals...")  # noqa: T201

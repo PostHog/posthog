@@ -45,6 +45,8 @@ const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
         .concat(Object.values(PropertyMathType))
 )
 
+const DEFAULT_CONFIDENCE_LEVEL = 95
+
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('all_trends')),
@@ -243,6 +245,32 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return startIndex - results[0].days.length
                 }
                 return 0
+            },
+        ],
+
+        showConfidenceIntervals: [
+            (s) => [s.trendsFilter, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType],
+            (
+                trendsFilter: TrendsFilter | undefined | null,
+                isTrends: boolean,
+                hasDataWarehouseSeries: boolean,
+                yAxisScaleType: string | undefined
+            ): boolean => {
+                const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+                const display = trendsFilter?.display || ChartDisplayType.ActionsLineGraph
+                const isLineGraph =
+                    isTrends &&
+                    !hasDataWarehouseSeries &&
+                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+
+                return (trendsFilter?.showConfidenceIntervals && isLineGraph && isLinearScale) || false
+            },
+        ],
+
+        confidenceLevel: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | undefined | null): number => {
+                return trendsFilter?.confidenceLevel || DEFAULT_CONFIDENCE_LEVEL
             },
         ],
 
