@@ -1,5 +1,4 @@
 import ClickHouse from '@posthog/clickhouse'
-import { Client as CassandraClient } from 'cassandra-driver'
 import * as fs from 'fs'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -98,19 +97,6 @@ export async function createHub(
     })
     logger.info('👍', `ClickHouse ready`)
 
-    logger.info('🤔', `Connecting to Cassandra...`)
-    const cassandra = new CassandraClient({
-        contactPoints: [serverConfig.CASSANDRA_HOST],
-        localDataCenter: 'datacenter1',
-        keyspace: serverConfig.CASSANDRA_KEYSPACE,
-        credentials:
-            serverConfig.CASSANDRA_USER && serverConfig.CASSANDRA_PASSWORD
-                ? { username: serverConfig.CASSANDRA_USER, password: serverConfig.CASSANDRA_PASSWORD }
-                : undefined,
-    })
-    await cassandra.connect()
-    logger.info('👍', `Cassandra ready`)
-
     logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
@@ -166,7 +152,6 @@ export async function createHub(
         postgres,
         redisPool,
         clickhouse,
-        cassandra,
         kafka,
         kafkaProducer,
         objectStorage: objectStorage,
@@ -209,14 +194,9 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     if (!isTestEnv()) {
         await hub.appMetrics?.flush()
     }
-    logger.info('💤', 'Closing kafka, redis, postgres, cassandra...')
+    logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([
-        hub.kafkaProducer.disconnect(),
-        hub.redisPool.drain(),
-        hub.postgres?.end(),
-        hub.cassandra.shutdown(),
-    ])
+    await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
     hub.cookielessManager.shutdown()

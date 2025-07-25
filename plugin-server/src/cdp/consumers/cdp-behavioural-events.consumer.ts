@@ -1,4 +1,4 @@
-import { types as CassandraTypes } from 'cassandra-driver'
+import { Client as CassandraClient, types as CassandraTypes } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
@@ -53,10 +53,22 @@ type CounterUpdate = {
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     protected kafkaConsumer: KafkaConsumer
+    protected cassandra: CassandraClient
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+
+        // Initialize Cassandra client
+        this.cassandra = new CassandraClient({
+            contactPoints: [hub.CASSANDRA_HOST],
+            localDataCenter: 'datacenter1',
+            keyspace: hub.CASSANDRA_KEYSPACE,
+            credentials:
+                hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD
+                    ? { username: hub.CASSANDRA_USER, password: hub.CASSANDRA_PASSWORD }
+                    : undefined,
+        })
     }
 
     public async processBatch(events: BehavioralEvent[]): Promise<void> {
@@ -172,7 +184,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 ],
             }))
 
-            await this.hub.cassandra.batch(batch, { prepare: true, logged: false })
+            await this.cassandra.batch(batch, { prepare: true, logged: false })
         } catch (error) {
             logger.error('Error batch writing behavioral counters', { error, updateCount: updates.length })
         }
@@ -228,6 +240,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
+
+        // Connect to Cassandra
+        logger.info('🤔', `Connecting to Cassandra...`)
+        await this.cassandra.connect()
+        logger.info('👍', `Cassandra ready`)
+
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -246,6 +264,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping behavioural events consumer...')
         await this.kafkaConsumer.disconnect()
+        await this.cassandra.shutdown()
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Behavioural events consumer stopped!')

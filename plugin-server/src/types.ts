@@ -10,7 +10,6 @@ import {
     Properties,
     Webhook,
 } from '@posthog/plugin-scaffold'
-import { Client as CassandraClient } from 'cassandra-driver'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
@@ -385,12 +384,11 @@ export interface Hub extends PluginsServerConfig {
     instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
-    // active connections to Postgres, Redis, ClickHouse, Kafka, Cassandra
+    // active connections to Postgres, Redis, ClickHouse, Kafka
     db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse
-    cassandra: CassandraClient
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     objectStorage?: ObjectStorage

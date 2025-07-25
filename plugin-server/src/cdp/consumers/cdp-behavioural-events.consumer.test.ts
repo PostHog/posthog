@@ -8,27 +8,37 @@ import { createIncomingEvent } from '../_tests/fixtures'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { BehavioralEvent, CdpBehaviouralEventsConsumer, counterEventsDropped } from './cdp-behavioural-events.consumer'
 
+class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
+    public getCassandraClient(): CassandraClient {
+        return this.cassandra
+    }
+}
+
 jest.setTimeout(5000)
 
 describe('CdpBehaviouralEventsConsumer', () => {
-    let processor: CdpBehaviouralEventsConsumer
+    let processor: TestCdpBehaviouralEventsConsumer
     let hub: Hub
     let team: Team
     let cassandra: CassandraClient
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
+
+        hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: true })
         team = await getFirstTeam(hub)
-        cassandra = hub.cassandra
-        processor = new CdpBehaviouralEventsConsumer(hub)
-        hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA = true
+        processor = new TestCdpBehaviouralEventsConsumer(hub)
+        cassandra = processor.getCassandraClient()
+
+        // Connect to Cassandra for testing
+        await cassandra.connect()
 
         // Clean up test data
         await cassandra.execute('TRUNCATE behavioral_event_counters')
     })
 
     afterEach(async () => {
+        await cassandra.shutdown()
         await closeHub(hub)
         jest.restoreAllMocks()
     })
@@ -454,7 +464,9 @@ describe('CdpBehaviouralEventsConsumer', () => {
         })
 
         it('should not write to Cassandra when WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA is false', async () => {
+            // Create a new hub with Cassandra writes disabled
             hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA = false
+
             // Arrange
             const personId = '550e8400-e29b-41d4-a716-446655440000'
             const bytecode = [
