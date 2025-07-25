@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "0803_move_recording_annotation_to_comments"),
+        ("posthog", "0805_alter_survey_type"),
     ]
 
     operations = [
