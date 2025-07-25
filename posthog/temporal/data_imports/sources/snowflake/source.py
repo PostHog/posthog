@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
@@ -22,8 +22,6 @@ from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSou
 from posthog.warehouse.types import IncrementalField
 from posthog.warehouse.models import ExternalDataSource
 
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
 
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",
@@ -37,9 +35,7 @@ SnowflakeErrors = {
 @SourceRegistry.register
 class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
     @property
-    def source_type(self) -> "ExternalDataSource.Type":
-        from posthog.warehouse.models import ExternalDataSource
-
+    def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.SNOWFLAKE
 
     @property

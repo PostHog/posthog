@@ -1,4 +1,4 @@
-from typing import cast, TYPE_CHECKING
+from typing import cast
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
     ExternalDataSourceType,
@@ -20,16 +20,11 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.warehouse.models import ExternalDataSource
 
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
-
 
 @SourceRegistry.register
 class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> "ExternalDataSource.Type":
-        from posthog.warehouse.models import ExternalDataSource
-
+    def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.MONGODB
 
     def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:

@@ -1,5 +1,4 @@
 from typing import cast
-from typing import TYPE_CHECKING
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
@@ -21,9 +20,7 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
 )
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.warehouse.types import IncrementalField
-
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.models import ExternalDataSource
 
 MSSQLErrors = {
     "Login failed for user": "Login failed for database",
@@ -35,9 +32,7 @@ MSSQLErrors = {
 @SourceRegistry.register
 class MSSQLSource(BaseSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> "ExternalDataSource.Type":
-        from posthog.warehouse.models import ExternalDataSource
-
+    def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.MSSQL
 
     @property

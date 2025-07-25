@@ -1,4 +1,4 @@
-from typing import cast, TYPE_CHECKING
+from typing import cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -23,9 +23,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.warehouse.types import IncrementalField
-
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.models import ExternalDataSource
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -39,9 +37,7 @@ PostgresErrors = {
 @SourceRegistry.register
 class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> "ExternalDataSource.Type":
-        from posthog.warehouse.models import ExternalDataSource
-
+    def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.POSTGRES
 
     @property

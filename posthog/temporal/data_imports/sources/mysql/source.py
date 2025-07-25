@@ -1,4 +1,4 @@
-from typing import cast, TYPE_CHECKING
+from typing import cast
 from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.exceptions_capture import capture_exception
 from posthog.schema import (
@@ -22,18 +22,14 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     filter_mysql_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.types import IncrementalField
-
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
 
 
 @SourceRegistry.register
 class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     @property
-    def source_type(self) -> "ExternalDataSource.Type":
-        from posthog.warehouse.models import ExternalDataSource
-
+    def source_type(self) -> ExternalDataSource.Type:
         return ExternalDataSource.Type.MYSQL
 
     @property

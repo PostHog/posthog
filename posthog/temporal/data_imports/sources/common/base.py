@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, TypeVar, Generic, Union
+from typing import TypeVar, Generic, Union
 from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
@@ -13,9 +13,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-
-if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.models import ExternalDataSource
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 
@@ -34,7 +32,7 @@ class BaseSource(ABC, Generic[ConfigType]):
 
     @property
     @abstractmethod
-    def source_type(self) -> "ExternalDataSource.Type":
+    def source_type(self) -> ExternalDataSource.Type:
         raise NotImplementedError()
 
     @property
