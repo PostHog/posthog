@@ -53,22 +53,26 @@ type CounterUpdate = {
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     protected kafkaConsumer: KafkaConsumer
-    protected cassandra: CassandraClient
+    protected cassandra: CassandraClient | null
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
 
-        // Initialize Cassandra client
-        this.cassandra = new CassandraClient({
-            contactPoints: [hub.CASSANDRA_HOST],
-            localDataCenter: 'datacenter1',
-            keyspace: hub.CASSANDRA_KEYSPACE,
-            credentials:
-                hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD
-                    ? { username: hub.CASSANDRA_USER, password: hub.CASSANDRA_PASSWORD }
-                    : undefined,
-        })
+        // Only initialize Cassandra client if the feature is enabled
+        if (hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
+            this.cassandra = new CassandraClient({
+                contactPoints: [hub.CASSANDRA_HOST],
+                localDataCenter: 'datacenter1',
+                keyspace: hub.CASSANDRA_KEYSPACE,
+                credentials:
+                    hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD
+                        ? { username: hub.CASSANDRA_USER, password: hub.CASSANDRA_PASSWORD }
+                        : undefined,
+            })
+        } else {
+            this.cassandra = null
+        }
     }
 
     public async processBatch(events: BehavioralEvent[]): Promise<void> {
@@ -85,7 +89,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             eventsMatched = results.reduce((sum, count) => sum + count, 0)
 
             // Batch write all counter updates
-            if (counterUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
+            if (counterUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA && this.cassandra) {
                 await this.writeBehavioralCounters(counterUpdates)
             }
 
@@ -173,6 +177,11 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     private async writeBehavioralCounters(updates: CounterUpdate[]): Promise<void> {
+        if (!this.cassandra) {
+            logger.warn('Cassandra client not initialized, skipping counter writes')
+            return
+        }
+
         try {
             const batch = updates.map((update) => ({
                 query: 'UPDATE behavioral_event_counters SET count = count + 1 WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
@@ -241,10 +250,14 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     public async start(): Promise<void> {
         await super.start()
 
-        // Connect to Cassandra
-        logger.info('🤔', `Connecting to Cassandra...`)
-        await this.cassandra.connect()
-        logger.info('👍', `Cassandra ready`)
+        // Only connect to Cassandra if initialized
+        if (this.cassandra) {
+            logger.info('🤔', `Connecting to Cassandra...`)
+            await this.cassandra.connect()
+            logger.info('👍', `Cassandra ready`)
+        } else {
+            logger.info('ℹ️', `Cassandra disabled, skipping connection`)
+        }
 
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
@@ -264,7 +277,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping behavioural events consumer...')
         await this.kafkaConsumer.disconnect()
-        await this.cassandra.shutdown()
+
+        // Only shutdown Cassandra if it was initialized
+        if (this.cassandra) {
+            await this.cassandra.shutdown()
+        }
+
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Behavioural events consumer stopped!')

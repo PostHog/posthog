@@ -9,7 +9,7 @@ import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-
 import { BehavioralEvent, CdpBehaviouralEventsConsumer, counterEventsDropped } from './cdp-behavioural-events.consumer'
 
 class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
-    public getCassandraClient(): CassandraClient {
+    public getCassandraClient(): CassandraClient | null {
         return this.cassandra
     }
 }
@@ -17,456 +17,508 @@ class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
 jest.setTimeout(5000)
 
 describe('CdpBehaviouralEventsConsumer', () => {
-    let processor: TestCdpBehaviouralEventsConsumer
-    let hub: Hub
-    let team: Team
-    let cassandra: CassandraClient
-
-    beforeEach(async () => {
+    // Helper function to setup test environment with Cassandra enabled
+    async function setupWithCassandraEnabled() {
         await resetTestDatabase()
+        const hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: true })
+        const team = await getFirstTeam(hub)
+        const processor = new TestCdpBehaviouralEventsConsumer(hub)
+        const cassandra = processor.getCassandraClient()
 
-        hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: true })
-        team = await getFirstTeam(hub)
-        processor = new TestCdpBehaviouralEventsConsumer(hub)
-        cassandra = processor.getCassandraClient()
+        if (!cassandra) {
+            throw new Error('Cassandra client should be initialized when flag is enabled')
+        }
 
-        // Connect to Cassandra for testing
         await cassandra.connect()
-
-        // Clean up test data
         await cassandra.execute('TRUNCATE behavioral_event_counters')
+
+        return { hub, team, processor, cassandra }
+    }
+
+    // Helper function to setup test environment with Cassandra disabled
+    async function setupWithCassandraDisabled() {
+        await resetTestDatabase()
+        const hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false })
+        const team = await getFirstTeam(hub)
+        const processor = new TestCdpBehaviouralEventsConsumer(hub)
+
+        // Processor should not have initialized Cassandra
+        expect(processor.getCassandraClient()).toBeNull()
+
+        // Create separate client for test assertions only
+        const testCassandra = new CassandraClient({
+            contactPoints: [hub.CASSANDRA_HOST],
+            localDataCenter: 'datacenter1',
+            keyspace: hub.CASSANDRA_KEYSPACE,
+        })
+        await testCassandra.connect()
+
+        return { hub, team, processor, testCassandra }
+    }
+
+    describe('with Cassandra enabled', () => {
+        let processor: TestCdpBehaviouralEventsConsumer
+        let hub: Hub
+        let team: Team
+        let cassandra: CassandraClient
+
+        beforeEach(async () => {
+            const setup = await setupWithCassandraEnabled()
+            hub = setup.hub
+            team = setup.team
+            processor = setup.processor
+            cassandra = setup.cassandra
+        })
+
+        afterEach(async () => {
+            await cassandra.shutdown()
+            await closeHub(hub)
+            jest.restoreAllMocks()
+        })
+
+        describe('action matching with actual database', () => {
+            it('should match action when event matches bytecode filter', async () => {
+                // Create an action with bytecode
+                const bytecode = [
+                    '_H',
+                    1,
+                    32,
+                    'Chrome',
+                    32,
+                    '$browser',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    11,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    3,
+                    2,
+                    4,
+                    1,
+                ]
+
+                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+
+                // Create a matching event
+                const matchingEvent = createIncomingEvent(team.id, {
+                    event: '$pageview',
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId: '550e8400-e29b-41d4-a716-446655440000',
+                }
+
+                // Verify the action was loaded
+                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
+                expect(actions).toHaveLength(1)
+                expect(actions[0].name).toBe('Test action')
+
+                // Test processEvent directly and verify it returns 1 for matching event
+                const counterUpdates: any[] = []
+                const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
+                expect(result).toBe(1)
+            })
+
+            it('should not match action when event does not match bytecode filter', async () => {
+                // Create an action with bytecode
+                const bytecode = [
+                    '_H',
+                    1,
+                    32,
+                    'Chrome',
+                    32,
+                    '$browser',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    11,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    3,
+                    2,
+                    4,
+                    1,
+                ]
+
+                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+
+                // Create a non-matching event
+                const nonMatchingEvent = createIncomingEvent(team.id, {
+                    event: '$pageview',
+                    properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId: '550e8400-e29b-41d4-a716-446655440000',
+                }
+
+                // Verify the action was loaded
+                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
+                expect(actions).toHaveLength(1)
+                expect(actions[0].name).toBe('Test action')
+
+                // Test processEvent directly and verify it returns 0 for non-matching event
+                const counterUpdates: any[] = []
+                const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
+                expect(result).toBe(0)
+            })
+
+            it('should return count of matched actions when multiple actions match', async () => {
+                // Create multiple actions with different bytecode
+                const pageViewBytecode = ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11]
+
+                const filterBytecode = [
+                    '_H',
+                    1,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    32,
+                    '%Chrome%',
+                    32,
+                    '$browser',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    2,
+                    'toString',
+                    1,
+                    18,
+                    3,
+                    2,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    31,
+                    32,
+                    '$ip',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    12,
+                    3,
+                    2,
+                    4,
+                    2,
+                ]
+
+                await createAction(hub.postgres, team.id, 'Pageview action', pageViewBytecode)
+                await createAction(hub.postgres, team.id, 'Filter action', filterBytecode)
+
+                // Create an event that matches both actions
+                const matchingEvent = createIncomingEvent(team.id, {
+                    event: '$pageview',
+                    properties: JSON.stringify({ $browser: 'Chrome', $ip: '127.0.0.1' }),
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId: '550e8400-e29b-41d4-a716-446655440000',
+                }
+
+                // Test processEvent directly and verify it returns 2 for both matching actions
+                const counterUpdates: any[] = []
+                const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
+                expect(result).toBe(2)
+            })
+        })
+
+        describe('Cassandra behavioral counter writes', () => {
+            it('should write counter to Cassandra when action matches', async () => {
+                // Arrange
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const bytecode = [
+                    '_H',
+                    1,
+                    32,
+                    'Chrome',
+                    32,
+                    '$browser',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    11,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    3,
+                    2,
+                    4,
+                    1,
+                ]
+
+                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+
+                // Create a matching event with person ID
+                const matchingEvent = createIncomingEvent(team.id, {
+                    event: '$pageview',
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                    person_id: personId,
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId,
+                }
+
+                // Act
+                await processor.processBatch([behavioralEvent])
+
+                // Assert - check that the counter was written to Cassandra
+                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
+                const action = actions[0]
+                const filterHash = createHash('sha256')
+                    .update(JSON.stringify(action.bytecode))
+                    .digest('hex')
+                    .substring(0, 16)
+                const today = new Date().toISOString().split('T')[0]
+
+                const cassandraResult = await cassandra.execute(
+                    'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
+                    [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
+                    { prepare: true }
+                )
+
+                expect(cassandraResult.rows).toHaveLength(1)
+                expect(cassandraResult.rows[0].count.toNumber()).toBe(1)
+            })
+
+            it('should increment existing counter', async () => {
+                // Arrange
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const bytecode = [
+                    '_H',
+                    1,
+                    32,
+                    'Chrome',
+                    32,
+                    '$browser',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    11,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    3,
+                    2,
+                    4,
+                    1,
+                ]
+
+                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+
+                const matchingEvent = createIncomingEvent(team.id, {
+                    event: '$pageview',
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                    person_id: personId,
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId,
+                }
+
+                // Act - process event twice
+                await processor.processBatch([behavioralEvent])
+                await processor.processBatch([behavioralEvent])
+
+                // Assert - check that the counter was incremented
+                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
+                const action = actions[0]
+                const filterHash = createHash('sha256')
+                    .update(JSON.stringify(action.bytecode))
+                    .digest('hex')
+                    .substring(0, 16)
+                const today = new Date().toISOString().split('T')[0]
+
+                const cassandraResult = await cassandra.execute(
+                    'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
+                    [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
+                    { prepare: true }
+                )
+
+                expect(cassandraResult.rows).toHaveLength(1)
+                expect(cassandraResult.rows[0].count.toNumber()).toBe(2)
+            })
+
+            it('should not write counter when event does not match', async () => {
+                // Arrange
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const bytecode = [
+                    '_H',
+                    1,
+                    32,
+                    'Chrome',
+                    32,
+                    '$browser',
+                    32,
+                    'properties',
+                    1,
+                    2,
+                    11,
+                    32,
+                    '$pageview',
+                    32,
+                    'event',
+                    1,
+                    1,
+                    11,
+                    3,
+                    2,
+                    4,
+                    1,
+                ]
+
+                await createAction(hub.postgres, team.id, 'Test action', bytecode)
+
+                // Create a non-matching event
+                const nonMatchingEvent = createIncomingEvent(team.id, {
+                    event: '$pageview',
+                    properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
+                    person_id: personId,
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId,
+                }
+
+                // Act
+                await processor.processBatch([behavioralEvent])
+
+                // Assert - check that no counter was written to Cassandra
+                const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
+                const action = actions[0]
+                const filterHash = createHash('sha256')
+                    .update(JSON.stringify(action.bytecode))
+                    .digest('hex')
+                    .substring(0, 16)
+                const today = new Date().toISOString().split('T')[0]
+
+                const cassandraResult = await cassandra.execute(
+                    'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
+                    [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
+                    { prepare: true }
+                )
+
+                expect(cassandraResult.rows).toHaveLength(0)
+            })
+
+            it('should drop events with missing person ID at parsing stage', async () => {
+                // Create a raw event without person_id (simulating what comes from Kafka)
+                const rawEventWithoutPersonId = {
+                    uuid: '12345',
+                    event: '$pageview',
+                    team_id: team.id,
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                    // person_id is undefined
+                }
+
+                // Get initial metric value
+                const initialDroppedCount = await counterEventsDropped.get()
+                const initialMissingPersonIdCount =
+                    initialDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
+
+                const messages = [
+                    {
+                        value: Buffer.from(JSON.stringify(rawEventWithoutPersonId)),
+                    },
+                ] as any[]
+
+                // Act - parse the batch (should drop the event)
+                const parsedEvents = await (processor as any)._parseKafkaBatch(messages)
+
+                // Assert - no events should be parsed due to missing person_id
+                expect(parsedEvents).toHaveLength(0)
+
+                // Assert - metric should be incremented
+                const finalDroppedCount = await counterEventsDropped.get()
+                const finalMissingPersonIdCount =
+                    finalDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
+                expect(finalMissingPersonIdCount).toBe(initialMissingPersonIdCount + 1)
+
+                // Assert - no counter should be written to Cassandra since event was dropped
+                const cassandraResult = await cassandra.execute(
+                    'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
+                    [team.id],
+                    { prepare: true }
+                )
+
+                expect(cassandraResult.rows).toHaveLength(0)
+            })
+        })
     })
 
-    afterEach(async () => {
-        await cassandra.shutdown()
-        await closeHub(hub)
-        jest.restoreAllMocks()
-    })
+    describe('with Cassandra disabled', () => {
+        let processor: TestCdpBehaviouralEventsConsumer
+        let hub: Hub
+        let team: Team
+        let testCassandra: CassandraClient
 
-    describe('action matching with actual database', () => {
-        it('should match action when event matches bytecode filter', async () => {
-            // Create an action with bytecode
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
-
-            // Create a matching event
-            const matchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Chrome' }),
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId: '550e8400-e29b-41d4-a716-446655440000',
-            }
-
-            // Verify the action was loaded
-            const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-            expect(actions).toHaveLength(1)
-            expect(actions[0].name).toBe('Test action')
-
-            // Test processEvent directly and verify it returns 1 for matching event
-            const counterUpdates: any[] = []
-            const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
-            expect(result).toBe(1)
+        beforeEach(async () => {
+            const setup = await setupWithCassandraDisabled()
+            hub = setup.hub
+            team = setup.team
+            processor = setup.processor
+            testCassandra = setup.testCassandra
         })
 
-        it('should not match action when event does not match bytecode filter', async () => {
-            // Create an action with bytecode
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
-
-            // Create a non-matching event
-            const nonMatchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId: '550e8400-e29b-41d4-a716-446655440000',
-            }
-
-            // Verify the action was loaded
-            const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-            expect(actions).toHaveLength(1)
-            expect(actions[0].name).toBe('Test action')
-
-            // Test processEvent directly and verify it returns 0 for non-matching event
-            const counterUpdates: any[] = []
-            const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
-            expect(result).toBe(0)
-        })
-
-        it('should return count of matched actions when multiple actions match', async () => {
-            // Create multiple actions with different bytecode
-            const pageViewBytecode = ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11]
-
-            const filterBytecode = [
-                '_H',
-                1,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                32,
-                '%Chrome%',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                2,
-                'toString',
-                1,
-                18,
-                3,
-                2,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                31,
-                32,
-                '$ip',
-                32,
-                'properties',
-                1,
-                2,
-                12,
-                3,
-                2,
-                4,
-                2,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Pageview action', pageViewBytecode)
-            await createAction(hub.postgres, team.id, 'Filter action', filterBytecode)
-
-            // Create an event that matches both actions
-            const matchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Chrome', $ip: '127.0.0.1' }),
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId: '550e8400-e29b-41d4-a716-446655440000',
-            }
-
-            // Test processEvent directly and verify it returns 2 for both matching actions
-            const counterUpdates: any[] = []
-            const result = await (processor as any).processEvent(behavioralEvent, counterUpdates)
-            expect(result).toBe(2)
-        })
-    })
-
-    describe('Cassandra behavioral counter writes', () => {
-        it('should write counter to Cassandra when action matches', async () => {
-            // Arrange
-            const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
-
-            // Create a matching event with person ID
-            const matchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Chrome' }),
-                person_id: personId,
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId,
-            }
-
-            // Act
-            await processor.processBatch([behavioralEvent])
-
-            // Assert - check that the counter was written to Cassandra
-            const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-            const action = actions[0]
-            const filterHash = createHash('sha256')
-                .update(JSON.stringify(action.bytecode))
-                .digest('hex')
-                .substring(0, 16)
-            const today = new Date().toISOString().split('T')[0]
-
-            const cassandraResult = await cassandra.execute(
-                'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
-                { prepare: true }
-            )
-
-            expect(cassandraResult.rows).toHaveLength(1)
-            expect(cassandraResult.rows[0].count.toNumber()).toBe(1)
-        })
-
-        it('should increment existing counter', async () => {
-            // Arrange
-            const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
-
-            const matchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Chrome' }),
-                person_id: personId,
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId,
-            }
-
-            // Act - process event twice
-            await processor.processBatch([behavioralEvent])
-            await processor.processBatch([behavioralEvent])
-
-            // Assert - check that the counter was incremented
-            const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-            const action = actions[0]
-            const filterHash = createHash('sha256')
-                .update(JSON.stringify(action.bytecode))
-                .digest('hex')
-                .substring(0, 16)
-            const today = new Date().toISOString().split('T')[0]
-
-            const cassandraResult = await cassandra.execute(
-                'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
-                { prepare: true }
-            )
-
-            expect(cassandraResult.rows).toHaveLength(1)
-            expect(cassandraResult.rows[0].count.toNumber()).toBe(2)
-        })
-
-        it('should not write counter when event does not match', async () => {
-            // Arrange
-            const personId = '550e8400-e29b-41d4-a716-446655440000'
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
-
-            // Create a non-matching event
-            const nonMatchingEvent = createIncomingEvent(team.id, {
-                event: '$pageview',
-                properties: JSON.stringify({ $browser: 'Firefox' }), // Different browser
-                person_id: personId,
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(nonMatchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                personId,
-            }
-
-            // Act
-            await processor.processBatch([behavioralEvent])
-
-            // Assert - check that no counter was written to Cassandra
-            const actions = await hub.actionManagerCDP.getActionsForTeam(team.id)
-            const action = actions[0]
-            const filterHash = createHash('sha256')
-                .update(JSON.stringify(action.bytecode))
-                .digest('hex')
-                .substring(0, 16)
-            const today = new Date().toISOString().split('T')[0]
-
-            const cassandraResult = await cassandra.execute(
-                'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
-                { prepare: true }
-            )
-
-            expect(cassandraResult.rows).toHaveLength(0)
-        })
-
-        it('should drop events with missing person ID at parsing stage', async () => {
-            // Create a raw event without person_id (simulating what comes from Kafka)
-            const rawEventWithoutPersonId = {
-                uuid: '12345',
-                event: '$pageview',
-                team_id: team.id,
-                properties: JSON.stringify({ $browser: 'Chrome' }),
-                // person_id is undefined
-            }
-
-            // Get initial metric value
-            const initialDroppedCount = await counterEventsDropped.get()
-            const initialMissingPersonIdCount =
-                initialDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
-
-            const messages = [
-                {
-                    value: Buffer.from(JSON.stringify(rawEventWithoutPersonId)),
-                },
-            ] as any[]
-
-            // Act - parse the batch (should drop the event)
-            const parsedEvents = await (processor as any)._parseKafkaBatch(messages)
-
-            // Assert - no events should be parsed due to missing person_id
-            expect(parsedEvents).toHaveLength(0)
-
-            // Assert - metric should be incremented
-            const finalDroppedCount = await counterEventsDropped.get()
-            const finalMissingPersonIdCount =
-                finalDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
-            expect(finalMissingPersonIdCount).toBe(initialMissingPersonIdCount + 1)
-
-            // Assert - no counter should be written to Cassandra since event was dropped
-            const cassandraResult = await cassandra.execute(
-                'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
-                [team.id],
-                { prepare: true }
-            )
-
-            expect(cassandraResult.rows).toHaveLength(0)
+        afterEach(async () => {
+            await testCassandra.shutdown()
+            await closeHub(hub)
+            jest.restoreAllMocks()
         })
 
         it('should not write to Cassandra when WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA is false', async () => {
-            // Create a new hub with Cassandra writes disabled
-            hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA = false
-
             // Arrange
             const personId = '550e8400-e29b-41d4-a716-446655440000'
             const bytecode = [
@@ -514,7 +566,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             await processor.processBatch([behavioralEvent])
 
             // Assert - no counter should be written to Cassandra despite matching
-            const cassandraResult = await cassandra.execute(
+            const cassandraResult = await testCassandra.execute(
                 'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
                 [team.id],
                 { prepare: true }
