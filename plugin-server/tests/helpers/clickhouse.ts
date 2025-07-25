@@ -9,7 +9,6 @@ import {
     ClickHousePersonDistinctId2,
     DeadLetterQueueEvent,
     InternalPerson,
-    PluginLogEntry,
     RawClickHouseEvent,
     RawSessionRecordingEvent,
 } from '~/types'
