@@ -910,7 +910,7 @@
         posthog.init(window.projectConfig.token, config);
 
         posthog.onSurveysLoaded(() => {
-            posthog.renderSurvey(window.surveyId, '#posthog-survey-container');
+            posthog.surveys["_renderExternalSurvey"](window.surveyId, '#posthog-survey-container');
         });
     </script>
 </body>
