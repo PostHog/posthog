@@ -5,12 +5,14 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { PropsWithChildren, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { Label, LabelProps } from 'lib/ui/Label/Label'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -62,6 +64,19 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
                 Actions
             </Label>
             <div className="flex flex-col gap-px">{children}</div>
+        </div>
+    )
+}
+
+export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
+    return (
+        <div>
+            <div className="gap-0">
+                <Label intent="menu" {...props}>
+                    {title}
+                </Label>
+                {children}
+            </div>
         </div>
     )
 }
