@@ -216,7 +216,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const {
         className,
         variant,
-        size,
+        size = 'base',
         fullWidth,
         children,
         iconOnly,
@@ -261,6 +261,9 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
             ...rest,
             'aria-disabled': disabled,
             'data-active': active,
+            style: {
+                '--button-height': `var(--button-icon-size-${effectiveSize})`,
+            },
         },
         children
     )

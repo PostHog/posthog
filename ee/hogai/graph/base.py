@@ -25,8 +25,8 @@ from ..utils.types import (
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
     def __init__(self, team: Team, user: User):
-        self.__internal_team = team
-        self.__internal_user = user
+        self._team = team
+        self._user = user
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
@@ -47,14 +47,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
-
-    @property
-    def _team(self) -> Team:
-        return self.__internal_team
-
-    @property
-    def _user(self) -> User:
-        return self.__internal_user
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

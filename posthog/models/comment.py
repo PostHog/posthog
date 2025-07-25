@@ -11,7 +11,7 @@ from posthog.models.utils import UUIDModel, RootTeamMixin
 class Comment(UUIDModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     content = models.TextField(blank=True, null=True)
-    richContent = models.JSONField(default=None, null=True, blank=True)
+    rich_content = models.JSONField(blank=True, null=True)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

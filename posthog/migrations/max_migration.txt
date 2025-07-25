@@ -1,1 +1,1 @@
-0801_add_rich_content_to_comment
+0804_add_rich_content_json_to_comment

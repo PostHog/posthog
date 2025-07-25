@@ -36,7 +36,7 @@ export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number })
                         ref={ticksSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                         preserveAspectRatio="xMidYMid meet"
-                        className="ml-12 max-w-[1000px]"
+                        className="ml-12"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
                     >
