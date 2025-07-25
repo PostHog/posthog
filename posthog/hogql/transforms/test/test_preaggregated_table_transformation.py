@@ -79,16 +79,18 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
                 uniq(events.person_id),
                 uniq(person.id),
                 uniq(events.person.id),
+                count(DISTINCT person_id),
                 uniq(session.id),
                 uniq(events.session.id),
                 uniq($session_id),
-                uniq(events.$session_id)
+                uniq(events.$session_id),
+                count(DISTINCT session.id)
             from events
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_daily)"""
-        assert query == expected
+        assert "web_stats_daily" in query
+        self.assertQueryMatchesSnapshot(query)
 
     def test_wrong_id(self):
         original_query = """
@@ -433,17 +435,6 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
         query = self._parse_and_transform(original_query)
         assert "web_stats_daily" in query
         self.assertQueryMatchesSnapshot(query)
-
-    def test_distinct_queries(self):
-        """Test that count DISTINCT is not transformed"""
-        original_query = """
-            SELECT count(DISTINCT person_id), uniq(person_id)
-            FROM events
-            WHERE event = '$pageview'
-        """
-        query = self._parse_and_transform(original_query)
-        assert "web_stats_daily" not in query
-        assert query == self._normalize(original_query)
 
     def test_empty_select_query(self):
         """Test edge case with minimal SELECT query."""
@@ -845,6 +836,30 @@ class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTes
 
         original_query = TrendsQuery(
             series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.TOTAL)],
+            dateRange=DateRange(date_from="2024-11-22", date_to="2024-11-26"),
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=original_query)
+        response = tqr.calculate()
+        assert len(response.results) == 1
+        series = response.results[0]
+        assert series["count"] == 1
+        assert series["days"] == [
+            "2024-11-22",
+            "2024-11-23",
+            "2024-11-24",
+            "2024-11-25",
+            "2024-11-26",
+        ]
+        assert series["data"] == [0, 0, 1, 0, 0]
+
+    def test_trends_line_dau_query(self):
+        """Test that trends dau queries are handled correctly."""
+        # add a pageview to the combined table, so that we can be sure we are fetching the correct table
+        self._insert_stats_row()
+
+        original_query = TrendsQuery(
+            series=[EventsNode(name="$pageview", event="$pageview", math=BaseMathType.DAU)],
             dateRange=DateRange(date_from="2024-11-22", date_to="2024-11-26"),
             modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True),
         )

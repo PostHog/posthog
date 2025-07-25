@@ -16,7 +16,7 @@ import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, IntervalType } from '~/types'
+import { AnnotationType, IntervalType } from '~/types'
 
 import {
     annotationsOverlayLogic,
@@ -24,7 +24,6 @@ import {
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 /** User-facing format for annotation groups. */
@@ -252,7 +251,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
-                    {annotation.scope === AnnotationScope.Recording ? ' comment' : '-level'}
+                    -level
                 </h5>
                 <LemonButton
                     size="small"
@@ -288,15 +287,6 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     />{' '}
                     • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
                 </div>
-                {annotation.scope === AnnotationScope.Recording &&
-                !!annotation.recording_id &&
-                !!annotation.date_marker ? (
-                    <ViewRecordingButton
-                        sessionId={annotation.recording_id}
-                        timestamp={annotation.date_marker}
-                        inModal={true}
-                    />
-                ) : null}
             </div>
         </li>
     )

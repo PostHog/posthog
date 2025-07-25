@@ -441,6 +441,120 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/cleaned/:id", (2, None), (2, None), ""],
         ] == results
 
+    def test_path_cleaning_filters_with_multiple_capture_groups(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/123/detail/456")]),
+                ("p2", [("2023-12-10", s2, "/item/789/detail/101")]),
+                ("p3", [("2023-12-11", s3, "/item/999/detail/777")]),
+                ("p4", [("2023-12-12", s4, "/other/123/path")]),  # Should not match
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/item\\/(\\d+)\\/detail\\/(\\d+)", "alias": "/item/<id>/detail/<detail_id>"},
+            ],
+        ).results
+
+        # All matching paths should be grouped under the same alias pattern
+        assert [
+            ["/item/<id>/detail/<detail_id>", (3.0, None), (3.0, None), ""],
+            ["/other/123/path", (1.0, None), (1.0, None), ""],
+        ] == results
+
+    def test_path_cleaning_filters_applied_in_order(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+        s5 = str(uuid7("2023-12-13"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/admin/settings/users")]),  # Should match specific rule first
+                ("p2", [("2023-12-10", s2, "/admin/dashboard")]),  # Should match general admin rule
+                ("p3", [("2023-12-11", s3, "/user/123/profile")]),  # Should match user rule
+                ("p4", [("2023-12-12", s4, "/user/456/settings")]),  # Should match user rule
+                ("p5", [("2023-12-13", s5, "/other/path")]),  # Should not match any rule
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                # More specific rule first - should match /admin/settings/* paths
+                {"regex": "\\/admin\\/settings\\/.*", "alias": "/admin/settings/<page>"},
+                # More general rule second - should match remaining /admin/* paths
+                {"regex": "\\/admin\\/.*", "alias": "/admin/<section>"},
+                # Another rule for user paths
+                {"regex": "\\/user\\/\\d+\\/.*", "alias": "/user/<id>/<page>"},
+            ],
+        ).results
+
+        # The actual results show that ALL rules are applied in sequence using the previous rule's result as input
+        # That is why the general /admin/.* gets two results and we don't see a `/admin/settings/<page>`
+        assert [
+            ["/admin/<section>", (2.0, None), (2.0, None), ""],  # Both admin paths matched this general rule
+            ["/user/<id>/<page>", (2.0, None), (2.0, None), ""],  # Both user paths
+            ["/other/path", (1.0, None), (1.0, None), ""],  # unchanged
+        ] == results
+
+    def test_path_cleaning_with_order_field_and_baseline_urls(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+        s4 = str(uuid7("2023-12-05"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/2197346/detail1/11234")]),
+                ("p2", [("2023-12-03", s2, "/item/2206728/list/2668776/baseline")]),
+                ("p3", [("2023-12-04", s3, "/item/5555/list/6666/spp/insessionForm/7777")]),
+                ("p4", [("2023-12-05", s4, "/item/123")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-06",
+            path_cleaning_filters=[
+                {
+                    "regex": r"/item/(\d+)/list/(\d+)/spp/insessionForm/(\d+)",
+                    "alias": "/item/<id>/list/<list_id>/spp/insessionForm/<form>",
+                    "order": 0,  # Most specific first
+                },
+                {"regex": r"/item/(\d+)/detail1/(\d+)", "alias": "/item/<id>/detail1/<consultation>", "order": 1},
+                {
+                    "regex": r"/item/(\d+)/list/(\d+)",
+                    "alias": "/item/<id>/list/<list_id>",
+                    "order": 2,  # General list rule - should handle baseline URLs correctly
+                },
+                {
+                    "regex": r"/item/(\d+)",
+                    "alias": "/item/<id>",
+                    "order": 3,  # Most general last
+                },
+            ],
+        ).results
+
+        expected_results = [
+            ["/item/<id>/detail1/<consultation>", (1.0, None), (1.0, None), ""],
+            ["/item/<id>/list/<list_id>/spp/insessionForm/<form>", (1.0, None), (1.0, None), ""],
+            ["/item/<id>/list/<list_id>/baseline", (1.0, None), (1.0, None), ""],
+            ["/item/<id>", (1.0, None), (1.0, None), ""],
+        ]
+
+        assert sorted(results) == sorted(expected_results)
+
     def test_scroll_depth_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",

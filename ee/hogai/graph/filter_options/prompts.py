@@ -1,67 +1,42 @@
 from datetime import datetime
-import json
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
 
-RESPONSE_FORMATS_PROMPT = """
-<response_formats>
-Formats of responses
-1. Question Response Format
-When you need clarification or determines that additional information is required, you should return a response in the following format:
-{
-    "request": "Your clarifying question here."
-}
-2. Filter Response Format
-Once all necessary data is collected, the agent should return the filter in this structured format:
-{
-    "data": {
-        "date_from": "<date_from>",
-        "date_to": "<date_to>",
-        "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],  // Use "gt", "lt", "gte", "lte"
-        "filter_group": {
-            "type": "<FilterLogicalOperator>",
-            "values": [
-            {
-                "type": "<FilterLogicalOperator>",
-                "values": [
-                    {
-                        "key": "<key>",
-                        "type": "<PropertyFilterType>",
-                        "value": ["<value>"],
-                        "operator": "<PropertyOperator>"
-                    },
-                ],
-                ...
-            },
-        ]
-    }
-}
+FILTER_INITIAL_PROMPT = """
 
-Notes:
-1. Replace <date_from> and <date_to> with valid date strings.
-2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
-3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
-4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
+{{{product_description_prompt}}}
 
-WHEN GENERATING A FILTER BASED ON MORE THAN ONE PROPERTY ALWAYS MAKE SURE TO KEEP THE OLD FILTERS. NEVER REMOVE ANY FILTERS.
-</response_formats>
+{{{group_property_filter_types_prompt}}}
+
+{{{multiple_filters_prompt}}}
+
+{{{response_formats_prompt}}}
+
+{{{date_fields_prompt}}}
+
+{{{filter_logical_operators_prompt}}}
+
+{{{examples_prompt}}}
+
+{{{tool_usage_prompt}}}
 
 """.strip()
 
-TOOL_USAGE_PROMPT = """
+day = datetime.now().day
+today_date = datetime.now().strftime(f"{day} %B %Y")
+FILTER_INITIAL_PROMPT += f"\nToday is {today_date}."
 
+
+TOOL_USAGE_PROMPT = """
+<tool_usage>
 ## Tool Usage Rules
 1. **Property Discovery Required**: Use tools to find properties.
-2. Users can be looking for properties related to PERSON, SESSION, ORGANIZATION, or EVENT. EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
+2. **CRITICAL DISTINCTION**: EVENTS ARE NOT ENTITIES. THEY HAVE THEIR OWN PROPERTIES AND VALUES.
 
-2. **Tool Workflow**:
-   - Infer if the user is asking for a person, session, organization, or event property.
-   - Use `retrieve_entity_properties` to discover available properties for an entity such as person, session, organization, etc.
-   - Use `retrieve_entity_property_values` to get possible values for a specific property related to person, session, organization, etc.
-   - Use `retrieve_event_properties` to discover available properties for an event
-   - Use `retrieve_event_property_values` to get possible values for a specific property related to event.
+3. **Tool Workflow**:
+   - **For ENTITY properties** (person, session, organization, groups): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
+   - **For EVENT properties** (properties of specific events like pageview, signup, etc.): Use `retrieve_event_properties` and `retrieve_event_property_values`
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete filter information
-   - *CRITICAL*: Call the event tools if you have found a property related to event, do not call the entity tools.
+   - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
 3. **When to Ask for Help**:
@@ -72,71 +47,69 @@ TOOL_USAGE_PROMPT = """
 
 4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
-5. **Multi-Filter Example**: If user mentions "mobile users who completed signup":
-   - Filter 1: Infer entity type "person" for "mobile" → find $device_type property → get values → use "Mobile"
-   - Filter 2: Infer entity type "event" for "signup" → find $signup_event → get event properties if needed
-   - Combine both filters with AND logic
-   - Use `final_answer` only when ALL filters are processed
-
-6. Use the output of the tools to build the filter. Merge the results for each filter component into a single filter.
-
+5. **Tool Selection Decision Tree**:
+   - If the user mentions a property that belongs to a person (browser, device, location, etc.) → use entity tools with entity="person"
+   - If the user mentions a property that belongs to a session (duration, start time, etc.) → use entity tools with entity="session"
+   - If the user mentions a property that belongs to a group (organization, account, etc.) → use entity tools with entity="[group_name]"
+   - If the user mentions an action or event (signup, purchase, pageview, etc.) → use event tools with event_name="[event_name]"
+</tool_usage>
 """.strip()
 
-ALGORITHM_PROMPT = """
-<algorithm>
-Strictly follow this algorithm:
-1. Verify Query Relevance: Confirm that the user's question is related to filter generation.
-2. Handle Irrelevant Queries: If the question is not related, return a response that explains why the query is outside the scope.
-3. **MULTI-FILTER ANALYSIS**: Identify ALL filter components in the user's request. Don't stop at the first filter - look for additional conditions using words like "and", "also", "who", "where", "with", etc.
-4. **ENTITY TYPE INFERENCE**: For EACH filter component identified, infer the appropriate entity type (person, event, session, etc.). Multiple filters can target different entity types.
-5. **PROPERTY DISCOVERY**: For EACH entity type and filter component, use `retrieve_entity_properties` or `retrieve_event_properties` to discover relevant properties. Don't skip any filter component.
-6. **VALUE DISCOVERY**: For EACH property you need to filter on, use `retrieve_entity_property_values` or `retrieve_event_property_values` to discover possible values.
-7. **SOME FILTERS MAY BE MISSING**: If you can only partially find the filter components, return what you found and ask clarification for the other filters.
-8. **FALLBACK TO USER VALUES**: If you found no property values or they don't match what the user asked, use the value that the user provided in their query.
-9. **COMBINE FILTERS**: Structure all filters using appropriate logical operators (AND/OR) based on user intent. Use nested filter groups for complex combinations.
-10. Return Structured Filter: Once all required data is collected, return a response with result containing the correctly structured answer as per the answer structure guidelines below.
-</algorithm>
-
-""".strip()
 
 GROUP_PROPERTY_FILTER_TYPES_PROMPT = """
+<property_filter_types>
 PostHog users can filter their data using various properties and values.
-Properties are classified into groups based on the source of the property or a user defined group. Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
-For example, properties can of events, persons, actions, cohorts, sessions properties and more custom groups.
+Properties are always associated with an event or entity. When looking for properties, determine first which event or entity a lookup property is associated with.
 
-Properties can orginate from the following sources:
+**CRITICAL**: There are two main categories of properties - ENTITY properties and EVENT properties. They use different tools.
 
+<entity>
+**ENTITY PROPERTIES** (use `retrieve_entity_properties` and `retrieve_entity_property_values`):
+
+<person>
 - Person Properties:
     Are associated with a person. For example, $browser, email, name, is_signed_up etc.
     Use the "name" field from the Person properties array (e.g., $browser, $device_type, email).
     Example: If filtering on browser type, you might use the key $browser.
-    Use `retrieve_entity_properties` to get the list of all available person properties.
+    Use `retrieve_entity_properties` with entity="person" to get the list of all available person properties.
+</person>
 
+<session>
 - Session Properties:
     Are associated with a session. For example, $start_timestamp, $entry_current_url, session duration etc.
     Use the "name" field from the Session properties array (e.g., $start_timestamp, $entry_current_url).
     Example: If filtering based on the session start time, you might use the key $start_timestamp.
-    Use `retrieve_entity_properties` to get the list of all available session properties.
+    Use `retrieve_entity_properties` with entity="session" to get the list of all available session properties.
+</session>
 
+<group>
+- Group Properties:
+    PostHog users can group these events into custom groups. For example organisation, instance, account etc.
+    This is the list of all the groups that this user can generate filters for:
+    {{#groups}}{{.}}{{^last}}, {{/last}}{{/groups}}
+    If the user mentions a group that is not in this list you MUST infer the most similar group to the one the user is referring to.
+    Use `retrieve_entity_properties` with entity="[group_name]" to get the list of all available group properties.
+</group>
+</entity>
+<events>
+**EVENT PROPERTIES** (use `retrieve_event_properties` and `retrieve_event_property_values`):
 - Event Properties:
-    Properties of an event. For example, $current_url, $browser, $ai_error etc
-    Use the "name" field from the Event properties array (e.g. $current_url).
-    Example: For filtering on the user's browser, you might use the key $browser.
+    Properties of specific events. For example, if someone says "users who completed signup", you need to find the "signup" event and then get its properties.
+    Use `retrieve_event_properties` with event_name="signup" to get properties of the signup event.
+    Example: For filtering on the user's browser during signup, you might use the key $browser from the signup event.
 
-PostHog users can group these events into custom groups. For example organisation, instance, account etc.
+Here is a non-exhaustive list of known event names:
+{{{events}}}
 
-These groups are also used for filtering.
-This is the list of all the groups that this user can generate filters for:
-{{#groups}}, {{.}}{{/groups}}
-If the user mentions a group that is not in this list you MUST infer the most similar group to the one the user is referring to.
-
+If you find the event name the user is asking for in the list, use it to retrieve the event properties.
+</events>
+</property_filter_types>
 """.strip()
 
 FILTER_LOGICAL_OPERATORS_PROMPT = """
 <filter_logical_operator>
 - Definition: The FilterLogicalOperator defines how filters should be combined.
 - Allowed Values: 'AND' or 'OR'
-- Usage: Use it as an enum. For example, use FilterLogicalOperator.AND when filters must all be met (logical AND) or FilterLogicalOperator.OR when any filter match is acceptable (logical OR).
 
 Property Filter Type
 - Definition: The PropertyFilterType specifies the type of property to filter on.
@@ -199,6 +172,153 @@ date_to:
 </date_fields>
 """.strip()
 
+FILTER_FIELDS_TAXONOMY_PROMPT = """
+<filter_fields_taxonomy>
+Below you will find information on how to correctly discover the taxonomy of the user's data.
+
+<key> Field
+
+- Purpose:
+The <key> represents the name of the property on which the filter is applied.
+
+- Type Determination:
+The expected data type can be inferred from the property_type field provided in each property object:
+- "String" indicates the value should be a string.
+- "Numeric" indicates a numeric value.
+- "Boolean" indicates a boolean value.
+- "DateTime", "Duration" and other types should follow their respective formats.
+- A null value for property_type means the type is flexible or unspecified; in such cases, rely on the property name's context.
+</key>
+
+<value> Field
+
+- Purpose:
+The <value> field is an array containing one or more values that the filter should match.
+
+- Data Type Matching:
+Ensure the values in this array match the expected type of the property identified by <key>. For example:
+- For a property with property_type "String", the value should be provided as a string (e.g., ["Mobile"]).
+- For a property with property_type "Numeric", the value should be a number (e.g., [10]).
+- For a property with property_type "Boolean", the value should be either true or false (e.g., [true]).
+
+- Multiple Values:
+The <value> array can contain multiple items when the filter should match any one of several potential values.
+
+
+<supported_operators>
+Supported operators for the String or Numeric types are:
+- equals
+- doesn't equal
+- contains
+- doesn't contain
+- matches regex
+- doesn't match regex
+- is set
+- is not set
+
+Supported operators for the DateTime type are:
+- equals
+- doesn't equal
+- greater than
+- less than
+- is set
+- is not set
+
+Supported operators for the Boolean type are:
+- equals
+- doesn't equal
+- is set
+- is not set
+
+All operators take a single value except for `equals` and `doesn't equal` which can take one or more values.
+</supported_operators>
+
+</filter_fields_taxonomy>
+
+""".strip()
+
+
+HUMAN_IN_THE_LOOP_PROMPT = """
+<human_in_the_loop>
+
+Ask the user for clarification if:
+- The user's question is ambiguous.
+- You can't find matching events or properties.
+- You can't find matching property values.
+- You're unable to build a filter that effectively answers the user's question.
+- Use the `ask_user_for_help` tool to ask the user for clarification.
+
+</human_in_the_loop>
+""".strip()
+
+FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right filtering options. Could you please be more specific about what kind of filters you're looking for? For example:
+- What type of events or actions are you interested in?
+- What properties do you want to filter on?
+- Are you looking for specific values or ranges?"""
+
+REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """I encountered an error while validating the tool input. Here's what went wrong:
+{{{exception}}}
+
+Please help me understand what you're looking for more clearly, and I'll try again.""".strip()
+
+
+USER_FILTER_OPTIONS_PROMPT = """
+Goal: {{{change}}}
+
+Current filters: {{{current_filters}}}
+
+DO NOT CHANGE THE FIELDS THAT ARE NOT MENTIONED IN THE USER'S QUERY. UPDATE ONLY THE FIELDS THAT ARE MENTIONED IN THE USER'S QUERY.
+
+""".strip()
+
+
+## Default response formats and examples
+
+RESPONSE_FORMATS_PROMPT = """
+<response_formats>
+Formats of responses
+1. Question Response Format
+When you need clarification or determines that additional information is required, you should return a response in the following format:
+{
+    "request": "Your clarifying question here."
+}
+2. Filter Response Format
+Once all necessary data is collected, the agent should return the filter in this structured format:
+{
+    "data": {
+        "date_from": "<date_from>",
+        "date_to": "<date_to>",
+        "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],  // Use "gt", "lt", "gte", "lte"
+        "filter_group": {
+            "type": "<FilterLogicalOperator>",
+            "values": [
+            {
+                "type": "<FilterLogicalOperator>",
+                "values": [
+                    {
+                        "key": "<key>",
+                        "type": "<PropertyFilterType>",
+                        "value": ["<value>"],
+                        "operator": "<PropertyOperator>"
+                    },
+                ],
+                ...
+            },
+        ]
+    }
+}
+
+Notes:
+1. Replace <date_from> and <date_to> with valid date strings.
+2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
+3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
+4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
+
+WHEN GENERATING A FILTER BASED ON MORE THAN ONE PROPERTY ALWAYS MAKE SURE TO KEEP THE OLD FILTERS. NEVER REMOVE ANY FILTERS.
+</response_formats>
+
+""".strip()
+
 EXAMPLES_PROMPT = """
 <examples_and_rules>
 ## Examples and Rules
@@ -221,7 +341,7 @@ json
                 "values": [
                     {
                         "key": "$device_type",
-                        "type": "person",
+                        "type": "event",
                         "value": ["Mobile"],
                         "operator": "exact"
                     },
@@ -242,41 +362,12 @@ json
 
 User: "Show me recordings of users who are either mobile OR desktop"
 
-json
-{
-"data": {
-    "date_from": "-5d",
-    "date_to": null,
-    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
-    "filter_group": {
-        "type": "OR",
-        "values": [
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "$device_type",
-                        "type": "person",
-                        "value": ["Mobile"],
-                        "operator": "exact"
-                    }
-                ]
-            },
-            {
-                "type": "AND",
-                "values": [
-                    {
-                        "key": "$device_type",
-                        "type": "person",
-                        "value": ["Desktop"],
-                        "operator": "exact"
-                    }
-                ]
-            }
-        ]
-    }
-}
-}
+```json
+{"data":{"date_from":"-5d","date_to":null,"duration":[{"key":"duration","type":"recording","value":60,"operator":"gt"}],"filter_group":{"type":"OR","values":[{"type":"AND","values":[{"key":"$device_type","type":"person","value":["Mobile"],"operator":"exact"}]},{"type":"AND","values":[{"key":"$device_type","type":"person","value":["Desktop"],"operator":"exact"}]}]}}}
+```
+
+Note: Some default properties, starting with the $ sign, are present in events and entities. For example, `$device_type` can be found under `person` properties and under the `$pageview` (or similar) event.
+
 
 3. **Complex Multi-Filter Example**
 
@@ -376,152 +467,8 @@ json
 PRODUCT_DESCRIPTION_PROMPT = """
 You are an expert at creating filters for PostHog products. Your job is to understand what users want to see in their data and translate that into precise filter configurations.
 Transform natural language requests like "show me users from mobile devices who completed signup" into structured filter objects that will find exactly what they're looking for.
-""".strip()
 
-FILTER_INITIAL_PROMPT = """
-
-{{{product_description_prompt}}}
-
-
-{{{group_property_filter_types_prompt}}}
-
-
-{{{multiple_filters_prompt}}}
-
-
-{{{response_formats_prompt}}}
-
-
-{{{date_fields_prompt}}}
-
-
-{{{filter_logical_operators_prompt}}}
-
-
-{{{examples_prompt}}}
-
-{{{tool_usage_prompt}}}
-
-""".strip()
-
-day = datetime.now().day
-today_date = datetime.now().strftime(f"{day} %B %Y")
-FILTER_INITIAL_PROMPT += f"\nToday is {today_date}."
-
-FILTER_FIELDS_TAXONOMY_PROMPT = f"""
-<taxonomy_info>
-Below you will find information on how to correctly discover the taxonomy of the user's data.
-
-<key> Field
-
-- Purpose:
-The <key> represents the name of the property on which the filter is applied.
-
-- Type Determination:
-The expected data type can be inferred from the property_type field provided in each property object:
-- "String" indicates the value should be a string.
-- "Numeric" indicates a numeric value.
-- "Boolean" indicates a boolean value.
-- "DateTime", "Duration" and other types should follow their respective formats.
-- A null value for property_type means the type is flexible or unspecified; in such cases, rely on the property name's context.
-</key>
-
-<value> Field
-
-- Purpose:
-The <value> field is an array containing one or more values that the filter should match.
-
-- Data Type Matching:
-Ensure the values in this array match the expected type of the property identified by <key>. For example:
-- For a property with property_type "String", the value should be provided as a string (e.g., ["Mobile"]).
-- For a property with property_type "Numeric", the value should be a number (e.g., [10]).
-- For a property with property_type "Boolean", the value should be either true or false (e.g., [true]).
-
-- Multiple Values:
-The <value> array can contain multiple items when the filter should match any one of several potential values.
-
-
-<supported_operators>
-Supported operators for the String or Numeric types are:
-- equals
-- doesn't equal
-- contains
-- doesn't contain
-- matches regex
-- doesn't match regex
-- is set
-- is not set
-
-Supported operators for the DateTime type are:
-- equals
-- doesn't equal
-- greater than
-- less than
-- is set
-- is not set
-
-Supported operators for the Boolean type are:
-- equals
-- doesn't equal
-- is set
-- is not set
-
-All operators take a single value except for `equals` and `doesn't equal` which can take one or more values.
-</supported_operators>
-
-
-<list_of_property_and_event_names>
-The following is a list of property names, event names and their definitions.
-If you find the property name the user is asking for in the list, use it without calling a tool.
-If you cannot find the property name in the list, call the tool to get the list of properties for the entity or event.
-
-
-SOME OF THE AVAILABLE PROPERTIES, EVENTS and their definitions:
-```json
-{json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP, indent=2)}
-```
-#### SOME OF THE AVAILABLE CAMPAIGN PROPERTIES and their definitions:
-
-```json
-{json.dumps(CAMPAIGN_PROPERTIES, indent=2)}
-```
-
-</list_of_property_and_event_names>
-
-</taxonomy_info>
-
-""".strip()
-
-HUMAN_IN_THE_LOOP_PROMPT = """
-<human_in_the_loop>
-
-Ask the user for clarification if:
-- The user's question is ambiguous.
-- You can't find matching events or properties.
-- You can't find matching property values.
-- You're unable to build a filter that effectively answers the user's question.
-- Use the `ask_user_for_help` tool to ask the user for clarification.
-
-</human_in_the_loop>
-""".strip()
-
-FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right filtering options. Could you please be more specific about what kind of filters you're looking for? For example:
-- What type of events or actions are you interested in?
-- What properties do you want to filter on?
-- Are you looking for specific values or ranges?"""
-
-REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """I encountered an error while validating the tool input. Here's what went wrong:
-{{{exception}}}
-
-Please help me understand what you're looking for more clearly, and I'll try again.""".strip()
-
-
-USER_FILTER_OPTIONS_PROMPT = """
-Goal: {{{change}}}
-
-Current filters: {{{current_filters}}}
-
-DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
-
-CRITICAL: Always use the enum format. For example PropertyOperator.Exact or directly 'exact'. DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
+<session_replay_details>
+A session recording is a timeline of many events along with related entities a user has interacted with (directly or indirectly). When you apply a filter using an event property, the system returns any recording that contains at least one event matching that property/value pair.
+</session_replay_details>
 """.strip()

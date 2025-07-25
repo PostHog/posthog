@@ -56,11 +56,9 @@ from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    UnsupportedFileFormatError,
-)
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = [
+NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
@@ -71,13 +69,11 @@ NON_RETRYABLE_ERROR_TYPES = [
     "EndpointConnectionError",
     # User provided an invalid S3 key
     "InvalidS3Key",
-    # All consumers failed with non-retryable errors.
-    "RecordBatchConsumerNonRetryableExceptionGroup",
     # Invalid S3 endpoint URL
     "InvalidS3EndpointError",
     # Invalid file_format input
     "UnsupportedFileFormatError",
-]
+)
 
 FILE_FORMAT_EXTENSIONS = {
     "Parquet": "parquet",
@@ -99,6 +95,13 @@ SUPPORTED_COMPRESSIONS = {
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
+
+
+class UnsupportedFileFormatError(Exception):
+    """Raised when an unsupported file format is requested."""
+
+    def __init__(self, file_format: str):
+        super().__init__(f"'{file_format}' is not a supported format for S3 batch exports.")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -152,7 +155,7 @@ def get_s3_key(inputs: S3InsertInputs, file_number: int = 0) -> str:
     try:
         file_extension = FILE_FORMAT_EXTENSIONS[inputs.file_format]
     except KeyError:
-        raise UnsupportedFileFormatError(inputs.file_format, "S3")
+        raise UnsupportedFileFormatError(inputs.file_format)
 
     base_file_name = f"{inputs.data_interval_start}-{inputs.data_interval_end}"
     # to maintain backwards compatibility with the old file naming scheme
@@ -326,12 +329,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             insert_into_s3_activity_from_stage,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
         )
         return
 
 
 @activity.defn
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
     """Activity to batch export data to a customer's S3.
 
