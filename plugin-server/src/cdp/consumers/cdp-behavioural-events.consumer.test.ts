@@ -1,10 +1,11 @@
 import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 
-import { truncateBehavioralCounters } from '../../../tests/helpers/cassandra'
+import { truncateBehavioralCounters, truncatePersonEventOccurrences } from '../../../tests/helpers/cassandra'
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioural-counter.repository'
+import { PersonEventOccurrenceRepository } from '../../utils/db/cassandra/person-event-occurrence.repository'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
@@ -17,6 +18,10 @@ class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
 
     public getBehavioralCounterRepository(): BehavioralCounterRepository | null {
         return this.behavioralCounterRepository
+    }
+
+    public getPersonEventOccurrenceRepository(): PersonEventOccurrenceRepository | null {
+        return this.personEventOccurrenceRepository
     }
 }
 
@@ -114,9 +119,11 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
         await cassandra.connect()
         const repository = processor.getBehavioralCounterRepository()!
+        const occurrenceRepository = processor.getPersonEventOccurrenceRepository()!
         await truncateBehavioralCounters(cassandra)
+        await truncatePersonEventOccurrences(cassandra)
 
-        return { hub, team, processor, cassandra, repository }
+        return { hub, team, processor, cassandra, repository, occurrenceRepository }
     }
 
     // Helper function to setup test environment with Cassandra disabled
@@ -129,6 +136,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         // Processor should not have initialized Cassandra
         expect(processor.getCassandraClient()).toBeNull()
         expect(processor.getBehavioralCounterRepository()).toBeNull()
+        expect(processor.getPersonEventOccurrenceRepository()).toBeNull()
 
         return { hub, team, processor }
     }
@@ -444,17 +452,20 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 personId,
             }
 
-            // Spy on the writeBehavioralCounters method to ensure it's never called when Cassandra is disabled
-            const writeSpy = jest.spyOn(processor as any, 'writeBehavioralCounters')
+            // Spy on the write methods to ensure they're never called when Cassandra is disabled
+            const writeCountersSpy = jest.spyOn(processor as any, 'writeBehavioralCounters')
+            const writeOccurrencesSpy = jest.spyOn(processor as any, 'writePersonEventOccurrences')
 
             // Act
             await processor.processBatch([behavioralEvent])
 
-            // Assert - writeBehavioralCounters should never be called when Cassandra is disabled
-            expect(writeSpy).toHaveBeenCalledTimes(0)
+            // Assert - write methods should never be called when Cassandra is disabled
+            expect(writeCountersSpy).toHaveBeenCalledTimes(0)
+            expect(writeOccurrencesSpy).toHaveBeenCalledTimes(0)
 
-            // Double-check repository is still null
+            // Double-check repositories are still null
             expect(processor.getBehavioralCounterRepository()).toBeNull()
+            expect(processor.getPersonEventOccurrenceRepository()).toBeNull()
         })
     })
 })

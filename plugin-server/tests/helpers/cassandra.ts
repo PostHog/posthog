@@ -10,3 +10,10 @@ import { Client as CassandraClient } from 'cassandra-driver'
 export async function truncateBehavioralCounters(cassandra: CassandraClient): Promise<void> {
     await cassandra.execute('TRUNCATE behavioral_event_counters')
 }
+
+/**
+ * Truncates the person_event_occurrences table (useful for tests)
+ */
+export async function truncatePersonEventOccurrences(cassandra: CassandraClient): Promise<void> {
+    await cassandra.execute('TRUNCATE person_event_occurrences')
+}

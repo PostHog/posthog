@@ -209,6 +209,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
+    USE_HOG_WORKER_THREADS: boolean
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     // Redis url pretty much only used locally / self hosted
