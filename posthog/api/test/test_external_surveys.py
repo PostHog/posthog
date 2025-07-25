@@ -52,14 +52,14 @@ class TestExternalSurveys(APIBaseTest):
         """Test that invalid survey IDs are rejected"""
         # Invalid UUID format
         response = self.client.get(f"/external_surveys/invalid-id/")
-        self.assertEqual(response.status_code, 400)
-        self.assertContains(response, "Invalid request", status_code=400)
+        assert response.status_code == 400
+        assert "Invalid request" in response.content.decode()
 
         # Valid UUID format but non-existent survey
         fake_uuid = str(uuid.uuid4())
         response = self.client.get(f"/external_surveys/{fake_uuid}/")
-        self.assertEqual(response.status_code, 404)
-        self.assertContains(response, "Survey not available", status_code=404)
+        assert response.status_code == 404
+        assert "Survey not available" in response.content.decode()
 
     def test_only_external_surveys_accessible(self):
         """Test that only external survey types can be accessed via public URL"""
@@ -67,58 +67,58 @@ class TestExternalSurveys(APIBaseTest):
         popover_survey = self.create_external_survey(type=Survey.SurveyType.POPOVER, name="Popover Survey")
 
         response = self.client.get(f"/external_surveys/{popover_survey.id}/")
-        self.assertEqual(response.status_code, 404)
-        self.assertContains(response, "Survey not receiving responses", status_code=404)
+        assert response.status_code == 404
+        assert "Survey not receiving responses" in response.content.decode()
 
     def test_archived_surveys_not_accessible(self):
         """Test that archived surveys return 404"""
         survey = self.create_external_survey(archived=True)
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 404)
-        self.assertContains(response, "Survey not receiving responses", status_code=404)
+        assert response.status_code == 404
+        assert "Survey not receiving responses" in response.content.decode()
 
     def test_survey_must_be_running(self):
         """Test survey availability based on start/end dates"""
         # Survey not started yet
         future_survey = self.create_external_survey(start_date=datetime.now(UTC) + timedelta(days=1))
         response = self.client.get(f"/external_surveys/{future_survey.id}/")
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
         # Survey ended
         ended_survey = self.create_external_survey(
             start_date=datetime.now(UTC) - timedelta(days=2), end_date=datetime.now(UTC) - timedelta(days=1)
         )
         response = self.client.get(f"/external_surveys/{ended_survey.id}/")
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
         # Survey never started
         never_started_survey = self.create_external_survey(start_date=None)
         response = self.client.get(f"/external_surveys/{never_started_survey.id}/")
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
     def test_security_headers_present(self):
         """Test that proper security headers are set"""
         survey = self.create_external_survey()
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Check security headers
-        self.assertEqual(response["X-Frame-Options"], "DENY")
-        self.assertIn("Cache-Control", response)
-        self.assertIn("Vary", response)
+        assert response["X-Frame-Options"] == "DENY"
+        assert "Cache-Control" in response
+        assert "Vary" in response
 
     def test_no_sensitive_data_exposed(self):
         """Test that sensitive survey data is not exposed in the template"""
         survey = self.create_external_survey(description="SENSITIVE: Internal team feedback for Q4 planning")
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Description should not be in the response
-        self.assertNotContains(response, "SENSITIVE")
-        self.assertNotContains(response, "Internal team feedback")
+        assert "SENSITIVE" not in response.content.decode()
+        assert "Internal team feedback" not in response.content.decode()
 
     # FUNCTIONALITY TESTS
 
@@ -127,16 +127,17 @@ class TestExternalSurveys(APIBaseTest):
         survey = self.create_external_survey()
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Check that essential elements are present
-        self.assertContains(response, survey.name)
-        self.assertContains(response, str(survey.id))
-        self.assertContains(response, "posthog-survey-container")
+        content = response.content.decode()
+        assert survey.name in content
+        assert str(survey.id) in content
+        assert "posthog-survey-container" in content
 
         # Check PostHog configuration is injected
-        self.assertContains(response, "projectConfig")
-        self.assertContains(response, survey.team.api_token)
+        assert "projectConfig" in content
+        assert survey.team.api_token in content
 
     def test_survey_appearance_configuration(self):
         """Test that survey appearance settings are properly injected"""
@@ -145,35 +146,35 @@ class TestExternalSurveys(APIBaseTest):
         )
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Check appearance data is injected
-        self.assertContains(response, "surveyAppearance")
-        self.assertContains(response, "#ff0000")
-        self.assertContains(response, "#00ff00")
+        content = response.content.decode()
+        assert "surveyAppearance" in content
+        assert "#ff0000" in content
+        assert "#00ff00" in content
 
     def test_project_config_injection(self):
         """Test that project configuration is properly injected"""
         survey = self.create_external_survey()
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         # Verify project config contains required fields
         content = response.content.decode()
-        self.assertIn("projectConfig", content)
-        self.assertIn(survey.team.api_token, content)
+        assert "projectConfig" in content
+        assert survey.team.api_token in content
 
         # Extract and validate project config JSON
         import re
 
         config_match = re.search(r"projectConfig = ({.*?});", content)
-        self.assertIsNotNone(config_match)
-        assert config_match is not None  # Type guard for mypy
+        assert config_match is not None
 
         project_config = json.loads(config_match.group(1))
-        self.assertIn("api_host", project_config)
-        self.assertIn("token", project_config)
+        assert "api_host" in project_config
+        assert "token" in project_config
 
     # PERFORMANCE & CACHING TESTS
 
@@ -182,11 +183,11 @@ class TestExternalSurveys(APIBaseTest):
         survey = self.create_external_survey()
 
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         cache_control = response.get("Cache-Control", "")
-        self.assertIn("public", cache_control)
-        self.assertIn("max-age=300", cache_control)  # 5 minutes as per CACHE_TIMEOUT_SECONDS
+        assert "public" in cache_control
+        assert "max-age=300" in cache_control  # 5 minutes as per CACHE_TIMEOUT_SECONDS
 
     # ERROR HANDLING TESTS
 
@@ -199,8 +200,8 @@ class TestExternalSurveys(APIBaseTest):
             fake_uuid = str(uuid.uuid4())
             response = self.client.get(f"/external_surveys/{fake_uuid}/")
 
-            self.assertEqual(response.status_code, 503)
-            self.assertContains(response, "Service unavailable", status_code=503)
+            assert response.status_code == 503
+            assert "Service unavailable" in response.content.decode()
             mock_logger.exception.assert_called_once()
 
     @patch("posthog.api.survey.capture_exception")
@@ -222,7 +223,7 @@ class TestExternalSurveys(APIBaseTest):
         survey = self.create_external_survey()
 
         response = self.client.options(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_csrf_exemption(self):
         """Test that the view is properly exempt from CSRF protection"""
@@ -230,7 +231,7 @@ class TestExternalSurveys(APIBaseTest):
 
         # This should work without CSRF token
         response = self.client.get(f"/external_surveys/{survey.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
 
 class TestExternalSurveysURLs(TestCase):
@@ -246,4 +247,4 @@ class TestExternalSurveysURLs(TestCase):
         # Test that the URL pattern matches correctly (should return 404 for non-existent survey)
         response = client.get(f"/external_surveys/{survey_id}/")
         # We expect 404 since survey doesn't exist, but URL should be routed correctly
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
