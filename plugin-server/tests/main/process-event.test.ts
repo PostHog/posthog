@@ -141,7 +141,7 @@ let state = { currentDistinctId: 'anonymous_id' }
 describe('process-event', () => {
     beforeAll(async () => {
         await resetKafka(TEST_CONFIG).catch((error) => {
-            logger.error('Resetting kafka failed. Continuing...', { error })
+            console.log('Resetting kafka failed. Continuing...', { error })
         })
     })
 
@@ -178,7 +178,7 @@ describe('process-event', () => {
             // Always start with an anonymous state
             state = { currentDistinctId: 'anonymous_id' }
         } catch (error) {
-            logger.error('🛑', 'Failed in beforeEach ', { error, stack: error.stack })
+            console.log('🛑', 'Failed in beforeEach ', { error, stack: error.stack })
             throw error
         }
     })
