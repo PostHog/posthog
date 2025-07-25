@@ -13,23 +13,26 @@ test.describe('insight variables', () => {
         const cardForDefaultVariable = page
             .getByText('Variable default')
             .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
+        await cardForDefaultVariable.scrollIntoViewIfNeeded()
         await expect(cardForDefaultVariable.locator('.BoldNumber')).toHaveText('10')
 
-        // :FIXME: This override gets cancelled out when setting a temporary override.
+        // // :FIXME: This override gets cancelled out when setting a temporary override.
         // const cardForDashboardOverride = page
         //     .getByText('Dashboard override')
         //     .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
-        // await cardForDashboardOverride.highlight()
+        // await cardForDashboardOverride.scrollIntoViewIfNeeded()
         // await expect(cardForDashboardOverride.locator('.BoldNumber')).toHaveText('20')
 
         const cardForInsightOverride = page
             .getByText('Insight override')
             .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
+        await cardForInsightOverride.scrollIntoViewIfNeeded()
         await expect(cardForInsightOverride.locator('.BoldNumber')).toHaveText('30')
 
         const cardForURLOverride = page
             .getByText('Temporary override')
             .locator('xpath=ancestor::*[contains(@class, "InsightCard")]')
+        await cardForURLOverride.scrollIntoViewIfNeeded()
         await expect(cardForURLOverride.locator('.BoldNumber')).toHaveText('40')
     })
 })
