@@ -28,6 +28,7 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
         } catch (error) {
             console.log('ClickHouse not ready...', connectionAttempts)
             connectionAttempts++
+            await delay(500)
         }
     }
     await Promise.all([
