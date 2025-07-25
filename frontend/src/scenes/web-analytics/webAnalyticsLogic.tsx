@@ -21,13 +21,11 @@ import {
     updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
@@ -42,6 +40,7 @@ import {
     DataTableNode,
     EventsNode,
     InsightVizNode,
+    MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
     QueryLogTags,
@@ -86,6 +85,13 @@ import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import posthog from 'posthog-js'
+import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
+import {
+    getOrderBy,
+    orderArrayByPreference,
+    getSortedColumnsByArray,
+    isDraftConversionGoalColumn,
+} from './tabs/marketing-analytics/frontend/logic/utils'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -191,10 +197,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
-    [TileId.MARKETING]: 16,
 
     // Marketing Tiles
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
+    [TileId.MARKETING]: 1,
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -442,10 +448,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
             [
                 'loading',
@@ -454,6 +456,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'compareFilter as marketingCompareFilter',
                 'dateFilter as marketingDateFilter',
             ],
+            marketingAnalyticsTableLogic,
+            ['query', 'defaultColumns'],
         ],
     })),
     actions({
@@ -2488,27 +2492,46 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         campaignCostsBreakdown: [
             (s) => [
                 s.loading,
+                s.query,
                 s.marketingDateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
                 s.draftConversionGoal,
-                s.conversion_goals,
+                s.defaultColumns,
             ],
             (
                 loading: boolean,
+                query: DataTableNode,
                 marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
                 draftConversionGoal: ConversionGoalFilter | null,
-                conversionGoals: ConversionGoalFilter[]
+                defaultColumns: string[]
             ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
 
+                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                const columnsWithDraftConversionGoal = [
+                    ...(marketingQuery?.select || defaultColumns).filter(
+                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
+                    ),
+                    ...(draftConversionGoal
+                        ? [
+                              draftConversionGoal.conversion_goal_name,
+                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                          ]
+                        : []),
+                ]
+                const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
+                const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
+                const orderBy = getOrderBy(marketingQuery, sortedColumns)
                 return {
+                    ...query,
                     kind: NodeKind.DataTableNode,
                     source: {
+                        ...marketingQuery,
                         kind: NodeKind.MarketingAnalyticsTableQuery,
                         dateRange: {
                             date_from: marketingDateFilter.dateFrom,
@@ -2518,12 +2541,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         filterTestAccounts: filterTestAccounts,
                         draftConversionGoal: draftConversionGoal,
                         limit: 200,
+                        orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        select: [
-                            draftConversionGoal ? draftConversionGoal.conversion_goal_name : null,
-                            ...conversionGoals.map((goal) => goal.conversion_goal_name),
-                        ].filter(isNotNil),
-                    } as MarketingAnalyticsTableQuery,
+                        select: orderedColumns,
+                    },
                     full: true,
                     embedded: false,
                     showOpenEditorButton: false,

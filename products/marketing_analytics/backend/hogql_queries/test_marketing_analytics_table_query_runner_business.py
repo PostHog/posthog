@@ -459,7 +459,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         ]
         self._setup_team_source_configs(source_configs)
 
-        query = self._create_basic_query(orderBy=[[4, "DESC"]])
+        query = self._create_basic_query(orderBy=[["Total Clicks", "DESC"]])
         runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()
@@ -877,7 +877,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             dateRange={"date_from": "2024-11-01", "date_to": "2024-11-30"},
             limit=100,
             offset=0,
-            orderBy=[[2, "DESC"]],
+            orderBy=[["Total Cost", "DESC"]],
             properties=[],
         )
 
@@ -987,10 +987,10 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 @pytest.mark.parametrize(
     "test_name,order_by,expected_sort_reverse",
     [
-        ("cost", [[3, "DESC"]], True),
-        ("clicks", [[4, "DESC"]], True),
-        ("impressions", [[5, "DESC"]], True),
-        ("campaign", [[1, "ASC"]], False),
+        ("cost", [["Total Cost", "DESC"]], True),
+        ("clicks", [["Total Clicks", "DESC"]], True),
+        ("impressions", [["Total Impressions", "DESC"]], True),
+        ("campaign", [["Campaign", "ASC"]], False),
     ],
 )
 def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse):
