@@ -1,4 +1,4 @@
-import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { useEffect } from 'react'
@@ -6,11 +6,16 @@ import { useEffect } from 'react'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
+import { EditorContent, useEditor } from '@tiptap/react'
+import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
+import StarterKit from '@tiptap/starter-kit'
+import ExtensionDocument from '@tiptap/extension-document'
+import ExtensionPlaceholder from '@tiptap/extension-placeholder'
+import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
-    const { key, composedComment, commentsLoading, replyingCommentId, itemContext } = useValues(commentsLogic(props))
-    const { setComposedComment, sendComposedContent, setReplyingComment, setComposerRef, clearItemContext } =
-        useActions(commentsLogic(props))
+    const { key, composedComment, replyingCommentId, itemContext } = useValues(commentsLogic(props))
+    const { sendComposedContent, setReplyingComment, clearItemContext } = useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -19,19 +24,11 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     useEffect(() => {
         // Whenever the discussion context changes or we fully unmount we clear the item context
         return () => clearItemContext()
-    }, [key])
+    }, [key, clearItemContext])
 
     return (
         <div className="deprecated-space-y-2">
-            <LemonTextAreaMarkdown
-                data-attr="comment-composer"
-                placeholder={placeholder}
-                value={composedComment}
-                onChange={setComposedComment}
-                disabled={commentsLoading}
-                onPressCmdEnter={sendComposedContent}
-                ref={setComposerRef}
-            />
+            <Editor placeholder={placeholder} />
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
                 {replyingCommentId ? (
@@ -55,5 +52,31 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 </LemonButton>
             </div>
         </div>
+    )
+}
+
+const Editor = ({ placeholder }: { placeholder: string }): JSX.Element => {
+    const _editor = useEditor({
+        extensions: [
+            ExtensionDocument,
+            StarterKit.configure({
+                document: false,
+                gapcursor: false,
+            }),
+            ExtensionPlaceholder.configure({
+                placeholder,
+            }),
+            RichContentNodeMention,
+            MentionsExtension,
+        ],
+    })
+
+    return (
+        <>
+            <EditorContent editor={_editor} className="bg-bg-light border rounded mt-2">
+                {/* {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />} */}
+            </EditorContent>
+        </>
     )
 }

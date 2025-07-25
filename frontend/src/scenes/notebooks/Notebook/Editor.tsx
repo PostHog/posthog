@@ -27,7 +27,6 @@ import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
-import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
@@ -39,11 +38,12 @@ import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { InlineMenu } from './InlineMenu'
-import { MentionsExtension } from './MentionsExtension'
+import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { notebookLogic } from './notebookLogic'
 import { SlashCommandsExtension } from './SlashCommands'
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
+import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -68,7 +68,7 @@ export function Editor(): JSX.Element {
         if (editor) {
             setPreviousNode(getNodeBeforeActiveNode(editor))
         }
-    }, [editorRef.current])
+    }, [editorRef.current, setPreviousNode])
 
     const _editor = useEditor({
         extensions: [
@@ -127,7 +127,7 @@ export function Editor(): JSX.Element {
             NotebookNodeSurvey,
             NotebookNodeImage,
             NotebookNodeProperties,
-            NotebookNodeMention,
+            RichContentNodeMention,
             NotebookNodeEmbed,
             SlashCommandsExtension,
             MentionsExtension,
