@@ -53,7 +53,7 @@ class CommentSerializer(serializers.ModelSerializer):
                 raise
 
             if validated_data.keys():
-                if validated_data.get("content"):
+                if validated_data.get("content") or validated_data.get("rich_content"):
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_instance = super().update(locked_instance, validated_data)

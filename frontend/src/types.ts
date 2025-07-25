@@ -4458,6 +4458,7 @@ export enum ActivityScope {
 export type CommentType = {
     id: string
     content: string
+    rich_content?: any | null
     version: number
     created_at: string
     created_by: UserBasicType | null

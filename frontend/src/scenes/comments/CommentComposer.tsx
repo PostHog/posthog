@@ -1,4 +1,4 @@
-import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonTipTapMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { useEffect } from 'react'
@@ -8,9 +8,17 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
-    const { key, composedComment, commentsLoading, replyingCommentId, itemContext } = useValues(commentsLogic(props))
-    const { setComposedComment, sendComposedContent, setReplyingComment, setComposerRef, clearItemContext } =
-        useActions(commentsLogic(props))
+    const { key, composedComment, composedRichContent, commentsLoading, replyingCommentId, itemContext } = useValues(
+        commentsLogic(props)
+    )
+    const {
+        setComposedComment,
+        setComposedRichContent,
+        sendComposedContent,
+        setReplyingComment,
+        setComposerRef,
+        clearItemContext,
+    } = useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -23,11 +31,13 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
 
     return (
         <div className="deprecated-space-y-2">
-            <LemonTextAreaMarkdown
+            <LemonTipTapMarkdown
                 data-attr="comment-composer"
                 placeholder={placeholder}
                 value={composedComment}
+                richContent={composedRichContent}
                 onChange={setComposedComment}
+                onRichContentChange={setComposedRichContent}
                 disabled={commentsLoading}
                 onPressCmdEnter={sendComposedContent}
                 ref={setComposerRef}
@@ -47,7 +57,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 <LemonButton
                     type="primary"
                     onClick={sendComposedContent}
-                    disabledReason={!composedComment ? 'No message' : null}
+                    disabledReason={!composedComment && !composedRichContent ? 'No message' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                     data-attr="discussions-comment"
                 >

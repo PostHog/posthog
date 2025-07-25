@@ -63,6 +63,13 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             detail=Detail(
                 # name=TODO,
                 # short_id=TODO,
-                changes=[Change(type="Comment", field="content", action="created", after=instance.content)],
+                changes=[
+                    Change(
+                        type="Comment",
+                        field="content",
+                        action="created",
+                        after=instance.rich_content or instance.content,
+                    )
+                ],
             ),
         )

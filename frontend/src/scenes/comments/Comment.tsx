@@ -1,15 +1,43 @@
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonTipTapMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useEffect, useRef } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Image from '@tiptap/extension-image'
+import Typography from '@tiptap/extension-typography'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
 import { commentsLogic, CommentWithRepliesType } from './commentsLogic'
+
+function RichContentViewer({ richContent }: { richContent: any }): JSX.Element {
+    const editor = useEditor(
+        {
+            extensions: [
+                StarterKit.configure({}),
+                Image.configure({
+                    inline: true,
+                    allowBase64: true,
+                }),
+                Typography,
+            ],
+            content: richContent,
+            editable: false,
+        },
+        [richContent]
+    )
+
+    if (!editor) {
+        return <div>Loading...</div>
+    }
+
+    return <EditorContent editor={editor} />
+}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -72,18 +100,26 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                             <LemonButton icon={<IconEllipsis />} size="xsmall" />
                         </LemonMenu>
                     </div>
-                    <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
+                    {comment.rich_content ? (
+                        <RichContentViewer richContent={comment.rich_content} />
+                    ) : (
+                        <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
+                    )}
                     {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
                 </div>
             </div>
 
             {editingComment?.id === comment.id ? (
                 <div className="deprecated-space-y-2 border-t p-2">
-                    <LemonTextAreaMarkdown
+                    <LemonTipTapMarkdown
                         data-attr="comment-composer"
                         placeholder="Edit comment"
                         value={editingComment.content}
+                        richContent={editingComment.rich_content}
                         onChange={(value) => setEditingComment({ ...editingComment, content: value })}
+                        onRichContentChange={(richContent) =>
+                            setEditingComment({ ...editingComment, rich_content: richContent })
+                        }
                         disabled={commentsLoading}
                         onPressCmdEnter={persistEditedComment}
                     />
@@ -100,7 +136,11 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                             type="primary"
                             onClick={persistEditedComment}
                             disabledReason={
-                                !editingComment.content ? 'No message' : commentsLoading ? 'Saving...' : null
+                                !editingComment.content && !editingComment.rich_content
+                                    ? 'No message'
+                                    : commentsLoading
+                                    ? 'Saving...'
+                                    : null
                             }
                             sideIcon={<KeyboardShortcut command enter />}
                         >
