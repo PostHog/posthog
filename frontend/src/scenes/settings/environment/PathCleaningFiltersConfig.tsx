@@ -2,6 +2,8 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { PathCleanFiltersTable } from 'lib/components/PathCleanFilters/PathCleanFiltersTable'
+import { PathCleanFilterAddItemButton } from 'lib/components/PathCleanFilters/PathCleanFilterAddItemButton'
 import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathCleaningRulesDebugger'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -52,7 +54,20 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     const cleanedTestPath = cleanPathWithRegexes(testValue, currentTeam.path_cleaning_filters ?? [])
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
 
+    const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
     const useDebuggerPanel = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
+
+    const updateFilters = (filters: PathCleaningFilter[]): void => {
+        updateCurrentTeam({ path_cleaning_filters: filters })
+    }
+
+    const onAddFilter = (filter: PathCleaningFilter): void => {
+        const filterWithOrder = {
+            ...filter,
+            order: (currentTeam.path_cleaning_filters || []).length,
+        }
+        updateFilters([...(currentTeam.path_cleaning_filters || []), filterWithOrder])
+    }
 
     return (
         <>
@@ -87,10 +102,20 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                     cleaning is switched on in Product and Web Analytics.
                 </b>
             </p>
-            <PathCleanFilters
-                filters={currentTeam.path_cleaning_filters}
-                setFilters={(filters) => updateCurrentTeam({ path_cleaning_filters: filters })}
-            />
+
+            {useTableUI ? (
+                <div className="flex flex-col gap-4">
+                    <PathCleanFiltersTable
+                        filters={currentTeam.path_cleaning_filters || []}
+                        setFilters={updateFilters}
+                    />
+                    <div>
+                        <PathCleanFilterAddItemButton onAdd={onAddFilter} />
+                    </div>
+                </div>
+            ) : (
+                <PathCleanFilters filters={currentTeam.path_cleaning_filters} setFilters={updateFilters} />
+            )}
 
             <p className="mt-4">Wanna test what your cleaned path will look like? Try them out here.</p>
             <div className="flex flex-col sm:flex-row gap-2 items-center justify-center">
