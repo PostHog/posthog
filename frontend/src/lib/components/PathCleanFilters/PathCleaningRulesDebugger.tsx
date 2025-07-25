@@ -84,6 +84,12 @@ export function PathCleaningRulesDebugger({
                                                 </span>
                                             </div>
                                         </div>
+                                        <div className="flex items-center flex-1 gap-2">
+                                            <span className="text-sm font-semibold text-muted-alt w-16">Output:</span>
+                                            <span className="font-mono text-sm">
+                                                {parseAliasToReadable(step.outputPath)}
+                                            </span>
+                                        </div>
                                         <div className="flex items-center gap-2">
                                             {step.wasModified ? (
                                                 <span className="text-xs text-success font-semibold bg-green-100 px-2 py-1 rounded">

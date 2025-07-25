@@ -1,9 +1,17 @@
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent,
+} from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconPencil, IconSort, IconTrash } from '@posthog/icons'
+import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { isValidRegexp } from 'lib/utils/regexp'
@@ -13,6 +21,7 @@ import { PathCleaningFilter } from '~/types'
 
 import { PathRegexModal } from './PathRegexModal'
 import { parseAliasToReadable } from './PathCleanFilterItem'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
 export interface PathCleanFiltersTableProps {
     filters?: PathCleaningFilter[]
@@ -70,7 +79,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                         {...attributes}
                         {...listeners}
                     >
-                        <IconSort className="text-muted-alt" />
+                        <SortableDragIcon className="text-muted-alt" />
                     </div>
                 </td>
                 <td className="p-2 w-12 text-center text-muted font-medium">{index + 1}</td>
@@ -151,7 +160,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
         setIsDragging(true)
     }
 
-    const handleDragEnd = (event: any): void => {
+    const handleDragEnd = (event: DragEndEvent): void => {
         setIsDragging(false)
         const { active, over } = event
 
