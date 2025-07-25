@@ -6,16 +6,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
-import {
-    Database,
-    Hub,
-    InternalPerson,
-    PipelineEvent,
-    PluginsServerConfig,
-    ProjectId,
-    RawClickHouseEvent,
-    Team,
-} from '../types'
+import { Hub, InternalPerson, PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
@@ -1278,10 +1269,10 @@ describe('Event Pipeline E2E tests', () => {
                     test_name: testName,
                 })
             )
-            const distinctIdsPersons = await hub.db.fetchDistinctIds(
-                { id: persons[0].id, team_id: team.id } as InternalPerson,
-                Database.Postgres
-            )
+            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+                id: persons[0].id,
+                team_id: team.id,
+            } as InternalPerson)
             expect(distinctIdsPersons.length).toBe(3)
             // Except distinctids to match the ids, in any order
             expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
@@ -1393,10 +1384,10 @@ describe('Event Pipeline E2E tests', () => {
                     test_name: testName,
                 })
             )
-            const distinctIdsPersons = await hub.db.fetchDistinctIds(
-                { id: persons[0].id, team_id: team.id } as InternalPerson,
-                Database.Postgres
-            )
+            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+                id: persons[0].id,
+                team_id: team.id,
+            } as InternalPerson)
             expect(distinctIdsPersons.length).toBe(3)
             // Except distinctids to match the ids, in any order
             expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
@@ -1509,10 +1500,10 @@ describe('Event Pipeline E2E tests', () => {
                     test_name: testName,
                 })
             )
-            const distinctIdsPersons = await hub.db.fetchDistinctIds(
-                { id: persons[0].id, team_id: team.id } as InternalPerson,
-                Database.Postgres
-            )
+            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+                id: persons[0].id,
+                team_id: team.id,
+            } as InternalPerson)
             expect(distinctIdsPersons.length).toBe(3)
             // Except distinctids to match the ids, in any order
             expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
@@ -1653,19 +1644,19 @@ describe('Event Pipeline E2E tests', () => {
                 )
                 const person1 = persons.find((person) => person.properties.name === 'User 1')!
                 const person2 = persons.find((person) => person.properties.name === 'User 2')!
-                const distinctIdsPersons1 = await hub.db.fetchDistinctIds(
-                    { id: person1.id, team_id: team.id } as InternalPerson,
-                    Database.Postgres
-                )
+                const distinctIdsPersons1 = await hub.db.fetchDistinctIds({
+                    id: person1.id,
+                    team_id: team.id,
+                } as InternalPerson)
                 expect(distinctIdsPersons1.length).toBe(1)
                 // Except distinctids to match the ids, in any order
                 expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
                     expect.arrayContaining([user1DistinctId])
                 )
-                const distinctIdsPersons2 = await hub.db.fetchDistinctIds(
-                    { id: person2.id, team_id: team.id } as InternalPerson,
-                    Database.Postgres
-                )
+                const distinctIdsPersons2 = await hub.db.fetchDistinctIds({
+                    id: person2.id,
+                    team_id: team.id,
+                } as InternalPerson)
                 expect(distinctIdsPersons2.length).toBe(2)
                 // Except distinctids to match the ids, in any order
                 expect(distinctIdsPersons2.map((distinctId) => distinctId.distinct_id)).toEqual(

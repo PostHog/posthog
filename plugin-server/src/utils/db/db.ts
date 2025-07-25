@@ -8,14 +8,11 @@ import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
-    ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePersonDistinctId2,
     ClickHouseTimestamp,
     Cohort,
     CohortPeople,
-    Database,
-    DeadLetterQueueEvent,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -24,32 +21,27 @@ import {
     PersonDistinctId,
     Plugin,
     PluginConfig,
-    PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    RawClickHouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
-    RawSessionRecordingEvent,
     Team,
     TeamId,
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { PersonUpdate } from '../../worker/ingestion/persons/person-update-batch'
-import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
 import {
     castTimestampOrNow,
-    escapeClickHouseString,
     NoRowsUpdatedError,
     RaceConditionError,
     sanitizeSqlIdentifier,
@@ -754,46 +746,18 @@ export class DB {
 
     // PersonDistinctId
     // testutil
-    public async fetchDistinctIds(person: InternalPerson, database?: Database.Postgres): Promise<PersonDistinctId[]>
-    public async fetchDistinctIds(
-        person: InternalPerson,
-        database: Database.ClickHouse
-    ): Promise<ClickHousePersonDistinctId2[]>
-    public async fetchDistinctIds(
-        person: InternalPerson,
-        database: Database = Database.Postgres
-    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
-        if (database === Database.ClickHouse) {
-            return (
-                await this.clickhouseQuery(
-                    `
-                        SELECT *
-                        FROM person_distinct_id2
-                        FINAL
-                        WHERE person_id='${escapeClickHouseString(person.uuid)}'
-                          AND team_id='${person.team_id}'
-                          AND is_deleted=0
-                        ORDER BY _offset`
-                )
-            ).data as ClickHousePersonDistinctId2[]
-        } else if (database === Database.Postgres) {
-            const result = await this.postgres.query(
-                PostgresUse.PERSONS_WRITE, // used in tests only
-                'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
-                [person.id, person.team_id],
-                'fetchDistinctIds'
-            )
-            return result.rows as PersonDistinctId[]
-        } else {
-            throw new Error(`Can't fetch persons for database: ${database}`)
-        }
+    public async fetchDistinctIds(person: InternalPerson): Promise<PersonDistinctId[]> {
+        const result = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE, // used in tests only
+            'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
+            [person.id, person.team_id],
+            'fetchDistinctIds'
+        )
+        return result.rows as PersonDistinctId[]
     }
 
-    public async fetchDistinctIdValues(
-        person: InternalPerson,
-        database: Database = Database.Postgres
-    ): Promise<string[]> {
-        const personDistinctIds = await this.fetchDistinctIds(person, database as any)
+    public async fetchDistinctIdValues(person: InternalPerson): Promise<string[]> {
+        const personDistinctIds = await this.fetchDistinctIds(person)
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
@@ -1048,40 +1012,6 @@ export class DB {
     }
 
     // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
-
-    public async fetchEvents(): Promise<ClickHouseEvent[]> {
-        const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
-            `SELECT * FROM events ORDER BY timestamp ASC`
-        )
-        return queryResult.data.map(parseRawClickHouseEvent)
-    }
-
-    public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
-        const result = await this.clickhouseQuery(`SELECT * FROM events_dead_letter_queue ORDER BY _timestamp ASC`)
-        const events = result.data as DeadLetterQueueEvent[]
-        return events
-    }
-
-    // SessionRecordingEvent
-
-    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
-        const events = (
-            await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
-        ).data.map((event) => {
-            return {
-                ...event,
-                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
-            }
-        })
-        return events
-    }
-
-    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
-
-    public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
-        return queryResult.data as PluginLogEntry[]
-    }
 
     public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry

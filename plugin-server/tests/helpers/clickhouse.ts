@@ -1,13 +1,25 @@
 import { ClickHouseClient, createClient as createClickhouseClient } from '@clickhouse/client'
 import { performance } from 'perf_hooks'
 
-import { ClickHousePerson } from '~/types'
+import {
+    ClickHouseEvent,
+    ClickHousePerson,
+    ClickHousePersonDistinctId2,
+    DeadLetterQueueEvent,
+    InternalPerson,
+    PersonDistinctId,
+    PluginLogEntry,
+    RawClickHouseEvent,
+    RawSessionRecordingEvent,
+} from '~/types'
 import { timeoutGuard } from '~/utils/db/utils'
 import { isTestEnv } from '~/utils/env-utils'
+import { parseRawClickHouseEvent } from '~/utils/event'
+import { parseJSON } from '~/utils/json-parse'
 import { instrumentQuery } from '~/utils/metrics'
 
 import { logger } from '../../src/utils/logger'
-import { delay } from '../../src/utils/utils'
+import { delay, escapeClickHouseString } from '../../src/utils/utils'
 
 export class Clickhouse {
     private client: ClickHouseClient
@@ -91,7 +103,7 @@ export class Clickhouse {
         throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
     }
 
-    query(query: string): Promise<unknown[]> {
+    query<T>(query: string): Promise<T[]> {
         return instrumentQuery('query.clickhouse', undefined, async () => {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
@@ -99,7 +111,7 @@ export class Clickhouse {
                     query,
                     format: 'JSON',
                 })
-                return (await queryResult.json()).data
+                return (await queryResult.json()).data as T[]
             } finally {
                 clearTimeout(timeout)
             }
@@ -130,5 +142,54 @@ export class Clickhouse {
             const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest }: any = row
             return rest
         })
+    }
+
+    async fetchDistinctIds(person: InternalPerson): Promise<ClickHousePersonDistinctId2[]> {
+        const query = `
+            SELECT *
+            FROM person_distinct_id2
+            FINAL
+            WHERE person_id='${escapeClickHouseString(person.uuid)}'
+              AND team_id='${person.team_id}'
+              AND is_deleted=0
+            ORDER BY _offset`
+        return await this.query<ClickHousePersonDistinctId2>(query)
+    }
+
+    public async fetchDistinctIdValues(person: InternalPerson): Promise<string[]> {
+        const personDistinctIds = await this.fetchDistinctIds(person)
+        return personDistinctIds.map((pdi) => pdi.distinct_id)
+    }
+
+    public async fetchEvents(): Promise<ClickHouseEvent[]> {
+        const queryResult = await this.query<RawClickHouseEvent>(`SELECT * FROM events ORDER BY timestamp ASC`)
+        return queryResult.map(parseRawClickHouseEvent)
+    }
+
+    public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
+        const result = await this.query<DeadLetterQueueEvent>(
+            `SELECT * FROM events_dead_letter_queue ORDER BY _timestamp ASC`
+        )
+        return result
+    }
+
+    // SessionRecordingEvent
+
+    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
+        const events = await this.query<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
+        return events.map((event) => {
+            return {
+                ...event,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
+            }
+        })
+        return events
+    }
+
+    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
+
+    public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
+        const queryResult = await this.query<PluginLogEntry>(`SELECT * FROM plugin_log_entries`)
+        return queryResult
     }
 }

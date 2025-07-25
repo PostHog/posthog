@@ -6,7 +6,7 @@ import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-bat
 
 import { TopicMessage } from '../../../src/kafka/producer'
 import {
-    Database,
+    ClickHousePerson,
     Hub,
     InternalPerson,
     PropertiesLastOperation,
@@ -102,7 +102,7 @@ describe('PersonState.processEvent()', () => {
     beforeAll(async () => {
         hub = await createHub({})
         clickhouse = Clickhouse.create()
-        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+        await clickhouse.query('SYSTEM STOP MERGES')
 
         organizationId = await createOrganization(hub.db.postgres)
     })
@@ -133,7 +133,7 @@ describe('PersonState.processEvent()', () => {
 
     afterAll(async () => {
         await closeHub(hub)
-        await hub.db.clickhouseQuery('SYSTEM START MERGES')
+        await clickhouse.query('SYSTEM START MERGES')
     })
 
     function personProcessor(
@@ -237,26 +237,26 @@ describe('PersonState.processEvent()', () => {
 
     async function fetchPersonsRows() {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} ORDER BY _offset`
-        return (await hub.db.clickhouseQuery(query)).data
+        return await clickhouse.query<ClickHousePerson>(query)
     }
 
     async function fetchOverridesForDistinctId(distinctId: string) {
         const query = `SELECT * FROM person_distinct_id_overrides_mv FINAL WHERE team_id = ${teamId} AND distinct_id = '${distinctId}'`
-        return (await hub.db.clickhouseQuery(query)).data
+        return await clickhouse.query(query)
     }
 
     async function fetchPersonsRowsWithVersionHigerEqualThan(version = 1) {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
-        return (await hub.db.clickhouseQuery(query)).data
+        return await clickhouse.query(query)
     }
 
     async function fetchDistinctIdsClickhouse(person: InternalPerson) {
-        return hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
+        return clickhouse.fetchDistinctIdValues(person)
     }
 
     async function fetchDistinctIdsClickhouseVersion1() {
         const query = `SELECT distinct_id FROM person_distinct_id2 FINAL WHERE team_id = ${teamId} AND version = 1`
-        return (await hub.db.clickhouseQuery(query)).data
+        return await clickhouse.query(query)
     }
 
     describe('on person creation', () => {
