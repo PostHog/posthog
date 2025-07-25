@@ -7,10 +7,18 @@ import { match } from 'ts-pattern'
 import { ProgressStatus } from '~/types'
 import { StatusTag } from './ExperimentView/components'
 
-function nameOrLinkToExperiment(id: string | undefined, name: string | null): JSX.Element | string {
+const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.Element | string => {
     if (id) {
         return <Link to={urls.experiment(id)}>{name}</Link>
     }
+    return name || '(unknown)'
+}
+
+const nameOrLinkToSharedMetric = (name: string | null, id?: string): JSX.Element | string => {
+    if (id) {
+        return <Link to={urls.experimentsSharedMetric(id)}>{name}</Link>
+    }
+
     return name || '(unknown)'
 }
 
@@ -26,7 +34,7 @@ export const ExperimentDetails = ({
         <LemonCard className="flex items-center justify-between gap-3 p-4">
             <div className="flex flex-col gap-1">
                 <strong className="text-sm font-semibold">
-                    {nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                    {nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                 </strong>
                 <span className="text-xs text-muted">Experiment</span>
             </div>
@@ -46,15 +54,14 @@ const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element =
 }
 
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
-    //bail for shared metrics
-    if (logItem.detail.type === 'shared_metric') {
-        return {
-            description: null,
-        }
-    }
+    /**
+     * we only have two item types, `shared_metric` or the `null` default for
+     * experiments.
+     */
+    const isSharedMetric = logItem.detail.type === 'shared_metric'
 
-    return match(logItem.activity)
-        .with('created', () => {
+    return match(logItem)
+        .with({ activity: 'created' }, () => {
             /**
              * created experiments always have the draft status.
              */
@@ -63,16 +70,23 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                     <SentenceList
                         prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         listParts={[
-                            <span>
-                                created a new <StatusTag status={ProgressStatus.Draft} /> experiment:
-                            </span>,
+                            isSharedMetric ? (
+                                <span>created a new shared metric:</span>
+                            ) : (
+                                <span>
+                                    created a new <StatusTag status={ProgressStatus.Draft} /> experiment:
+                                </span>
+                            ),
                         ]}
-                        suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                        suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
+                            logItem.detail.name,
+                            logItem.item_id
+                        )}
                     />
                 ),
             }
         })
-        .with('updated', () => {
+        .with({ activity: 'updated' }, () => {
             /**
              * the experiment UI only allows for atomic updates of a single property at a time.
              */
@@ -87,7 +101,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['updated']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                            suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                         />
                     ),
                 }
@@ -113,7 +127,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['launched experiment']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                            suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                         />
                     ),
                 }
@@ -133,7 +147,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['stopped experiment']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                            suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                         />
                     ),
                 }
@@ -153,7 +167,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['added the first metric to']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                            suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                         />
                     ),
                 }
@@ -168,7 +182,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['deleted experiment']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                            suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                         />
                     ),
                 }
@@ -181,7 +195,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 description: null,
             }
         })
-        .with('deleted', () => {
+        .with({ activity: 'deleted' }, () => {
             /**
              * today we do soft deletes, so we keep this for future proofing
              */
