@@ -87,7 +87,7 @@ export function PathCleaningRulesDebugger({
                                 {debugSteps.map((step) => (
                                     <div
                                         key={step.stepNumber}
-                                        className="flex gap-3 items-center py-2 px-3 text-xs hover:bg-accent-light border-b border-gray-100"
+                                        className="flex gap-3 items-center px-3 text-xs hover:bg-accent-light border-b border-gray-100"
                                     >
                                         <div className="w-8 flex-shrink-0 text-center text-muted-alt font-medium">
                                             {step.stepNumber}
