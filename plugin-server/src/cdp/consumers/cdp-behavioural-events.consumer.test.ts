@@ -127,16 +127,9 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
         // Processor should not have initialized Cassandra
         expect(processor.getCassandraClient()).toBeNull()
+        expect(processor.getBehavioralCounterRepository()).toBeNull()
 
-        // Create separate client for test assertions only
-        const testCassandra = new CassandraClient({
-            contactPoints: [hub.CASSANDRA_HOST],
-            localDataCenter: 'datacenter1',
-            keyspace: hub.CASSANDRA_KEYSPACE,
-        })
-        await testCassandra.connect()
-
-        return { hub, team, processor, testCassandra }
+        return { hub, team, processor }
     }
 
     describe('with Cassandra enabled', () => {
@@ -417,18 +410,15 @@ describe('CdpBehaviouralEventsConsumer', () => {
         let processor: TestCdpBehaviouralEventsConsumer
         let hub: Hub
         let team: Team
-        let testCassandra: CassandraClient
 
         beforeEach(async () => {
             const setup = await setupWithCassandraDisabled()
             hub = setup.hub
             team = setup.team
             processor = setup.processor
-            testCassandra = setup.testCassandra
         })
 
         afterEach(async () => {
-            await testCassandra.shutdown()
             await closeHub(hub)
             jest.restoreAllMocks()
         })
@@ -453,14 +443,17 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 personId,
             }
 
+            // Spy on the writeBehavioralCounters method to ensure it's never called when Cassandra is disabled
+            const writeSpy = jest.spyOn(processor as any, 'writeBehavioralCounters')
+
             // Act
             await processor.processBatch([behavioralEvent])
 
-            // Assert - no counter should be written to Cassandra despite matching
-            const testRepository = new BehavioralCounterRepository(testCassandra)
-            const counters = await testRepository.getCountersForTeam(team.id)
+            // Assert - writeBehavioralCounters should never be called when Cassandra is disabled
+            expect(writeSpy).toHaveBeenCalledTimes(0)
 
-            expect(counters).toHaveLength(0)
+            // Double-check repository is still null
+            expect(processor.getBehavioralCounterRepository()).toBeNull()
         })
     })
 })
