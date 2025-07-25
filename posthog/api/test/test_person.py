@@ -543,8 +543,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
-    @mock.patch("posthog.api.person.new_capture_internal")
-    def test_new_update_single_person_property(self, mock_new_capture) -> None:
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -554,21 +554,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
-        mock_new_capture.assert_called_once_with(
-            self.team.api_token,
-            "some_distinct_id",
-            {
-                "event": "$set",
-                "properties": {
-                    "$set": {"foo": "bar"},
-                },
-                "timestamp": mock.ANY,
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": "bar"},
             },
-            True,
+            process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.new_capture_internal")
-    def test_new_delete_person_properties(self, mock_new_capture) -> None:
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -578,17 +577,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
 
-        mock_new_capture.assert_called_once_with(
-            self.team.api_token,
-            "some_distinct_id",
-            {
-                "event": "$delete_person_property",
-                "properties": {
-                    "$unset": ["foo"],
-                },
-                "timestamp": mock.ANY,
+        mock_capture.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$delete_person_property",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$unset": ["foo"],
             },
-            True,
+            process_person_profile=True,
         )
 
     def test_return_non_anonymous_name(self) -> None:

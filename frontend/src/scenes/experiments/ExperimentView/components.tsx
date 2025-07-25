@@ -40,18 +40,19 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
-    Experiment as ExperimentType,
     ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
+    ProgressStatus,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
-import { experimentLogic, FORM_MODES } from '../experimentLogic'
-import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { getExperimentInsightColour } from '../utils'
 import { modalsLogic } from '../modalsLogic'
+import { getExperimentInsightColour } from '../utils'
 
 export function VariantTag({
     experimentId,
@@ -296,6 +297,7 @@ export function PageHeaderCustom(): JSX.Element {
     const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard } =
         useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
 
     const exposureCohortId = experiment?.exposure_cohort
 
@@ -325,10 +327,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
-                                                to={urls.experiment(`${experiment.id}`, FORM_MODES.duplicate)}
-                                                fullWidth
-                                            >
+                                            <LemonButton onClick={() => setDuplicateModalOpen(true)} fullWidth>
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
@@ -404,6 +403,13 @@ export function PageHeaderCustom(): JSX.Element {
                             </Tooltip>
                             <ShipVariantModal experimentId={experimentId} />
                         </>
+                    )}
+                    {experiment && (
+                        <DuplicateExperimentModal
+                            isOpen={duplicateModalOpen}
+                            onClose={() => setDuplicateModalOpen(false)}
+                            experiment={experiment}
+                        />
                     )}
                 </>
             }
@@ -691,8 +697,7 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
     )
 }
 
-export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
-    const status = getExperimentStatus(experiment)
+export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
     return (
         <LemonTag type={getExperimentStatusColor(status)}>
             <b className="uppercase">{status}</b>

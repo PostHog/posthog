@@ -1,4 +1,5 @@
 import {
+    Assignment,
     ClientMetrics,
     CODES,
     ConsumerGlobalConfig,
@@ -175,29 +176,29 @@ export class KafkaConsumer {
         this.rdKafkaConsumer = this.createConsumer()
     }
 
-    public getConfig() {
+    public getConfig(): ConsumerGlobalConfig {
         return {
             ...this.consumerConfig,
         }
     }
 
-    public heartbeat() {
+    public heartbeat(): void {
         // Can be called externally to update the heartbeat time and keep the consumer alive
         this.lastHeartbeatTime = Date.now()
     }
 
-    public isHealthy() {
+    public isHealthy(): boolean {
         // this is called as a readiness and a liveness probe
         const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
         const isConnected = this.rdKafkaConsumer.isConnected()
         return isConnected && isWithinInterval
     }
 
-    public assignments() {
+    public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
 
-    public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]) {
+    public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]): void {
         return this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
     }
 
@@ -238,7 +239,7 @@ export class KafkaConsumer {
         return meta.topics.find((x) => x.name === topic)?.partitions ?? []
     }
 
-    private createConsumer() {
+    private createConsumer(): RdKafkaConsumer {
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             // Default settings
             'auto.offset.reset': 'earliest',
@@ -312,7 +313,7 @@ export class KafkaConsumer {
         return consumer
     }
 
-    private storeOffsetsForMessages = (messages: Message[]) => {
+    private storeOffsetsForMessages = (messages: Message[]): void => {
         const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
             return {
                 ...message,
@@ -338,7 +339,9 @@ export class KafkaConsumer {
         }
     }
 
-    public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>) {
+    public async connect(
+        eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>
+    ): Promise<void> {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
         try {
@@ -364,7 +367,7 @@ export class KafkaConsumer {
         this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
-        const startConsuming = async () => {
+        const startConsuming = async (): Promise<void> => {
             let lastConsumeTime = 0
             try {
                 while (!this.isStopping) {
@@ -487,7 +490,7 @@ export class KafkaConsumer {
         })
     }
 
-    public async disconnect() {
+    public async disconnect(): Promise<void> {
         if (this.isStopping) {
             return
         }
@@ -508,7 +511,7 @@ export class KafkaConsumer {
         await this.disconnectConsumer()
     }
 
-    private async disconnectConsumer() {
+    private async disconnectConsumer(): Promise<void> {
         if (this.rdKafkaConsumer.isConnected()) {
             logger.info('📝', 'Disconnecting consumer...')
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))

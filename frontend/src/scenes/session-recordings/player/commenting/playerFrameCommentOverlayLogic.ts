@@ -5,26 +5,25 @@ import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { colonDelimitedDuration } from 'lib/utils'
 
-import { annotationsModel } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { CommentType } from '~/types'
 
 import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 
-export interface RecordingAnnotationForm {
+export interface RecordingCommentForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
     // this is a string because we want to be able to display the time in the recording
-    timeInRecording: string | null
+    timeInRecording?: string | null
     // number of seconds into recording
     timestampInRecording?: number | null
     // the date that the timeInRecording represents
     dateForTimestamp?: Dayjs | null
     content: string
     recordingId: string | null
-    annotationId: AnnotationType['id'] | null
-    scope: AnnotationType['scope'] | null
+    commentId: CommentType['id'] | null
 }
 
 export interface PlayerCommentOverlayLogicProps extends SessionRecordingPlayerLogicProps {
@@ -36,15 +35,10 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
-        actions: [
-            annotationsModel,
-            ['appendAnnotations', 'replaceAnnotation'],
-            sessionRecordingPlayerLogic(props),
-            ['setIsCommenting'],
-        ],
+        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting']],
     })),
     actions({
-        editAnnotation: (annotation: RecordingAnnotationForm) => ({ annotation }),
+        editComment: (comment: RecordingCommentForm) => ({ comment }),
         addEmojiComment: (emoji: string) => ({ emoji }),
         setLoading: (isLoading: boolean) => ({ isLoading }),
     }),
@@ -74,20 +68,23 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     subscriptions(({ actions, values }) => ({
         formattedTimestamp: (formattedTimestamp) => {
             // as the timestamp from the player changes we track three representations of it
-            actions.setRecordingAnnotationValue('timeInRecording', formattedTimestamp)
-            actions.setRecordingAnnotationValue('timestampInRecording', values.currentPlayerTime)
-            actions.setRecordingAnnotationValue('dateForTimestamp', dayjs(values.currentTimestamp))
+            actions.setRecordingCommentValue('timeInRecording', formattedTimestamp)
+            actions.setRecordingCommentValue('timestampInRecording', values.currentPlayerTime)
+            actions.setRecordingCommentValue('dateForTimestamp', dayjs(values.currentTimestamp))
         },
     })),
     listeners(({ actions, props, values }) => ({
-        editAnnotation: ({ annotation }) => {
-            actions.setRecordingAnnotationValue('content', annotation.content)
-            actions.setRecordingAnnotationValue('recordingId', annotation.recordingId)
-            // don't change the scope if it has one
-            actions.setRecordingAnnotationValue('scope', annotation.scope || AnnotationScope.Recording)
-            actions.setRecordingAnnotationValue('annotationId', annotation.annotationId)
+        editComment: ({ comment }) => {
+            actions.setRecordingCommentValue('content', comment.content)
+            actions.setRecordingCommentValue('recordingId', comment.recordingId)
+            actions.setRecordingCommentValue('commentId', comment.commentId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
             actions.setIsCommenting(true)
+        },
+        setIsCommenting: ({ isCommenting }) => {
+            if (!isCommenting) {
+                actions.resetRecordingComment()
+            }
         },
         addEmojiComment: async ({ emoji }) => {
             if (!isSingleEmoji(emoji)) {
@@ -99,15 +96,16 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             }, 250)
 
             try {
-                const apiPayload = {
-                    date_marker: dayjs(values.currentTimestamp).toISOString(),
+                await api.comments.create({
                     content: emoji,
-                    scope: AnnotationScope.Recording,
-                    recording_id: props.recordingId,
-                    is_emoji: true,
-                }
-                const createdAnnotation = await api.annotations.create(apiPayload)
-                actions.appendAnnotations([createdAnnotation])
+                    scope: 'recording',
+                    item_id: props.recordingId,
+                    item_context: {
+                        is_emoji: true,
+                        time_in_recording: dayjs(values.currentTimestamp).toISOString(),
+                    },
+                })
+                playerCommentModel.actions.commentEdited(props.recordingId)
             } finally {
                 if (loadingTimeout) {
                     clearTimeout(loadingTimeout)
@@ -117,45 +115,44 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         },
     })),
     forms(({ props, values, actions }) => ({
-        recordingAnnotation: {
+        recordingComment: {
             defaults: {
                 timeInRecording: values.formattedTimestamp ?? '00:00:00',
                 dateForTimestamp: null,
                 content: '',
-                scope: AnnotationScope.Recording,
                 recordingId: null,
-                annotationId: null,
-            } as RecordingAnnotationForm,
+                commentId: null,
+            } as RecordingCommentForm,
             errors: ({ content }) => ({
                 content: !content?.trim()
-                    ? 'An annotation must have text content.'
+                    ? 'A comment must have text content.'
                     : content.length > 400
                     ? 'Must be 400 characters or less'
                     : null,
             }),
             submit: async (data) => {
-                const { annotationId, content, dateForTimestamp, scope } = data
+                const { commentId, content, dateForTimestamp } = data
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
                 }
 
                 const apiPayload = {
-                    date_marker: dateForTimestamp.toISOString(),
                     content,
-                    scope: scope || AnnotationScope.Recording,
-                    recording_id: props.recordingId,
+                    scope: 'recording',
+                    item_id: props.recordingId,
+                    item_context: {
+                        time_in_recording: dateForTimestamp.toISOString(),
+                    },
                 }
-
-                if (annotationId) {
-                    const updatedAnnotation = await api.annotations.update(annotationId, apiPayload)
-                    actions.replaceAnnotation(updatedAnnotation)
+                if (commentId) {
+                    await api.comments.update(commentId, apiPayload)
                 } else {
-                    const createdAnnotation = await api.annotations.create(apiPayload)
-                    actions.appendAnnotations([createdAnnotation])
+                    await api.comments.create(apiPayload)
                 }
 
-                actions.resetRecordingAnnotation()
+                playerCommentModel.actions.commentEdited(props.recordingId)
+                actions.resetRecordingComment()
                 actions.setIsCommenting(false)
             },
         },

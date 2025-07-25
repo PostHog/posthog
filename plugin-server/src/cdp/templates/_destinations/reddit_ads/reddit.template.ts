@@ -40,6 +40,7 @@ export const template: HogFunctionTemplate = {
     description: 'Track how many Reddit users interact with your website.',
     icon_url: '/static/services/reddit.png',
     category: ['Advertisement'],
+    code_language: 'hog',
     hog: `
 if (empty(inputs.accountId) or empty(inputs.conversionsAccessToken)) {
     throw Error('Account ID and access token are required')

@@ -17,5 +17,6 @@ node_modules/
 pnpm-lock.yaml
 posthog/templates/email/*
 common/hogvm/typescript/src/stl/bytecode.ts
+common/hogvm/__tests__/__snapshots__/*
 rust/
 livestream/

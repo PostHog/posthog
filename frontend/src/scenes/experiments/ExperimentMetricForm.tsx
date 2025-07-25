@@ -1,6 +1,7 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { Link } from 'lib/lemon-ui/Link'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
@@ -14,7 +15,7 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { ExperimentMetricMathType, FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
@@ -131,21 +132,36 @@ export function ExperimentMetricForm({
                 <LemonLabel className="mb-1">Metric</LemonLabel>
 
                 {metric.metric_type === ExperimentMetricType.MEAN && (
-                    <ActionFilter
-                        bordered
-                        filters={metricFilter}
-                        setFilters={handleSetFilters}
-                        typeKey="experiment-metric"
-                        buttonCopy="Add graph series"
-                        showSeriesIndicator={false}
-                        hideRename={true}
-                        entitiesLimit={1}
-                        showNumericalPropsOnly={true}
-                        mathAvailability={mathAvailability}
-                        allowedMathTypes={allowedMathTypes}
-                        dataWarehousePopoverFields={dataWarehousePopoverFields}
-                        {...commonActionFilterProps}
-                    />
+                    <>
+                        <ActionFilter
+                            bordered
+                            filters={metricFilter}
+                            setFilters={handleSetFilters}
+                            typeKey="experiment-metric"
+                            buttonCopy="Add graph series"
+                            showSeriesIndicator={false}
+                            hideRename={true}
+                            entitiesLimit={1}
+                            showNumericalPropsOnly={true}
+                            mathAvailability={mathAvailability}
+                            allowedMathTypes={allowedMathTypes}
+                            dataWarehousePopoverFields={dataWarehousePopoverFields}
+                            {...commonActionFilterProps}
+                        />
+                        {isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.HogQL && (
+                            <div className="text-muted text-sm mt-2">
+                                SQL expressions allow you to write custom computations and aggregations. The expression
+                                should return a numeric value and will be evaluated for each user in the experiment.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/hogql/expressions"
+                                    target="_blank"
+                                    disableDocsPanel={true}
+                                >
+                                    Learn more about HogQL expressions
+                                </Link>
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {metric.metric_type === ExperimentMetricType.FUNNEL && (

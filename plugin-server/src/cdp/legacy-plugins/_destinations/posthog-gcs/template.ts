@@ -15,6 +15,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
         description: 'Sends events to GCS on ingestion.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-gcs-plugin/main/logo.png',
         category: [],
+        code_language: 'javascript',
         hog: 'return event',
         inputs_schema: [
             {

@@ -26,6 +26,7 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     EmailIntegration,
     GitHubIntegration,
+    TwilioIntegration,
 )
 
 
@@ -84,6 +85,32 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError("An installation_id must be provided")
 
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            return instance
+
+        elif validated_data["kind"] == "twilio":
+            config = validated_data.get("config", {})
+            account_sid = config.get("account_sid")
+            auth_token = config.get("auth_token")
+
+            if not (account_sid and auth_token):
+                raise ValidationError("Account SID and auth token must be provided")
+
+            twilio = TwilioIntegration(
+                Integration(
+                    id=account_sid,
+                    team_id=team_id,
+                    created_by=request.user,
+                    kind="twilio",
+                    config={
+                        "account_sid": account_sid,
+                    },
+                    sensitive_config={
+                        "auth_token": auth_token,
+                    },
+                ),
+            )
+
+            instance = twilio.integration_from_keys()
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
@@ -183,6 +210,33 @@ class IntegrationViewSet(
                     "is_private_without_access": channel.get("is_private_without_access", False),
                 }
                 for channel in slack.list_channels(should_include_private_channels, authed_user)
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
+
+    @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
+    def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        twilio = TwilioIntegration(instance)
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
+
+        key = f"twilio/{instance.integration_id}/phone_numbers"
+        data = cache.get(key)
+
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "phone_numbers": [
+                {
+                    "sid": phone_number["sid"],
+                    "phone_number": phone_number["phone_number"],
+                    "friendly_name": phone_number["friendly_name"],
+                }
+                for phone_number in twilio.list_twilio_phone_numbers()
             ],
             "lastRefreshedAt": timezone.now().isoformat(),
         }

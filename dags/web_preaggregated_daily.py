@@ -71,17 +71,27 @@ def pre_aggregate_web_analytics_data(
     date_end = end_datetime.strftime("%Y-%m-%d")
 
     try:
-        # Drop the partition first, ensuring a clean state before insertion
+        # Drop all partitions in the time window, ensuring a clean state before insertion
         # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
-        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start)
-        context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
+        current_date = start_datetime.date()
+        end_date = end_datetime.date()
 
-        try:
-            sync_execute(drop_partition_query)
-            context.log.info(f"Successfully dropped partition for {date_start}")
-        except Exception as drop_error:
-            # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
-            context.log.info(f"Partition for {date_start} doesn't exist or couldn't be dropped: {drop_error}")
+        # For time windows: start is inclusive, end is exclusive (except for single-day partitions)
+        while current_date < end_date or (current_date == start_datetime.date() == end_date):
+            partition_date_str = current_date.strftime("%Y-%m-%d")
+            drop_partition_query = DROP_PARTITION_SQL(table_name, partition_date_str, granularity="daily")
+            context.log.info(f"Dropping partition for {partition_date_str}: {drop_partition_query}")
+
+            try:
+                sync_execute(drop_partition_query)
+                context.log.info(f"Successfully dropped partition for {partition_date_str}")
+            except Exception as drop_error:
+                # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
+                context.log.info(
+                    f"Partition for {partition_date_str} doesn't exist or couldn't be dropped: {drop_error}"
+                )
+
+            current_date += timedelta(days=1)
 
         insert_query = sql_generator(
             date_start=date_start,

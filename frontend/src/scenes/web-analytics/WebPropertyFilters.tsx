@@ -46,6 +46,7 @@ export const WebPropertyFilters = (): JSX.Element => {
                   '$entry_utm_campaign',
                   '$entry_utm_term',
                   '$entry_utm_content',
+                  '$channel_type',
               ],
           }
         : undefined

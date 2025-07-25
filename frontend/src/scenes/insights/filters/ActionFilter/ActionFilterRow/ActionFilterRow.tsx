@@ -964,7 +964,7 @@ function useMathSelectorOptions({
         ): LemonSelectOption<string> => {
             const actor = activeActorShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
             const capitalizedActor = capitalizeFirstLetter(actor)
-            const label = `${capitalizeFirstLetter(period)} active ${actor}`
+            const label = `${capitalizeFirstLetter(period)}ly active ${actor}`
             const tooltip =
                 actor === 'user' ? (
                     options[optionIndex].tooltip
