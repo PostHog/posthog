@@ -2,11 +2,34 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import React, { memo, useMemo } from 'react'
+import React, { memo, useMemo, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { Link } from '../Link'
-import { MathRenderer } from './MathRenderer'
+
+// MathJax setup (only initialised once)
+import { browserAdaptor } from 'mathjax-full/js/adaptors/browserAdaptor.js'
+import { RegisterHTMLHandler } from 'mathjax-full/js/handlers/html.js'
+import { TeX } from 'mathjax-full/js/input/tex.js'
+import { mathjax } from 'mathjax-full/js/mathjax.js'
+import { SVG } from 'mathjax-full/js/output/svg.js'
+
+let mjxDocument: any = null
+function getMathJaxDocument(): any {
+    if (!mjxDocument && typeof window !== 'undefined') {
+        RegisterHTMLHandler(browserAdaptor())
+        const tex = new TeX({
+            packages: ['base', 'ams'],
+            inlineMath: [['$', '$']],
+            displayMath: [['$$', '$$']],
+            processEscapes: true,
+            processEnvironments: true,
+        })
+        const svg = new SVG({ fontCache: 'none' })
+        mjxDocument = mathjax.document(document, { InputJax: tex, OutputJax: svg })
+    }
+    return mjxDocument
+}
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -27,72 +50,72 @@ export interface LemonMarkdownProps {
     wrapCode?: boolean
 }
 
-// Pre-process text to handle math expressions
-function preprocessMathContent(content: string): string {
-    // Replace display math ($$...$$) with a special marker
-    content = content.replace(/\$\$([^$]+?)\$\$/g, (match, math) => {
-        return `__DISPLAY_MATH_${btoa(math)}_DISPLAY_MATH__`
+// --- Math helpers ---
+function preprocessMath(content: string): string {
+    // Display math first $$...$$
+    content = content.replace(/\$\$([^$]+?)\$\$/g, (_, expr: string) => {
+        return `__DISPLAY_MATH_${btoa(expr)}__`
     })
 
-    // Replace inline math ($...$) with a special marker
-    content = content.replace(/\$([^$\n]+?)\$/g, (match, math) => {
-        return `__INLINE_MATH_${btoa(math)}_INLINE_MATH__`
+    // Inline math $...$
+    content = content.replace(/\$([^$\n]+?)\$/g, (_, expr: string) => {
+        return `__INLINE_MATH_${btoa(expr)}__`
     })
-
     return content
 }
 
-// Custom text renderer that handles math markers
+const MathSpan = ({ expr, block }: { expr: string; block: boolean }): JSX.Element => {
+    const ref = useRef<HTMLSpanElement>(null)
+
+    useEffect(() => {
+        const el = ref.current
+        if (!el) return
+        try {
+            const mjx = getMathJaxDocument()
+            el.innerHTML = ''
+            const node = mjx.convert(expr, { display: block })
+            el.appendChild(node)
+        } catch (e) {
+            // fallback to plain text
+            el.textContent = expr
+        }
+    }, [expr, block])
+
+    return <span ref={ref} className={`math-renderer ${block ? 'math-block' : 'math-inline'}`} aria-label={expr} />
+}
+
 function renderTextWithMath(text: string): React.ReactNode {
-    const parts: React.ReactNode[] = []
+    const pieces: React.ReactNode[] = []
     let remaining = text
     let key = 0
 
-    while (remaining.length > 0) {
-        // Look for display math markers
-        const displayMathMatch = remaining.match(/__DISPLAY_MATH_([A-Za-z0-9+/=]+)_DISPLAY_MATH__/)
-        if (displayMathMatch) {
-            const beforeMath = remaining.substring(0, displayMathMatch.index!)
-            if (beforeMath) {
-                parts.push(beforeMath)
-            }
+    const displayRegex = /__DISPLAY_MATH_([A-Za-z0-9+/=]+)__/
+    const inlineRegex = /__INLINE_MATH_([A-Za-z0-9+/=]+)__/
 
-            const mathContent = atob(displayMathMatch[1])
-            parts.push(
-                <MathRenderer key={key++} block={true}>
-                    {mathContent}
-                </MathRenderer>
-            )
+    while (remaining.length) {
+        const dMatch = remaining.match(displayRegex)
+        const iMatch = remaining.match(inlineRegex)
 
-            remaining = remaining.substring(displayMathMatch.index! + displayMathMatch[0].length)
-            continue
+        const firstMatch = dMatch && iMatch ? (dMatch.index! < iMatch.index! ? dMatch : iMatch) : dMatch || iMatch
+        if (!firstMatch) {
+            pieces.push(remaining)
+            break
         }
 
-        // Look for inline math markers
-        const inlineMathMatch = remaining.match(/__INLINE_MATH_([A-Za-z0-9+/=]+)_INLINE_MATH__/)
-        if (inlineMathMatch) {
-            const beforeMath = remaining.substring(0, inlineMathMatch.index!)
-            if (beforeMath) {
-                parts.push(beforeMath)
-            }
-
-            const mathContent = atob(inlineMathMatch[1])
-            parts.push(
-                <MathRenderer key={key++} block={false}>
-                    {mathContent}
-                </MathRenderer>
-            )
-
-            remaining = remaining.substring(inlineMathMatch.index! + inlineMathMatch[0].length)
-            continue
+        const index = firstMatch.index ?? 0
+        if (index > 0) {
+            pieces.push(remaining.slice(0, index))
         }
 
-        // No more math markers found
-        parts.push(remaining)
-        break
+        const encoded = firstMatch[1]
+        const expr = atob(encoded)
+        const isDisplay = firstMatch[0].startsWith('__DISPLAY_MATH_')
+        pieces.push(<MathSpan key={key++} expr={expr} block={isDisplay} />)
+
+        remaining = remaining.slice(index + firstMatch[0].length)
     }
 
-    return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>
+    return pieces.length === 1 ? pieces[0] : <>{pieces}</>
 }
 
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
@@ -101,7 +124,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableDocsRedirect = false,
     wrapCode = false,
 }: LemonMarkdownProps): JSX.Element {
-    const preprocessedContent = useMemo(() => preprocessMathContent(children), [children])
+    const processed = useMemo(() => preprocessMath(children), [children])
 
     const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
         () => ({
@@ -127,11 +150,8 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
 
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown
-            renderers={renderers}
-            disallowedTypes={['html']} // Don't want to deal with the security considerations of HTML
-        >
-            {preprocessedContent}
+        <ReactMarkdown renderers={renderers} disallowedTypes={['html']}>
+            {processed}
         </ReactMarkdown>
     )
 })
