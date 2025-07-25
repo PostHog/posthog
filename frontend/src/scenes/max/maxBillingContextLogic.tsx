@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { BillingType, TeamType } from '~/types'
 
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -13,6 +13,10 @@ import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
 import { isAddonVisible } from 'scenes/billing/billing-utils'
 import type { maxBillingContextLogicType } from './maxBillingContextLogicType'
 import { billingSpendLogic, BillingSpendResponse } from 'scenes/billing/billingSpendLogic'
+import { dayjs } from 'lib/dayjs'
+
+export const DEFAULT_BILLING_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
+export const DEFAULT_BILLING_DATE_TO = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
 
 // Simplified addon information for Max context
 export interface MaxAddonInfo {
@@ -45,21 +49,6 @@ export interface MaxProductInfo {
     projected_amount_usd?: string | null
     projected_amount_usd_with_limit?: string | null
     addons: MaxAddonInfo[]
-}
-
-// Usage data context for Max
-export interface MaxUsageContext {
-    date_range: {
-        start_date: string
-        end_date: string
-    }
-    usage_summary: Array<{
-        product_type: string
-        product_name: string
-        total_usage: number
-        dates: string[]
-        data: number[]
-    }>
 }
 
 export interface MaxBillingContext {
@@ -238,14 +227,22 @@ export const billingToMaxContext = (
 }
 
 export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
-    path(['lib', 'ai', 'maxBillingContextLogic']),
+    path(['scenes', 'max', 'maxBillingContextLogic']),
     connect(() => ({
         values: [
             billingLogic,
             ['billing'],
-            billingUsageLogic,
+            billingUsageLogic({
+                initialFilters: { breakdowns: ['team'] },
+                dateFrom: DEFAULT_BILLING_DATE_FROM, // we set them here so we are sure it will stay fixed to a 1 month period even if the usage logic changes default values
+                dateTo: DEFAULT_BILLING_DATE_TO,
+            }),
             ['billingUsageResponse'],
-            billingSpendLogic,
+            billingSpendLogic({
+                initialFilters: { breakdowns: ['team'] },
+                dateFrom: DEFAULT_BILLING_DATE_FROM, // same here for spend
+                dateTo: DEFAULT_BILLING_DATE_TO,
+            }),
             ['billingSpendResponse'],
             organizationLogic,
             ['isAdminOrOwner'],
@@ -255,12 +252,6 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
             ['featureFlags'],
             pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
             ['destinations'],
-        ],
-        actions: [
-            billingUsageLogic,
-            ['loadBillingUsage', 'toggleTeamBreakdown as loadBillingUsageToggleTeamBreakdown'],
-            billingSpendLogic,
-            ['loadBillingSpend', 'toggleBreakdown as loadBillingSpendToggleBreakdown'],
         ],
     })),
     selectors({
@@ -295,13 +286,20 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                     billingSpendResponse
                 )
             },
+            {
+                equalityCheck: (prev: any[], next: any[]) => {
+                    // Check each dependency for meaningful changes
+                    return (
+                        prev[0] === next[0] && // billing - reference equality is fine
+                        prev[1] === next[1] && // billingUsageResponse - reference equality is fine
+                        prev[2] === next[2] && // billingSpendResponse - reference equality is fine
+                        prev[3] === next[3] && // isAdminOrOwner - boolean comparison
+                        prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out && // currentTeam - only check relevant field
+                        prev[5] === next[5] && // featureFlags - reference equality is fine
+                        prev[6]?.length === next[6]?.length // destinations - only check length
+                    )
+                },
+            },
         ],
-    }),
-    afterMount(({ actions }) => {
-        // Load usage and spend data with breakdown by team
-        actions.loadBillingUsageToggleTeamBreakdown()
-        actions.loadBillingUsage()
-        actions.loadBillingSpendToggleBreakdown('team')
-        actions.loadBillingSpend()
     }),
 ])
