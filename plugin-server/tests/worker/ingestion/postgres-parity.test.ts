@@ -138,9 +138,6 @@ describe('postgres parity', () => {
                 team_id: teamId.toString(),
                 version: '0',
                 is_deleted: 0,
-                _timestamp: expect.any(String),
-                _offset: expect.any(Number),
-                _partition: expect.any(Number),
             },
             {
                 distinct_id: 'distinct2',
@@ -148,9 +145,6 @@ describe('postgres parity', () => {
                 team_id: teamId.toString(),
                 version: '0',
                 is_deleted: 0,
-                _timestamp: expect.any(String),
-                _offset: expect.any(Number),
-                _partition: expect.any(Number),
             },
         ])
 
