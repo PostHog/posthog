@@ -7277,7 +7277,7 @@
                     "type": "string"
                 },
                 "pinnedColumns": {
-                    "description": "Columns that are pinned to the left side of the table and stay visible when scrolling",
+                    "description": "Columns that are sticky when scrolling horizontally",
                     "items": {
                         "$ref": "#/definitions/HogQLExpression"
                     },
