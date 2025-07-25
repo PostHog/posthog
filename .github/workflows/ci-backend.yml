@@ -637,9 +637,9 @@ jobs:
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
-            # - name: Setup tmate session
-            #   if: failure()
-            #   uses: mxschmitt/action-tmate@v3
+            - name: Setup tmate session
+              if: failure()
+              uses: mxschmitt/action-tmate@v3
 
             - name: Run /decide read replica tests
               id: run-decide-read-replica-tests

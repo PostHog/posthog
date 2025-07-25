@@ -1,6 +1,7 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
+
 from posthog.exceptions_capture import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
