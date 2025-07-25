@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -20,14 +20,17 @@ import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType, PipelineNod
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NativeMarketingSource,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     VALID_NATIVE_MARKETING_SOURCES,
+    generateUniqueName,
 } from './utils'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
+import { uuid } from 'lib/utils'
 
 export type ExternalTable = {
     name: string
@@ -58,10 +61,23 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
+    connect(() => ({
+        values: [
+            teamLogic,
+            ['baseCurrency'],
+            marketingAnalyticsSettingsLogic,
+            ['sources_map', 'conversion_goals'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+        ],
+    })),
     actions({
         setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
-        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
+        resetConversionGoalInput: () => true,
+        saveDraftConversionGoal: () => true,
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
@@ -79,10 +95,29 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 clearMarketingAnalyticsOrderBy: () => null,
             },
         ],
-        dynamicConversionGoal: [
+        draftConversionGoal: [
             null as ConversionGoalFilter | null,
             {
-                setDynamicConversionGoal: (_, { goal }) => goal,
+                setDraftConversionGoal: (_, { goal }) => goal,
+            },
+        ],
+        conversionGoalInput: [
+            (() => {
+                return {
+                    ...defaultConversionGoalFilter,
+                    conversion_goal_id: uuid(),
+                    conversion_goal_name: '',
+                }
+            })() as ConversionGoalFilter,
+            {
+                setConversionGoalInput: (_, { goal }) => goal,
+                resetConversionGoalInput: () => {
+                    return {
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    }
+                },
             },
         ],
         compareFilter: [
@@ -141,16 +176,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
     }),
-    connect(() => ({
-        values: [
-            teamLogic,
-            ['baseCurrency'],
-            marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
-        ],
-    })),
     selectors({
         validSourcesMap: [
             (s) => [s.sources_map],
@@ -271,6 +296,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }, [])
             },
         ],
+        uniqueConversionGoalName: [
+            (s) => [s.conversionGoalInput, s.conversion_goals],
+            (conversionGoalInput: ConversionGoalFilter | null, conversion_goals: ConversionGoalFilter[]): string => {
+                const baseName = conversionGoalInput?.conversion_goal_name || conversionGoalInput?.name || 'No name'
+                const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
+                return generateUniqueName(baseName, existingNames)
+            },
+        ],
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
@@ -326,6 +359,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             } else if (!sortField && !sortDirection && values.marketingAnalyticsOrderBy) {
                 actions.clearMarketingAnalyticsOrderBy()
             }
+        },
+    })),
+    listeners(({ actions }) => ({
+        saveDraftConversionGoal: () => {
+            // Create a new local conversion goal with new id
+            actions.resetConversionGoalInput()
+        },
+        resetConversionGoalInput: () => {
+            // Clear the dynamic goal when resetting local goal
+            actions.setDraftConversionGoal(null)
         },
     })),
 ])

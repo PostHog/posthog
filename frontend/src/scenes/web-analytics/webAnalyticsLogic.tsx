@@ -450,7 +450,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             [
                 'loading',
                 'createMarketingDataWarehouseNodes',
-                'dynamicConversionGoal',
+                'draftConversionGoal',
                 'compareFilter as marketingCompareFilter',
                 'dateFilter as marketingDateFilter',
             ],
@@ -2491,14 +2491,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.marketingDateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
-                s.dynamicConversionGoal,
+                s.draftConversionGoal,
+                s.conversion_goals,
             ],
             (
                 loading: boolean,
                 marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
-                dynamicConversionGoal: ConversionGoalFilter | null
+                draftConversionGoal: ConversionGoalFilter | null,
+                conversionGoals: ConversionGoalFilter[]
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -2514,9 +2516,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
-                        dynamicConversionGoal: dynamicConversionGoal,
+                        draftConversionGoal: draftConversionGoal,
                         limit: 200,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        select: [
+                            draftConversionGoal ? draftConversionGoal.conversion_goal_name : null,
+                            ...conversionGoals.map((goal) => goal.conversion_goal_name),
+                        ].filter(isNotNil),
                     } as MarketingAnalyticsTableQuery,
                     full: true,
                     embedded: false,
