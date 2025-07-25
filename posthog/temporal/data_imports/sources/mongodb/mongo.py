@@ -334,9 +334,6 @@ def mongo_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> SourceResponse:
-    if not collection_name:
-        raise ValueError("Collection name is missing")
-
     connection_params = _parse_connection_string(connection_string)
 
     if not connection_params["database"]:

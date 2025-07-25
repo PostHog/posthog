@@ -49,7 +49,7 @@ import psycopg
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
 from posthog.temporal.data_imports.sources.stripe.constants import (
-    BALANCE_TRANSACTION_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
@@ -200,7 +200,7 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=BALANCE_TRANSACTION_RESOURCE_NAME,
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
     )
@@ -227,7 +227,7 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
     )
 
     ExternalDataSchema.objects.create(
-        name=BALANCE_TRANSACTION_RESOURCE_NAME,
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -257,7 +257,7 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=BALANCE_TRANSACTION_RESOURCE_NAME,
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -301,7 +301,7 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=BALANCE_TRANSACTION_RESOURCE_NAME,
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
