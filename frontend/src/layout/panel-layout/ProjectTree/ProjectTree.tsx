@@ -44,7 +44,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { calculateMovePath } from './utils'
+import { calculateMovePath, isGroupViewShortcut } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
@@ -346,7 +346,12 @@ export function ProjectTree({
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                            // Use deleteShortcut for saved views (group view shortcuts), deleteItem for others
+                            if (isGroupViewShortcut(item.record as unknown as FileSystemEntry)) {
+                                item.record && deleteShortcut(item.record?.id)
+                            } else {
+                                deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
+                            }
                         }}
                         data-attr="tree-item-menu-delete-shortcut-button"
                     >

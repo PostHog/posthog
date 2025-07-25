@@ -583,7 +583,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 const groupFilterShortcuts = shortcutData
                     .filter((shortcut) => isGroupViewShortcut(shortcut))
                     .map((shortcut) => ({
+                        id: shortcut.id,
                         path: shortcut.path,
+                        type: shortcut.type,
                         category: 'Saved Views',
                         iconType: 'database' as const,
                         href: shortcut.href || '',
