@@ -364,7 +364,7 @@ class UserAccessControl:
             # Permissions do not apply to models without a related scope
             return True
 
-        access_level = self.access_level_for_object(obj, resource, explicit=explicit)
+        access_level = self.get_user_access_level(obj)
 
         if not access_level:
             return False

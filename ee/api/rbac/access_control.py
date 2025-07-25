@@ -236,7 +236,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             if not project_access:
                 continue
 
-            access_level = user_uac.access_level_for_object(obj, resource)
+            access_level = user_uac.get_user_access_level(obj)
             if access_level is None or access_level == "none":
                 continue
 
