@@ -2,37 +2,16 @@ from django.db import models
 from django.core.signing import TimestampSigner, SignatureExpired, BadSignature
 from typing import Optional
 from posthog.models.utils import UUIDModel
-from enum import Enum
 import uuid
 
 RESERVED_CATEGORY_KEY_ALL = "$all"
 RESERVED_CATEGORY_KEYS = [RESERVED_CATEGORY_KEY_ALL]
 
 
-class PreferenceStatus(str, Enum):
+class PreferenceStatus(models.TextChoices):
     OPTED_IN = "OPTED_IN"
     OPTED_OUT = "OPTED_OUT"
     NO_PREFERENCE = "NO_PREFERENCE"
-
-    @classmethod
-    def choices(cls):
-        return [(status.value, status.name) for status in cls]
-
-
-class MessageCategoryPreference:
-    email = models.CharField(max_length=16, choices=PreferenceStatus.choices)
-    sms = models.CharField(max_length=16, choices=PreferenceStatus.choices)
-    push = models.CharField(max_length=16, choices=PreferenceStatus.choices)
-
-
-def get_default_message_preferences() -> dict[str, MessageCategoryPreference]:
-    preferences = {}
-    preferences[RESERVED_CATEGORY_KEY_ALL] = MessageCategoryPreference(
-        email=PreferenceStatus.NO_PREFERENCE,
-        sms=PreferenceStatus.NO_PREFERENCE,
-        push=PreferenceStatus.NO_PREFERENCE,
-    )
-    return preferences
 
 
 class MessageRecipientPreference(UUIDModel):
@@ -42,10 +21,7 @@ class MessageRecipientPreference(UUIDModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     identifier = models.CharField(max_length=512)
-    preferences = models.JSONField(
-        default=get_default_message_preferences,
-        help_text="Dictionary mapping MessageCategory UUIDs to preference statuses",
-    )
+    preferences = models.JSONField(default=dict)
 
     read_only_fields = [
         "id",

@@ -3570,8 +3570,12 @@ const api = {
         async deleteCategory(categoryId: string): Promise<void> {
             return await new ApiRequest().messagingCategory(categoryId).delete()
         },
-        async generateMessagingPreferencesLink(): Promise<string | null> {
-            const response = await new ApiRequest().messagingPreferencesLink().create()
+        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
+            const response = await new ApiRequest().messagingPreferencesLink().create({
+                data: {
+                    recipient,
+                },
+            })
             return response.preferences_url || null
         },
         async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {

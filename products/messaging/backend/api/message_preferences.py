@@ -6,6 +6,12 @@ from posthog.models import MessageRecipientPreference, MessageCategory
 from posthog.models.message_preferences import PreferenceStatus
 
 
+class MessageCategoryPreferenceSerializer(serializers.Serializer):
+    email = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
+    sms = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
+    push = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
+
+
 class MessagePreferencesSerializer(serializers.Serializer):
     identifier = serializers.CharField()
     updated_at = serializers.DateTimeField()
@@ -93,8 +99,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not user or not user.email:
             return Response({"error": "User email not found"}, status=400)
 
+        identifier = request.data.get("recipient", user.email)
+
         # Get or create preferences for the user's email
-        recipient = MessageRecipientPreference.get_or_create_for_identifier(team_id=self.team_id, identifier=user.email)
+        recipient = MessageRecipientPreference.get_or_create_for_identifier(team_id=self.team_id, identifier=identifier)
 
         # Generate the preferences token
         token = recipient.generate_preferences_token()

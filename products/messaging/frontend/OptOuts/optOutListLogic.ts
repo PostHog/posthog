@@ -1,15 +1,21 @@
-import { kea, path, actions, props, reducers, key } from 'kea'
+import { kea, path, actions, props, reducers, key, afterMount, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { optOutListLogicType } from './optOutListLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
 import { MessageCategory } from './optOutCategoriesLogic'
+import { optOutSceneLogic } from './optOutSceneLogic'
 
 export type OptOutEntry = {
     identifier: string
     source: string
     updated_at: string
+}
+
+export type OptOutPersonPreference = {
+    identifier: string
+    preferences: Record<string, boolean>
 }
 
 export type OptOutListLogicProps = {
@@ -20,11 +26,41 @@ export const optOutListLogic = kea<optOutListLogicType>([
     key((props) => props.category?.id || '$all'),
     path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutListLogic']),
     props({} as OptOutListLogicProps),
+    connect({
+        values: [optOutSceneLogic, ['preferencesUrlLoading']],
+        actions: [optOutSceneLogic, ['openPreferencesPage']],
+    }),
     actions({
         loadUnsubscribeLink: true,
+        setPersonsModalOpen: (open: boolean) => ({ open }),
+        setManagePreferencesModalOpen: (open: boolean) => ({ open }),
         setSelectedIdentifier: (identifier: string | null) => ({ identifier }),
     }),
     reducers({
+        personsModalOpen: [
+            false,
+            {
+                setPersonsModalOpen: (_, { open }) => open,
+                setSelectedIdentifier: (open, { identifier }) => {
+                    if (!identifier) {
+                        return false
+                    }
+                    return open
+                },
+            },
+        ],
+        managePreferencesModalOpen: [
+            false,
+            {
+                setManagePreferencesModalOpen: (_, { open }) => open,
+                setSelectedIdentifier: (open, { identifier }) => {
+                    if (!identifier) {
+                        return false
+                    }
+                    return open
+                },
+            },
+        ],
         selectedIdentifier: [
             null as string | null,
             {
@@ -45,4 +81,10 @@ export const optOutListLogic = kea<optOutListLogicType>([
             },
         },
     })),
+    afterMount(({ props, actions }) => {
+        // If no category is provided or it's a marketing category, load opt-out persons
+        if (!props.category?.id || props.category?.category_type === 'marketing') {
+            actions.loadOptOutPersons()
+        }
+    }),
 ])

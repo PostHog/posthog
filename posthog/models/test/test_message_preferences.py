@@ -1,6 +1,6 @@
 from posthog.models.message_preferences import MessageRecipientPreference
 from posthog.models.message_category import MessageCategory
-from posthog.models.message_preferences import PreferenceStatus
+from products.messaging.backend.api.message_preferences import PreferenceStatus
 
 from posthog.test.base import BaseTest
 from django.test import Client

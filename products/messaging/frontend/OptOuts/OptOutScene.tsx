@@ -20,7 +20,7 @@ export function OptOutScene(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         size="small"
-                        onClick={openPreferencesPage}
+                        onClick={() => openPreferencesPage()}
                         loading={preferencesUrlLoading}
                         disabled={!user?.email}
                         tooltip={

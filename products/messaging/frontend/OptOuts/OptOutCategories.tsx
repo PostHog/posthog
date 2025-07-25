@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import { IconPlusSmall, IconGear } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useActions, useValues } from 'kea'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
@@ -41,49 +43,58 @@ export function OptOutCategories(): JSX.Element {
             (categories || []).map((category: MessageCategory) => ({
                 key: category.id,
                 header: (
-                    <div className="flex items-center justify-between w-full">
-                        <div>
-                            <div className="font-medium">{category.name}</div>
-                            <div className="text-xs text-muted">{category.description}</div>
-                        </div>
-                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-between w-full gap-2">
+                        <div className="flex items-center gap-2">
+                            <div>
+                                <div className="font-medium">{category.name}</div>
+                                <div className="text-xs text-muted">{category.description}</div>
+                            </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
                                 {capitalizeFirstLetter(category.category_type)}
                             </LemonTag>
-                            <LemonButton icon={<IconGear />} size="small" onClick={() => handleEditCategory(category)}>
-                                Edit
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                status="danger"
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: 'Delete category',
-                                        description: (
-                                            <>
-                                                <p>
-                                                    Are you sure you want to delete the message category{' '}
-                                                    <b>{category.name}</b>?
-                                                </p>
-                                                <p>
-                                                    All messages associated with this category must be updated manually.
-                                                </p>
-                                            </>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            status: 'danger',
-                                            onClick: () => deleteCategory(category.id),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }
-                            >
-                                Delete
-                            </LemonButton>
                         </div>
+                        <More
+                            onClick={(e) => e.stopPropagation()}
+                            overlay={
+                                <>
+                                    <LemonButton onClick={() => handleEditCategory(category)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                    <LemonDivider />
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: 'Delete category',
+                                                description: (
+                                                    <>
+                                                        <p>
+                                                            Are you sure you want to delete the message category{' '}
+                                                            <b>{category.name}</b>?
+                                                        </p>
+                                                        <p>
+                                                            All messages associated with this category must be updated
+                                                            manually.
+                                                        </p>
+                                                    </>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => deleteCategory(category.id),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        }
+                                        fullWidth
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            }
+                        />
                     </div>
                 ),
                 content: (

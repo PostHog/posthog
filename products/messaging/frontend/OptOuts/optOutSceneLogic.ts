@@ -11,22 +11,20 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
     connect({
         values: [userLogic, ['user']],
     }),
-
     actions({
         loadUnsubscribeLink: true,
     }),
-
     loaders(({ values }) => ({
         preferencesUrl: {
             __default: null as string | null,
-            openPreferencesPage: async (): Promise<string | null> => {
+            openPreferencesPage: async (recipient?: string): Promise<string | null> => {
                 if (!values.user?.email) {
                     lemonToast.error('User email not found')
                     return null
                 }
 
                 try {
-                    const newPreferencesUrl = await api.messaging.generateMessagingPreferencesLink()
+                    const newPreferencesUrl = await api.messaging.generateMessagingPreferencesLink(recipient)
                     if (!newPreferencesUrl) {
                         lemonToast.error('Failed to generate messaging preferences link')
                         return null

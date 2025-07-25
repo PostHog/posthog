@@ -1,24 +1,17 @@
 import { LemonButton, LemonTable, LemonTableColumns, LemonModal } from '@posthog/lemon-ui'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OptOutEntry, optOutListLogic } from './optOutListLogic'
 import { useActions, useValues } from 'kea'
-import { IconPerson } from '@posthog/icons'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode, ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { MessageCategory } from './optOutCategoriesLogic'
-import { useEffect } from 'react'
+import { IconExternal } from '@posthog/icons'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const { setSelectedIdentifier, loadOptOutPersons } = useActions(logic)
-    const { selectedIdentifier, optOutPersons, optOutPersonsLoading } = useValues(logic)
-
-    useEffect(() => {
-        // If no category is provided or it's a marketing category, load opt-out persons
-        if (!category?.id || category?.category_type === 'marketing') {
-            loadOptOutPersons()
-        }
-    }, [category, loadOptOutPersons])
+    const { setSelectedIdentifier, openPreferencesPage } = useActions(logic)
+    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading } = useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -57,14 +50,23 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             width: 0,
             render: function Render(_, optOutEntry: OptOutEntry): JSX.Element {
                 return (
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        onClick={() => handleShowPersons(optOutEntry.identifier)}
-                        icon={<IconPerson />}
-                    >
-                        Person(s)
-                    </LemonButton>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton onClick={() => handleShowPersons(optOutEntry.identifier)} fullWidth>
+                                    Show person(s)
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => openPreferencesPage(optOutEntry.identifier)}
+                                    loading={preferencesUrlLoading}
+                                    fullWidth
+                                    icon={<IconExternal />}
+                                >
+                                    Manage
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },
@@ -87,7 +89,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
             <LemonModal
                 isOpen={Boolean(selectedIdentifier)}
                 onClose={handleCloseModal}
-                title={selectedIdentifier ? `Persons for ${selectedIdentifier}` : 'Persons'}
+                title={`Persons for ${selectedIdentifier}`}
                 width="50rem"
                 footer={null}
             >
@@ -95,7 +97,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     <div className="h-96">
                         <DataTable
                             query={actorsQuery}
-                            setQuery={() => {}} // Read-only mode
+                            setQuery={() => {}} // Read-only
                             uniqueKey={`opt-out-persons-${selectedIdentifier}`}
                             readOnly
                         />
