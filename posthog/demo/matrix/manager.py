@@ -4,11 +4,14 @@ import json
 import datetime as dt
 from time import sleep
 from typing import Any, Literal, Optional, cast
+import asyncio
 
 from django.conf import settings
 from django.core import exceptions
 from django.db import IntegrityError, transaction
 
+from django.db import transaction, IntegrityError
+from .session_replay_generator import SessionReplayGenerator
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import (
@@ -120,6 +123,7 @@ class MatrixManager:
             ingested_event=True,
             completed_snippet_onboarding=True,
             is_demo=True,
+            session_recording_opt_in=True,
             **kwargs,
         )
         return team
@@ -153,6 +157,9 @@ class MatrixManager:
         team.project.save()
         team.save()
         print(f"Demo data ready for team ID {team.pk}.")
+
+        # Generate session replays if this is a Hedgebox matrix
+        self._generate_session_recordings_if_available(team)
 
     def _save_analytics_data(self, data_team: Team):
         if self.print_steps:
@@ -414,3 +421,19 @@ class MatrixManager:
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:
         return Team.objects.filter(pk=cls.MASTER_TEAM_ID).exists()
+
+    def _generate_session_recordings_if_available(self, team: Team):
+        """Generate session recordings for Hedgebox demo data."""
+        from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
+        from posthog.demo.products.hedgebox.models import HedgeboxPerson
+
+        if not isinstance(self.matrix, HedgeboxMatrix):
+            return  # Only Hedgebox supports capturing session replays right now
+        if self.print_steps:
+            print("Capturing session recordings on a sample of sessions...")
+        generator = SessionReplayGenerator("hedgebox", team.api_token)
+        asyncio.run(
+            generator.generate_session_recordings(
+                cast(list[HedgeboxPerson], self.matrix.people), print_progress=self.print_steps
+            )
+        )

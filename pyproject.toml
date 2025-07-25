@@ -86,6 +86,7 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
+    "playwright==1.54.0",
     "posthoganalytics>=6.7.4",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
@@ -304,21 +305,26 @@ max-complexity = 10
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-force-wrap-aliases = true
-length-sort-straight = true
-split-on-trailing-comma = false
-section-order = [
-    "future",
-    "standard-library",
-    "testing",
-    "django",
-    "third-party",
-    "posthog.schema",
-    "posthog.hogql",
-    "posthog",
-    "products",
-    "first-party",
-    "local-folder",
+
+[tool.ruff.lint.per-file-ignores]
+"./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
+"./posthog/migrations/0027_move_elements_to_group.py" = ["T201"]
+"./posthog/queries/cohort_query.py" = ["F401"]
+"./posthog/client.py" = ["T201"]
+"./posthog/async_migrations/test/test_migrations_not_required.py" = ["T201"]
+"__init__.py" = ["F401"]
+"./posthog/api/capture.py" = ["T201"]
+"./ee/clickhouse/generate_local.py" = ["T201"]
+"./posthog/management/commands/merge_distinct_emails.py" = ["T201"]
+"./posthog/demo/matrix/*.py" = ["T201"]
+"./posthog/migrations/0038_migrate_actions_to_precalculate_events.py" = ["T201"]
+"./posthog/settings/overrides.py" = ["T201"]
+"./bin/hobby-ci.py" = ["T201"]
+"./posthog/management/commands/migrate_elementgroup.py" = ["T201"]
+"./posthog/models/plugin.py" = ["T201"]
+"./docker-compose-config.py" = ["T201"]
+"./posthog/management/commands/backfill_persons_and_groups_on_events.py" = [
+    "T201",
 ]
 
 [tool.ruff.lint.isort.sections]

@@ -4425,6 +4425,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
+    { name = "playwright", specifier = "==1.54.0" },
     { name = "playwright", specifier = ">=1.54.0" },
     { name = "posthoganalytics", specifier = ">=6.7.4" },
     { name = "psutil", specifier = "==6.0.0" },
