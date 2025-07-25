@@ -62,9 +62,6 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
 
     return match(logItem)
         .with({ activity: 'created' }, () => {
-            /**
-             * created experiments always have the draft status.
-             */
             return {
                 description: (
                     <SentenceList
@@ -195,16 +192,17 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 description: null,
             }
         })
-        .with({ activity: 'deleted' }, () => {
+        .with({ activity: 'deleted', detail: { type: 'shared_metric' } }, () => {
             /**
-             * today we do soft deletes, so we keep this for future proofing
+             * experiments have soft deletes, so this applies only to
+             * shared metrics
              */
             return {
                 description: (
                     <SentenceList
-                        listParts={['deleted experiment']}
+                        listParts={['deleted shared metric:']}
                         prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                        suffix={logItem?.detail.name}
+                        suffix={logItem.detail.name}
                     />
                 ),
             }
