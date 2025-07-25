@@ -1,7 +1,9 @@
 import { IconInfo, IconX } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -9,8 +11,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { Label } from 'lib/ui/Label/Label'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -43,7 +43,7 @@ export function ScenePanelDivider(): JSX.Element {
 }
 
 export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pt-4 flex flex-col gap-2">{children}</div>
+    return <div className="pl-1 pt-4 pb-2 flex flex-col gap-2">{children}</div>
 }
 
 export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
@@ -67,31 +67,9 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { registerScenePanelElement, setScenePanelOpen, setScenePanelIsOverlay } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelIsOverlay, scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { registerScenePanelElement, setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (sceneLayoutContainer.current) {
-            const resizeObserver = new ResizeObserver((entries) => {
-                for (const entry of entries) {
-                    if (entry.contentRect.width >= 1300) {
-                        setScenePanelIsOverlay(false)
-                        setScenePanelOpen(true)
-                    } else {
-                        setScenePanelIsOverlay(true)
-                        setScenePanelOpen(false)
-                    }
-                }
-            })
-
-            resizeObserver.observe(sceneLayoutContainer.current)
-
-            return () => {
-                resizeObserver.disconnect()
-            }
-        }
-    }, [setScenePanelOpen, setScenePanelIsOverlay])
 
     return (
         <div
@@ -106,8 +84,6 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             <div
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
-                    // Ensure the grid only exists when the panel is active and not overlayed
-                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto]': scenePanelIsPresent && !scenePanelIsOverlay,
                 })}
             >
                 {layoutConfig?.layout !== 'app-raw-no-header' && (
@@ -118,23 +94,19 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen min-w-0',
+                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
                                 {
                                     hidden: !scenePanelOpen,
-                                    // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
-                                    // Also important when the SidePanel is open
-                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
-                                        scenePanelIsOverlay,
                                 }
                             )}
                         >
                             <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    {scenePanelIsOverlay && <IconInfo className="size-5 text-tertiary" />}
+                                    <IconInfo className="size-5 text-tertiary" />
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 
-                                {scenePanelIsOverlay && scenePanelOpen && (
+                                {scenePanelOpen && (
                                     <ButtonPrimitive iconOnly onClick={() => setScenePanelOpen(false)}>
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
@@ -144,12 +116,13 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 direction="vertical"
                                 className="h-full flex-1"
                                 innerClassName="px-2 pb-4"
+                                styledScrollbars
                             >
                                 <div ref={registerScenePanelElement} />
                             </ScrollableShadows>
                         </div>
 
-                        {scenePanelOpen && scenePanelIsOverlay && (
+                        {scenePanelOpen && (
                             <div
                                 onClick={() => {
                                     setScenePanelOpen(false)
