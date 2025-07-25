@@ -101,7 +101,6 @@ interface DataTableProps {
      Set a data-attr on the LemonTable component
     */
     dataAttr?: string
-    columnFeatures?: ColumnFeature[]
 }
 
 const eventGroupTypes = [
@@ -122,12 +121,6 @@ export function DataTable({
     cachedResults,
     readOnly,
     dataAttr,
-    columnFeatures = [
-        ColumnFeature.canSort,
-        ColumnFeature.canEdit,
-        ColumnFeature.canAddColumns,
-        ColumnFeature.canRemove,
-    ],
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -135,6 +128,14 @@ export function DataTable({
         dashboardItemId: `new-AdHoc.${dataKey}`,
         dataNodeCollectionId: dataKey,
     }
+
+    // support for existing column features by default
+    const columnFeatures = context?.columnFeatures || [
+        ColumnFeature.canSort,
+        ColumnFeature.canEdit,
+        ColumnFeature.canAddColumns,
+        ColumnFeature.canRemove,
+    ]
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,

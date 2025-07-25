@@ -13,7 +13,7 @@ import { WebActiveHoursHeatmap } from 'scenes/web-analytics/WebActiveHoursHeatma
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
-import { ColumnFeature, DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
@@ -75,8 +75,6 @@ export interface QueryProps<Q extends Node> {
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Passed down if implemented by the query type to e.g. set data attr on a LemonTable in a data table */
     dataAttr?: string
-    /** Custom column features to pass down to the DataTable */
-    columnFeatures?: ColumnFeature[]
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -89,7 +87,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         variablesOverride,
         inSharedMode,
         dataAttr,
-        columnFeatures,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -130,7 +127,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
                 dataAttr={dataAttr}
-                columnFeatures={columnFeatures}
             />
         )
     } else if (isDataVisualizationNode(query)) {

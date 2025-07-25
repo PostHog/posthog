@@ -27,6 +27,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         ...webAnalyticsDataTableQueryContext,
         insightProps,
         formatNumbers: true,
+        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove],
     }
 
     return (
@@ -44,13 +45,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 </div>
             </div>
             <div className="relative marketing-analytics-table-container">
-                <Query
-                    query={query}
-                    readOnly={false}
-                    context={marketingAnalyticsContext}
-                    columnFeatures={[ColumnFeature.canSort, ColumnFeature.canRemove]}
-                    setQuery={setQuery}
-                />
+                <Query query={query} readOnly={false} context={marketingAnalyticsContext} setQuery={setQuery} />
             </div>
             <MarketingAnalyticsColumnConfigModal />
         </div>
