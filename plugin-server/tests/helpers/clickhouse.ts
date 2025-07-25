@@ -59,7 +59,7 @@ export class Clickhouse {
     async resetTestDatabase(): Promise<void> {
         // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
         await Promise.all([
-            this.truncate('events'),
+            this.truncate('sharded_events'),
             this.truncate('person'),
             this.truncate('person_distinct_id'),
             this.truncate('person_distinct_id2'),
@@ -67,10 +67,14 @@ export class Clickhouse {
         ])
 
         await Promise.all([
+            this.truncate('person_static_cohort'),
+            this.truncate('sharded_session_recording_events'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
             this.truncate('ingestion_warnings'),
         ])
+
+        await Promise.all([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
     }
 
     async delayUntilEventIngested<T extends any[] | number>(
