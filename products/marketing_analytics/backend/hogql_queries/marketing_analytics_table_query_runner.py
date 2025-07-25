@@ -308,7 +308,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
             should_create = self.query.select is None or (
                 conversion_goal.conversion_goal_name in self.query.select
-                and f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
+                or f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
                 in self.query.select
             )
             if should_create:

@@ -70,19 +70,31 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 return selectColumns
             },
         ],
+        sortedColumns: [
+            (s) => [s.defaultColumns, s.query],
+            (defaultColumns: string[], query: DataTableNode) => {
+                // pinned columns are always at the beginning of the table in the same order as they are in the default columns
+                const pinnedColumns = query?.pinnedColumns || []
+                const sortedColumns = [
+                    ...defaultColumns.filter((column) => pinnedColumns.includes(column)),
+                    ...defaultColumns.filter((column) => !pinnedColumns.includes(column)),
+                ]
+                return sortedColumns
+            },
+        ],
     }),
     /* Both in actionToUrl and urlToAction we need to filter out the dynamic conversion goal columns
     to handle the query params because it's a dynamic column */
     actionToUrl(({ values }) => ({
         setQuery: () => {
-            const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
+            const marketingQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
             const searchParams = new URLSearchParams(window.location.search)
-            const selectArray = typedQuery?.select?.filter(
+            const selectArray = marketingQuery?.select?.filter(
                 (column: string) => !isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
             )
 
-            if (typedQuery?.orderBy && typedQuery?.orderBy.length > 0) {
-                const [column, direction] = typedQuery.orderBy[0]
+            if (marketingQuery?.orderBy && marketingQuery?.orderBy.length > 0) {
+                const [column, direction] = marketingQuery.orderBy[0]
                 if (selectArray && selectArray.includes(column)) {
                     searchParams.set('order_column', column)
                     searchParams.set('order_direction', direction)
@@ -98,17 +110,23 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 searchParams.delete('select')
             }
 
+            if (values.query?.pinnedColumns && values.query?.pinnedColumns.length > 0) {
+                searchParams.set('pinned_columns', values.query.pinnedColumns.join(','))
+            } else {
+                searchParams.delete('pinned_columns')
+            }
+
             return [window.location.pathname, searchParams.toString()]
         },
     })),
     urlToAction(({ actions, values }) => ({
         '*': (_, searchParams) => {
-            const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
+            const marketingQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
 
-            let newSelect = typedQuery?.select || []
+            let newSelect = marketingQuery?.select || []
             const selectParam = searchParams.select
             if (selectParam) {
-                const selectArray = selectParam.split(',')
+                const selectArray: string[] = Array.from(new Set(selectParam.split(',')))
                 newSelect = selectArray.filter(
                     (column: string) => !isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
                 )
@@ -136,28 +154,36 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                     },
                 } as DataTableNode)
             }
+
+            if (searchParams.pinned_columns) {
+                const pinnedColumns = searchParams.pinned_columns.split(',')
+                actions.setQuery({
+                    ...values.query,
+                    pinnedColumns: pinnedColumns,
+                } as DataTableNode)
+            }
         },
     })),
     listeners(({ actions, values }) => ({
         setDynamicConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
             if (!goal) {
-                const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
-                if (typedQuery?.orderBy && !values.defaultColumns.includes(typedQuery?.orderBy[0][0])) {
-                    typedQuery.orderBy = []
+                const marketingQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
+                // If the dynamic conversion goal is removed, we clear the order by
+                if (marketingQuery?.orderBy && !values.defaultColumns.includes(marketingQuery?.orderBy[0][0])) {
                     actions.setQuery({
                         ...values.query,
                         source: {
                             ...values.query?.source,
-                            orderBy: typedQuery.orderBy,
+                            orderBy: undefined,
                         },
                     } as DataTableNode)
                 }
             }
         },
         setQuery: ({ query }: { query: DataTableNode }) => {
-            // If we remove one column from the dynamic conversion goal, we clear the dinamyc conversion goal completely
-            const typedQuery = query.source as MarketingAnalyticsTableQuery | undefined
-            const selectArray = typedQuery?.select?.filter((column: string) =>
+            // If we remove one column from the dynamic conversion goal, we clear the dynamic conversion goal completely
+            const marketingQuery = query.source as MarketingAnalyticsTableQuery | undefined
+            const selectArray = marketingQuery?.select?.filter((column: string) =>
                 isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
             )
             if (selectArray && selectArray.length === 1) {

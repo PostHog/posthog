@@ -470,9 +470,13 @@ export function DataTable({
                                                     ? undefined
                                                     : (query.source as EventsQuery).orderBy,
                                             }
+                                            const newPinnedColumns = query.pinnedColumns?.filter(
+                                                (column) => column !== key
+                                            )
                                             setQuery?.({
                                                 ...query,
                                                 source: newSource,
+                                                pinnedColumns: newPinnedColumns,
                                             })
                                         }}
                                     >
@@ -734,6 +738,7 @@ export function DataTable({
                                 ) : null
                             }
                             onRow={context?.rowProps}
+                            pinnedColumns={query.pinnedColumns}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
