@@ -127,7 +127,7 @@ export class Clickhouse {
             `
         const data = await this.query(query)
         return data.map((row) => {
-            const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row as ClickHousePerson
+            const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest }: any = row
             return rest
         })
     }
