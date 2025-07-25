@@ -51,7 +51,6 @@
         "@google-cloud/pubsub": "4.11.0",
         "@google-cloud/storage": "^5.8.5",
         "@maxmind/geoip2-node": "^3.4.0",
-        "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "workspace:*",
         "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",

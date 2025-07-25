@@ -154,8 +154,6 @@ export class DB {
 
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     kafkaProducer: KafkaProducerWrapper
-    /** ClickHouse used for syncing Postgres and ClickHouse person data. */
-    clickhouse: ClickHouse
 
     /** Default log level for plugins that don't specify it */
     pluginsDefaultLogLevel: PluginLogLevel
@@ -167,14 +165,12 @@ export class DB {
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
-        clickhouse: ClickHouse,
         pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
         this.kafkaProducer = kafkaProducer
-        this.clickhouse = clickhouse
         this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
     }

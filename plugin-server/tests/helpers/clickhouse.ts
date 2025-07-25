@@ -1,10 +1,36 @@
-import ClickHouse from '@posthog/clickhouse'
+import { createClient as createClickhouseClient } from '@clickhouse/client'
+import { Client } from '@clickhouse/client'
 import { performance } from 'perf_hooks'
+
+import { isTestEnv } from '~/utils/env-utils'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
 import { logger } from '../../src/utils/logger'
 import { delay } from '../../src/utils/utils'
+
+export const createClickhouseConnection = async (): Promise<ClickHouse> => {
+    const CLICKHOUSE_HOST = process.env.CLICKHOUSE_HOST ?? 'localhost'
+    const CLICKHOUSE_DATABASE = process.env.CLICKHOUSE_DATABASE ?? isTestEnv() ? 'posthog_test' : 'default'
+    const CLICKHOUSE_USER = process.env.CLICKHOUSE_USER ?? 'default'
+    const CLICKHOUSE_PASSWORD = process.env.CLICKHOUSE_PASSWORD ?? null
+
+    const clickhouse = createClickhouseClient({
+        // We prefer to run queries on the offline cluster.
+        host: CLICKHOUSE_HOST,
+        port: 8123,
+        protocol: 'http:',
+        user: CLICKHOUSE_USER,
+        password: CLICKHOUSE_PASSWORD || undefined,
+        dataObjects: true,
+        queryOptions: {
+            database: CLICKHOUSE_DATABASE,
+            output_format_json_quote_64bit_integers: false,
+        },
+    })
+
+    return clickhouse
+}
 
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
