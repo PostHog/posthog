@@ -16,7 +16,7 @@ export function HogFunctionStatusTag({ status }: HogFunctionStatusTagProps): JSX
         case 'stable':
             return null
         case 'coming_soon':
-            return <LemonTag type="muted">Notify me</LemonTag>
+            return <LemonTag type="muted">Roadmap</LemonTag>
         case 'hidden':
             return <LemonTag type="muted">Hidden</LemonTag>
         default:
