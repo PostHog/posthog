@@ -317,22 +317,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        saveDynamicConversionGoal: () => {
-            // Create a new local conversion goal with new id
-            actions.resetConversionGoalInput()
-        },
-        resetLocalConversionGoal: () => {
-            // Clear the dynamic goal when resetting local goal
-            actions.setDraftConversionGoal(null)
-        },
-    })),
-    listeners(({ actions }) => ({
         saveDraftConversionGoal: () => {
             // Create a new local conversion goal with new id
             actions.resetConversionGoalInput()
         },
         resetConversionGoalInput: () => {
-            // Clear the dynamic goal when resetting local goal
+            // Clear the draft goal when resetting local goal
             actions.setDraftConversionGoal(null)
         },
     })),
