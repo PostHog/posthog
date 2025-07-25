@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-user-interviews",
     "dependencies": {
-        "posthog-js": "1.258.1"
+        "posthog-js": "1.258.2"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

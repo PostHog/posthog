@@ -2,7 +2,7 @@
     "name": "@posthog/products-error-tracking",
     "scripts": {},
     "dependencies": {
-        "posthog-js": "1.258.1"
+        "posthog-js": "1.258.2"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",
