@@ -1,10 +1,9 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
 use integration_utils::{
-    base64_payload, execute_test, form_lz64_urlencoded_payload, form_urlencoded_payload,
-    form_data_base64_payload, gzipped_payload, plain_json_payload, TestCase,
-    BATCH_EVENTS_JSON, DEFAULT_TEST_TIME,
-    SINGLE_EVENT_JSON,
+    base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
+    form_urlencoded_payload, gzipped_payload, plain_json_payload, TestCase, BATCH_EVENTS_JSON,
+    DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
