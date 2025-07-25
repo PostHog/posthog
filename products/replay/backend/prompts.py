@@ -255,11 +255,6 @@ TOOL_USAGE_PROMPT = """
 
 4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
-5. **Tool Selection Decision Tree**:
-   - If the user mentions a property that belongs to a person (name, email, location, etc.) → use entity tools with entity="person"
-   - If the user mentions a property that belongs to a session (duration, start time, etc.) → use entity tools with entity="session"
-   - If the user mentions a property that belongs to a group (organization, account, etc.) → use entity tools with entity="[group_name]"
-   - If the user mentions an action or event (signup, purchase, pageview, etc.) → use event tools with event_name="[event_name]"
 </tool_usage>
 """.strip()
 
