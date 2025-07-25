@@ -85,7 +85,7 @@ describe('PersonState.processEvent()', () => {
 
     beforeAll(async () => {
         hub = await createHub({})
-        await clickhouse.query('SYSTEM STOP MERGES')
+        await clickhouse.exec('SYSTEM STOP MERGES')
         clickhouse = Clickhouse.create()
         await clickhouse.resetTestDatabase()
         organizationId = await createOrganization(hub.db.postgres)
@@ -113,7 +113,7 @@ describe('PersonState.processEvent()', () => {
 
     afterAll(async () => {
         await closeHub(hub)
-        await clickhouse.query('SYSTEM START MERGES')
+        await clickhouse.exec('SYSTEM START MERGES')
     })
 
     function personProcessor(

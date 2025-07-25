@@ -1,5 +1,6 @@
-import { ClickHouseClient, createClient as createClickhouseClient } from '@clickhouse/client'
+import { ClickHouseClient, createClient as createClickhouseClient, ExecResult } from '@clickhouse/client'
 import { performance } from 'perf_hooks'
+import { Readable } from 'stream'
 
 import {
     ClickHouseEvent,
@@ -103,6 +104,12 @@ export class Clickhouse {
         throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
     }
 
+    async exec(query: string): Promise<ExecResult<Readable>> {
+        return await this.client.exec({
+            query,
+        })
+    }
+
     query<T>(query: string): Promise<T[]> {
         return instrumentQuery('query.clickhouse', undefined, async () => {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
@@ -111,7 +118,15 @@ export class Clickhouse {
                     query,
                     format: 'JSON',
                 })
-                return (await queryResult.json()).data as T[]
+
+                const jsonData = (await queryResult.json()).data as T[]
+                return jsonData
+            } catch (e) {
+                console.error('Clickhouse query failed', {
+                    query,
+                    error: e,
+                })
+                throw e
             } finally {
                 clearTimeout(timeout)
             }
