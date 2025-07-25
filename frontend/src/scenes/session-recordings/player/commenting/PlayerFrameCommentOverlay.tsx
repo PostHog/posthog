@@ -15,21 +15,21 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
 
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
-    const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
-    const { submitRecordingAnnotation, resetRecordingAnnotation } = useActions(theBuiltOverlayLogic)
+    const { recordingComment, isRecordingCommentSubmitting } = useValues(theBuiltOverlayLogic)
+    const { submitRecordingComment, resetRecordingComment } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
         <div className="absolute bottom-4 left-4 z-20 w-90">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerCommentOverlayLogic}
-                    formKey="recordingAnnotation"
-                    id="recording-annotation-form"
+                    formKey="recordingComment"
+                    id="recording-comment-form"
                     enableFormOnSubmit
                     className="flex flex-col gap-y-1"
                 >
                     <div className="flex flex-col gap-y-1">
-                        <LemonField name="annotationId" className="hidden">
+                        <LemonField name="commentId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
                         <LemonField
@@ -45,31 +45,31 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                         <LemonField name="content">
                             <LemonTextAreaMarkdown
                                 placeholder="Comment on this recording?"
-                                data-attr="create-annotation-input"
+                                data-attr="create-recording-comment-input"
                                 maxLength={400}
                             />
                         </LemonField>
                     </div>
                     <div className="flex gap-2 mt-2 justify-between">
                         <LemonButton
-                            data-attr="cancel-recording-annotation"
+                            data-attr="cancel-recording-comment"
                             type="secondary"
                             onClick={() => {
-                                resetRecordingAnnotation()
+                                resetRecordingComment()
                                 setIsCommenting(false)
                             }}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            form="recording-annotation-form"
+                            form="recording-comment-form"
                             type="primary"
-                            onClick={submitRecordingAnnotation}
-                            data-attr="create-recording-annotation-submit"
+                            onClick={submitRecordingComment}
+                            data-attr="create-recording-comment-submit"
                             size="small"
-                            loading={isRecordingAnnotationSubmitting}
+                            loading={isRecordingCommentSubmitting}
                         >
-                            {recordingAnnotation.annotationId ? 'Update' : 'Save'}
+                            {recordingComment.commentId ? 'Update' : 'Save'}
                         </LemonButton>
                     </div>
                 </Form>

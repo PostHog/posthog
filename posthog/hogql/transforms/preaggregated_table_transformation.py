@@ -166,6 +166,9 @@ def _is_count_pageviews_call(call: ast.Call) -> bool:
     if call.name != "count":
         return False
 
+    if call.distinct:
+        return False
+
     if len(call.args) == 0:
         # count() - valid
         return True
@@ -177,11 +180,11 @@ def _is_count_pageviews_call(call: ast.Call) -> bool:
 
 
 def _is_uniq_persons_call(call: ast.Call) -> bool:
-    """Check if a call is uniq(person_id) or similar for person counting."""
-    if call.name != "uniq":
+    """Check if a call is uniq(person_id), count(DISTINCT person_id), or similar for person counting."""
+    if len(call.args) != 1:
         return False
 
-    if len(call.args) == 1:
+    if call.name == "uniq" or (call.name == "count" and call.distinct):
         arg = call.args[0]
         if isinstance(arg, ast.Field):
             return _is_person_id_field(arg)
@@ -190,11 +193,11 @@ def _is_uniq_persons_call(call: ast.Call) -> bool:
 
 
 def _is_uniq_sessions_call(call: ast.Call) -> bool:
-    """Check if a call is uniq(session.id) or similar for session counting."""
-    if call.name != "uniq":
+    """Check if a call is uniq(session.id), count(DISTINCT session.id) or similar for session counting."""
+    if len(call.args) != 1:
         return False
 
-    if len(call.args) == 1:
+    if call.name == "uniq" or (call.name == "count" and call.distinct):
         arg = call.args[0]
         if isinstance(arg, ast.Field):
             return _is_session_id_field(arg)
