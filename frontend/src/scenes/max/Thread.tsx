@@ -590,6 +590,18 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => retryLastMessage()}
                     />
                 )}
+                {(user?.is_staff || location.hostname === 'localhost') && traceId && (
+                    <LemonButton
+                        to={`${
+                            location.hostname !== 'localhost' ? 'https://us.posthog.com/project/2' : ''
+                        }${urls.llmObservabilityTrace(traceId)}`}
+                        icon={<IconEye />}
+                        type="tertiary"
+                        size="xsmall"
+                        tooltip="View trace in LLM observability"
+                        targetBlank
+                    />
+                )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
