@@ -9,6 +9,10 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { Action } from '../../utils/action-manager-cdp'
 import { BehavioralCounterRepository, CounterUpdate } from '../../utils/db/cassandra/behavioural-counter.repository'
+import {
+    OccurrenceUpdate,
+    PersonEventOccurrenceRepository,
+} from '../../utils/db/cassandra/person-event-occurrence.repository'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogFunctionFilterGlobals } from '../types'
@@ -49,6 +53,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected kafkaConsumer: KafkaConsumer
     protected cassandra: CassandraClient | null
     protected behavioralCounterRepository: BehavioralCounterRepository | null
+    protected personEventOccurrenceRepository: PersonEventOccurrenceRepository | null
     private filterHashCache = new Map<string, string>()
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
@@ -67,9 +72,11 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                         : undefined,
             })
             this.behavioralCounterRepository = new BehavioralCounterRepository(this.cassandra)
+            this.personEventOccurrenceRepository = new PersonEventOccurrenceRepository(this.cassandra)
         } else {
             this.cassandra = null
             this.behavioralCounterRepository = null
+            this.personEventOccurrenceRepository = null
         }
     }
 
@@ -82,13 +89,36 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             // Track events consumed and matched (absolute numbers)
             let eventsMatched = 0
             const counterUpdates: CounterUpdate[] = []
+            const occurrenceUpdates: OccurrenceUpdate[] = []
 
             const results = await Promise.all(events.map((event) => this.processEvent(event, counterUpdates)))
             eventsMatched = results.reduce((sum, count) => sum + count, 0)
 
-            // Batch write all counter updates
+            // Prepare occurrence updates for all events, deduplicating within the batch
+            const occurrenceSet = new Set<string>()
+            events.forEach((event) => {
+                const key = `${event.teamId}:${event.personId}:${event.filterGlobals.event}`
+                if (!occurrenceSet.has(key)) {
+                    occurrenceSet.add(key)
+                    occurrenceUpdates.push({
+                        teamId: event.teamId,
+                        personId: event.personId,
+                        eventName: event.filterGlobals.event,
+                    })
+                }
+            })
+
+            // Batch write all updates in parallel
+            const writePromises = []
             if (counterUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA && this.cassandra) {
-                await this.writeBehavioralCounters(counterUpdates)
+                writePromises.push(this.writeBehavioralCounters(counterUpdates))
+            }
+            if (occurrenceUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA && this.cassandra) {
+                writePromises.push(this.writePersonEventOccurrences(occurrenceUpdates))
+            }
+
+            if (writePromises.length > 0) {
+                await Promise.all(writePromises)
             }
 
             // Update metrics with absolute numbers
@@ -184,6 +214,19 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             await this.behavioralCounterRepository.batchIncrementCounters(updates)
         } catch (error) {
             logger.error('Error batch writing behavioral counters', { error, updateCount: updates.length })
+        }
+    }
+
+    private async writePersonEventOccurrences(updates: OccurrenceUpdate[]): Promise<void> {
+        if (!this.personEventOccurrenceRepository) {
+            logger.warn('Person event occurrence repository not initialized, skipping occurrence writes')
+            return
+        }
+
+        try {
+            await this.personEventOccurrenceRepository.batchInsertOccurrences(updates)
+        } catch (error) {
+            logger.error('Error batch writing person event occurrences', { error, updateCount: updates.length })
         }
     }
 
