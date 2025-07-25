@@ -7,6 +7,7 @@ import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { BasePersonRepository } from '../../../../src/worker/ingestion/persons/base-person-repository'
 import { MeasuringPersonsStoreForBatch } from '../../../../src/worker/ingestion/persons/measuring-person-store'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '../../../helpers/sql'
@@ -62,7 +63,7 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new MeasuringPersonsStoreForBatch(runner.hub.db)
+            new MeasuringPersonsStoreForBatch(new BasePersonRepository(runner.hub.db.postgres))
         )
 
         expect(resEvent).toEqual(pluginEvent)
@@ -101,7 +102,7 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new MeasuringPersonsStoreForBatch(runner.hub.db)
+            new MeasuringPersonsStoreForBatch(new BasePersonRepository(runner.hub.db.postgres))
         )
 
         expect(resEvent).toEqual({

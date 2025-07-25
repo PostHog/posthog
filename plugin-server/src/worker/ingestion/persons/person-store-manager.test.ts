@@ -1280,7 +1280,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         it('should track consistent results and log debug message', async () => {
             // Mock both stores to return the same result
             const expectedPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
-            db.updatePerson = jest.fn().mockResolvedValue([expectedPerson, [], false])
+            mockPersonRepository.updatePerson = jest.fn().mockResolvedValue([expectedPerson, [], false])
 
             await shadowManager.updatePersonWithPropertiesDiffForUpdate(
                 person,
@@ -1300,7 +1300,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         it('should track inconsistent results and log error message for updatePersonWithPropertiesDiffForUpdate', async () => {
             // Mock main store to return one result
             const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
-            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+            mockPersonRepository.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
 
             // Mock secondary store to return different result by manipulating its internal state
             const secondaryPerson = {
@@ -1355,7 +1355,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Mock main store to return one result
             const mainPerson = { ...person, properties: { test: 'test', merge_prop: 'merge_value' }, version: 2 }
-            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+            mockPersonRepository.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
 
             // Mock secondary store to return different result
             const secondaryPerson = { ...person, properties: { test: 'test', wrong_merge: 'wrong_value' }, version: 2 }
@@ -1391,7 +1391,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         it('should handle null vs non-null person comparison', async () => {
             // Mock main store to return a person
             const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
-            db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
+            mockPersonRepository.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
 
             // Mock secondary store to return null (no person found)
             const originalUpdatePersonWithPropertiesDiffForUpdate =

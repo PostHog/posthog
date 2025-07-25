@@ -9,15 +9,18 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { BasePersonRepository } from '../../../src/worker/ingestion/persons/base-person-repository'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
+    let personRepository: BasePersonRepository
     let redis: Redis.Redis
     const OLD_ENV = process.env
 
     beforeAll(async () => {
         hub = await createHub()
+        personRepository = new BasePersonRepository(hub.db.postgres)
         redis = await hub.redisPool.acquire()
         await resetTestDatabase()
         process.env = { ...OLD_ENV } // Make a copy
@@ -61,7 +64,7 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(personRepository)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         await expect(
             new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(

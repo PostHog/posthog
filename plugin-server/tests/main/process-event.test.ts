@@ -30,6 +30,7 @@ import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { BasePersonRepository } from '../../src/worker/ingestion/persons/base-person-repository'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -48,7 +49,8 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    const [person, kafkaMessages] = await server.db.createPerson(
+    const personRepository = new BasePersonRepository(server.db.postgres)
+    const [person, kafkaMessages] = await personRepository.createPerson(
         DateTime.utc(),
         properties,
         {},
@@ -96,6 +98,7 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
+let personRepository: BasePersonRepository
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
@@ -120,7 +123,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new BasePersonRepository(hub.db.postgres))
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
@@ -154,6 +157,7 @@ beforeEach(async () => {
 
     hub = await createHub({ ...TEST_CONFIG })
     redis = await hub.redisPool.acquire()
+    personRepository = new BasePersonRepository(hub.db.postgres)
 
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
@@ -186,7 +190,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new BasePersonRepository(hub.db.postgres))
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
@@ -214,13 +218,13 @@ test('merge people', async () => {
     const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    const [_person0, kafkaMessages0, _versionDisparity0] = await hub.db.updatePerson(p0, {
+    const [_person0, kafkaMessages0, _versionDisparity0] = await personRepository.updatePerson(p0, {
         created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     })
 
     const p1 = (await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const [_person1, kafkaMessages1, _versionDisparity1] = await hub.db.updatePerson(p1, {
+    const [_person1, kafkaMessages1, _versionDisparity1] = await personRepository.updatePerson(p1, {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
 
@@ -1448,7 +1452,7 @@ describe('when handling $identify', () => {
         // Hook into createPerson, which is as of writing called from
         // alias. Here we simply call identify again and wait on it
         // completing before continuing with the first identify.
-        const originalCreatePerson = hub.db.createPerson.bind(hub.db)
+        const originalCreatePerson = personRepository.createPerson.bind(personRepository)
         const createPersonMock = jest.fn(async (...args) => {
             // We need to slice off the txn arg, or else we conflict with the `identify` below.
             // @ts-expect-error because TS is crazy, this is valid
@@ -1461,14 +1465,14 @@ describe('when handling $identify', () => {
 
             return result
         })
-        hub.db.createPerson = createPersonMock
+        personRepository.createPerson = createPersonMock
 
         // set the first identify going
         await identify(hub, initialDistinctId)
 
         // Let's first just make sure `updatePerson` was called, as a way of
         // checking that our mocking was actually invoked
-        expect(hub.db.createPerson).toHaveBeenCalled()
+        expect(personRepository.createPerson).toHaveBeenCalled()
 
         // Now make sure that we have one person in the db that has been
         // identified
