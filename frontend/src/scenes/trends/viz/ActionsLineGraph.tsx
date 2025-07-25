@@ -200,7 +200,8 @@ export function ActionsLineGraph({
 
                           const title = isStickiness ? (
                               <>
-                                  <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                  <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on{' '}
+                                  {interval || 'day'} {day}
                               </>
                           ) : (
                               (label: string) => (
