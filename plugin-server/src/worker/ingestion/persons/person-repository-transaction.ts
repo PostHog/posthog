@@ -33,7 +33,7 @@ export interface PersonRepositoryTransaction {
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 
     updateCohortsAndFeatureFlagsForMerge(
-        teamID: Team['id'],
+        teamId: Team['id'],
         sourcePersonID: InternalPerson['id'],
         targetPersonID: InternalPerson['id']
     ): Promise<void>
