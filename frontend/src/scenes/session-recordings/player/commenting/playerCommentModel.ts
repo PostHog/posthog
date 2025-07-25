@@ -1,5 +1,5 @@
 import { actions, kea, path } from 'kea'
-import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { RecordingCommentForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 
 import type { playerCommentModelType } from './playerCommentModelType'
 
@@ -10,6 +10,7 @@ import type { playerCommentModelType } from './playerCommentModelType'
 export const playerCommentModel = kea<playerCommentModelType>([
     path(['scenes', 'session-recordings', 'player', 'playerCommentModel']),
     actions({
-        startCommenting: (annotation: RecordingAnnotationForm | null) => ({ annotation }),
+        startCommenting: (comment: RecordingCommentForm | null) => ({ comment }),
+        commentEdited: (recordingId: string) => ({ recordingId }),
     }),
 ])
