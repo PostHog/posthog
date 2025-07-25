@@ -22472,7 +22472,7 @@
             "type": "string"
         },
         "SurveyType": {
-            "enum": ["popover", "widget", "full_screen", "email", "api"],
+            "enum": ["popover", "widget", "full_screen", "api", "external_survey"],
             "type": "string"
         },
         "SurveyWidgetType": {

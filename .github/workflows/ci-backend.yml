@@ -37,6 +37,20 @@ env:
     DISPLAY: ':99.0'
     OIDC_RSA_PRIVATE_KEY: 'test'
 jobs:
+    # Generate GitHub App token - the default GITHUB_TOKEN gets rate limited if we use it across all CI jobs
+    generate-token:
+        runs-on: ubuntu-latest
+        outputs:
+            token: ${{ steps.app-token.outputs.token }}
+        steps:
+            - name: Generate GitHub App Token
+              id: app-token
+              uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2
+              with:
+                  app-id: ${{ secrets.CI_TEST_RUNNER_1_APP_ID }}
+                  private-key: ${{ secrets.CI_TEST_RUNNER_1_APP_PRIVATE_KEY }}
+                  skip-token-revoke: true # The token will only be valid for 1 hour, and is masked so will not be logged
+
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -97,12 +111,14 @@ jobs:
                         - 'products/**/migrations/*.py'
 
     check-migrations:
-        needs: changes
+        needs: [changes, generate-token]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
 
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
+        env:
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
 
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
@@ -239,12 +255,14 @@ jobs:
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
 
     django:
-        needs: changes
+        needs: [changes, generate-token]
         # increase for tmate testing
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        env:
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
 
         strategy:
             fail-fast: false
@@ -729,15 +747,25 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    django_tests:
+        needs: [django]
+        name: Django Tests Pass
+        runs-on: ubuntu-latest
+        steps:
+            - run: exit 0
+
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: changes
+        needs: [changes, generate-token]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.6.56']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        env:
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3

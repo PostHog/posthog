@@ -2409,8 +2409,8 @@ class SurveyType(StrEnum):
     POPOVER = "popover"
     WIDGET = "widget"
     FULL_SCREEN = "full_screen"
-    EMAIL = "email"
     API = "api"
+    EXTERNAL_SURVEY = "external_survey"
 
 
 class SurveyWidgetType(StrEnum):
