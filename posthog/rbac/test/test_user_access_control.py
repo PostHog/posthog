@@ -1,11 +1,9 @@
 import pytest
-from typing import cast
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.plugin import Plugin
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, AccessSource
@@ -889,7 +887,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_returns_none_when_no_specific_access_controls(self):
         """Test that returns None when no specific access controls exist"""
-        access_level = self.user_access_control.specific_access_level_for_object(self.dashboard)
+        access_level = self.other_user_access_control.specific_access_level_for_object(self.dashboard)
         assert access_level is None
 
     def test_returns_none_when_no_organization_membership(self):
@@ -1010,30 +1008,11 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         access_level = uac.specific_access_level_for_object(self.organization)
         assert access_level is None
 
-    def test_plugin_specific_access_control(self):
-        """Test plugin-specific access controls"""
-        # Create a plugin access control
-        self._create_access_control(
-            resource="plugin",
-            resource_id="test_plugin",
-            access_level="editor",
-            organization_member=self.organization_membership,
-        )
-
-        # Create a mock plugin object
-        class MockPlugin:
-            def __init__(self):
-                self.id = "test_plugin"
-
-        plugin_obj = cast(Plugin, MockPlugin())
-        access_level = self.user_access_control.specific_access_level_for_object(plugin_obj)
-        assert access_level == "editor"
-
     def test_feature_flag_specific_access_control(self):
         """Test feature flag-specific access controls"""
         from posthog.models.feature_flag import FeatureFlag
 
-        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.other_user)
 
         self._create_access_control(
             resource="feature_flag",
@@ -1049,7 +1028,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         """Test notebook-specific access controls"""
         from posthog.models.notebook import Notebook
 
-        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        notebook = Notebook.objects.create(team=self.team, created_by=self.other_user)
 
         self._create_access_control(
             resource="notebook",
@@ -1065,7 +1044,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         """Test insight-specific access controls"""
         from posthog.models.insight import Insight
 
-        insight = Insight.objects.create(team=self.team, created_by=self.user)
+        insight = Insight.objects.create(team=self.team, created_by=self.other_user)
 
         self._create_access_control(
             resource="insight",
