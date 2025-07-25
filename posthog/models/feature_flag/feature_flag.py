@@ -83,6 +83,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         max_length=10,
         choices=EVALUATION_ENVIRONMENT_CHOICES,
         default="all",
+        null=True,
+        blank=True,
         help_text="Specifies where this feature flag should be evaluated",
     )
 
