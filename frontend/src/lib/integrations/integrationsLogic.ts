@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getCookie } from 'lib/api'
@@ -27,8 +27,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
+        openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        closeNewIntegrationModal: true,
     }),
-
+    reducers({
+        newIntegrationModalKind: [
+            null as IntegrationKind | null,
+            {
+                openNewIntegrationModal: (_, { kind }: { kind: IntegrationKind }) => kind,
+                closeNewIntegrationModal: () => null,
+            },
+        ],
+    }),
     loaders(({ values }) => ({
         integrations: [
             null as IntegrationType[] | null,
