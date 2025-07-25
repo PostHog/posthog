@@ -19,20 +19,20 @@ def forwards(apps, schema_editor):
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
                 "key_file": {
-                    "token_uri": job_inputs["token_uri"],
-                    "project_id": job_inputs["project_id"],
-                    "private_key": job_inputs["private_key"],
-                    "client_email": job_inputs["client_email"],
-                    "private_key_id": job_inputs["private_key_id"],
+                    "token_uri": job_inputs.get("token_uri", ""),
+                    "project_id": job_inputs.get("project_id", ""),
+                    "private_key": job_inputs.get("private_key", ""),
+                    "client_email": job_inputs.get("client_email", ""),
+                    "private_key_id": job_inputs.get("private_key_id", ""),
                 },
-                "dataset_id": job_inputs["dataset_id"],
+                "dataset_id": job_inputs.get("dataset_id", ""),
                 "temporary-dataset": {
-                    "enabled": job_inputs["using_temporary_dataset"],
-                    "temporary_dataset_id": job_inputs["temporary_dataset_id"],
+                    "enabled": job_inputs.get("using_temporary_dataset", "False"),
+                    "temporary_dataset_id": job_inputs.get("temporary_dataset_id", ""),
                 },
                 "dataset_project": {
-                    "enabled": job_inputs["using_custom_dataset_project"],
-                    "dataset_project_id": job_inputs["dataset_project_id"],
+                    "enabled": job_inputs.get("using_custom_dataset_project", "False"),
+                    "dataset_project_id": job_inputs.get("dataset_project_id", ""),
                 },
             }
             source.job_inputs = new_job_inputs
@@ -40,22 +40,22 @@ def forwards(apps, schema_editor):
         elif source_type == ExternalDataSourceModel.Type.MSSQL:
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
-                "host": job_inputs["host"],
-                "port": job_inputs["port"],
-                "user": job_inputs["user"],
-                "schema": job_inputs["schema"],
-                "database": job_inputs["database"],
-                "password": job_inputs["password"],
+                "host": job_inputs.get("host", ""),
+                "port": job_inputs.get("port", ""),
+                "user": job_inputs.get("user", ""),
+                "schema": job_inputs.get("schema", ""),
+                "database": job_inputs.get("database", ""),
+                "password": job_inputs.get("password", ""),
                 "ssh_tunnel": {
-                    "enabled": job_inputs["ssh_tunnel_enabled"],
-                    "host": job_inputs["ssh_tunnel_host"],
-                    "port": job_inputs["ssh_tunnel_port"],
+                    "enabled": job_inputs.get("ssh_tunnel_enabled", "False"),
+                    "host": job_inputs.get("ssh_tunnel_host", ""),
+                    "port": job_inputs.get("ssh_tunnel_port", ""),
                     "auth_type": {
-                        "selection": job_inputs["ssh_tunnel_auth_type"],
-                        "username": job_inputs["ssh_tunnel_auth_type_username"],
-                        "password": job_inputs["ssh_tunnel_auth_type_password"],
-                        "private_key": job_inputs["ssh_tunnel_auth_type_private_key"],
-                        "passphrase": job_inputs["ssh_tunnel_auth_type_passphrase"],
+                        "selection": job_inputs.get("ssh_tunnel_auth_type", "password"),
+                        "username": job_inputs.get("ssh_tunnel_auth_type_username", ""),
+                        "password": job_inputs.get("ssh_tunnel_auth_type_password", ""),
+                        "private_key": job_inputs.get("ssh_tunnel_auth_type_private_key", ""),
+                        "passphrase": job_inputs.get("ssh_tunnel_auth_type_passphrase", ""),
                     },
                 },
             }
@@ -64,23 +64,23 @@ def forwards(apps, schema_editor):
         elif source_type == ExternalDataSourceModel.Type.MYSQL:
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
-                "host": job_inputs["host"],
-                "port": job_inputs["port"],
-                "user": job_inputs["user"],
-                "schema": job_inputs["schema"],
-                "database": job_inputs["database"],
-                "password": job_inputs["password"],
-                "using_ssl": job_inputs["using_ssl"],
+                "host": job_inputs.get("host", ""),
+                "port": job_inputs.get("port", ""),
+                "user": job_inputs.get("user", ""),
+                "schema": job_inputs.get("schema", ""),
+                "database": job_inputs.get("database", ""),
+                "password": job_inputs.get("password", ""),
+                "using_ssl": job_inputs.get("using_ssl", "True"),
                 "ssh_tunnel": {
-                    "enabled": job_inputs["ssh_tunnel_enabled"],
-                    "host": job_inputs["ssh_tunnel_host"],
-                    "port": job_inputs["ssh_tunnel_port"],
+                    "enabled": job_inputs.get("ssh_tunnel_enabled", "False"),
+                    "host": job_inputs.get("ssh_tunnel_host", ""),
+                    "port": job_inputs.get("ssh_tunnel_port", ""),
                     "auth_type": {
-                        "selection": job_inputs["ssh_tunnel_auth_type"],
-                        "username": job_inputs["ssh_tunnel_auth_type_username"],
-                        "password": job_inputs["ssh_tunnel_auth_type_password"],
-                        "private_key": job_inputs["ssh_tunnel_auth_type_private_key"],
-                        "passphrase": job_inputs["ssh_tunnel_auth_type_passphrase"],
+                        "selection": job_inputs.get("ssh_tunnel_auth_type", "password"),
+                        "username": job_inputs.get("ssh_tunnel_auth_type_username", ""),
+                        "password": job_inputs.get("ssh_tunnel_auth_type_password", ""),
+                        "private_key": job_inputs.get("ssh_tunnel_auth_type_private_key", ""),
+                        "passphrase": job_inputs.get("ssh_tunnel_auth_type_passphrase", ""),
                     },
                 },
             }
@@ -89,22 +89,22 @@ def forwards(apps, schema_editor):
         elif source_type == ExternalDataSourceModel.Type.POSTGRES:
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
-                "host": job_inputs["host"],
-                "port": job_inputs["port"],
-                "user": job_inputs["user"],
-                "schema": job_inputs["schema"],
-                "database": job_inputs["database"],
-                "password": job_inputs["password"],
+                "host": job_inputs.get("host", ""),
+                "port": job_inputs.get("port", ""),
+                "user": job_inputs.get("user", ""),
+                "schema": job_inputs.get("schema", ""),
+                "database": job_inputs.get("database", ""),
+                "password": job_inputs.get("password", ""),
                 "ssh_tunnel": {
-                    "enabled": job_inputs["ssh_tunnel_enabled"],
-                    "host": job_inputs["ssh_tunnel_host"],
-                    "port": job_inputs["ssh_tunnel_port"],
+                    "enabled": job_inputs.get("ssh_tunnel_enabled", "False"),
+                    "host": job_inputs.get("ssh_tunnel_host", ""),
+                    "port": job_inputs.get("ssh_tunnel_port", ""),
                     "auth_type": {
-                        "selection": job_inputs["ssh_tunnel_auth_type"],
-                        "username": job_inputs["ssh_tunnel_auth_type_username"],
-                        "password": job_inputs["ssh_tunnel_auth_type_password"],
-                        "private_key": job_inputs["ssh_tunnel_auth_type_private_key"],
-                        "passphrase": job_inputs["ssh_tunnel_auth_type_passphrase"],
+                        "selection": job_inputs.get("ssh_tunnel_auth_type", "password"),
+                        "username": job_inputs.get("ssh_tunnel_auth_type_username", ""),
+                        "password": job_inputs.get("ssh_tunnel_auth_type_password", ""),
+                        "private_key": job_inputs.get("ssh_tunnel_auth_type_private_key", ""),
+                        "passphrase": job_inputs.get("ssh_tunnel_auth_type_passphrase", ""),
                     },
                 },
             }
@@ -113,17 +113,17 @@ def forwards(apps, schema_editor):
         elif source_type == ExternalDataSourceModel.Type.SNOWFLAKE:
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
-                "account_id": job_inputs["account_id"],
-                "database": job_inputs["database"],
-                "warehouse": job_inputs["warehouse"],
-                "role": job_inputs["role"],
-                "schema": job_inputs["schema"],
+                "account_id": job_inputs.get("account_id", ""),
+                "database": job_inputs.get("database", ""),
+                "warehouse": job_inputs.get("warehouse", ""),
+                "role": job_inputs.get("role", ""),
+                "schema": job_inputs.get("schema", ""),
                 "auth_type": {
-                    "selection": job_inputs["auth_type"],
-                    "user": job_inputs["user"],
-                    "password": job_inputs["password"],
-                    "private_key": job_inputs["private_key"],
-                    "passphrase": job_inputs["passphrase"],
+                    "selection": job_inputs.get("auth_type", "password"),
+                    "user": job_inputs.get("user", ""),
+                    "password": job_inputs.get("password", ""),
+                    "private_key": job_inputs.get("private_key", ""),
+                    "passphrase": job_inputs.get("passphrase", ""),
                 },
             }
             source.job_inputs = new_job_inputs
@@ -131,24 +131,30 @@ def forwards(apps, schema_editor):
         elif source_type == ExternalDataSourceModel.Type.VITALLY:
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
-                "secret_token": job_inputs["secret_token"],
-                "region": {"selection": job_inputs["region"], "subdomain": job_inputs["subdomain"]},
+                "secret_token": job_inputs.get("secret_token", ""),
+                "region": {"selection": job_inputs.get("region", "EU"), "subdomain": job_inputs.get("subdomain", "")},
             }
             source.job_inputs = new_job_inputs
             source.save()
         elif source_type == ExternalDataSourceModel.Type.ZENDESK:
             new_job_inputs = {
                 "pre_migration_job_inputs": job_inputs,
-                "subdomain": job_inputs["zendesk_subdomain"],
-                "api_key": job_inputs["zendesk_api_key"],
-                "email_address": job_inputs["zendesk_email_address"],
+                "subdomain": job_inputs.get("zendesk_subdomain", ""),
+                "api_key": job_inputs.get("zendesk_api_key", ""),
+                "email_address": job_inputs.get("zendesk_email_address", ""),
             }
             source.job_inputs = new_job_inputs
             source.save()
 
 
 def reverse(apps, schema_editor):
-    pass
+    ExternalDataSource: ExternalDataSourceModel = apps.get_model("posthog", "ExternalDataSource")
+    sources = ExternalDataSource.objects.filter(job_inputs__has_key="pre_migration_job_inputs")
+
+    for source in sources:
+        if source.job_inputs is not None:
+            source.job_inputs = source.job_inputs["pre_migration_job_inputs"]
+            source.save()
 
 
 class Migration(migrations.Migration):
