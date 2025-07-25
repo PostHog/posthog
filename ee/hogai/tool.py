@@ -1,7 +1,7 @@
 import importlib
 import json
 import pkgutil
-from typing import Any, Literal, TypeVar, Optional
+from typing import Any, Literal, TypeVar, Optional, Generic
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
@@ -19,7 +19,7 @@ from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
 T = TypeVar("T", bound=BaseModel)
 
 
-class FilterProfile(BaseModel):
+class FilterProfile(BaseModel, Generic[T]):
     """Base class for filter profiles that define how filter generation works for specific tools."""
 
     tool_name: str
