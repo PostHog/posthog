@@ -8,7 +8,6 @@ import {
     ClickHousePersonDistinctId2,
     DeadLetterQueueEvent,
     InternalPerson,
-    PersonDistinctId,
     PluginLogEntry,
     RawClickHouseEvent,
     RawSessionRecordingEvent,
