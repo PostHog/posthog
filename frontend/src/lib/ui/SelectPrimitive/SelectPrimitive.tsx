@@ -22,11 +22,11 @@ function SelectPrimitiveTrigger({
     className,
     size = 'base',
     children,
-    variant = 'default',
+    buttonProps,
     ...props
 }: React.ComponentProps<typeof SelectPrimitiveBase.Trigger> & {
     size?: 'sm' | 'base'
-    variant?: ButtonPrimitiveProps['variant']
+    buttonProps?: ButtonPrimitiveProps
 }): JSX.Element {
     return (
         <SelectPrimitiveBase.Trigger
@@ -36,7 +36,7 @@ function SelectPrimitiveTrigger({
             asChild
             {...props}
         >
-            <ButtonPrimitive variant={variant}>
+            <ButtonPrimitive {...buttonProps}>
                 {children}
                 <SelectPrimitiveBase.Icon asChild className="ml-auto">
                     <IconChevronRight className="ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
@@ -63,7 +63,7 @@ function SelectPrimitiveContent({
                     'primitive-menu-content',
                     position === 'popper' &&
                         'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
-                    matchTriggerWidth && 'w-[var(--radix-select-trigger-width)]',
+                    matchTriggerWidth && 'min-w-[var(--radix-select-trigger-width)]',
                     className
                 )}
                 position={position}
@@ -72,8 +72,7 @@ function SelectPrimitiveContent({
                 <SelectPrimitiveBase.Viewport
                     className={cn(
                         position === 'popper' &&
-                            'h-[var(--radix-select-trigger-height)] w-full scroll-my-1 max-h-[calc(var(--radix-select-content-available-height)-100px)]',
-                        matchTriggerWidth && 'w-[var(--radix-select-trigger-width)]'
+                            'h-[var(--radix-select-trigger-height)] w-full scroll-my-1 max-h-[calc(var(--radix-select-content-available-height)-var(--radix-select-trigger-height))]'
                     )}
                     asChild
                 >

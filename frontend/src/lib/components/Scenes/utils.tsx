@@ -13,3 +13,12 @@ export type SceneInputProps = SceneCanEditProps &
         onSave: (value: string) => void
         optional?: boolean
     }
+
+export type SceneSelectProps = SceneCanEditProps &
+    SceneDataAttrKeyProps & {
+        onSave: (value: string) => void
+        options: { value: string; label: string }[]
+        name: string
+        value?: string
+        optional?: boolean
+    }

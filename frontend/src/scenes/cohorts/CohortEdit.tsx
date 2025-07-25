@@ -23,12 +23,19 @@ import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteri
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
-import { ScenePanel, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+
+import { SceneLoadingSkeleton } from 'lib/components/Scenes/SceneLoadingSkeleton'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
 import { NotebookNodeType } from '~/types'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+
+import { IconTrash } from '@posthog/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -139,44 +146,42 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
             <ScenePanel>
                 <ScenePanelMetaInfo>
-                    <SceneName
-                        defaultValue={cohort.name || ''}
-                        dataAttrKey={RESOURCE_TYPE}
-                        onSave={(value) => {
-                            saveCohort({
-                                name: value,
-                            })
-                        }}
-                    />
-
-                    <SceneDescription
-                        defaultValue={cohort.description || ''}
-                        onSave={(value) =>
-                            saveCohort({
-                                description: value,
-                            })
-                        }
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                    />
-
-                    {/*<SceneTags
-                            onSave={(tags) => {
-                                setActionValue('tags', tags)
-                            }}
-                            tags={action.tags || []}
-                            tagsAvailable={tags}
+                    {cohortLoading || cohort.is_calculating ? (
+                        <SceneLoadingSkeleton />
+                    ) : (
+                        <SceneName
+                            defaultValue={cohort.name || ''}
                             dataAttrKey={RESOURCE_TYPE}
+                            onSave={(value) => {
+                                saveCohort({
+                                    name: value,
+                                })
+                            }}
                         />
+                    )}
 
-                        <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                    {cohortLoading || cohort.is_calculating ? (
+                        <SceneLoadingSkeleton />
+                    ) : (
+                        <SceneDescription
+                            defaultValue={cohort.description || ''}
+                            onSave={(value) =>
+                                saveCohort({
+                                    description: value,
+                                })
+                            }
+                            dataAttrKey={RESOURCE_TYPE}
+                            optional
+                        />
+                    )}
 
-                        <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" /> */}
+                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
                 </ScenePanelMetaInfo>
                 <ScenePanelDivider />
 
-                {/* <ScenePanelActions>
-                        {id && (
+                <ScenePanelActions>
+                    <SceneAddToDropdownMenu notebook={true} dataAttrKey={RESOURCE_TYPE} />
+                    {/* {id && (
                             <>
                                 <Link
                                     to={urls.replay(ReplayTabs.Home, {
@@ -214,20 +219,22 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </Link>
                                 <ScenePanelDivider />
                             </>
-                        )}
+                        )}*/}
 
-                        <ButtonPrimitive
-                            onClick={() => {
-                                deleteAction()
-                            }}
-                            variant="danger"
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-delete`}
-                        >
-                            <IconTrash />
-                            Delete
-                        </ButtonPrimitive>
-                    </ScenePanelActions> */}
+                    <ScenePanelDivider />
+
+                    <ButtonPrimitive
+                        onClick={() => {
+                            deleteCohort()
+                        }}
+                        variant="danger"
+                        menuItem
+                        data-attr={`${RESOURCE_TYPE}-delete`}
+                    >
+                        <IconTrash />
+                        Delete
+                    </ButtonPrimitive>
+                </ScenePanelActions>
             </ScenePanel>
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <div className="deprecated-space-y-2 max-w-200">
