@@ -49,8 +49,14 @@ export const DEFAULT_BILLING_USAGE_FILTERS: BillingFilters = {
     interval: 'day',
 }
 
+export const DEFAULT_BILLING_USAGE_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
+export const DEFAULT_BILLING_USAGE_DATE_TO = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+
 export interface BillingUsageLogicProps {
     dashboardItemId?: string
+    initialFilters?: BillingFilters
+    dateFrom?: string
+    dateTo?: string
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -90,9 +96,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
-                        start_date:
-                            values.dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
-                        end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+                        start_date: values.dateFrom,
+                        end_date: values.dateTo,
                         ...(interval ? { interval } : {}),
                     }
                     try {
@@ -106,9 +111,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         filters: [
-            { ...DEFAULT_BILLING_USAGE_FILTERS } as BillingFilters,
+            { ...(props.initialFilters || DEFAULT_BILLING_USAGE_FILTERS) },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 toggleTeamBreakdown: (state: BillingFilters) => {
@@ -120,22 +125,21 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         : [...current, 'team']
                     return { ...state, breakdowns: next }
                 },
-                resetFilters: () => ({ ...DEFAULT_BILLING_USAGE_FILTERS }),
+                resetFilters: () => ({ ...(props.initialFilters || DEFAULT_BILLING_USAGE_FILTERS) }),
             },
         ],
         dateFrom: [
-            dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+            props.dateFrom || DEFAULT_BILLING_USAGE_DATE_FROM,
             {
-                setDateRange: (_, { dateFrom }) =>
-                    dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
-                resetFilters: () => dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateFrom }) => dateFrom || props.dateFrom || DEFAULT_BILLING_USAGE_DATE_FROM,
+                resetFilters: () => props.dateFrom || DEFAULT_BILLING_USAGE_DATE_FROM,
             },
         ],
         dateTo: [
-            dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+            props.dateTo || DEFAULT_BILLING_USAGE_DATE_TO,
             {
-                setDateRange: (_, { dateTo }) => dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
-                resetFilters: () => dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateTo }) => dateTo || props.dateTo || DEFAULT_BILLING_USAGE_DATE_TO,
+                resetFilters: () => props.dateTo || DEFAULT_BILLING_USAGE_DATE_TO,
             },
         ],
         userHiddenSeries: [
@@ -152,7 +156,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 resetFilters: () => false,
             },
         ],
-    }),
+    })),
     selectors({
         dateOptions: [
             (s) => [s.billing],
