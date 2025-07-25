@@ -3095,7 +3095,6 @@ export enum SurveyType {
     Popover = 'popover',
     Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
-    Email = 'email',
     API = 'api',
     ExternalSurvey = 'external_survey',
 }
