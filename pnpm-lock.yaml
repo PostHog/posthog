@@ -38,7 +38,7 @@ importers:
         version: 10.0.0
     optionalDependencies:
       fsevents:
-        specifier: ^2.3.2
+        specifier: ^2.3.3
         version: 2.3.3
     devDependencies:
       '@parcel/packager-ts':
@@ -51,7 +51,7 @@ importers:
         specifier: ^10.0.0
         version: 10.0.0
       oxlint:
-        specifier: ^1.1.0
+        specifier: ^1.8.0
         version: 1.8.0
       prettier:
         specifier: ^2.8.8
@@ -60,16 +60,16 @@ importers:
         specifier: ^15.11.0
         version: 15.11.0(typescript@5.2.2)
       stylelint-config-recess-order:
-        specifier: ^4.3.0
+        specifier: ^4.6.0
         version: 4.6.0(stylelint@15.11.0(typescript@5.2.2))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
         version: 11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
       stylelint-order:
-        specifier: ^6.0.3
+        specifier: ^6.0.4
         version: 6.0.4(stylelint@15.11.0(typescript@5.2.2))
       syncpack:
-        specifier: ^13.0.1
+        specifier: ^13.0.4
         version: 13.0.4(typescript@5.2.2)
 
   common/esbuilder:
@@ -1299,6 +1299,12 @@ importers:
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
+      cassandra-driver:
+        specifier: ^4.8.0
+        version: 4.8.0
+      cassandra-migrate:
+        specifier: ^1.2.333
+        version: 1.2.333
       dayjs:
         specifier: 1.11.11
         version: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
@@ -8346,6 +8352,10 @@ packages:
     resolution: {integrity: sha512-4B/qKCfeE/ODUaAUpSwfzazo5x29WD4r3vXiWsB7I2mSDAihwEqKO+g8GELZUQSSAo5e1XTYh3ZVfLyxBc12nA==}
     engines: {node: '>= 10.0.0'}
 
+  adm-zip@0.5.16:
+    resolution: {integrity: sha512-TGw5yVi4saajsSEgz25grObGHEUaDrniwvA2qwSC060KfqGPdglhvPMA2lPIoxs3PQIItj2iag35fONcQqgUaQ==}
+    engines: {node: '>=12.0'}
+
   agent-base@5.1.1:
     resolution: {integrity: sha512-TMeqbNl2fMW0nMjTEPOwe3J/PRFP4vqeoNuQMG0HlMrtm5QxKqdvAkZ1pRBQ/ulIyDD5Yq0nJ7YbdD8ey0TO3g==}
     engines: {node: '>= 6.0.0'}
@@ -8567,6 +8577,9 @@ packages:
 
   async-retry@1.3.3:
     resolution: {integrity: sha512-wfr/jstw9xNi/0teMHrRW7dsz3Lt5ARhYNZ2ewpadnhaIp5mbALhOAP+EAdsC7t4Z6wqsDVv9+W6gm1Dk9mEyw==}
+
+  async@0.9.2:
+    resolution: {integrity: sha512-l6ToIJIotphWahxxHyzK9bnLR6kM4jJIIgLShZeqLY7iboHoGkdgFl7W2/Ivi4SkMJYGKqW8vSuk0uKUj6qsSw==}
 
   async@3.2.4:
     resolution: {integrity: sha512-iAB+JbDEGXhyIUavoDl9WP/Jj106Kz9DEn1DPgYw5ruDn0e3Wgi3sKFm55sASdGBNOQB8F59d9qQ7deqrHA8wQ==}
@@ -8965,6 +8978,18 @@ packages:
 
   caseless@0.12.0:
     resolution: {integrity: sha512-4tYFyifaFfGacoiObjJegolkwSU4xQNGbVgUiNYVUxbQ2x2lUsFvY4hVgVzGiIe6WLOPqycWXA40l+PWsxthUw==}
+
+  cassandra-driver@3.6.0:
+    resolution: {integrity: sha512-CkN3V+oPaF5RvakUjD3uUjEm8f6U8S0aT1+YqeQsVT3UDpPT2K8SOdNDEHA1KjamakHch6zkDgHph1xWyqBGGw==}
+    engines: {node: '>=4'}
+
+  cassandra-driver@4.8.0:
+    resolution: {integrity: sha512-HritfMGq9V7SuESeSodHvArs0mLuMk7uh+7hQK2lqdvXrvm50aWxb4RPxkK3mPDdsgHjJ427xNRFITMH2ei+Sw==}
+    engines: {node: '>=18'}
+
+  cassandra-migrate@1.2.333:
+    resolution: {integrity: sha512-4uizL1SxK8tfpg18+qMuJge+VQQIlo4Or8fYA/xI6b2sdyXbCwTTLu31jJx1rXtmgoP/W5F4aQ3TfGeFX9YQIA==}
+    hasBin: true
 
   chalk-template@1.1.0:
     resolution: {integrity: sha512-T2VJbcDuZQ0Tb2EWwSotMPJjgpy1/tGee1BTpUNsGZ/qgNjV2t7Mvu+d4600U564nbLesN1x2dPL+xii174Ekg==}
@@ -12550,6 +12575,13 @@ packages:
   long-timeout@0.1.1:
     resolution: {integrity: sha512-BFRuQUqc7x2NWxfJBCyUrN8iYUYznzL9JROmRz1gZ6KlOIgmoD+njPVbb+VNn2nGMKggMsK79iUNErillsrx7w==}
 
+  long@2.4.0:
+    resolution: {integrity: sha512-ijUtjmO/n2A5PaosNG9ZGDsQ3vxJg7ZW8vsY8Kp0f2yIZWhSJvjmegV7t+9RPQKxKrvj8yKGehhS+po14hPLGQ==}
+    engines: {node: '>=0.6'}
+
+  long@5.2.4:
+    resolution: {integrity: sha512-qtzLbJE8hq7VabR3mISmVGtoXP8KGc2Z/AT8OuqlYD7JTR3oqrgwdjnk07wpj1twXxYmgDXgoKVWUG/fReSzHg==}
+
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
 
@@ -15277,10 +15309,6 @@ packages:
 
   secure-json-parse@2.7.0:
     resolution: {integrity: sha512-6aU+Rwsezw7VR8/nyvKTx8QpWH9FrcYiXXlqC4z5d5XQBDRqtbfsRjnwGyqbi3gddNtWHuEk9OANUotL26qKUw==}
-
-  semver@5.7.1:
-    resolution: {integrity: sha512-sauaDf/PZdVgrLTNYHRtpXa1iRiKcaebiKQ1BJdpQlWH2lCvexQdX55snPFyK7QzpudqbCI0qXFfOasHdyNDGQ==}
-    hasBin: true
 
   semver@5.7.2:
     resolution: {integrity: sha512-cBznnQ9KjJqU67B52RMC65CMarK2600WFnbkcaiwWq3xy/5haFJlshgnpjovMVJ+Hff49d8GEn0b87C5pDQ10g==}
@@ -19514,7 +19542,7 @@ snapshots:
   '@eslint/eslintrc@2.1.4':
     dependencies:
       ajv: 6.12.6
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       espree: 9.6.1
       globals: 13.23.0
       ignore: 5.2.4
@@ -19644,7 +19672,7 @@ snapshots:
   '@humanwhocodes/config-array@0.11.14':
     dependencies:
       '@humanwhocodes/object-schema': 2.0.3
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@5.5.0)
       minimatch: 3.1.2
     transitivePeerDependencies:
       - supports-color
@@ -23076,7 +23104,7 @@ snapshots:
       magic-string: 0.30.5
       path-browserify: 1.0.1
       process: 0.11.10
-      semver: 7.7.0
+      semver: 7.7.2
       style-loader: 3.3.3(webpack@5.88.2)
       swc-loader: 0.2.3(@swc/core@1.11.4(@swc/helpers@0.5.15))(webpack@5.88.2)
       terser-webpack-plugin: 5.3.9(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack@5.88.2)
@@ -23153,7 +23181,7 @@ snapshots:
       prompts: 2.4.2
       puppeteer-core: 2.1.1
       read-pkg-up: 7.0.1
-      semver: 7.7.0
+      semver: 7.7.2
       simple-update-notifier: 2.0.0
       strip-json-comments: 3.1.1
       tempy: 1.0.1
@@ -23387,7 +23415,7 @@ snapshots:
       dequal: 2.0.3
       lodash: 4.17.21
       memoizerific: 1.11.3
-      semver: 7.7.0
+      semver: 7.7.2
       store2: 2.14.4
       telejson: 7.2.0
       ts-dedent: 2.2.0
@@ -23422,7 +23450,7 @@ snapshots:
       react-docgen: 7.0.1
       react-dom: 18.2.0(react@18.2.0)
       react-refresh: 0.14.0
-      semver: 7.7.0
+      semver: 7.7.2
       webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
     optionalDependencies:
       '@babel/core': 7.26.0
@@ -25156,6 +25184,8 @@ snapshots:
 
   address@1.2.2: {}
 
+  adm-zip@0.5.16: {}
+
   agent-base@5.1.1: {}
 
   agent-base@6.0.2:
@@ -25450,6 +25480,8 @@ snapshots:
   async-retry@1.3.3:
     dependencies:
       retry: 0.13.1
+
+  async@0.9.2: {}
 
   async@3.2.4: {}
 
@@ -25968,6 +26000,22 @@ snapshots:
   case-sensitive-paths-webpack-plugin@2.4.0: {}
 
   caseless@0.12.0: {}
+
+  cassandra-driver@3.6.0:
+    dependencies:
+      long: 2.4.0
+
+  cassandra-driver@4.8.0:
+    dependencies:
+      '@types/node': 18.19.120
+      adm-zip: 0.5.16
+      long: 5.2.4
+
+  cassandra-migrate@1.2.333:
+    dependencies:
+      async: 0.9.2
+      cassandra-driver: 3.6.0
+      commander: 2.20.3
 
   chalk-template@1.1.0:
     dependencies:
@@ -26986,6 +27034,12 @@ snapshots:
     optionalDependencies:
       supports-color: 5.5.0
 
+  debug@4.4.1(supports-color@8.1.1):
+    dependencies:
+      ms: 2.1.3
+    optionalDependencies:
+      supports-color: 8.1.1
+
   decamelize-keys@1.1.1:
     dependencies:
       decamelize: 1.2.0
@@ -27886,7 +27940,7 @@ snapshots:
 
   extract-zip@2.0.1(supports-color@8.1.1):
     dependencies:
-      debug: 4.4.0(supports-color@8.1.1)
+      debug: 4.4.1(supports-color@8.1.1)
       get-stream: 5.2.0
       yauzl: 2.10.0
     optionalDependencies:
@@ -30486,6 +30540,10 @@ snapshots:
 
   long-timeout@0.1.1: {}
 
+  long@2.4.0: {}
+
+  long@5.2.4: {}
+
   long@5.3.2: {}
 
   loose-envify@1.4.0:
@@ -30539,7 +30597,7 @@ snapshots:
   make-dir@2.1.0:
     dependencies:
       pify: 4.0.1
-      semver: 5.7.1
+      semver: 5.7.2
 
   make-dir@3.1.0:
     dependencies:
@@ -33861,8 +33919,6 @@ snapshots:
 
   secure-json-parse@2.7.0: {}
 
-  semver@5.7.1: {}
-
   semver@5.7.2: {}
 
   semver@6.3.1: {}
@@ -34376,7 +34432,7 @@ snapshots:
   stylelint-config-recess-order@4.3.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:
       stylelint: 15.11.0(typescript@5.2.2)
-      stylelint-order: 6.0.4(stylelint@15.11.0(typescript@5.2.2))
+      stylelint-order: 6.0.3(stylelint@15.11.0(typescript@5.2.2))
 
   stylelint-config-recess-order@4.6.0(stylelint@15.11.0(typescript@5.2.2)):
     dependencies:

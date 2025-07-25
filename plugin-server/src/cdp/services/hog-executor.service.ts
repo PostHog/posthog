@@ -1,4 +1,5 @@
 import { convertHogToJS, ExecResult } from '@posthog/hogvm'
+import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
@@ -453,6 +454,7 @@ export class HogExecutorService {
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
                             }
+
                             // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
                             const body: string | undefined = fetchOptions?.body
                                 ? typeof fetchOptions.body === 'string'
@@ -465,7 +467,7 @@ export class HogExecutorService {
                                 url,
                                 method,
                                 body,
-                                headers,
+                                headers: pickBy(headers, (v) => typeof v == 'string'),
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters

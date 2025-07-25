@@ -26,15 +26,19 @@
         "prettier:check": "prettier --check .",
         "prepublishOnly": "pnpm build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
-        "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd plugin-server && pnpm run setup:test:cyclotron",
+        "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd plugin-server && pnpm run setup:test:cyclotron && pnpm run setup:test:cassandra",
         "setup:test:cyclotron": "CYCLOTRON_DATABASE_NAME=test_cyclotron ../rust/bin/migrate-cyclotron",
+        "setup:test:cassandra": "CASSANDRA_KEYSPACE=test_posthog ./bin/migrate-cassandra",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
-        "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
+        "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
+        "cassandra:migrate": "./bin/migrate-cassandra",
+        "cassandra:rollback": "cd cassandra && cassandra-migrate down",
+        "cassandra:create": "cd cassandra && cassandra-migrate create"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -65,6 +69,8 @@
         "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
+        "cassandra-driver": "^4.8.0",
+        "cassandra-migrate": "^1.2.333",
         "dayjs": "1.11.11",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",

@@ -194,6 +194,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
+    CASSANDRA_HOST: string
+    CASSANDRA_PORT: number
+    CASSANDRA_KEYSPACE: string
+    CASSANDRA_USER: string | null
+    CASSANDRA_PASSWORD: string | null
+    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
@@ -1141,11 +1147,6 @@ export enum TimestampFormat {
     ClickHouseSecondPrecision = 'clickhouse-second-precision',
     ClickHouse = 'clickhouse',
     ISO = 'iso',
-}
-
-export enum Database {
-    ClickHouse = 'clickhouse',
-    Postgres = 'postgres',
 }
 
 export interface PluginScheduleControl {

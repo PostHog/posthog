@@ -1836,7 +1836,7 @@ describe('processEvent', () => {
         const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
         expect(group).toEqual({
             id: expect.any(Number),
-            team_id: team.id.toString(),
+            team_id: team.id,
             group_type_index: 0,
             group_key: 'org::5',
             group_properties: { foo: 'bar' },
@@ -1916,7 +1916,7 @@ describe('processEvent', () => {
         const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
         expect(group).toEqual({
             id: expect.any(Number),
-            team_id: team.id.toString(),
+            team_id: team.id,
             group_type_index: 0,
             group_key: 'org::5',
             group_properties: { a: 3, b: 2, foo: 'bar' },

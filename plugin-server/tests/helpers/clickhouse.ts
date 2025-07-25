@@ -53,10 +53,7 @@ export class Clickhouse {
     }
 
     async truncate(table: string) {
-        await this.client.query({
-            query: `TRUNCATE ${table}`,
-            format: 'JSON',
-        })
+        await this.exec(`TRUNCATE ${table}`)
     }
 
     async resetTestDatabase(): Promise<void> {
