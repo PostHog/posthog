@@ -50,6 +50,7 @@ import {
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
 import { ViewEmptyState } from './ViewLoadingState'
+import equal from 'fast-deep-equal'
 
 export interface MultitabEditorLogicProps {
     key: string
@@ -124,8 +125,11 @@ const setStorageItem = async (key: string, value: string): Promise<void> => {
     await set(key, value)
 }
 
+export type EditorTabLevel = 'new' | 'editor' | 'config' | 'source'
+
 export interface QueryTab {
     uri: Uri
+    level: EditorTabLevel
     view?: DataWarehouseSavedQuery
     name: string
     sourceQuery?: DataVisualizationNode
@@ -196,11 +200,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
         setTabs: (tabs: QueryTab[]) => ({ tabs }),
         addTab: (tab: QueryTab) => ({ tab }),
-        createTab: (query?: string, view?: DataWarehouseSavedQuery, insight?: QueryBasedInsightModel) => ({
+        createTab: (
+            query?: string,
+            view?: DataWarehouseSavedQuery,
+            insight?: QueryBasedInsightModel,
+            level: EditorTabLevel = 'editor'
+        ) => ({
             query,
             view,
             insight,
+            level,
         }),
+        createNewTab: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         deleteTab: (tab: QueryTab) => ({ tab }),
         _deleteTab: (tab: QueryTab) => ({ tab }),
@@ -342,6 +353,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as QueryTab | null,
             {
                 selectTab: (_, { tab }) => tab,
+                updateTab: (state, { tab }) => {
+                    if (state && state.uri.path === tab.uri.path) {
+                        const newObject = {
+                            ...state,
+                            ...tab,
+                        }
+                        if (!equal(newObject, state)) {
+                            return newObject
+                        }
+                    }
+                    return state
+                },
             },
         ],
         editingInsight: [
@@ -583,7 +606,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.createTab(query, undefined, insight)
             }
         },
-        createTab: async ({ query = '', view, insight }) => {
+        createNewTab: () => {
+            actions.createTab(undefined, undefined, undefined, 'new')
+        },
+        createTab: async ({ query = '', view, insight, level }) => {
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
                 codeEditorLogic({
@@ -612,6 +638,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                 actions.addTab({
                     uri,
+                    level,
                     view,
                     insight,
                     name: tabName,
@@ -619,6 +646,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
                 actions.selectTab({
                     uri,
+                    level,
                     view,
                     insight,
                     name: tabName,
@@ -751,6 +779,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.removeTab(tabToRemove)
             const queries = values.allTabs.map((tab) => {
                 return {
+                    level: tab.level,
                     query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
                     path: tab.uri.path.split('/').pop(),
                     view: tab.view,
@@ -805,6 +834,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                         newModels.push({
                             uri,
+                            level: model.level,
                             view: model.view,
                             insight: model.insight,
                             name: model.name,
@@ -836,6 +866,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     if (uri && activeTab) {
                         actions.selectTab({
                             uri,
+                            level: activeTab?.level || 'editor',
                             view: activeView,
                             name: activeView?.name || activeInsight?.name || activeTab.name,
                             insight: activeInsight,
@@ -846,6 +877,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 } else if (newModels.length) {
                     actions.selectTab({
                         uri: newModels[0].uri,
+                        level: newModels[0].level || 'editor',
                         name: newModels[0].view?.name || newModels[0].insight?.name || newModels[0].name,
                         sourceQuery: newModels[0].sourceQuery,
                         view: newModels[0].view,
