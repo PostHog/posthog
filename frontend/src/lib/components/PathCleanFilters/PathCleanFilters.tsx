@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
+import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 import { PathCleanFiltersTable } from './PathCleanFiltersTable'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
@@ -25,19 +26,22 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
     const { featureFlags } = useValues(featureFlagLogic)
     const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
 
-    // Sync local state with props
     useEffect(() => {
-        setLocalFilters(filters)
+        setLocalFilters(ensureFilterOrder(filters))
     }, [filters])
 
     const updateFilters = (newFilters: PathCleaningFilter[]): void => {
-        // Optimistic update
-        setLocalFilters(newFilters)
-        setFilters(newFilters)
+        const filtersWithOrder = updateFilterOrder(newFilters)
+        setLocalFilters(filtersWithOrder)
+        setFilters(filtersWithOrder)
     }
 
     const onAddFilter = (filter: PathCleaningFilter): void => {
-        updateFilters([...filters, filter])
+        const filterWithOrder = {
+            ...filter,
+            order: filters.length,
+        }
+        updateFilters([...filters, filterWithOrder])
     }
 
     const onEditFilter = (index: number, filter: PathCleaningFilter): void => {

@@ -54,59 +54,99 @@ export function PathCleaningRulesDebugger({
     const debugSteps = cleanPathWithDebugSteps(testPath, filters)
 
     return (
-        <div className="mt-4">
+        <div className="mt-3">
             <LemonCollapse
                 panels={[
                     {
                         key: 'debug',
                         header: 'Debug: Step-by-step processing',
                         content: (
-                            <div className="space-y-3">
+                            <div className="space-y-1">
+                                {/* Column Headers */}
+                                <div className="flex gap-3 items-center py-2 px-3 text-xs font-medium text-muted-alt border-b bg-accent-3000">
+                                    <div
+                                        className="w-8 flex-shrink-0 text-center"
+                                        title="Rule number in processing order"
+                                    >
+                                        #
+                                    </div>
+                                    <div className="flex-1 min-w-0" title="Regex pattern and replacement alias">
+                                        Pattern → Alias
+                                    </div>
+                                    <div className="flex-1 min-w-0" title="Path after this rule is applied">
+                                        Output
+                                    </div>
+                                    <div
+                                        className="w-6 flex-shrink-0 flex justify-center"
+                                        title="Whether this rule matched and modified the path"
+                                    >
+                                        ✓
+                                    </div>
+                                </div>
+
                                 {debugSteps.map((step) => (
-                                    <div key={step.stepNumber} className="flex items-center gap-2 p-2 border rounded">
-                                        <div className="flex items-center gap-2 flex-1">
-                                            <span className="text-sm font-semibold text-muted-alt w-16">
-                                                Rule {step.stepNumber}:
-                                            </span>
-                                            <div className="flex items-center gap-2 flex-1">
-                                                <code
-                                                    className={`font-mono text-sm px-2 py-1 rounded ${
-                                                        step.isValidRegex
-                                                            ? 'bg-accent-light text-accent'
-                                                            : 'bg-red-50 text-danger border border-danger'
-                                                    }`}
-                                                >
-                                                    {step.filter.regex || '(Empty)'}
-                                                </code>
-                                                <IconChevronRight className="text-muted-alt" />
-                                                <span className="font-mono text-sm">
-                                                    {parseAliasToReadable(step.filter.alias || '(Empty)')}
-                                                </span>
-                                            </div>
+                                    <div
+                                        key={step.stepNumber}
+                                        className="flex gap-3 items-center px-3 text-xs hover:bg-accent-light border-b border-gray-100"
+                                    >
+                                        <div className="w-8 flex-shrink-0 text-center text-muted-alt font-medium">
+                                            {step.stepNumber}
                                         </div>
-                                        <div className="flex items-center flex-1 gap-2">
-                                            <span className="text-sm font-semibold text-muted-alt w-16">Output:</span>
-                                            <span className="font-mono text-sm">
+                                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                                            <code
+                                                className={`font-mono text-xs px-2 py-1 rounded flex-shrink-0 max-w-32 overflow-hidden text-ellipsis whitespace-nowrap ${
+                                                    step.isValidRegex
+                                                        ? 'bg-accent-light text-accent'
+                                                        : 'bg-red-50 text-danger'
+                                                }`}
+                                                title={step.filter.regex || '(Empty)'}
+                                            >
+                                                {step.filter.regex || '(Empty)'}
+                                            </code>
+                                            <IconChevronRight className="text-muted-alt h-3 w-3 flex-shrink-0" />
+                                            <span
+                                                className="font-mono text-xs min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+                                                title={step.filter.alias || '(Empty)'}
+                                            >
+                                                {parseAliasToReadable(step.filter.alias || '(Empty)')}
+                                            </span>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <span
+                                                className="font-mono text-xs block overflow-hidden text-ellipsis whitespace-nowrap"
+                                                title={step.outputPath}
+                                            >
                                                 {parseAliasToReadable(step.outputPath)}
                                             </span>
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="w-6 flex-shrink-0 flex justify-center">
                                             {step.wasModified ? (
-                                                <span className="text-xs text-success font-semibold bg-green-100 px-2 py-1 rounded">
-                                                    MATCHED
-                                                </span>
+                                                <div
+                                                    className="w-2 h-2 rounded-full bg-success"
+                                                    title="Matched and modified"
+                                                />
                                             ) : (
-                                                <span className="text-xs text-muted-alt font-semibold bg-gray-100 px-2 py-1 rounded">
-                                                    NO MATCH
-                                                </span>
+                                                <div
+                                                    className="w-2 h-2 rounded-full bg-muted-alt"
+                                                    title="No match, unchanged"
+                                                />
                                             )}
                                         </div>
                                     </div>
                                 ))}
 
-                                <div className="flex items-center gap-2 p-2 bg-blue-50 rounded border border-blue-200">
-                                    <span className="text-sm font-semibold text-blue-700">Final result:</span>
-                                    <code className="font-mono text-sm text-blue-800">{finalResult}</code>
+                                <div className="flex gap-3 items-center py-3 px-3 bg-blue-50 border border-blue-200 rounded mt-3">
+                                    <div className="w-20 flex-shrink-0 text-xs font-medium text-blue-700">
+                                        Final result:
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <code
+                                            className="font-mono text-xs text-blue-800 block overflow-hidden text-ellipsis whitespace-nowrap"
+                                            title={String(finalResult)}
+                                        >
+                                            {finalResult}
+                                        </code>
+                                    </div>
                                 </div>
                             </div>
                         ),
