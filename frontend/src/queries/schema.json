@@ -14623,7 +14623,7 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
-                "dynamicConversionGoal": {
+                "draftConversionGoal": {
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ConversionGoalFilter"
@@ -14632,7 +14632,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Dynamic conversion goal that can be set in the UI without saving"
+                    "description": "Draft conversion goal that can be set in the UI without saving"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -22828,6 +22828,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "confidenceLevel": {
+                    "type": "number"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -22896,6 +22899,9 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showConfidenceIntervals": {
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {
