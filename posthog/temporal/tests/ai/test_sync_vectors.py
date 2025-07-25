@@ -43,7 +43,11 @@ from posthog.temporal.common.clickhouse import get_client
 @pytest.fixture(autouse=True)
 def cleanup():
     yield
-    sync_execute(TRUNCATE_PG_EMBEDDINGS_TABLE_SQL())
+
+    try:
+        sync_execute(TRUNCATE_PG_EMBEDDINGS_TABLE_SQL())
+    except:
+        pass
 
 
 @pytest.fixture

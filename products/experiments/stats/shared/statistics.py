@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import numpy as np
 
 
-class StatisticError(Exception):
+class StatisticError(ValueError):
     """Base exception for statistic-related errors."""
 
     pass
