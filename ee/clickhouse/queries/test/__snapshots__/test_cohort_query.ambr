@@ -1457,7 +1457,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-17 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1550,7 +1550,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-17 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1668,7 +1668,7 @@
                WHERE equals(person_distinct_id_overrides.team_id, 99999)
                GROUP BY person_distinct_id_overrides.distinct_id
                HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-10 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+            WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-11 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
          GROUP BY actor_id) AS source
       ORDER BY source.id ASC
       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -1697,7 +1697,7 @@
                                                                                          actor_id AS id
                                                                                   FROM
                                                                                     (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-07-10 00:00:00.000000', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2025-07-11 00:00:00.000000', 6, 'UTC'))) AS min_timestamp_with_condition,
                                                                                             if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                                                                                             argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                                                                                             argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
@@ -2091,7 +2091,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-17 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -2176,7 +2176,7 @@
                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                               GROUP BY person_distinct_id_overrides.distinct_id
                               HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-17 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -2285,7 +2285,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(ifNull(person_distinct_id_overrides.is_deleted, NULL), person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-17 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('2025-07-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      ORDER BY source.id ASC
      LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
