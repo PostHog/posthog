@@ -15176,6 +15176,9 @@
                 "alias": {
                     "type": "string"
                 },
+                "order": {
+                    "type": "number"
+                },
                 "regex": {
                     "type": "string"
                 }
