@@ -51,6 +51,21 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "Organization",
+    "OrganizationMembership",
+    "Role",
+    "UserGroup",
+    "BatchExport",
+    "BatchImport",
+    "Integration",
+    "Annotation",
+    "Tag",
+    "TaggedItem",
+    "Subscription",
+    "AlertConfiguration",
+    "PersonalAPIKey",
+    "User",
+    "Action",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -161,6 +176,21 @@ common_field_exclusions = [
 field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
+    ],
+    "Integration": [
+        "config",
+        "sensitive_config",
+    ],
+    "BatchImport": [
+        "import_config",
+        "secrets",
+    ],
+    "PersonalAPIKey": [
+        "value",
+        "secure_value",
+    ],
+    "Subscription": [
+        "target_value",
     ],
 }
 
@@ -277,6 +307,53 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "latest_error",
         "sync_frequency_interval",
         "deleted_name",
+    ],
+    "Organization": [
+        "teams",
+        "billing",
+        "organization_billing",
+        "_billing_plan_details",
+        "usage",
+        "customer_id",
+        "customer_trust_scores",
+        "personalization",
+    ],
+    "BatchExport": [
+        "latest_runs",
+    ],
+    "BatchImport": [
+        "leased_until",
+        "status_message",
+        "state",
+        "secrets",
+    ],
+    "Integration": [
+        "sensitive_config",
+        "errors",
+    ],
+    "PersonalAPIKey": [
+        "value",
+        "secure_value",
+    ],
+    "User": [
+        "password",
+        "current_organization_id",
+        "current_team_id",
+        "temporary_token",
+        "distinct_id",
+        "partial_notification_settings",
+        "anonymize_data",
+        "is_email_verified",
+        "_billing_plan_details",
+        "strapi_id",
+    ],
+    "AlertConfiguration": [
+        "state",
+    ],
+    "Action": [
+        "bytecode",
+        "bytecode_error",
+        "steps_json",
     ],
 }
 
