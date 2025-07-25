@@ -793,6 +793,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
+            self.assertEqual(response.json()["updated_at"], "2021-08-25T22:09:14.252000Z")
+
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
@@ -822,6 +824,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.json()["name"], "Updated name")
         self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 65)
+        self.assertEqual(response.json()["updated_at"], "2021-08-25T22:19:14.252000Z")
 
         # Assert analytics are sent
         mock_capture.assert_called_with(

@@ -162,6 +162,7 @@ class FeatureFlagSerializer(
             "created_at",
             "version",
             "last_modified_by",
+            "updated_at",
             "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",

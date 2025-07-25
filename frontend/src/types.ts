@@ -3287,6 +3287,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     created_at: string | null
     version: number | null
     last_modified_by: UserBasicType | null
+    updated_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: number[] | null

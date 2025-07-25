@@ -56,6 +56,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         related_name="updated_feature_flags",
         db_index=False,
     )
+    updated_at = models.DateTimeField(null=True, auto_now=True)
 
     rollback_conditions = models.JSONField(null=True, blank=True)
     performed_rollback = models.BooleanField(null=True, blank=True)

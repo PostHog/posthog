@@ -44,6 +44,7 @@
                 "email": "rick@posthog.com"
             },
             "created_at": "2022-03-16T18:01:41.362030Z",
+            "updated_at": "2022-03-16T18:01:41.362030Z",
             "is_simple_flag": false,
             "rollout_percentage": null
         },
@@ -77,6 +78,7 @@
                 "email": "eli@posthog.com"
             },
             "created_at": "2022-02-12T02:50:55.201243Z",
+            "updated_at": "2022-02-12T02:50:55.201243Z",
             "is_simple_flag": false,
             "rollout_percentage": null
         },
@@ -128,6 +130,7 @@
                 "email": "cameron@posthog.com"
             },
             "created_at": "2022-02-08T20:54:04.344072Z",
+            "updated_at": "2022-02-08T20:54:04.344072Z",
             "is_simple_flag": false,
             "rollout_percentage": null
         },
@@ -158,6 +161,7 @@
                 "email": "cameron@posthog.com"
             },
             "created_at": "2022-02-08T20:54:04.344072Z",
+            "updated_at": "2022-02-08T20:54:04.344072Z",
             "is_simple_flag": false,
             "is_remote_configuration": true,
             "has_encrypted_payload": false,
@@ -190,6 +194,7 @@
                 "email": "cameron@posthog.com"
             },
             "created_at": "2022-02-08T20:54:04.344072Z",
+            "updated_at": "2022-02-08T20:54:04.344072Z",
             "is_simple_flag": false,
             "is_remote_configuration": true,
             "has_encrypted_payload": true,
@@ -218,6 +223,7 @@
                 "email": "michael@posthog.com"
             },
             "created_at": "2022-02-08T16:51:27.696618Z",
+            "updated_at": "2022-02-08T16:51:27.696618Z",
             "is_simple_flag": true,
             "rollout_percentage": null
         }
