@@ -248,3 +248,6 @@ services:
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    cassandra_data:
