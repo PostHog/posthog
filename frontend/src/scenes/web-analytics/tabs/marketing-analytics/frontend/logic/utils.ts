@@ -70,16 +70,13 @@ export function generateUniqueName(baseName: string, existingNames: string[]): s
     return newName
 }
 
-export function isDynamicConversionGoalColumn(
-    column: string,
-    dynamicConversionGoal: ConversionGoalFilter | null
-): boolean {
-    if (!dynamicConversionGoal) {
+export function isDraftConversionGoalColumn(column: string, draftConversionGoal: ConversionGoalFilter | null): boolean {
+    if (!draftConversionGoal) {
         return false
     }
     return (
-        column === dynamicConversionGoal.conversion_goal_name ||
-        column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal.conversion_goal_name}`
+        column === draftConversionGoal.conversion_goal_name ||
+        column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`
     )
 }
 

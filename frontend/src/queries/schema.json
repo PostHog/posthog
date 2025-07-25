@@ -3211,7 +3211,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -4278,7 +4278,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -10864,32 +10864,6 @@
             },
             "type": "object"
         },
-        "ExperimentMetricResult": {
-            "additionalProperties": false,
-            "properties": {
-                "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                }
-            },
-            "required": ["baseline", "variants"],
-            "type": "object"
-        },
         "ExperimentMetricSource": {
             "anyOf": [
                 {
@@ -10955,7 +10929,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "credible_intervals": {
                     "additionalProperties": {
@@ -11056,6 +11030,35 @@
             },
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
+        },
+        "ExperimentStatsBaseValidated": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "number_of_samples": {
+                    "$ref": "#/definitions/integer"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "sum_squares": {
+                    "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["key", "number_of_samples", "sum", "sum_squares"],
+            "type": "object"
+        },
+        "ExperimentStatsValidationFailure": {
+            "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
+            "type": "string"
         },
         "ExperimentTrendsQuery": {
             "additionalProperties": false,
@@ -11209,18 +11212,15 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
-            "required": [
-                "chance_to_win",
-                "credible_interval",
-                "key",
-                "method",
-                "number_of_samples",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantResultFrequentist": {
@@ -11255,18 +11255,15 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
-            "required": [
-                "confidence_interval",
-                "key",
-                "method",
-                "number_of_samples",
-                "p_value",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantTrendsBaseStats": {
@@ -14630,7 +14627,7 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
-                "dynamicConversionGoal": {
+                "draftConversionGoal": {
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ConversionGoalFilter"
@@ -14639,7 +14636,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Dynamic conversion goal that can be set in the UI without saving"
+                    "description": "Draft conversion goal that can be set in the UI without saving"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -15074,7 +15071,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -16590,7 +16587,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "baseline": {
-                            "$ref": "#/definitions/ExperimentStatsBase"
+                            "$ref": "#/definitions/ExperimentStatsBaseValidated"
                         },
                         "credible_intervals": {
                             "additionalProperties": {
@@ -22835,6 +22832,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "confidenceLevel": {
+                    "type": "number"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -22903,6 +22903,9 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showConfidenceIntervals": {
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {

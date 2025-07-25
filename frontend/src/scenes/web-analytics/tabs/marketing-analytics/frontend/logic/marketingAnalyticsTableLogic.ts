@@ -15,7 +15,7 @@ import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 import type { marketingAnalyticsTableLogicType } from './marketingAnalyticsTableLogicType'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { isDynamicConversionGoalColumn } from './utils'
+import { isDraftConversionGoalColumn } from './utils'
 
 export type ExternalTable = {
     name: string
@@ -40,8 +40,8 @@ export type NativeSource = {
 export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType>([
     path(['scenes', 'marketingAnalytics', 'marketingAnalyticsTableLogic']),
     connect(() => ({
-        values: [marketingAnalyticsLogic, ['conversion_goals', 'dynamicConversionGoal']],
-        actions: [marketingAnalyticsLogic, ['setDynamicConversionGoal']],
+        values: [marketingAnalyticsLogic, ['conversion_goals', 'draftConversionGoal']],
+        actions: [marketingAnalyticsLogic, ['setDraftConversionGoal']],
     })),
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
@@ -83,14 +83,14 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             },
         ],
     }),
-    /* Both in actionToUrl and urlToAction we need to filter out the dynamic conversion goal columns
-    to handle the query params because it's a dynamic column */
+    /* Both in actionToUrl and urlToAction we need to filter out the draft conversion goal columns
+    to handle the query params because it's a draft column */
     actionToUrl(({ values }) => ({
         setQuery: () => {
             const marketingQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
             const searchParams = new URLSearchParams(window.location.search)
             const selectArray = marketingQuery?.select?.filter(
-                (column: string) => !isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
+                (column: string) => !isDraftConversionGoalColumn(column, values.draftConversionGoal)
             )
 
             if (marketingQuery?.orderBy && marketingQuery?.orderBy.length > 0) {
@@ -128,7 +128,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             if (selectParam) {
                 const selectArray: string[] = Array.from(new Set(selectParam.split(',')))
                 newSelect = selectArray.filter(
-                    (column: string) => !isDynamicConversionGoalColumn(column, values.dynamicConversionGoal)
+                    (column: string) => !isDraftConversionGoalColumn(column, values.draftConversionGoal)
                 )
 
                 actions.setQuery({
@@ -165,7 +165,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         },
     })),
     listeners(({ actions, values }) => ({
-        setDynamicConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
+        setDraftConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
             if (!goal) {
                 const marketingQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
                 // If the dynamic conversion goal is removed, we clear the order by

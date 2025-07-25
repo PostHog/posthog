@@ -219,7 +219,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             "offset": 0,
             "select": None,
             "orderBy": None,
-            "dynamicConversionGoal": None,
+            "draftConversionGoal": None,
             "properties": [],
         }
         defaults.update(overrides)
@@ -773,7 +773,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        query = self._create_basic_query(dynamicConversionGoal=conversion_goal)
+        query = self._create_basic_query(draftConversionGoal=conversion_goal)
         runner = get_default_query_runner(query, self.team)
 
         response = runner.calculate()

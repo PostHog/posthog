@@ -135,11 +135,11 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
 
         assert goals == []
 
-    def test_get_team_conversion_goals_with_dynamic_goal(self):
+    def test_get_team_conversion_goals_with_draft_goal(self):
         conversion_goal = self._create_test_conversion_goal()
         query = MarketingAnalyticsTableQuery(
             dateRange=self.default_date_range,
-            dynamicConversionGoal=conversion_goal,
+            draftConversionGoal=conversion_goal,
             properties=[],
         )
         runner = self._create_query_runner(query)

@@ -1,1 +1,1 @@
-0800_add_sharing_token_rotation_fields
+0804_add_rich_content_json_to_comment
