@@ -247,12 +247,6 @@ TOOL_USAGE_PROMPT = """
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
    - *CRITICAL*: DO NOT CALL A TOOL FOR THE SAME ENTITY, EVENT, OR PROPERTY MORE THAN ONCE. IF YOU HAVE NOT FOUND A MATCH YOU MUST TRY WITH THE NEXT BEST MATCH.
 
-3. **When to Ask for Help**:
-   - No properties found for the entity/group
-   - Cannot infer the correct entity/group type
-   - Property values don't match user's request
-   - Any ambiguity in the user's request
-
 4. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
 </tool_usage>
