@@ -178,7 +178,7 @@ afterEach(async () => {
     await closeHub(hub)
 })
 
-const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
+const capture = async (hub: Hub, eventName: string, properties: any = {}, personRepository?: BasePersonRepository) => {
     const event = {
         event: eventName,
         distinct_id: properties.distinct_id ?? state.currentDistinctId,
@@ -190,24 +190,31 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new BasePersonRepository(hub.db.postgres))
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(
+        personRepository || new BasePersonRepository(hub.db.postgres)
+    )
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
-const identify = async (hub: Hub, distinctId: string) => {
+const identify = async (hub: Hub, distinctId: string, personRepository?: BasePersonRepository) => {
     // Update currentDistinctId state immediately, as the event will be
     // dispatch asynchronously
     const currentDistinctId = state.currentDistinctId
     state.currentDistinctId = distinctId
-    await capture(hub, '$identify', {
-        // posthog-js will send the previous distinct id as
-        // $anon_distinct_id
-        $anon_distinct_id: currentDistinctId,
-        distinct_id: distinctId,
-    })
+    await capture(
+        hub,
+        '$identify',
+        {
+            // posthog-js will send the previous distinct id as
+            // $anon_distinct_id
+            $anon_distinct_id: currentDistinctId,
+            distinct_id: distinctId,
+        },
+        personRepository
+    )
 }
 
 const alias = async (hub: Hub, alias: string, distinctId: string) => {
@@ -1456,11 +1463,11 @@ describe('when handling $identify', () => {
         const createPersonMock = jest.fn(async (...args) => {
             // We need to slice off the txn arg, or else we conflict with the `identify` below.
             // @ts-expect-error because TS is crazy, this is valid
-            const result = await originalCreatePerson(...args)
+            const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call
-                await identify(hub, newDistinctId)
+                await identify(hub, newDistinctId, personRepository)
             }
 
             return result
@@ -1468,7 +1475,7 @@ describe('when handling $identify', () => {
         personRepository.createPerson = createPersonMock
 
         // set the first identify going
-        await identify(hub, initialDistinctId)
+        await identify(hub, initialDistinctId, personRepository)
 
         // Let's first just make sure `updatePerson` was called, as a way of
         // checking that our mocking was actually invoked
