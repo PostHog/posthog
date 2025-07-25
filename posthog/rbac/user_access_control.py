@@ -463,7 +463,7 @@ class UserAccessControl:
         resource = model_to_resource(obj)
         org_membership = self._organization_membership
 
-        if not resource or not org_membership or resource == "organization":
+        if not resource or not org_membership:
             return None
 
         # Creators always have highest access
@@ -659,7 +659,7 @@ class UserAccessControl:
 
         return queryset
 
-    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[str]:
+    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         resource = model_to_resource(obj)
         specific_access_level_for_object = None
         access_level_for_resource = None
