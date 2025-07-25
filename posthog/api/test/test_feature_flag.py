@@ -4456,7 +4456,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person and cohort properties)",
+                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
                 "attr": "filters",
             },
         )
@@ -4478,7 +4478,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person and cohort properties)",
+                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
                 "attr": "filters",
             },
         )
