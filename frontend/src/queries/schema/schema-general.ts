@@ -2469,7 +2469,7 @@ export interface ExperimentQueryResponse {
     credible_intervals?: Record<string, [number, number]>
 
     // New fields
-    baseline?: ExperimentStatsBase
+    baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
@@ -2487,11 +2487,6 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
-export interface NewExperimentQueryResponse {
-    baseline: ExperimentStatsBase
-    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
-}
-
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
@@ -2499,23 +2494,33 @@ export interface ExperimentStatsBase {
     sum_squares: number
 }
 
-export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
+export enum ExperimentStatsValidationFailure {
+    NotEnoughExposures = 'not-enough-exposures',
+    BaselineMeanIsZero = 'baseline-mean-is-zero',
+    NotEnoughMetricData = 'not-enough-metric-data',
+}
+
+export interface ExperimentStatsBaseValidated extends ExperimentStatsBase {
+    validation_failures?: ExperimentStatsValidationFailure[]
+}
+
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseValidated {
     method: 'frequentist'
-    significant: boolean
-    p_value: number
-    confidence_interval: [number, number]
+    significant?: boolean
+    p_value?: number
+    confidence_interval?: [number, number]
 }
 
-export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseValidated {
     method: 'bayesian'
-    significant: boolean
-    chance_to_win: number
-    credible_interval: [number, number]
+    significant?: boolean
+    chance_to_win?: number
+    credible_interval?: [number, number]
 }
 
-export interface ExperimentMetricResult {
-    baseline: ExperimentStatsBase
-    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+export interface NewExperimentQueryResponse {
+    baseline: ExperimentStatsBaseValidated
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {
