@@ -13,9 +13,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="insight",
-            name="query_metadata",
-            field=models.JSONField(blank=True, null=True),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="insight",
+                    name="query_metadata",
+                    field=models.JSONField(blank=True, null=True),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql='ALTER TABLE "posthog_dashboarditem" ADD COLUMN IF NOT EXISTS "query_metadata" jsonb NULL;',
+                    reverse_sql='ALTER TABLE "posthog_dashboarditem" DROP COLUMN IF EXISTS "query_metadata";',
+                ),
+            ],
         ),
     ]
