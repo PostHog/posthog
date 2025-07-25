@@ -508,6 +508,53 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/other/path", (1.0, None), (1.0, None), ""],  # unchanged
         ] == results
 
+    def test_path_cleaning_with_order_field_and_baseline_urls(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+        s4 = str(uuid7("2023-12-05"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/2197346/detail1/11234")]),
+                ("p2", [("2023-12-03", s2, "/item/2206728/list/2668776/baseline")]),
+                ("p3", [("2023-12-04", s3, "/item/5555/list/6666/spp/insessionForm/7777")]),
+                ("p4", [("2023-12-05", s4, "/item/123")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-06",
+            path_cleaning_filters=[
+                {
+                    "regex": r"/item/(\d+)/list/(\d+)/spp/insessionForm/(\d+)",
+                    "alias": "/item/<id>/list/<list_id>/spp/insessionForm/<form>",
+                    "order": 0,  # Most specific first
+                },
+                {"regex": r"/item/(\d+)/detail1/(\d+)", "alias": "/item/<id>/detail1/<consultation>", "order": 1},
+                {
+                    "regex": r"/item/(\d+)/list/(\d+)",
+                    "alias": "/item/<id>/list/<list_id>",
+                    "order": 2,  # General list rule - should handle baseline URLs correctly
+                },
+                {
+                    "regex": r"/item/(\d+)",
+                    "alias": "/item/<id>",
+                    "order": 3,  # Most general last
+                },
+            ],
+        ).results
+
+        expected_results = [
+            ["/item/<id>/detail1/<consultation>", (1.0, None), (1.0, None), ""],
+            ["/item/<id>/list/<list_id>/spp/insessionForm/<form>", (1.0, None), (1.0, None), ""],
+            ["/item/<id>/list/<list_id>/baseline", (1.0, None), (1.0, None), ""],
+            ["/item/<id>", (1.0, None), (1.0, None), ""],
+        ]
+
+        assert sorted(results) == sorted(expected_results)
+
     def test_scroll_depth_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",

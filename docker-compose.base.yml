@@ -11,8 +11,13 @@ services:
         volumes:
             - /root/.caddy
         environment:
+            CADDY_TLS_BLOCK: ''
+            CADDY_HOST: 'http://localhost:8000'
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                ${CADDY_TLS_BLOCK}
+                }
+                ${CADDY_HOST} {
                     @replay-capture {
                         path /s
                         path /s/*

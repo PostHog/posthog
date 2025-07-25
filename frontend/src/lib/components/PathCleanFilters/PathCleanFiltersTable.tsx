@@ -20,6 +20,7 @@ import { useState, useEffect } from 'react'
 import { PathCleaningFilter } from '~/types'
 
 import { PathRegexModal } from './PathRegexModal'
+import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 import { parseAliasToReadable } from './PathCleanFilterItem'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
@@ -73,20 +74,20 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                     'shadow-lg': isDragging,
                 })}
             >
-                <td className="p-2 w-8">
+                <td className="py-1 px-2 w-8">
                     <div
                         className="flex items-center justify-center cursor-grab active:cursor-grabbing"
                         {...attributes}
                         {...listeners}
                     >
-                        <SortableDragIcon className="text-muted-alt" />
+                        <SortableDragIcon className="text-muted-alt h-3 w-3" />
                     </div>
                 </td>
-                <td className="p-2 w-12 text-center text-muted font-medium">{index + 1}</td>
-                <td className="p-2">
+                <td className="py-1 px-2 w-12 text-center text-muted font-medium text-sm">{index + 1}</td>
+                <td className="py-1 px-2">
                     <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : null}>
                         <code
-                            className={clsx('font-mono text-sm px-2 py-1 rounded bg-accent-light text-accent', {
+                            className={clsx('font-mono text-xs px-1 py-0.5 rounded bg-accent-light text-accent', {
                                 'text-danger border border-danger bg-red-50': isInvalidRegex,
                             })}
                         >
@@ -94,10 +95,10 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                         </code>
                     </Tooltip>
                 </td>
-                <td className="p-2">
-                    <div className="font-mono text-sm">{parseAliasToReadable(filter.alias || '(Empty)')}</div>
+                <td className="py-1 px-2">
+                    <div className="font-mono text-xs">{parseAliasToReadable(filter.alias || '(Empty)')}</div>
                 </td>
-                <td className="p-2 w-24">
+                <td className="py-1 px-2 w-20">
                     <div className="flex items-center gap-1">
                         <LemonButton
                             icon={<IconPencil />}
@@ -126,7 +127,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     // Sync local state with props, but not during drag to avoid flicker
     useEffect(() => {
         if (!isDragging) {
-            setLocalFilters(filters)
+            setLocalFilters(ensureFilterOrder(filters))
         }
     }, [filters, isDragging])
 
@@ -142,9 +143,9 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     )
 
     const updateFilters = (newFilters: PathCleaningFilter[]): void => {
-        // Optimistic update
-        setLocalFilters(newFilters)
-        setFilters(newFilters)
+        const filtersWithOrder = updateFilterOrder(newFilters)
+        setLocalFilters(filtersWithOrder)
+        setFilters(filtersWithOrder)
     }
 
     const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
@@ -194,17 +195,17 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                 <table className="w-full bg-white">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="p-3 w-8" />
-                            <th className="p-3 w-12 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                            <th className="py-2 px-2 w-8" />
+                            <th className="py-2 px-2 w-12 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
                                 Order
                             </th>
-                            <th className="p-3 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
                                 Regex Pattern
                             </th>
-                            <th className="p-3 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
                                 Alias
                             </th>
-                            <th className="p-3 w-24 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
+                            <th className="py-2 px-2 w-20 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
                                 Actions
                             </th>
                         </tr>
