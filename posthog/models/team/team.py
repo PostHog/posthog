@@ -571,7 +571,7 @@ class Team(UUIDClassicModel):
                 filters.append(PathCleaningFilter.model_validate(f))
             except pydantic.ValidationError:
                 continue
-        return sorted(filters, key=lambda x: x.order if x.order is not None else 0)
+        return filters
 
     def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
