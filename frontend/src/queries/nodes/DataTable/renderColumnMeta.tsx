@@ -126,7 +126,6 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         isDataTableNode(query) &&
         !query.allowSorting
     ) {
-        query
         const sortKey = queryFeatures.has(QueryFeature.selectAndOrderByColumns)
             ? (query.source as EventsQuery)?.orderBy?.[0]
             : null
