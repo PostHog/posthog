@@ -62,29 +62,17 @@ async def store_accounts_in_redis(
 
     try:
         # Serialize and compress data following PostHog patterns
-        logger.info(f"🔄 REDIS: Serializing {len(accounts_data)} accounts for storage")
         accounts_json = json.dumps(accounts_data, default=str)
         compressed_data = _compress_redis_data(accounts_json)
 
         # Store with TTL
-        logger.info(f"💾 REDIS: Storing compressed data in key: {redis_key}")
         await redis_client.setex(redis_key, ttl, compressed_data)
-        logger.info(f"✅ REDIS: Successfully stored data with TTL {ttl}s")
-
-        # Log storage metrics
-        uncompressed_size = len(accounts_json.encode("utf-8"))
-        compressed_size = len(compressed_data)
-        compression_ratio = compressed_size / uncompressed_size if uncompressed_size > 0 else 0
 
         logger.info(
-            "Stored Salesforce accounts in Redis (GLOBAL CACHE)",
+            "Redis cache stored",
             workflow_id=workflow_id,
             account_count=len(accounts_data),
-            uncompressed_size_mb=round(uncompressed_size / 1024 / 1024, 2),
-            compressed_size_mb=round(compressed_size / 1024 / 1024, 2),
-            compression_ratio=round(compression_ratio, 3),
             ttl_hours=ttl / 3600,
-            global_cache_key=redis_key,
         )
 
     except Exception as e:
@@ -118,15 +106,11 @@ async def get_accounts_from_redis(
 
     try:
         # Try to get from Redis
-        logger.info(f"🔍 REDIS: Checking cache for key: {redis_key}")
         raw_redis_data = await redis_client.get(redis_key)
         if not raw_redis_data:
             logger.info(
-                "❌ REDIS GLOBAL CACHE MISS: No data found for Salesforce accounts",
+                "Redis cache miss",
                 workflow_id=workflow_id,
-                offset=offset,
-                limit=limit,
-                redis_key=redis_key,
             )
             return None
 
@@ -139,23 +123,14 @@ async def get_accounts_from_redis(
         end_idx = min(offset + limit, len(all_accounts))
 
         if start_idx >= len(all_accounts):
-            logger.info(
-                "Redis cache: offset beyond available accounts",
-                workflow_id=workflow_id,
-                offset=offset,
-                total_accounts=len(all_accounts),
-            )
             return []
 
         chunk_accounts = all_accounts[start_idx:end_idx]
 
         logger.info(
-            "Retrieved accounts from Redis GLOBAL cache",
+            "Redis cache hit",
             workflow_id=workflow_id,
-            offset=offset,
-            limit=limit,
             chunk_size=len(chunk_accounts),
-            total_accounts=len(all_accounts),
         )
 
         return chunk_accounts
