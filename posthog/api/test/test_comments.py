@@ -138,3 +138,135 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             assert len(response.json()["results"]) == 2
             assert response.json()["results"][0]["content"] == "comment other reply"
             assert response.json()["results"][1]["content"] == "comment reply"
+
+    def test_creates_comment_with_rich_content(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "This is "},
+                        {"type": "text", "marks": [{"type": "bold"}], "text": "rich text"},
+                        {"type": "text", "text": " content."},
+                    ],
+                }
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "This is rich text content.",
+                "rich_content": rich_content,
+                "scope": "Notebook",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["rich_content"] == rich_content
+        assert response.json()["content"] == "This is rich text content."
+
+    def test_updates_rich_content_and_increments_version(self) -> None:
+        # Create comment with plain text
+        existing = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Plain text comment",
+                "scope": "Notebook",
+            },
+        )
+        assert existing.json()["version"] == 0
+        assert existing.json()["rich_content"] is None
+
+        # Update with rich content
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Updated with rich content"}],
+                }
+            ],
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing.json()['id']}",
+            {
+                "content": "Updated with rich content",
+                "rich_content": rich_content,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 1
+        assert response.json()["rich_content"] == rich_content
+
+    def test_updates_only_rich_content_increments_version(self) -> None:
+        # Create comment with rich content
+        rich_content_v1 = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Version 1"}],
+                }
+            ],
+        }
+        existing = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Version 1",
+                "rich_content": rich_content_v1,
+                "scope": "Notebook",
+            },
+        )
+
+        # Update only rich content
+        rich_content_v2 = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Version 2 with "},
+                        {"type": "text", "marks": [{"type": "italic"}], "text": "formatting"},
+                    ],
+                }
+            ],
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing.json()['id']}",
+            {
+                "rich_content": rich_content_v2,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 1
+        assert response.json()["rich_content"] == rich_content_v2
+        # Content should remain unchanged
+        assert response.json()["content"] == "Version 1"
+
+    def test_comment_with_image_in_rich_content(self) -> None:
+        rich_content_with_image = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Check out this image:"}],
+                },
+                {
+                    "type": "image",
+                    "attrs": {
+                        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+                        "alt": "Test image",
+                    },
+                },
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Comment with image",
+                "rich_content": rich_content_with_image,
+                "scope": "Notebook",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["rich_content"] == rich_content_with_image
