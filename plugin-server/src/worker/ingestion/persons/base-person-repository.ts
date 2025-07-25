@@ -434,7 +434,7 @@ export class BasePersonRepository implements PersonRepository, RawPersonReposito
             values,
             `updatePerson${tag ? `-${tag}` : ''}`
         )
-        if (rows.length == 0) {
+        if (rows.length === 0) {
             throw new NoRowsUpdatedError(
                 `Person with id="${person.id}", team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
             )
