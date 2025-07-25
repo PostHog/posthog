@@ -353,7 +353,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // capture-rs target endpoint
             "/i/v0/e",
             // JSON payload to use as input
-            SINGLE_EVENT_JSON,
+            BATCH_EVENTS_JSON,
             // request submission type; one of POST or GET only for these integration tests
             Method::POST,
             // compression "hint" (as supplied by some SDKs)
