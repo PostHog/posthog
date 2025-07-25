@@ -747,6 +747,14 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    django_tests:
+        needs: [django]
+        name: Django Tests Pass
+        runs-on: ubuntu-latest
+        steps:
+            - run: exit 0
+
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
         needs: [changes, generate-token]
