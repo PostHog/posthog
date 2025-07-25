@@ -1,57 +1,3 @@
-# SESSION_REPLAY_RESPONSE_FORMATS_PROMPT = """
-# <response_formats>
-# Formats of responses
-# 1. Question Response Format
-# When you need clarification or determines that additional information is required, you should return a response in the following format:
-# {
-#     "request": "Your clarifying question here."
-# }
-
-# Here are some examples where you should ask clarification questions (return 'question' format):
-# 1. Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
-# 2. Ambiguous Date Ranges: If the user mentions a period like "recent sessions" without clear start and end dates, ask: "Could you specify the exact start and end dates for the period you are interested in?"
-# 3. Incomplete Filter Criteria: For queries such as "Show recordings with high session duration" where a threshold or comparison operator is missing, ask: "What value should be considered as 'high' for session duration?"
-
-
-# 2. Filter Response Format
-# Once all necessary data is collected, the agent should return the filter in this structured format:
-# {
-#     "data": {
-#         "date_from": "<date_from>",
-#         "date_to": "<date_to>",
-#         "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
-#         "filter_group": {
-#             "type": "<FilterLogicalOperator>",
-#             "values": [
-#             {
-#                 "type": "<FilterLogicalOperator>",
-#                 "values": [
-#                     {
-#                         "key": "<key>",
-#                         "type": "<PropertyFilterType>",
-#                         "value": ["<value>"],
-#                         "operator": "<PropertyOperator>"
-#                     },
-#                 ],
-#                 ...
-#             },
-#         ]
-#     }
-# }
-
-# Notes:
-# 1. Replace <date_from> and <date_to> with valid date strings.
-# 2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
-# 3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
-# 4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
-
-
-# WHEN GENERATING A FILTER ALWAYS MAKE SURE TO KEEP THE STATE OF THE FILTERS. NEVER REMOVE ANY FILTERS UNLESS THE USER ASKS FOR IT.
-# </response_formats>
-
-# """.strip()
-
-
 SESSION_REPLAY_EXAMPLES_PROMPT = """
 <examples_and_rules>
 ## Examples and Rules
@@ -74,9 +20,9 @@ json
         "values": [
             {
             "key": "<key>",
-            "type": PropertyFilterType.<Type>,  // e.g., PropertyFilterType.Person
+            "type": "person",  // e.g., PropertyFilterType.Person
             "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>  // e.g., PropertyOperator.Exact or PropertyOperator.IContains
+            "operator": "icontains" // e.g., PropertyOperator.Exact or PropertyOperator.IContains
             }
         ]
         }
@@ -156,9 +102,9 @@ json
             "values": [
             {
                 "key": "$device_type",
-                "type": PropertyFilterType.Person,
+                "type": "person",
                 "value": ["Mobile"],
-                "operator": PropertyOperator.Exact
+                "operator": "exact"
             }
             ]
         }
@@ -182,10 +128,10 @@ The blank, default `filter_group` value you can use is:
 
 json
 {
-    "type": FilterLogicalOperator.AND,
+    "type": "AND",
     "values": [
         {
-            "type": FilterLogicalOperator.AND,
+            "type": "AND",
             "values": []
         }
     ]
@@ -212,7 +158,13 @@ json
 PRODUCT_DESCRIPTION_PROMPT = """
 <product_description>
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings.
+You are an expert at creating filters for PostHog products. Your job is to understand what users want to see in their data and translate that into precise filter configurations.
+Transform natural language requests like "show me users from mobile devices who completed signup" into structured filter objects that will find exactly what they're looking for.
 </product_description>
+
+<session_replay_details>
+A session recording is a timeline of many events along with related entities a user has interacted with (directly or indirectly). When you apply a filter using an event property, the system returns any recording that contains at least one event matching that property/value pair.
+</session_replay_details>
 """.strip()
 
 FILTER_FIELDS_TAXONOMY_PROMPT = """
