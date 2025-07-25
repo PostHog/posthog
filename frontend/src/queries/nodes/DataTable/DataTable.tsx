@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -136,6 +136,7 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
+    const { setSaveFiltersModalOpen } = useActions(builtDataNodeLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const usedWebAnalyticsPreAggregatedTables =
@@ -498,7 +499,20 @@ export function DataTable({
             />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.groupPropertyFilters) ? (
-            <GroupPropertyFilters key="group-property" query={query.source as GroupsQuery} setQuery={setQuerySource} />
+            <div className="flex gap-2">
+                <GroupPropertyFilters
+                    key="group-property"
+                    query={query.source as GroupsQuery}
+                    setQuery={setQuerySource}
+                />
+                <LemonButton
+                    data-attr="save-group-filters"
+                    type="primary"
+                    onClick={() => setSaveFiltersModalOpen(true)}
+                >
+                    Save filters
+                </LemonButton>
+            </div>
         ) : null,
     ].filter((x) => !!x)
 
