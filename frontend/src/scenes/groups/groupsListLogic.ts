@@ -11,6 +11,7 @@ import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 import posthog from 'posthog-js'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex
@@ -190,4 +191,5 @@ export const groupsListLogic = kea<groupsListLogicType>([
             actions.setQueryWasModified(false)
         }
     }),
+    permanentlyMount(),
 ])
