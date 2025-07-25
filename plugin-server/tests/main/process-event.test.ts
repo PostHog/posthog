@@ -10,7 +10,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
 import { createRedis } from '~/utils/db/redis'
-import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
@@ -93,7 +92,6 @@ describe('processEvent', () => {
         await clickhouse.resetTestDatabase()
 
         hub = await createHub({ ...TEST_CONFIG })
-        redis = await hub.redisPool.acquire()
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
@@ -102,15 +100,16 @@ describe('processEvent', () => {
         now = DateTime.utc()
 
         // clear the webhook redis cache
+        const redis = await createRedis(hub, 'ingestion')
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
+        await redis.quit()
 
         // Always start with an anonymous state
         state = { currentDistinctId: 'anonymous_id' }
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
         await closeHub(hub)
     })
 
