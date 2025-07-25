@@ -1386,6 +1386,22 @@ class FeatureFlagViewSet(
 
 @receiver(model_activity_signal, sender=FeatureFlag)
 def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    # Extract scheduled change context if present
+    scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})
+    scheduled_change_id = scheduled_change_context.get("scheduled_change_id")
+    is_scheduled_change = scheduled_change_id is not None
+
+    # Create trigger info for scheduled changes
+    trigger = None
+    if is_scheduled_change:
+        from posthog.models.activity_logging.activity_log import Trigger
+
+        trigger = Trigger(
+            job_type="scheduled_change",
+            job_id=str(scheduled_change_id),
+            payload={"scheduled_change_id": scheduled_change_id},
+        )
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -1395,7 +1411,9 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.key
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.key,
+            trigger=trigger,
         ),
     )
 
