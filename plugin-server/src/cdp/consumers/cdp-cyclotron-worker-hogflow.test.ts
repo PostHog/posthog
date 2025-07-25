@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlow } from '~/schema/hogflow'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
-import { BasePersonRepository } from '~/worker/ingestion/persons/base-person-repository'
+import { BasePersonRepository } from '~/worker/ingestion/persons/repositories/base-person-repository'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'

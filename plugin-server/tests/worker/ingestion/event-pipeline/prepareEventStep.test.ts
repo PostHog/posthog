@@ -6,7 +6,7 @@ import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { BasePersonRepository } from '../../../../src/worker/ingestion/persons/base-person-repository'
+import { BasePersonRepository } from '../../../../src/worker/ingestion/persons/repositories/base-person-repository'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 

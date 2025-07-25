@@ -13,7 +13,7 @@ import {
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { BasePersonRepository } from '../../../src/worker/ingestion/persons/base-person-repository'
+import { BasePersonRepository } from '../../../src/worker/ingestion/persons/repositories/base-person-repository'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'

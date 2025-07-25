@@ -1,11 +1,11 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { TopicMessage } from '../../../../kafka/producer'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
-import { PersonUpdate } from './person-update-batch'
 
 export interface PersonRepository {
     fetchPerson(

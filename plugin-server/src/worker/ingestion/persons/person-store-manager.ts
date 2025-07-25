@@ -8,10 +8,10 @@ import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
-import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 interface FinalStateEntry {
     person: InternalPerson

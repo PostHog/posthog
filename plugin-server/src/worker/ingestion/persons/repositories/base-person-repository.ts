@@ -2,8 +2,8 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { KAFKA_PERSON_DISTINCT_ID } from '../../../config/kafka-topics'
-import { TopicMessage } from '../../../kafka/producer'
+import { KAFKA_PERSON_DISTINCT_ID } from '../../../../config/kafka-topics'
+import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
@@ -11,18 +11,18 @@ import {
     PropertiesLastUpdatedAt,
     RawPerson,
     Team,
-} from '../../../types'
-import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../utils/db/db'
-import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter } from '../../../utils/db/metrics'
-import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/db/postgres'
-import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../utils/db/utils'
-import { logger } from '../../../utils/logger'
-import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../utils/utils'
+} from '../../../../types'
+import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../../utils/db/db'
+import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter } from '../../../../utils/db/metrics'
+import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../utils/db/postgres'
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../../utils/db/utils'
+import { logger } from '../../../../utils/logger'
+import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
+import { PersonUpdate } from '../person-update-batch'
+import { RawPersonRepository } from '../raw-person-repository'
 import { BasePersonRepositoryTransaction } from './base-person-repository-transaction'
 import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
-import { PersonUpdate } from './person-update-batch'
-import { RawPersonRepository } from './raw-person-repository'
 
 export class BasePersonRepository implements PersonRepository, RawPersonRepository, PersonRepositoryTransaction {
     constructor(private postgres: PostgresRouter) {}

@@ -32,12 +32,12 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { PersonRepository } from './person-repository'
-import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonRepository } from './repositories/person-repository'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 type MethodName =
     | 'fetchForChecking'

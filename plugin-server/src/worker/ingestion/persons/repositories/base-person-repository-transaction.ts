@@ -1,12 +1,12 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
-import { TransactionClient } from '../../../utils/db/postgres'
+import { TopicMessage } from '../../../../kafka/producer'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { TransactionClient } from '../../../../utils/db/postgres'
+import { RawPersonRepository } from '../raw-person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
-import { RawPersonRepository } from './raw-person-repository'
 
 export class BasePersonRepositoryTransaction implements PersonRepositoryTransaction {
     constructor(private transaction: TransactionClient, private repository: RawPersonRepository) {}

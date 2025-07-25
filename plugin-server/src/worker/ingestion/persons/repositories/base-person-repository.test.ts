@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { createTeam, insertRow, resetTestDatabase } from '../../../../tests/helpers/sql'
-import { Hub, InternalPerson, Team } from '../../../types'
-import { closeHub, createHub } from '../../../utils/db/hub'
-import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
-import { parseJSON } from '../../../utils/json-parse'
-import { NoRowsUpdatedError, UUIDT } from '../../../utils/utils'
+import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
+import { Hub, InternalPerson, Team } from '../../../../types'
+import { closeHub, createHub } from '../../../../utils/db/hub'
+import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
+import { parseJSON } from '../../../../utils/json-parse'
+import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
 import { BasePersonRepository } from './base-person-repository'
 
 jest.mock('../../../utils/logger')

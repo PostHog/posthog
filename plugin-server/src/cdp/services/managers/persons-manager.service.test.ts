@@ -4,7 +4,7 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Person, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
-import { BasePersonRepository } from '~/worker/ingestion/persons/base-person-repository'
+import { BasePersonRepository } from '~/worker/ingestion/persons/repositories/base-person-repository'
 
 import { PersonsManagerService } from './persons-manager.service'
 

@@ -5,8 +5,8 @@ import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { BatchWritingStore } from '../stores/batch-writing-store'
-import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 export type FlushResult = {
     topicMessage: TopicMessage

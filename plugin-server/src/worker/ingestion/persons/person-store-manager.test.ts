@@ -6,9 +6,9 @@ import { UUID7 } from '~/utils/utils'
 
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
-import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonStoreManager, PersonStoreManagerForBatch } from './person-store-manager'
 import { fromInternalPerson } from './person-update-batch'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 // Mock helper for person repository - returns empty mocks without implementations
 const createMockPersonRepository = (_person?: InternalPerson) => {

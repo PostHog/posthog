@@ -3,9 +3,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
-import { BasePersonRepository } from '~/worker/ingestion/persons/base-person-repository'
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
-import { PersonRepository } from '~/worker/ingestion/persons/person-repository'
+import { BasePersonRepository } from '~/worker/ingestion/persons/repositories/base-person-repository'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'

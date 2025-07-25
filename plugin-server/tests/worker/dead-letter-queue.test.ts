@@ -4,7 +4,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
-import { BasePersonRepository } from '../../src/worker/ingestion/persons/base-person-repository'
+import { BasePersonRepository } from '../../src/worker/ingestion/persons/repositories/base-person-repository'
 
 import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

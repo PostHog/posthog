@@ -18,7 +18,6 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BasePersonRepository } from '../../../src/worker/ingestion/persons/base-person-repository'
 import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
@@ -29,6 +28,7 @@ import {
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
+import { BasePersonRepository } from '../../../src/worker/ingestion/persons/repositories/base-person-repository'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import {
     createOrganization,

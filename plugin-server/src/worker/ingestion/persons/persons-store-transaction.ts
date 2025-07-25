@@ -4,8 +4,8 @@ import { DateTime } from 'luxon'
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
-import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 /**
  * PersonsStoreTransaction that delegates to a store with a transaction.
