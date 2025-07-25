@@ -1,195 +1,379 @@
-use axum::http::StatusCode;
-use axum_test_helper::TestClient;
-use base64::Engine;
-
-use capture::config::CaptureMode;
-use capture::integration_test_utils::{
-    gzip_compress, iso8601_str_to_unix_millis, load_request_payload, lz64_compress,
-    setup_capture_router, validate_capture_response, validate_single_event_payload,
-    DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
+mod common;
+use common::integration_utils::{
+    base64_payload, execute_test, form_lz64_urlencoded_payload, form_urlencoded_payload,
+    gzipped_payload, plain_json_payload, TestCase, BATCH_EVENTS_JSON, DEFAULT_TEST_TIME,
+    SINGLE_EVENT_JSON,
 };
 
-#[tokio::test]
-async fn simple_batch_events_payload() {
-    let title = "simple-batch-events-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
+use axum::http::{Method, StatusCode};
+use capture::config::CaptureMode;
 
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
+fn test_cases() -> Vec<Box<TestCase>> {
+    let units = vec![
+        // single event payload tests
 
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/i/v0/e/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(raw_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
+        // plain JSON POST body
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-simple-single-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(plain_json_payload),
+        ),
+        // plain base64'd JSON payload in POST body - NOT SUPPORTED in new capture atm
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-base64-single-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            Some("base64"),
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(base64_payload),
+        ),
+        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-base64-no-hint-single-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None, // no compression hint; handling must auto-detect
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "text/plain",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(base64_payload),
+        ),
+        // GZIP'd JSON single event payload
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-gzip-single-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            Some("gzip"),
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(gzipped_payload),
+        ),
+        // GZIP'd single event JSON payload w/o SDK encoding hint
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-gzip-no-hint-single-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None, // no compression hint; handling must auto-detect
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "text/plain",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(gzipped_payload),
+        ),
+        // single event JSON payload submitted as POST form
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-form-urlencoded-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_urlencoded_payload),
+        ),
+        // single event JSON payload submitted as LZ64'd value in POST form
+        // NOT SUPPORTED by new capture atm
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-form-lz64-urlencoded-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            Some("lz64"),
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_lz64_urlencoded_payload),
+        ),
+        // batch payload test variants
 
-    validate_capture_response(title, res).await;
+        // plain JSON POST body
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-simple-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(plain_json_payload),
+        ),
+        // plain base64'd JSON payload in POST body - NOT SUPPORTED by new capture atm
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-base64-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            Some("base64"),
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(base64_payload),
+        ),
+        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-base64-no-hint-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None, // no compression hint; handling must auto-detect
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "text/plain",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(base64_payload),
+        ),
+        // GZIP'd JSON single event payload
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-gzip-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            Some("gzip"),
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(gzipped_payload),
+        ),
+        // GZIP'd single event JSON payload w/o SDK encoding hint
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-gzip-no-hint-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None, // no compression hint; handling must auto-detect
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "text/plain",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(gzipped_payload),
+        ),
+        // single event JSON payload submitted as POST form
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-form-urlencoded-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_urlencoded_payload),
+        ),
+        // single event JSON payload submitted as LZ64'd value in POST form
+        // NOT SUPPORTED by new capture atm
+        TestCase::new(
+            // test case title
+            "i-v0-e_post-form-lz64-urlencoded-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/i/v0/e",
+            // JSON payload to use as input
+            BATCH_EVENTS_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            Some("lz64"),
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_lz64_urlencoded_payload),
+        ),
+    ];
 
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
+    units
 }
 
 #[tokio::test]
-async fn base64_batch_events_payload() {
-    let title = "base64-batch-events-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
-
-    let (router, _sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/i/v0/e/?_={}&compression=base64", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(base64_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    // we expect this to fail while /batch/, /s/, and /i/v0/e/
-    // are processed by handle_common
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        res.status(),
-        "test {}: non-4xx response: {}",
-        title,
-        res.text().await
-    );
-
-    //validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    //let got = sink.events();
-    //validate_batch_events_payload(title, got);
-}
-
-#[tokio::test]
-async fn gzipped_batch_events_payload() {
-    let title = "gzipped-batch-events-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let gzipped_payload = gzip_compress(title, raw_payload);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/i/v0/e/?_={}&compression=gzip", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(gzipped_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn gzipped_no_hint_batch_events_payload() {
-    let title = "gzipped-no-hint-batch-events-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let gzipped_payload = gzip_compress(title, raw_payload);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    // note: without a "compression" GET query param or POST form, we must auto-detect GZIP compression
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/i/v0/e/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(gzipped_payload)
-        .header("Content-Type", "text/plain")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn post_form_base64_urlencoded_batch_events_payload() {
-    let title = "post-form-urlencoded-batch-events-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let err_msg = format!(
-        "failed to serialize payload to base64 + urlencoded form in case: {}",
-        title
-    );
-    // the "new" capture endpoints like /batch/ expect base64 encoded form payloads only
-    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
-    let form_payload =
-        serde_urlencoded::to_string([("data", base64_payload.as_str()), ("ver", "1.2.3")])
-            .expect(&err_msg);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/i/v0/e/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(form_payload)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn post_form_lz64_batch_events_payload() {
-    let title = "post-form-lz64-batch-events-payload";
-    let raw_payload = load_request_payload(title, SINGLE_EVENT_JSON);
-    let lz64_payload = lz64_compress(title, raw_payload);
-    let err_msg = format!(
-        "failed to serialize LZ64 payload to urlencoded form in case: {}",
-        title
-    );
-    let form_payload =
-        serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())])
-            .expect(&err_msg);
-
-    let (router, _sink) = setup_capture_router(CaptureMode::Events, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/i/v0/e/?_={}&compression=lz64", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(form_payload)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    // we expect this to fail while /batch/, /s/, and /i/v0/e/
-    // are processed by handle_common, w/o LZ64 support
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        res.status(),
-        "test {}: non-4xx response: {}",
-        title,
-        res.text().await
-    );
-
-    //validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    //let got = sink.events();
-    //validate_batch_events_payload(title, got);
+async fn test_i_v0_e_endpoint() {
+    for unit in test_cases() {
+        execute_test(unit).await;
+    }
 }

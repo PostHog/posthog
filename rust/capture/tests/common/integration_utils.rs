@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::{
+use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
     router::router,
@@ -14,9 +14,10 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use axum::Router;
-use axum_test_helper::TestResponse;
+use axum_test_helper::{TestClient, TestResponse};
+use base64::Engine;
 use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -29,47 +30,62 @@ use time::OffsetDateTime;
 
 pub const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 
-// we reuse the "raw" payload fixtures a lot, encoding/compressing them differently in different tests
+// we reuse exemplar payload fixtures in the tests, focusing instead
+// on all the ways a capture request and it's payload can be shaped:
 pub const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
 pub const SINGLE_REPLAY_EVENT_JSON: &str = "single_replay_event_payload.json";
+pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 // the /engage/ endpoint is unique: this only accepts "unnamed" (no event.event attrib)
 // events that are structured as "$identify" events
 pub const SINGLE_ENGAGE_EVENT_JSON: &str = "single_engage_event_payload.json";
-pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 
-pub struct FixedTime {
-    pub time: String,
+pub struct TestCase {
+    pub title: &'static str,
+    pub fixed_time: &'static str,
+    pub mode: CaptureMode,
+    pub base_path: &'static str,
+    pub fixture: &'static str,
+    pub method: Method,
+    pub compression_hint: Option<&'static str>,
+    pub lib_version_hint: Option<&'static str>,
+    pub content_type: &'static str,
+    pub expected_status: StatusCode,
+    pub generate_payload: Box<dyn Fn(&Self) -> Vec<u8>>,
 }
 
-impl TimeSource for FixedTime {
-    fn current_time(&self) -> String {
-        self.time.to_string()
+impl TestCase {
+    pub fn new(
+        title: &'static str,
+        fixed_time: &'static str,
+        mode: CaptureMode,
+        base_path: &'static str,
+        fixture: &'static str,
+        method: Method,
+        compression_hint: Option<&'static str>,
+        lib_version_hint: Option<&'static str>,
+        content_type: &'static str,
+        expected_status: StatusCode,
+        generate_payload: Box<dyn Fn(&Self) -> Vec<u8>>,
+    ) -> Box<Self> {
+        Box::new(TestCase {
+            title,
+            fixed_time,
+            mode,
+            base_path,
+            fixture,
+            method,
+            compression_hint,
+            lib_version_hint,
+            content_type,
+            expected_status,
+            generate_payload,
+        })
     }
 }
 
-#[derive(Clone, Default)]
-pub struct MemorySink {
-    events: Arc<Mutex<Vec<ProcessedEvent>>>,
-}
-
-impl MemorySink {
-    pub fn events(&self) -> Vec<ProcessedEvent> {
-        self.events.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().extend_from_slice(&events);
-        Ok(())
-    }
-}
+//
+// Payload and request generators
+//
 
 // A well-formed payload is UTF-8 JSON:
 // - A single event object
@@ -83,92 +99,131 @@ impl Event for MemorySink {
 // in this case, we load a generic JSON event payload for each test,
 // and let that test case additionally compress/encode the data
 // according to the behavior we're exercising.
-pub fn load_request_payload(title: &str, target: &str) -> Vec<u8> {
-    let path = Path::new("tests/fixtures").join(target);
-    let err_msg = format!("loading req event payload for case: {}", title);
+
+pub async fn post_request(unit: &TestCase, client: &TestClient, payload: Vec<u8>) -> TestResponse {
+    let resolved_path = match unit.method {
+        Method::POST => generate_post_path(unit),
+        Method::GET => unimplemented!("GET integration tests are not supported yet"),
+        _ => panic!(
+            "unexpected HTTP method {} in TestCase: {}",
+            unit.method, unit.title,
+        ),
+    };
+
+    let req = client
+        .post(&resolved_path)
+        .body(payload)
+        .header("Content-Type", unit.content_type)
+        .header("X-Forwarded-For", "127.0.0.1");
+
+    req.send().await
+}
+
+pub fn plain_json_payload(unit: &TestCase) -> Vec<u8> {
+    load_request_payload(unit)
+}
+
+pub fn base64_payload(unit: &TestCase) -> Vec<u8> {
+    let raw_payload = load_request_payload(unit);
+    base64::engine::general_purpose::STANDARD
+        .encode(raw_payload)
+        .into()
+}
+
+pub fn gzipped_payload(unit: &TestCase) -> Vec<u8> {
+    let raw_payload = load_request_payload(unit);
+    gzip_compress(unit.title, raw_payload)
+}
+
+pub fn form_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
+    let raw_payload = load_request_payload(unit);
+    let err_msg = format!(
+        "failed to serialize payload to urlencoded form in case: {}",
+        unit.title
+    );
+    let utf8_payload = std::str::from_utf8(&raw_payload).expect(&err_msg);
+    serde_urlencoded::to_string([("data", utf8_payload), ("ver", "1.2.3")])
+        .expect(&err_msg)
+        .into()
+}
+
+pub fn form_lz64_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
+    let raw_payload = load_request_payload(unit);
+    let lz64_payload = lz64_compress(unit.title, raw_payload);
+    let err_msg = format!(
+        "failed to serialize LZ64 payload to urlencoded form in case: {}",
+        unit.title
+    );
+    serde_urlencoded::to_string([("data", lz64_payload), ("ver", "1.2.3".to_string())])
+        .expect(&err_msg)
+        .into()
+}
+
+fn load_request_payload(unit: &TestCase) -> Vec<u8> {
+    let path = Path::new("tests/fixtures").join(unit.fixture);
+    let err_msg = format!("loading req event payload for case: {}", unit.title);
     read(path).expect(&err_msg)
 }
 
-pub fn setup_capture_router(mode: CaptureMode, fixed_time: &str) -> (Router, MemorySink) {
-    let quota_resource_mode = match mode {
-        CaptureMode::Events => QuotaResource::Events,
-        CaptureMode::Recordings => QuotaResource::Recordings,
-    };
-    let liveness = HealthRegistry::new("dummy");
-    let sink = MemorySink::default();
-    let timesource = FixedTime {
-        time: fixed_time.to_string(),
-    };
-    let redis = Arc::new(MockRedisClient::new());
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(60 * 60 * 24 * 7),
-        redis.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        None,
-        quota_resource_mode,
-        ServiceName::Capture,
+fn generate_post_path(unit: &TestCase) -> String {
+    let compression = unit
+        .compression_hint
+        .map(|c| format!("&compression={}", c))
+        .unwrap_or("".to_string());
+    let ver = unit
+        .lib_version_hint
+        .map(|v| format!("&ver={}", v))
+        .unwrap_or("".to_string());
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(unit.title, unit.fixed_time);
+
+    format!(
+        "{}/?_={}{}{}",
+        unit.base_path, unix_millis_sent_at, compression, ver,
     )
-    .expect("failed to create test billing limiter");
+}
 
-    // disable historical rerouting for this test,
-    // since we use fixture files with old timestamps
-    let enable_historical_rerouting = false;
-    let historical_rerouting_threshold_days = 1_i64;
-    let historical_tokens_keys = None;
-    let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
-    let verbose_sample_percent = 0.0_f32;
+//
+// Test Runner
+//
 
-    (
-        router(
-            timesource,
-            liveness.clone(),
-            sink.clone(),
-            redis,
-            billing_limiter,
-            TokenDropper::default(),
-            false,
-            mode,
-            None,
-            25 * 1024 * 1024,
-            enable_historical_rerouting,
-            historical_rerouting_threshold_days,
-            historical_tokens_keys,
-            is_mirror_deploy,
-            verbose_sample_percent,
+pub async fn execute_test(unit: Box<TestCase>) {
+    let payload = (unit.generate_payload)(&unit);
+
+    let (router, sink) = setup_capture_router(&unit);
+    let client = TestClient::new(router);
+
+    let resp = match unit.method {
+        Method::POST => post_request(&unit, &client, payload).await,
+        Method::GET => unimplemented!("GET test suite not implemented yet!"),
+        _ => panic!(
+            "unexpected method {} in TestCase: {}",
+            unit.method, unit.title,
         ),
-        sink,
-    )
+    };
+
+    let _ = match unit.expected_status {
+        StatusCode::OK => validate_response_success(unit.title, resp).await,
+        _ => expect_response_fail(unit.title, resp).await,
+    };
+
+    let got = sink.events();
+    match unit.fixture {
+        SINGLE_EVENT_JSON => validate_single_event_payload(unit.title, got),
+        SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(unit.title, got),
+        SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(unit.title, got),
+        BATCH_EVENTS_JSON => validate_batch_events_payload(unit.title, got),
+        _ => panic!(
+            "unsupported fixture type {} in TestCase: {}",
+            unit.fixture, unit.title
+        ),
+    }
 }
 
-// utility to compress capture payloads for testing
-pub fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
-    let err_msg = format!("failed to GZIP payload in case: {}", title);
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+//
+// Response validations
+//
 
-    encoder.write_all(&data).expect(&err_msg);
-    encoder.finish().expect(&err_msg)
-}
-
-pub fn lz64_compress(title: &str, data: Vec<u8>) -> String {
-    let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {}", title);
-    let utf8_str = std::str::from_utf8(&data).expect(&utf8_err_msg);
-    let utf16_bytes: Vec<u16> = utf8_str.encode_utf16().collect();
-    lz_str::compress_to_base64(utf16_bytes)
-}
-
-// format the sent_at value when included in GET URL query params
-pub fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
-    let err_msg = format!(
-        "failed to parse ISO8601 time into UNIX millis in case: {}",
-        title
-    );
-    OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
-        .expect(&err_msg)
-        .unix_timestamp()
-        * 1000_i64
-}
-
-pub async fn validate_capture_response(title: &str, res: TestResponse) {
+pub async fn validate_response_success(title: &str, res: TestResponse) {
     assert_eq!(
         StatusCode::OK,
         res.status(),
@@ -187,6 +242,17 @@ pub async fn validate_capture_response(title: &str, res: TestResponse) {
         "test {}: non-OK CaptureResponse: {:?}",
         title,
         cap_resp_details,
+    );
+}
+
+pub async fn expect_response_fail(title: &str, res: TestResponse) {
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        res.status(),
+        "expected 4xx response status in case {} not received - got {} w/reason: {}",
+        title,
+        res.status(),
+        res.text().await
     );
 }
 
@@ -883,4 +949,123 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
         "mismatched event.properties.$time on $pageleave in case: {}",
         title,
     );
+}
+
+//
+// Utilities
+//
+
+struct FixedTime {
+    pub time: String,
+}
+
+impl TimeSource for FixedTime {
+    fn current_time(&self) -> String {
+        self.time.to_string()
+    }
+}
+
+#[derive(Clone, Default)]
+struct MemorySink {
+    events: Arc<Mutex<Vec<ProcessedEvent>>>,
+}
+
+impl MemorySink {
+    pub fn events(&self) -> Vec<ProcessedEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl Event for MemorySink {
+    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.events.lock().unwrap().push(event);
+        Ok(())
+    }
+
+    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.events.lock().unwrap().extend_from_slice(&events);
+        Ok(())
+    }
+}
+
+fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
+    let liveness = HealthRegistry::new("integration_tests");
+    let sink = MemorySink::default();
+    let timesource = FixedTime {
+        time: unit.fixed_time.to_string(),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let err_msg = format!("failed create billing limiter in case: {}", unit.title);
+    let quota_resource_mode = match unit.mode {
+        CaptureMode::Events => QuotaResource::Events,
+        CaptureMode::Recordings => QuotaResource::Recordings,
+    };
+    let billing_limiter = RedisLimiter::new(
+        Duration::from_secs(60 * 60 * 24 * 7),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        quota_resource_mode,
+        ServiceName::Capture,
+    )
+    .expect(&err_msg);
+
+    // simple defaults - payload validation isn't the focus of these tests
+    let enable_historical_rerouting = false;
+    let historical_rerouting_threshold_days = 1_i64;
+    let historical_tokens_keys = None;
+    let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
+    let verbose_sample_percent = 0.0_f32;
+
+    (
+        router(
+            timesource,
+            liveness.clone(),
+            sink.clone(),
+            redis,
+            billing_limiter,
+            TokenDropper::default(),
+            false,
+            unit.mode.clone(),
+            None,
+            25 * 1024 * 1024,
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys,
+            is_mirror_deploy,
+            verbose_sample_percent,
+        ),
+        sink,
+    )
+}
+
+// utility to compress capture payloads for testing
+fn gzip_compress(title: &str, data: Vec<u8>) -> Vec<u8> {
+    let err_msg = format!("failed to GZIP payload in case: {}", title);
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+
+    encoder.write_all(&data).expect(&err_msg);
+    encoder.finish().expect(&err_msg)
+}
+
+fn lz64_compress(title: &str, data: Vec<u8>) -> String {
+    let utf8_err_msg = format!("failed to convert raw_payload to UTF-8 in case: {}", title);
+    let utf8_str = std::str::from_utf8(&data).expect(&utf8_err_msg);
+    let utf16_bytes: Vec<u16> = utf8_str.encode_utf16().collect();
+
+    lz_str::compress_to_base64(utf16_bytes)
+}
+
+// format the sent_at value when included in GET URL query params
+fn iso8601_str_to_unix_millis(title: &str, ts_str: &str) -> i64 {
+    let err_msg = format!(
+        "failed to parse ISO8601 time into UNIX millis in case: {}",
+        title
+    );
+    OffsetDateTime::parse(ts_str, &Iso8601::DEFAULT)
+        .expect(&err_msg)
+        .unix_timestamp()
+        * 1000_i64
 }
