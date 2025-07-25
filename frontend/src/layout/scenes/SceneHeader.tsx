@@ -100,14 +100,15 @@ interface BreadcrumbProps {
 }
 
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
+    const [popoverShown, setPopoverShown] = useState(false)
+    const [isEditing, setIsEditing] = useState(false)
+
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const [popoverShown, setPopoverShown] = useState(false)
     const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
-    const [editing, setEditing] = useState(false)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
 
@@ -168,7 +169,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             {/* if renaming exists, show a button to rename */}
             {'onRename' in breadcrumb && breadcrumb.onRename ? (
                 <>
-                    {editing ? (
+                    {isEditing ? (
                         <EditableField
                             name="item-name-small"
                             value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumbName}
@@ -184,7 +185,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
                                     finishRenaming()
                                 }
                                 setPopoverShown(false)
-                                setEditing(false)
+                                setIsEditing(false)
                             }}
                             autoFocus
                             placeholder="Unnamed"
@@ -200,7 +201,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
                                     if (scenePanelIsPresent) {
                                         setScenePanelOpen(!scenePanelOpen)
                                     } else {
-                                        setEditing(!editing)
+                                        setIsEditing(!isEditing)
                                     }
                                 }}
                                 className="ml-1"
