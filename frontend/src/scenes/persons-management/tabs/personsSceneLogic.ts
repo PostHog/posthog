@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind, ActorsQuery } from '~/queries/schema/schema-general'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import posthog from 'posthog-js'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 import { actionToUrl, urlToAction, router } from 'kea-router'
@@ -60,13 +61,19 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             if (values.query.source.kind !== NodeKind.ActorsQuery) {
                 return defaultUrl
             }
+            const searchParams: Record<string, any> = {
+                ...currentLocation.searchParams,
+            }
             const searchTerm = values.query.source.search
             if (searchTerm == null) {
-                return defaultUrl
+                searchParams['search'] = searchTerm
+            }
+            if (values.query.source.properties != null) {
+                searchParams['properties'] = JSON.stringify(values.query.source.properties)
             }
             const newUrl: ChangeUrlOutput = [
                 currentLocation.pathname,
-                { ...currentLocation.searchParams, search: searchTerm },
+                searchParams,
                 currentLocation.hashParams,
                 { replace: false },
             ]
@@ -85,9 +92,21 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                 return
             }
             const newSearch = searchInUrl ?? values.query.source.search
+            let newProperties = values.query.source.properties
+            if (searchParams['properties']) {
+                try {
+                    const parsedProperties = JSON.parse(searchParams['properties'])
+                    if (parsedProperties && Array.isArray(parsedProperties)) {
+                        newProperties = parsedProperties
+                    }
+                } catch (error: any) {
+                    posthog.captureException('Failed to parse properties', error)
+                }
+            }
             const newSource: ActorsQuery = {
                 ...values.query.source,
                 search: newSearch,
+                properties: newProperties,
             }
             actions.setQuery({
                 ...values.query,
