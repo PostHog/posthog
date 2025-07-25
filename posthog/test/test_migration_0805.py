@@ -14,8 +14,8 @@ from posthog.temporal.data_imports.sources.generated_configs import (
 
 
 class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
-    migrate_from = "0802_messagecategory_category_type_and_more_fix"
-    migrate_to = "0803_dwh_source_refactor"
+    migrate_from = "0804_add_rich_content_json_to_comment"
+    migrate_to = "0805_dwh_source_refactor"
 
     CLASS_DATA_LEVEL_SETUP = False
 

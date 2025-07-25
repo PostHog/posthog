@@ -41,8 +41,6 @@
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "posthog-js": "^1.258.1",
-        "posthog-js-lite": "^4.1.0",
         "turbo": "^2.4.2",
         "uuid": "^10.0.0"
     },
@@ -50,16 +48,16 @@
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
         "@types/uuid": "^10.0.0",
-        "oxlint": "^1.1.0",
+        "oxlint": "^1.8.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
-        "stylelint-config-recess-order": "^4.3.0",
+        "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
-        "stylelint-order": "^6.0.3",
-        "syncpack": "^13.0.1"
+        "stylelint-order": "^6.0.4",
+        "syncpack": "^13.0.4"
     },
     "optionalDependencies": {
-        "fsevents": "^2.3.2"
+        "fsevents": "^2.3.3"
     },
     "pnpm": {
         "overrides": {

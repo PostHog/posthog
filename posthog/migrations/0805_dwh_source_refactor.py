@@ -153,7 +153,7 @@ def reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0802_messagecategory_category_type_and_more_fix"),
+        ("posthog", "0804_add_rich_content_json_to_comment"),
     ]
 
     operations = [migrations.RunPython(forwards, reverse)]
