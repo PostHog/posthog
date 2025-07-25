@@ -91,5 +91,4 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
     ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
-    ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
 ]
