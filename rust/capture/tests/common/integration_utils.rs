@@ -39,6 +39,8 @@ pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
 // events that are structured as "$identify" events
 pub const SINGLE_ENGAGE_EVENT_JSON: &str = "single_engage_event_payload.json";
 
+pub type PayloadGen = Box<dyn Fn(&TestCase) -> Vec<u8>>;
+
 pub struct TestCase {
     pub title: &'static str,
     pub fixed_time: &'static str,
@@ -50,10 +52,11 @@ pub struct TestCase {
     pub lib_version_hint: Option<&'static str>,
     pub content_type: &'static str,
     pub expected_status: StatusCode,
-    pub generate_payload: Box<dyn Fn(&Self) -> Vec<u8>>,
+    pub generate_payload: PayloadGen,
 }
 
 impl TestCase {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         title: &'static str,
         fixed_time: &'static str,
@@ -65,7 +68,7 @@ impl TestCase {
         lib_version_hint: Option<&'static str>,
         content_type: &'static str,
         expected_status: StatusCode,
-        generate_payload: Box<dyn Fn(&Self) -> Vec<u8>>,
+        generate_payload: PayloadGen,
     ) -> Box<Self> {
         Box::new(TestCase {
             title,
@@ -201,7 +204,7 @@ pub async fn execute_test(unit: Box<TestCase>) {
         ),
     };
 
-    let _ = match unit.expected_status {
+    match unit.expected_status {
         StatusCode::OK => validate_response_success(unit.title, resp).await,
         _ => expect_response_fail(unit.title, resp).await,
     };

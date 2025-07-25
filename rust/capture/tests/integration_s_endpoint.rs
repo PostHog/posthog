@@ -1,8 +1,6 @@
-mod common;
 use common::integration_utils::{
     base64_payload, execute_test, form_lz64_urlencoded_payload, form_urlencoded_payload,
-    gzipped_payload, plain_json_payload, TestCase, DEFAULT_TEST_TIME,
-    SINGLE_REPLAY_EVENT_JSON,
+    gzipped_payload, plain_json_payload, TestCase, DEFAULT_TEST_TIME, SINGLE_REPLAY_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
