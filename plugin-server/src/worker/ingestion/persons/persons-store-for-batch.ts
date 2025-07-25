@@ -8,6 +8,13 @@ import { BatchWritingStore } from '../stores/batch-writing-store'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
+export type FlushResult = {
+    topicMessage: TopicMessage
+    teamId: number
+    distinctId?: string
+    uuid?: string
+}
+
 export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Executes a function within a transaction
@@ -129,5 +136,5 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Flushes the batch
      */
-    flush(): Promise<TopicMessage[]>
+    flush(): Promise<FlushResult[]>
 }

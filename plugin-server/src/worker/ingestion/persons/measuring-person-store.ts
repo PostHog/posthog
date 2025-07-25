@@ -17,7 +17,7 @@ import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { applyEventPropertyUpdates } from './person-update'
 import { PersonsStore } from './persons-store'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 type MethodName =
@@ -102,7 +102,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
-    flush(): Promise<TopicMessage[]> {
+    flush(): Promise<FlushResult[]> {
         return Promise.resolve([])
     }
 

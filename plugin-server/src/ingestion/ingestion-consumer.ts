@@ -2,21 +2,17 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { PersonStoreManager } from '~/worker/ingestion/persons/person-store-manager'
+import { MessageSizeTooLarge } from '~/utils/db/error'
+import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import {
-    eventDroppedCounter,
-    latestOffsetTimestampGauge,
-    setUsageInNonPersonEventsCounter,
-} from '../main/ingestion-queues/metrics'
+import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import {
     Hub,
-    IncomingEvent,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
@@ -24,23 +20,27 @@ import {
     PluginServerService,
     PluginsServerConfig,
 } from '../types'
-import { normalizeEvent } from '../utils/event'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
-import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populateTeamDataStep'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BasePersonRepository } from '../worker/ingestion/persons/base-person-repository'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
-import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import {
+    applyDropEventsRestrictions,
+    applyPersonProcessingRestrictions,
+    parseKafkaMessage,
+    resolveTeam,
+    validateEventUuid,
+} from './event-preprocessing'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -104,7 +104,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStoreManager: PersonStoreManager
+    private personStore: BatchWritingPersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private deduplicationRedis: DeduplicationRedis
@@ -151,7 +151,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const batchWritingPersonStore = new BatchWritingPersonsStore(
+        this.personStore = new BatchWritingPersonsStore(
             new BasePersonRepository(this.hub.db.postgres),
             this.hub.db.kafkaProducer,
             {
@@ -161,11 +161,6 @@ export class IngestionConsumer {
                 optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             }
         )
-        const measuringPersonStore = new MeasuringPersonsStore(new BasePersonRepository(this.hub.db.postgres), {
-            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
-            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
-        })
-        this.personStoreManager = new PersonStoreManager(this.hub, measuringPersonStore, batchWritingPersonStore)
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -313,32 +308,25 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
-
+        const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
         // Fire-and-forget deduplication call
-        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, parsedMessages))
-
-        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
-            return this.resolveTeams(parsedMessages)
-        })
-
-        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
-
-        const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
+        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, preprocessedEvents))
+        const postCookielessMessages = await this.runInstrumented('cookielessProcessing', () =>
+            this.hub.cookielessManager.doBatch(preprocessedEvents)
+        )
+        const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-
-        // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
         if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(groupedMessages)
+            await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
         }
 
-        const personsStoreForBatch = this.personStoreManager.forBatch()
+        const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
-                Object.values(groupedMessages).map(async (events) => {
+                Object.values(eventsPerDistinctId).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
                     return await this.runInstrumented('processEventsForDistinctId', () =>
@@ -350,9 +338,8 @@ export class IngestionConsumer {
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
-        if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            await this.kafkaProducer.queueMessages(personsStoreMessages)
-            await this.kafkaProducer.flush()
+        if (this.kafkaProducer) {
+            await this.producePersonsStoreMessages(personsStoreMessages)
         }
 
         personsStoreForBatch.reportBatch()
@@ -371,6 +358,45 @@ export class IngestionConsumer {
                 await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
             }),
         }
+    }
+
+    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
+        await Promise.all(
+            personsStoreMessages.map((record) => {
+                return Promise.all(
+                    record.topicMessage.messages.map(async (message) => {
+                        try {
+                            return await this.kafkaProducer!.produce({
+                                topic: record.topicMessage.topic,
+                                key: message.key ? Buffer.from(message.key) : null,
+                                value: message.value ? Buffer.from(message.value) : null,
+                                headers: message.headers,
+                            })
+                        } catch (error) {
+                            if (error instanceof MessageSizeTooLarge) {
+                                await captureIngestionWarning(
+                                    this.kafkaProducer!,
+                                    record.teamId,
+                                    'message_size_too_large',
+                                    {
+                                        eventUuid: record.uuid,
+                                        distinctId: record.distinctId,
+                                    }
+                                )
+                                logger.warn('🪣', `Message size too large`, {
+                                    topic: record.topicMessage.topic,
+                                    key: message.key,
+                                    headers: message.headers,
+                                })
+                            } else {
+                                throw error
+                            }
+                        }
+                    })
+                )
+            })
+        )
+        await this.kafkaProducer!.flush()
     }
 
     /**
@@ -590,113 +616,62 @@ export class IngestionConsumer {
         )
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {
-        const batch: IncomingEvent[] = []
+    private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
+        const preprocessedEvents: IncomingEventWithTeam[] = []
 
         for (const message of messages) {
-            let distinctId: string | undefined
-            let token: string | undefined
-
-            // Parse the headers so we can early exit if found and should be dropped
-            message.headers?.forEach((header) => {
-                if ('distinct_id' in header) {
-                    distinctId = header['distinct_id'].toString()
-                }
-                if ('token' in header) {
-                    token = header['token'].toString()
-                }
-            })
-
-            if (this.shouldDropEvent(token, distinctId)) {
-                this.logDroppedEvent(token, distinctId)
+            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
+            if (!filteredMessage) {
                 continue
             }
 
-            // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
-            const event: PipelineEvent = normalizeEvent({
-                ...combinedEvent,
-            })
-
-            // Validate that headers match the parsed event data
-            this.validateHeadersMatchEvent(event, token, distinctId)
-
-            // In case the headers were not set we check the parsed message now
-            if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
-                this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
+            const parsedEvent = parseKafkaMessage(filteredMessage)
+            if (!parsedEvent) {
                 continue
             }
 
-            if (this.shouldSkipPerson(event.token, event.distinct_id)) {
-                event.properties = {
-                    ...(event.properties ?? {}),
-                    $process_person_profile: false,
-                }
+            const eventWithTeam = await resolveTeam(this.hub, parsedEvent)
+            if (!eventWithTeam) {
+                continue
             }
 
-            batch.push({ message, event })
+            applyPersonProcessingRestrictions(eventWithTeam, this.eventIngestionRestrictionManager)
+
+            // We only validate it here because we want to raise ingestion warnings
+            const validEvent = await validateEventUuid(eventWithTeam, this.hub)
+            if (!validEvent) {
+                continue
+            }
+
+            preprocessedEvents.push(validEvent)
         }
 
-        return Promise.resolve(batch)
+        return preprocessedEvents
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
-        const batches: IncomingEventsByDistinctId = {}
-        for (const { event, message, team } of messages) {
+    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
+        const groupedEvents: IncomingEventsByDistinctId = {}
+
+        for (const eventWithTeam of messages) {
+            const { message, event, team } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
 
-            // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
-            // for a given distinct_id
-            if (!batches[eventKey]) {
-                batches[eventKey] = {
+            // We collect the events grouped by token and distinct_id so that we can process batches in parallel
+            // whilst keeping the order of events for a given distinct_id.
+            if (!groupedEvents[eventKey]) {
+                groupedEvents[eventKey] = {
                     token: token,
                     distinctId,
                     events: [],
                 }
             }
 
-            batches[eventKey].events.push({ message, event, team })
+            groupedEvents[eventKey].events.push({ message, event, team })
         }
-        return batches
-    }
 
-    private async resolveTeams(messages: IncomingEvent[]): Promise<IncomingEventWithTeam[]> {
-        const resolvedMessages: IncomingEventWithTeam[] = []
-        for (const { event, message } of messages) {
-            const result = await populateTeamDataStep(this.hub, event)
-            if (!result) {
-                continue
-            }
-            resolvedMessages.push({
-                event: result.event,
-                team: result.team,
-                message,
-            })
-        }
-        return resolvedMessages
-    }
-
-    private logDroppedEvent(token?: string, distinctId?: string) {
-        logger.debug('🔁', `Dropped event`, {
-            token,
-            distinctId,
-        })
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'blocked_token',
-            })
-            .inc()
-    }
-
-    private shouldDropEvent(token?: string, distinctId?: string) {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
+        return groupedEvents
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {

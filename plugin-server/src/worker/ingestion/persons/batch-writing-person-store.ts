@@ -36,7 +36,7 @@ import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 type MethodName =
@@ -150,7 +150,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    async flush(): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
@@ -173,7 +173,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         try {
             const results = await Promise.all(
                 updateEntries.map(([cacheKey, update]) =>
-                    limit(async (): Promise<TopicMessage[]> => {
+                    limit(async (): Promise<FlushResult[]> => {
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
@@ -181,7 +181,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 outcome: 'attempt',
                             })
 
-                            let kafkaMessages: TopicMessage[] = []
+                            let kafkaMessages: FlushResult[] = []
                             switch (this.options.dbWriteMode) {
                                 case 'NO_ASSERT': {
                                     const result = await this.withMergeRetry(
@@ -191,7 +191,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = result.messages
+                                    kafkaMessages = result.messages.map((message) => ({
+                                        topicMessage: message,
+                                        teamId: update.team_id,
+                                        uuid: update.uuid,
+                                        distinctId: update.distinct_id,
+                                    }))
                                     break
                                 }
                                 case 'ASSERT_VERSION': {
@@ -202,7 +207,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = result.messages
+                                    kafkaMessages = result.messages.map((message) => ({
+                                        topicMessage: message,
+                                        teamId: update.team_id,
+                                        uuid: update.uuid,
+                                        distinctId: update.distinct_id,
+                                    }))
                                     break
                                 }
                             }
@@ -256,7 +266,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     outcome: 'success',
                                 })
 
-                                return fallbackMessages
+                                return fallbackMessages.map((message) => ({
+                                    topicMessage: message,
+                                    teamId: error.latestPersonUpdate.team_id,
+                                    uuid: error.latestPersonUpdate.uuid,
+                                    distinctId: error.latestPersonUpdate.distinct_id,
+                                }))
                             }
 
                             // Re-throw any other errors

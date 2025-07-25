@@ -10,7 +10,7 @@ import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measurin
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 interface FinalStateEntry {
@@ -510,7 +510,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    async flush(): Promise<TopicMessage[]> {
+    async flush(): Promise<FlushResult[]> {
         await Promise.resolve(this.compareFinalStates())
         return []
     }
