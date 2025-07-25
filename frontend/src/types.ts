@@ -756,7 +756,7 @@ export interface ToolbarProps extends ToolbarParams {
     disableExternalStyles?: boolean
 }
 
-export type PathCleaningFilter = { alias?: string; regex?: string }
+export type PathCleaningFilter = { alias?: string; regex?: string; order?: number }
 
 export type PropertyFilterBaseValue = string | number | bigint
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null

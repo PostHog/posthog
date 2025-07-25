@@ -172,7 +172,7 @@ mod tests {
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": false,
-            "evaluation_environment": "both"
+            "evaluation_environment": "all"
         }"#;
 
         let flag: FeatureFlag = serde_json::from_str(json_str).expect("Failed to deserialize");
@@ -440,7 +440,7 @@ mod tests {
             },
             "active": true,
             "deleted": false,
-            "evaluation_environment": "both"
+            "evaluation_environment": "all"
         });
 
         // Insert into Redis
@@ -772,7 +772,7 @@ mod tests {
             },
             "active": true,
             "deleted": false,
-            "evaluation_environment": "both"
+            "evaluation_environment": "all"
         });
 
         // Insert into Redis
@@ -1330,7 +1330,7 @@ mod tests {
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
                 "active": true,
                 "deleted": false,
-                "evaluation_environment": "both"
+                "evaluation_environment": "all"
             },
             {
                 "id": 2,
@@ -1340,7 +1340,7 @@ mod tests {
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "active": true,
                 "deleted": false,
-                "evaluation_environment": "both"
+                "evaluation_environment": "all"
             },
             {
                 "id": 3,
@@ -1350,7 +1350,7 @@ mod tests {
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 33.33}]},
                 "active": true,
                 "deleted": false,
-                "evaluation_environment": "both"
+                "evaluation_environment": "all"
             }
         ]);
 
@@ -1417,7 +1417,7 @@ mod tests {
             "filters": {},
             "deleted": false,
             "active": true,
-            "evaluation_environment": "both"
+            "evaluation_environment": "all"
         }"#;
 
         let flag: FeatureFlag =
