@@ -50,21 +50,6 @@ export function ChartCell({
     const x2 = scale(upper)
     const deltaX = scale(delta)
 
-    if (!hasEnoughData) {
-        return (
-            <td
-                className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
-                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                } ${isLastRow ? 'border-b' : ''}`}
-                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
-            >
-                <div className="flex items-center justify-center h-full text-muted text-xs whitespace-nowrap">
-                    Not enough data yet
-                </div>
-            </td>
-        )
-    }
-
     return (
         <td
             className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
@@ -77,7 +62,7 @@ export function ChartCell({
                     <svg
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                         preserveAspectRatio="none"
-                        className="h-full w-full max-w-[1000px]"
+                        className="h-full w-full"
                     >
                         {/* Grid lines for all ticks - spans full height */}
                         {showGridLines && (
@@ -95,50 +80,64 @@ export function ChartCell({
                             />
                         )}
 
-                        {/* Gradient definition for this specific bar */}
-                        <ChartGradients
-                            lower={lower}
-                            upper={upper}
-                            gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
-                                variantResult.key
-                            }`}
-                        />
+                        {/* Render content based on data availability */}
+                        {hasEnoughData && (
+                            <>
+                                {/* Gradient definition for this specific bar */}
+                                <ChartGradients
+                                    lower={lower}
+                                    upper={upper}
+                                    gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                        variantResult.key
+                                    }`}
+                                />
 
-                        {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
-                        {isBayesianResult(variantResult) ? (
-                            <path
-                                d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
-                                    variantResult.key
-                                })`}
-                                opacity={CHART_BAR_OPACITY}
-                            />
-                        ) : (
-                            <rect
-                                x={x1}
-                                y={y}
-                                width={x2 - x1}
-                                height={barHeightPercent}
-                                fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
-                                    variantResult.key
-                                })`}
-                                opacity={CHART_BAR_OPACITY}
-                                rx={3}
-                                ry={3}
-                            />
+                                {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
+                                {isBayesianResult(variantResult) ? (
+                                    <path
+                                        d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                            variantResult.key
+                                        })`}
+                                        opacity={CHART_BAR_OPACITY}
+                                    />
+                                ) : (
+                                    <rect
+                                        x={x1}
+                                        y={y}
+                                        width={x2 - x1}
+                                        height={barHeightPercent}
+                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricIndex}-${
+                                            variantResult.key
+                                        })`}
+                                        opacity={CHART_BAR_OPACITY}
+                                        rx={3}
+                                        ry={3}
+                                    />
+                                )}
+
+                                {/* Delta marker */}
+                                <line
+                                    x1={deltaX}
+                                    y1={y}
+                                    x2={deltaX}
+                                    y2={y + barHeightPercent}
+                                    stroke={colors.BAR_MIDDLE_POINT}
+                                    strokeWidth={2}
+                                    shapeRendering="crispEdges"
+                                />
+                            </>
                         )}
-
-                        {/* Delta marker */}
-                        <line
-                            x1={deltaX}
-                            y1={y}
-                            x2={deltaX}
-                            y2={y + barHeightPercent}
-                            stroke={colors.BAR_MIDDLE_POINT}
-                            strokeWidth={2}
-                            shapeRendering="crispEdges"
-                        />
                     </svg>
+
+                    {/* "Not enough data" message as HTML overlay */}
+                    {!hasEnoughData && (
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-border-light px-3 py-1 rounded text-xs text-muted whitespace-nowrap">
+                                Not enough data yet
+                            </div>
+                        </div>
+                    )}
                 </div>
             </ChartCellTooltip>
         </td>

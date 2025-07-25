@@ -166,7 +166,10 @@ class SessionRecording(UUIDModel):
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
         try:
-            return SessionRecording.objects.get(session_id=session_id, team=team)
+            # we have to select the team now instead of lazy loading
+            # because this recording object is sometimes used in an async context
+            # and lazy loading in the async context causes an error
+            return SessionRecording.objects.select_related("team").get(session_id=session_id, team=team)
         except SessionRecording.DoesNotExist:
             return SessionRecording(session_id=session_id, team=team)
 

@@ -100,9 +100,7 @@ jobs:
                                   if (result.comparison_experiment_name?.startsWith("master-")) {
                                       baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
                                           value.diff * 100
-                                      ).toFixed(2)}%${diffHighlight} versus [baseline (master)](${result.project_url}/experiments/${
-                                          result.comparison_experiment_name
-                                      }) (improvements: ${value.improvements}, regressions: ${value.regressions})`
+                                      ).toFixed(2)}%${diffHighlight} (improvements: ${value.improvements}, regressions: ${value.regressions})`
                                       diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
                                   }
                                   return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
@@ -115,11 +113,16 @@ jobs:
                           const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
                           const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
                           const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
+                          const baselineLink = `[${result.comparison_experiment_name}](${result.project_url}/experiments/${result.comparison_experiment_name})`
 
                           // Create concise experiment summary with header only showing experiment name
                           const experimentName = result.project_name.replace(/^max-ai-/, "")
 
-                          return `### [${experimentName}](${result.experiment_url})\n\n${scoresList}\n\nAvg. case performance: ${metricsText}`
+                          return [
+                              `### [${experimentName}](${result.experiment_url})`,
+                              scoresList,
+                              `Baseline: ${baselineLink} • Avg. case performance: ${metricsText}`,
+                          ].join("\n\n")
                       })
 
                       const totalExperiments = evalResults.length
