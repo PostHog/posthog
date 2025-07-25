@@ -43,10 +43,16 @@ export function ScenePanelDivider(): JSX.Element {
 }
 
 // Should be first!
-export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
+export function ScenePanelCommonActions({
+    children,
+    isFirst = true,
+}: {
+    isFirst?: boolean
+    children: React.ReactNode
+}): JSX.Element {
     return (
         <>
-            <div className="flex flex-col gap-2 pt-2">{children}</div>
+            <div className={cn('flex flex-col gap-2', { 'pt-2': isFirst })}>{children}</div>
             <ScenePanelDivider />
         </>
     )
