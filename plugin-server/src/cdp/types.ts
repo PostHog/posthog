@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { CyclotronInputType } from '~/schema/cyclotron'
+import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
 import { HogFlow } from '../schema/hogflow'
 import {
@@ -177,7 +177,7 @@ export type MinimalAppMetric = {
     team_id: number
     app_source_id: string // The main item (like the hog function or hog flow ID)
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
-    metric_kind: 'failure' | 'success' | 'other'
+    metric_kind: 'failure' | 'success' | 'other' | 'email'
     metric_name:
         | 'succeeded'
         | 'failed'
@@ -192,6 +192,14 @@ export type MinimalAppMetric = {
         | 'event_triggered_destination'
         | 'destination_invoked'
         | 'dropped'
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_opened'
+        | 'email_clicked'
+        | 'email_bounced'
+        | 'email_blocked'
+        | 'email_spam'
+        | 'email_unsubscribed'
     count: number
 }
 
@@ -204,17 +212,6 @@ export interface HogFunctionTiming {
     kind: 'hog' | 'async_function'
     duration_ms: number
 }
-
-export type HogFunctionQueueParametersFetchRequest = {
-    type: 'fetch'
-    url: string
-    method: string
-    body?: string
-    max_tries?: number
-    headers?: Record<string, string>
-}
-
-export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
 
 export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
@@ -231,7 +228,7 @@ export type CyclotronJobInvocation = {
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
     // Optional parameters for that queue to use
-    queueParameters?: CyclotronInvocationQueueParameters | null
+    queueParameters?: CyclotronInvocationQueueParametersType | null
     // Priority of the invocation
     queuePriority: number
     // When the invocation is scheduled to run
@@ -382,14 +379,9 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack'
+    kind: 'slack' | 'email' | 'oauth'
     config: Record<string, any>
     sensitive_config: Record<string, any>
-
-    // Fields we don't load but need for seeding data
-    errors?: string
-    created_at?: string
-    created_by_id?: number
 }
 
 export type HogFunctionCapturedEvent = {

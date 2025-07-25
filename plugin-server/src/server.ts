@@ -25,7 +25,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { setupCommonRoutes } from './router'
+import { setupCommonRoutes, setupExpressApp } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -70,8 +70,7 @@ export class PluginServer {
             ...config,
         }
 
-        this.expressApp = express()
-        this.expressApp.use(express.json({ limit: '200kb' }))
+        this.expressApp = setupExpressApp()
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 

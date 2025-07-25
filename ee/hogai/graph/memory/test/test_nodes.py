@@ -35,8 +35,20 @@ from posthog.test.base import (
 @override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
     def get_mixin(self):
-        mixin = MemoryInitializerContextMixin()
-        mixin._team = self.team
+        class Mixin(MemoryInitializerContextMixin):
+            def __init__(self, team, user):
+                self.__team = team
+                self.__user = user
+
+            @property
+            def _team(self):
+                return self.__team
+
+            @property
+            def _user(self):
+                return self.__user
+
+        mixin = Mixin(self.team, self.user)
         return mixin
 
     def test_domain_retrieval(self):

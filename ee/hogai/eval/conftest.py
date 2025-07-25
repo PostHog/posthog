@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 from _pytest.terminal import TerminalReporter
-from braintrust import EvalAsync, init_logger
+from braintrust import EvalAsync, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
@@ -28,12 +28,15 @@ handler = BraintrustCallbackHandler()
 if os.environ.get("BRAINTRUST_API_KEY"):
     set_global_handler(handler)
 
+EVAL_USER_FULL_NAME = "Karen Smith"
+
 
 async def MaxEval(
     experiment_name: str,
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
+    metadata: Metadata | None = None,
 ):
     # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
@@ -48,6 +51,7 @@ async def MaxEval(
         timeout=60 * 8,
         max_concurrency=20,
         is_public=True,
+        metadata=metadata,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
@@ -135,7 +139,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
                 # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
                 # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
                 org, team, user = matrix_manager.ensure_account_and_save(
-                    f"eval-{today.isoformat()}", "Eval Doe", "Hedgebox Inc."
+                    f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
                 )
         else:
             print(f"Using existing demo data for evals...")  # noqa: T201
