@@ -2513,18 +2513,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
-                const columnsWithDynamicConversionGoal = [
+                const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select || []).filter(
-                        (column) => !isDraftConversionGoalColumn(column, dynamicConversionGoal)
+                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
                     ),
-                    ...(dynamicConversionGoal
+                    ...(draftConversionGoal
                         ? [
-                              dynamicConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal.conversion_goal_name}`,
+                              draftConversionGoal.conversion_goal_name,
+                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
                           ]
                         : []),
                 ]
-                const sortedColumns = getSortedColumnsByArray(columnsWithDynamicConversionGoal, defaultColumns)
+                const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
                 const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
                 const orderBy = getOrderBy(marketingQuery, sortedColumns)
                 return {

@@ -2,7 +2,6 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
-    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
@@ -79,46 +78,6 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
         column === draftConversionGoal.conversion_goal_name ||
         column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`
     )
-}
-
-/**
- * Inject the dynamic conversion goal into the select list after the base columns
- * and before the conversion goal columns.
- * @param selectList - The select list to inject the dynamic conversion goal into
- * @param draftConversionGoal - The dynamic conversion goal to inject
- * @returns The select list with the dynamic conversion goal injected
- */
-export const injectDraftConversionGoal = (
-    selectList: string[],
-    draftConversionGoal: ConversionGoalFilter | null
-): string[] => {
-    if (!draftConversionGoal) {
-        return selectList
-    }
-
-    const selectWithoutDraftConversionGoal = selectList.filter(
-        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
-    )
-
-    let lastIndex = 0
-    const newSelect = []
-    for (const selectColumn of selectWithoutDraftConversionGoal) {
-        // if in the base column add the cost per goal
-        if (
-            Object.values(MarketingAnalyticsBaseColumns)
-                .map((column) => column.toString())
-                .includes(selectColumn)
-        ) {
-            lastIndex++
-        }
-    }
-    newSelect.push(
-        ...selectWithoutDraftConversionGoal.slice(0, lastIndex),
-        `${draftConversionGoal.conversion_goal_name}`,
-        `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
-        ...selectWithoutDraftConversionGoal.slice(lastIndex)
-    )
-    return newSelect
 }
 
 /**
