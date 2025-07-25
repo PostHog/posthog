@@ -46,18 +46,18 @@ export const groupsListLogic = kea<groupsListLogicType>([
     reducers(({ props }) => ({
         query: [
             (_: any, props: GroupsListLogicProps) =>
-                ({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.GroupsQuery,
-                        select: undefined,
-                        group_type_index: props.groupTypeIndex,
-                    },
-                    full: true,
-                    showEventFilter: false,
-                    showPersistentColumnConfigurator: true,
-                    propertiesViaUrl: true,
-                } as DataTableNode),
+            ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.GroupsQuery,
+                    select: undefined,
+                    group_type_index: props.groupTypeIndex,
+                },
+                full: true,
+                showEventFilter: false,
+                showPersistentColumnConfigurator: true,
+                propertiesViaUrl: true,
+            } as DataTableNode),
             { setQuery: (_, { query }) => query },
         ],
         groupFilters: [
@@ -103,6 +103,10 @@ export const groupsListLogic = kea<groupsListLogicType>([
 
             if (values.query.source.kind !== NodeKind.GroupsQuery) {
                 return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+            }
+
+            if (values.query.source.search?.length) {
+                searchParams['search'] = values.query.source.search
             }
 
             if (values.query.source.properties?.length) {
@@ -155,6 +159,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
             parseParam('properties')
             parseParam('select')
             parseParam('orderBy')
+            parseParam('search')
 
             if (Object.keys(queryOverrides).length > 0) {
                 actions.setQuery({
