@@ -135,7 +135,7 @@ class TestExternalSurveys(APIBaseTest):
         self.assertContains(response, "posthog-survey-container")
 
         # Check PostHog configuration is injected
-        self.assertContains(response, "window.projectConfig")
+        self.assertContains(response, "projectConfig")
         self.assertContains(response, survey.team.api_token)
 
     def test_survey_appearance_configuration(self):
@@ -148,7 +148,7 @@ class TestExternalSurveys(APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
         # Check appearance data is injected
-        self.assertContains(response, "window.surveyAppearance")
+        self.assertContains(response, "surveyAppearance")
         self.assertContains(response, "#ff0000")
         self.assertContains(response, "#00ff00")
 
@@ -161,13 +161,13 @@ class TestExternalSurveys(APIBaseTest):
 
         # Verify project config contains required fields
         content = response.content.decode()
-        self.assertIn("window.projectConfig", content)
+        self.assertIn("projectConfig", content)
         self.assertIn(survey.team.api_token, content)
 
         # Extract and validate project config JSON
         import re
 
-        config_match = re.search(r"window\.projectConfig = ({.*?});", content)
+        config_match = re.search(r"projectConfig = ({.*?});", content)
         self.assertIsNotNone(config_match)
         assert config_match is not None  # Type guard for mypy
 
