@@ -45,7 +45,7 @@ jobs:
         steps:
             - name: Generate GitHub App Token
               id: app-token
-              uses: actions/create-github-app-token@v1
+              uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2
               with:
                   app-id: ${{ secrets.CI_TEST_RUNNER_1_APP_ID }}
                   private-key: ${{ secrets.CI_TEST_RUNNER_1_APP_PRIVATE_KEY }}
