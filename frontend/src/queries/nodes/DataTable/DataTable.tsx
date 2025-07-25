@@ -459,7 +459,7 @@ export function DataTable({
                                                         typeof orderKey === 'object' &&
                                                         isMarketingAnalyticsTableQuery(query.source)
                                                     ) {
-                                                        return orderKey.includes(cleanColumnKey)
+                                                        return orderKey[0] === cleanColumnKey
                                                     } else if (typeof orderKey === 'string') {
                                                         return (
                                                             removeExpressionComment(orderKey) === cleanColumnKey ||
