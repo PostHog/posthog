@@ -51,7 +51,7 @@ class TestSyncHogFunctionTemplates:
                     "name": f"Test {template_id}",
                     "description": f"Test template for {template_id}",
                     "type": "transformation",
-                    "hog": "return event",
+                    "code": "return event",
                     "inputs_schema": [],
                     "status": "beta",
                     "free": True,

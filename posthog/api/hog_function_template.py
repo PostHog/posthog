@@ -49,7 +49,6 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
             "mappings",
             "mapping_templates",
         ]
-        read_only_fields = fields
 
 
 # NOTE: There is nothing currently private about these values

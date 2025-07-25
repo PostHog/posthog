@@ -225,6 +225,8 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("host", "track.customer.io")
         events_to_send = obj.config.get("eventsToSend")

@@ -85,6 +85,8 @@ class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("host", "")
         project_api_key = obj.config.get("project_api_key", "")

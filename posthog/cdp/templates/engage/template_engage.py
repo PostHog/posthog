@@ -60,6 +60,8 @@ class TemplateEngageMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         public_key = obj.config.get("publicKey", "")
         private_key = obj.config.get("secret", "")

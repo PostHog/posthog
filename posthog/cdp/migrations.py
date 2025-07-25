@@ -95,7 +95,7 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 continue
 
             data = {
-                "template_id": template.id,
+                "template_id": template.template_id,
                 "type": kind,
                 "name": plugin_name,
                 "description": template.description,

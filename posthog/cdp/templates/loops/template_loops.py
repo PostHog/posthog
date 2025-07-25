@@ -207,6 +207,8 @@ class TemplateLoopsMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         apiKey = obj.config.get("apiKey", "")
         trackedEvents = obj.config.get("trackedEvents", "")

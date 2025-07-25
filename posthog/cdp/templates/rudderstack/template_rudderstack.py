@@ -135,6 +135,8 @@ class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("dataPlaneUrl", "https://hosted.rudderlabs.com")
         token = obj.config.get("writeKey", "")
