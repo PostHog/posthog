@@ -46,6 +46,8 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.sync import database_sync_to_async
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.settings import HOGQL_MODELING_MAX_EXECUTION_TIME
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -657,6 +659,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         context=context,
         dialect="clickhouse",
         stack=[],
+        settings=HogQLGlobalSettings(max_execution_time=HOGQL_MODELING_MAX_EXECUTION_TIME),
     )
 
     await logger.adebug(f"Running count query: {printed}")
@@ -692,6 +695,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         context=context,
         dialect="clickhouse",
         stack=[],
+        settings=HogQLGlobalSettings(max_execution_time=HOGQL_MODELING_MAX_EXECUTION_TIME),
     )
 
     await logger.adebug(f"Running clickhouse query: {printed}")
