@@ -71,6 +71,9 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             if (values.query.source.properties != null) {
                 searchParams['properties'] = JSON.stringify(values.query.source.properties)
             }
+            if (values.query.source.orderBy != null) {
+                searchParams['order_by'] = JSON.stringify(values.query.source.orderBy)
+            }
             const newUrl: ChangeUrlOutput = [
                 currentLocation.pathname,
                 searchParams,
@@ -103,10 +106,22 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                     posthog.captureException('Failed to parse properties', error)
                 }
             }
+            let newOrderBy = values.query.source.orderBy
+            if (searchParams['order_by']) {
+                try {
+                    const parsedOrderBy = JSON.parse(searchParams['order_by'])
+                    if (parsedOrderBy && Array.isArray(parsedOrderBy)) {
+                        newOrderBy = parsedOrderBy
+                    }
+                } catch (error: any) {
+                    posthog.captureException('Failed to parse orderBy', error)
+                }
+            }
             const newSource: ActorsQuery = {
                 ...values.query.source,
                 search: newSearch,
                 properties: newProperties,
+                orderBy: newOrderBy,
             }
             actions.setQuery({
                 ...values.query,
