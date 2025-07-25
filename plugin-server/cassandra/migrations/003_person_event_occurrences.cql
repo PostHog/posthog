@@ -15,10 +15,9 @@ CREATE TABLE IF NOT EXISTS person_event_occurrences (
 ) WITH CLUSTERING ORDER BY (person_id ASC, event_name ASC)
   AND compaction = {
     'class': 'LeveledCompactionStrategy',
-    'sstable_size_in_mb': 160
-  }
-  AND gc_grace_seconds = 86400;
+    'sstable_size_in_mb': 1024
+  };
 
 -- Note: Using LeveledCompactionStrategy for read-heavy workloads with frequent updates
 -- The table is optimized for queries by team_id + person_id + event_name
--- gc_grace_seconds is set to 1 day since we expect frequent overwrites
+-- Using default gc_grace_seconds (10 days) initially - can be tuned based on actual usage patterns
