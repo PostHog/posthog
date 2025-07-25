@@ -5717,3 +5717,43 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-01-09",
             response.results[0]["days"],
         )
+
+    def test_cohort_breakdown_list_assertion_error_scenario(self):
+        """
+        In trends query runner, we run a couple things after init. When updating filters, make sure they get run again.
+        """
+        self._create_test_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="test cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        base_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+        )
+
+        # Apply filters_override with cohort breakdown list (like from dashboard)
+        from posthog.schema import DashboardFilter
+
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[cohort.pk],  # This is a list - the problematic case
+            )
+        )
+
+        runner = TrendsQueryRunner(team=self.team, query=base_query)
+        runner.apply_dashboard_filters(filters_override)
+
+        # This is the call that would fail with assertion error before the fix
+        response = runner.calculate()
+
+        # If we get here, the fix is working
+        self.assertIsNotNone(response)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
