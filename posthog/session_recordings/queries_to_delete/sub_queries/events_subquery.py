@@ -14,8 +14,8 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
 )
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.utils import (
+from posthog.session_recordings.queries_to_delete.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries_to_delete.utils import (
     INVERSE_OPERATOR_FOR,
     NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,

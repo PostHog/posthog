@@ -9,7 +9,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
-from posthog.session_recordings.queries.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_delete.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
