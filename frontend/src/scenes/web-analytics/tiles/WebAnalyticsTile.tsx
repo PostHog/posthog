@@ -494,6 +494,7 @@ export const WebStatsTrendTile = ({
 export const MarketingAnalyticsTrendTile = ({
     query,
     showIntervalTile,
+    insightProps,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
     const { setInterval } = useActions(marketingAnalyticsLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
@@ -508,7 +509,7 @@ export const MarketingAnalyticsTrendTile = ({
                     </div>
                 </div>
             )}
-            <Query query={query} readOnly={true} />
+            <Query query={query} readOnly={true} context={{ insightProps: { ...insightProps, query } }} />
         </div>
     )
 }

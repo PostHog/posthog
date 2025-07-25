@@ -191,10 +191,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
-    [TileId.MARKETING]: 16,
 
     // Marketing Tiles
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
+    [TileId.MARKETING]: 1,
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
