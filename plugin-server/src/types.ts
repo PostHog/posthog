@@ -1149,11 +1149,6 @@ export enum TimestampFormat {
     ISO = 'iso',
 }
 
-export enum Database {
-    ClickHouse = 'clickhouse',
-    Postgres = 'postgres',
-}
-
 export interface PluginScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
