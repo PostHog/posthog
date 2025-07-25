@@ -224,6 +224,7 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     ExternalDataSchema.objects.create(
