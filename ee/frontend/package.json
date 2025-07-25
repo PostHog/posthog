@@ -18,9 +18,9 @@
         "clsx": "*",
         "eslint": "*",
         "prettier": "*",
+        "process": "*",
         "react": "*",
         "stylelint": "*",
-        "typescript": "*",
-        "process": "*"
+        "typescript": "*"
     }
 }

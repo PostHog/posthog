@@ -14,8 +14,8 @@
         "kea": "*",
         "kea-forms": "*",
         "kea-loaders": "*",
-        "kea-subscriptions": "*",
         "kea-router": "*",
+        "kea-subscriptions": "*",
         "react": "*",
         "zod": "*"
     }
