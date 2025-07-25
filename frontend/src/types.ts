@@ -4180,6 +4180,12 @@ export interface SlackChannelType {
     is_member: boolean
     is_private_without_access?: boolean
 }
+
+export interface TwilioPhoneNumberType {
+    sid: string
+    phone_number: string
+    friendly_name: string
+}
 export interface LinearTeamType {
     id: string
     name: string
