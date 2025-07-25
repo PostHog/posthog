@@ -135,7 +135,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
-            "evaluation_environment": "both",
+            "evaluation_environment": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -218,7 +218,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 2,
             "last_modified_by": ANY,
-            "evaluation_environment": "both",
+            "evaluation_environment": "all",
         }
 
         flag_response = response.json()["success"][0]
@@ -345,7 +345,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
-            "evaluation_environment": "both",
+            "evaluation_environment": "all",
         }
         flag_response = response.json()["success"][0]
 

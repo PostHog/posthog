@@ -77,12 +77,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     EVALUATION_ENVIRONMENT_CHOICES = [
         ("server", "Server"),
         ("client", "Client"),
-        ("both", "Both"),
+        ("all", "All"),
     ]
     evaluation_environment = models.CharField(
         max_length=10,
         choices=EVALUATION_ENVIRONMENT_CHOICES,
-        default="both",
+        default="all",
         help_text="Specifies where this feature flag should be evaluated",
     )
 

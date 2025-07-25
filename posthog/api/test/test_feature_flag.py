@@ -484,23 +484,23 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["evaluation_environment"], "client")
 
-        # Test with "both"
+        # Test with "all"
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "both-flag", "evaluation_environment": "both"},
+            {"key": "all-flag", "evaluation_environment": "all"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["evaluation_environment"], "both")
+        self.assertEqual(response.json()["evaluation_environment"], "all")
 
-        # Test default value (should be "both")
+        # Test default value (should be "all")
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {"key": "default-flag"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["evaluation_environment"], "both")
+        self.assertEqual(response.json()["evaluation_environment"], "all")
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_update_feature_flag_evaluation_environment(self, mock_capture):
@@ -512,7 +512,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
-        self.assertEqual(response.json()["evaluation_environment"], "both")
+        self.assertEqual(response.json()["evaluation_environment"], "all")
 
         # Update to "server"
         response = self.client.patch(

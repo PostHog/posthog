@@ -192,7 +192,7 @@ mod tests {
         assert!(flag.filters.payloads.is_some());
         assert!(!flag.deleted);
         assert!(flag.active);
-        assert_eq!(flag.evaluation_environment, Some("both".to_string()));
+        assert_eq!(flag.evaluation_environment, Some("all".to_string()));
         assert!(!flag.ensure_experience_continuity.unwrap_or(false));
     }
 
@@ -226,7 +226,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("both".to_string()),
+            evaluation_environment: Some("all".to_string()),
         };
 
         let deps = flag_no_deps.extract_dependencies().unwrap();
@@ -261,7 +261,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("both".to_string()),
+            evaluation_environment: Some("all".to_string()),
         };
 
         let deps = flag_with_dep.extract_dependencies().unwrap();
@@ -310,7 +310,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("both".to_string()),
+            evaluation_environment: Some("all".to_string()),
         };
 
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
@@ -355,7 +355,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("both".to_string()),
+            evaluation_environment: Some("all".to_string()),
         };
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
@@ -467,7 +467,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -567,7 +567,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -701,7 +701,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -799,7 +799,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -886,7 +886,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -905,7 +905,7 @@ mod tests {
                 active: false,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -1001,7 +1001,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("both".to_string()),
+                evaluation_environment: Some("all".to_string()),
             }),
         )
         .await
@@ -1082,7 +1082,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 }),
             )
             .await
@@ -1174,7 +1174,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 }),
             )
             .await
@@ -1260,7 +1260,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 }),
             )
             .await
@@ -1378,7 +1378,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 }),
             )
             .await

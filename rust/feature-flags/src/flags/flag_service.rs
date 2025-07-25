@@ -315,7 +315,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 },
                 FeatureFlag {
                     id: 2,
@@ -334,7 +334,7 @@ mod tests {
                     active: false,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 },
                 FeatureFlag {
                     id: 3,
@@ -364,7 +364,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("both".to_string()),
+                    evaluation_environment: Some("all".to_string()),
                 },
             ],
         };

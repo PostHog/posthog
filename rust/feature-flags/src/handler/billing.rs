@@ -118,7 +118,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: Some(1),
-            evaluation_environment: Some("both".to_string()),
+            evaluation_environment: Some("all".to_string()),
         }
     }
 

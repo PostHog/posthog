@@ -148,7 +148,7 @@ export function SurveyAppearanceModal({
     const { setIsAppearanceModalOpen } = useActions(surveysLogic)
     const { surveysStylingAvailable, isAppearanceModalOpen } = useValues(surveysLogic)
 
-    if (survey.type === SurveyType.API) {
+    if (survey.type === SurveyType.API || survey.type === SurveyType.ExternalSurvey) {
         return null
     }
 
