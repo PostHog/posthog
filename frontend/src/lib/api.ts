@@ -1312,6 +1312,14 @@ export class ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
 
+    public messagingCategories(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_categories')
+    }
+
+    public messagingCategory(categoryId: string): ApiRequest {
+        return this.messagingCategories().addPathComponent(categoryId)
+    }
+
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
         return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
     }
@@ -3510,6 +3518,26 @@ const api = {
             data: Partial<MessageTemplate>
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
+        },
+
+        // Messaging Categories
+        async getCategories(params?: { category_type?: string }): Promise<PaginatedResponse<any>> {
+            return await new ApiRequest()
+                .messagingCategories()
+                .withQueryString(toParams(params || {}))
+                .get()
+        },
+        async getCategory(categoryId: string): Promise<any> {
+            return await new ApiRequest().messagingCategory(categoryId).get()
+        },
+        async createCategory(data: any): Promise<any> {
+            return await new ApiRequest().messagingCategories().create({ data })
+        },
+        async updateCategory(categoryId: string, data: any): Promise<any> {
+            return await new ApiRequest().messagingCategory(categoryId).update({ data })
+        },
+        async deleteCategory(categoryId: string): Promise<void> {
+            return await new ApiRequest().messagingCategory(categoryId).delete()
         },
     },
     oauthApplication: {

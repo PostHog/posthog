@@ -70,7 +70,7 @@ importers:
         version: 4.6.0(stylelint@15.11.0(typescript@5.2.2))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@5.2.2))
       stylelint-order:
         specifier: ^6.0.4
         version: 6.0.4(stylelint@15.11.0(typescript@5.2.2))
@@ -1205,7 +1205,7 @@ importers:
         version: 4.3.0(stylelint@15.11.0(typescript@5.2.2))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@5.2.2))
+        version: 11.1.0(postcss@8.5.6)(stylelint@15.11.0(typescript@5.2.2))
       stylelint-order:
         specifier: ^6.0.3
         version: 6.0.3(stylelint@15.11.0(typescript@5.2.2))
