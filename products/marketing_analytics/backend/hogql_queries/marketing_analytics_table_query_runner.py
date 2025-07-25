@@ -351,8 +351,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             self.team.marketing_analytics_config.conversion_goals, self.team.pk
         )
 
-        if self.query.dynamicConversionGoal:
-            conversion_goals = [self.query.dynamicConversionGoal, *conversion_goals]
+        if self.query.draftConversionGoal:
+            conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
 
         return conversion_goals
 

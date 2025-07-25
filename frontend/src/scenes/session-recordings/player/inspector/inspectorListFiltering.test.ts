@@ -6,6 +6,7 @@ import {
     InspectorListItemComment,
     InspectorListItemDoctor,
     InspectorListItemEvent,
+    InspectorListItemNotebookComment,
     InspectorListOfflineStatusChange,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
@@ -93,10 +94,10 @@ describe('filtering inspector list items', () => {
                 {
                     type: 'comment',
                     source: 'notebook',
-                } as InspectorListItemComment,
+                } as InspectorListItemNotebookComment,
                 {
                     type: 'comment',
-                    source: 'annotation',
+                    source: 'comment',
                 } as InspectorListItemComment,
             ],
             miniFiltersByKey: { comment: { enabled } as unknown as SharedListMiniFilter },

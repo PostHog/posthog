@@ -39,7 +39,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
     path(['scenes', 'marketingAnalytics', 'marketingAnalyticsTableLogic']),
     connect(() => ({
         values: [marketingAnalyticsLogic, ['conversion_goals']],
-        actions: [marketingAnalyticsLogic, ['setDynamicConversionGoal']],
+        actions: [marketingAnalyticsLogic, ['setDraftConversionGoal']],
     })),
     actions({
         setQuery: (query: DataTableNode) => ({ query }),
@@ -70,7 +70,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         ],
     }),
     listeners(({ actions, values }) => ({
-        setDynamicConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
+        setDraftConversionGoal: ({ goal }: { goal: ConversionGoalFilter | null }) => {
             if (!goal) {
                 const typedQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
                 if (typedQuery?.orderBy && !values.defaultColumns.includes(typedQuery?.orderBy[0][0])) {

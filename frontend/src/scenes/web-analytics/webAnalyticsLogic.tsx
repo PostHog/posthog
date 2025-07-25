@@ -443,7 +443,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
+            [
+                'loading',
+                'createMarketingDataWarehouseNodes',
+                'draftConversionGoal',
+                'compareFilter as marketingCompareFilter',
+                'dateFilter as marketingDateFilter',
+            ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
         ],
@@ -965,6 +971,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
+        marketingContext: [
+            (s) => [s.createMarketingDataWarehouseNodes, s.marketingCompareFilter, s.marketingDateFilter],
+            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter) => ({
+                createMarketingDataWarehouseNodes,
+                marketingCompareFilter,
+                marketingDateFilter,
+            }),
+        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -977,7 +991,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
                 () => values.campaignCostsBreakdown,
-                s.createMarketingDataWarehouseNodes,
+                s.marketingContext,
             ],
             (
                 productTab,
@@ -999,8 +1013,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tileVisualizations,
                 preAggregatedEnabled,
                 campaignCostsBreakdown,
-                createMarketingDataWarehouseNodes
+                marketingContext
             ): WebAnalyticsTile[] => {
+                const { createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter } =
+                    marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1135,7 +1151,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ].filter(isNotNil)
 
                     // Check if this tile has a visualization preference
-                    const visualization = tileVisualizations[tileId]
+                    const visualization =
+                        tileVisualizations[tileId as unknown as keyof typeof tileVisualizations] || undefined
 
                     const baseTabProps = {
                         id: tabId,
@@ -1311,6 +1328,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
+                                    compareFilter: marketingCompareFilter,
                                     series:
                                         createMarketingDataWarehouseNodes.length > 0
                                             ? createMarketingDataWarehouseNodes
@@ -1323,8 +1341,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                       math: BaseMathType.TotalCount,
                                                   },
                                               ],
-                                    interval: 'week',
-                                    dateRange: dateRange,
+                                    interval: marketingDateFilter.interval,
+                                    dateRange: {
+                                        date_from: marketingDateFilter.dateFrom,
+                                        date_to: marketingDateFilter.dateTo,
+                                    },
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsAreaGraph,
                                         aggregationAxisFormat: 'numeric',
@@ -1332,6 +1353,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                             },
+                            showIntervalSelect: true,
                             insightProps: createInsightProps(TileId.MARKETING),
                             canOpenInsight: true,
                             canOpenModal: false,
@@ -2465,19 +2487,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (s) => [
                 s.loading,
                 s.query,
-                s.dateFilter,
+                s.marketingDateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
-                s.dynamicConversionGoal,
+                s.draftConversionGoal,
                 s.defaultColumns,
             ],
             (
                 loading: boolean,
                 query: DataTableNode,
-                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
-                dynamicConversionGoal: ConversionGoalFilter | null,
+                draftConversionGoal: ConversionGoalFilter | null,
                 defaultColumns: string[]
             ): DataTableNode | null => {
                 if (loading) {
@@ -2485,19 +2507,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const typedQuery = query?.source as MarketingAnalyticsTableQuery | undefined
-                const select = injectDynamicConversionGoal(typedQuery?.select || defaultColumns, dynamicConversionGoal)
+                const select = injectDynamicConversionGoal(typedQuery?.select || defaultColumns, draftConversionGoal)
                 const orderBy = getOrderBy(typedQuery, select)
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.MarketingAnalyticsTableQuery,
                         dateRange: {
-                            date_from: dateFilter.dateFrom,
-                            date_to: dateFilter.dateTo,
+                            date_from: marketingDateFilter.dateFrom,
+                            date_to: marketingDateFilter.dateTo,
                         },
                         properties: webAnalyticsFilters || [],
-                        filterTestAccounts,
-                        dynamicConversionGoal,
+                        filterTestAccounts: filterTestAccounts,
+                        draftConversionGoal: draftConversionGoal,
                         limit: 200,
                         orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,

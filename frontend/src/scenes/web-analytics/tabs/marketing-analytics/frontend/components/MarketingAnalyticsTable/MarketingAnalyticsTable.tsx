@@ -3,7 +3,7 @@ import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
+import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -25,7 +25,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <DynamicConversionGoalControls />
+                <DraftConversionGoalControls />
             </div>
             <div className="relative marketing-analytics-table-container">
                 <Query
