@@ -16,7 +16,10 @@ interface UseColumnWidthsProps {
  * @param dataSource - The data source of the table.
  * @returns The width of the columns and the table reference.
  */
-export function useColumnWidths({ columnKeys, columns, dataSource }: UseColumnWidthsProps) {
+export function useColumnWidths({ columnKeys, columns, dataSource }: UseColumnWidthsProps): {
+    columnWidths: number[]
+    tableRef: React.RefObject<HTMLTableElement>
+} {
     const [columnWidths, setColumnWidths] = useState<number[]>([])
     const tableRef = useRef<HTMLTableElement>(null)
 
