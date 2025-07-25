@@ -263,7 +263,7 @@ export function EnvironmentSwitcherOverlay({
                 >
                     <span className="truncate">{currentProject?.name ?? 'Project'}</span>
                     <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                        {currentTeam.name}
+                        <span className="truncate max-w-[100px]">{currentTeam.name}</span>
                     </LemonTag>
                     <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>
