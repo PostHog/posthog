@@ -1,14 +1,15 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
 use integration_utils::{
-    base64_payload, execute_test, form_lz64_urlencoded_payload, form_urlencoded_payload,
-    gzipped_payload, plain_json_payload, TestCase, BATCH_EVENTS_JSON, DEFAULT_TEST_TIME,
-    SINGLE_EVENT_JSON,
+    base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
+    form_urlencoded_payload, gzipped_payload, plain_json_payload, TestCase, BATCH_EVENTS_JSON,
+    DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
+#[allow(warnings)]
 fn test_cases() -> Vec<Box<TestCase>> {
     let units = vec![
         // single event payload tests
@@ -138,7 +139,32 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // type of pre-processing and formatting to apply to payload
             Box::new(gzipped_payload),
         ),
-        // single event JSON payload submitted as POST form
+        // single event JSON payload submitted as POST form w/base64'd "data" attribute value
+        TestCase::new(
+            // test case title
+            "batch_post-form-data-base64-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/batch",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_data_base64_payload),
+        ),
+        // single event JSON payload submitted as POST form - NOT SUPPORTED by new capture atm
         TestCase::new(
             // test case title
             "batch_post-form-urlencoded-event-payload",
@@ -159,7 +185,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // request Content-Type
             "application/x-www-form-urlencoded",
             // determine how to eval the response - do we expect to succeed or fail this call?
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             // type of pre-processing and formatting to apply to payload
             Box::new(form_urlencoded_payload),
         ),
@@ -316,7 +342,32 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // type of pre-processing and formatting to apply to payload
             Box::new(gzipped_payload),
         ),
-        // single event JSON payload submitted as POST form
+        // batched events JSON payload submitted as POST form w/base64'd "data" attribute value
+        TestCase::new(
+            // test case title
+            "batch_post-form-data-base64-batch-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Events,
+            // capture-rs target endpoint
+            "/batch",
+            // JSON payload to use as input
+            SINGLE_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(form_data_base64_payload),
+        ),
+        // single event JSON payload submitted as POST form - NOT SUPPORTED by new capture atm
         TestCase::new(
             // test case title
             "batch_post-form-urlencoded-batch-payload",
@@ -337,7 +388,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // request Content-Type
             "application/x-www-form-urlencoded",
             // determine how to eval the response - do we expect to succeed or fail this call?
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             // type of pre-processing and formatting to apply to payload
             Box::new(form_urlencoded_payload),
         ),

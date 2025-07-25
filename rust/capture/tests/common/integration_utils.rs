@@ -150,6 +150,18 @@ pub fn form_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
         .into()
 }
 
+pub fn form_data_base64_payload(unit: &TestCase) -> Vec<u8> {
+    let raw_payload = load_request_payload(unit);
+    let err_msg = format!(
+        "failed to serialize payload to urlencoded form in case: {}",
+        unit.title
+    );
+    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
+    serde_urlencoded::to_string([("data", base64_payload.as_ref()), ("ver", "1.2.3")])
+        .expect(&err_msg)
+        .into()
+}
+
 pub fn form_lz64_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
     let raw_payload = load_request_payload(unit);
     let lz64_payload = lz64_compress(unit.title, raw_payload);
@@ -206,7 +218,10 @@ pub async fn execute_test(unit: Box<TestCase>) {
 
     match unit.expected_status {
         StatusCode::OK => validate_response_success(unit.title, resp).await,
-        _ => expect_response_fail(unit.title, resp).await,
+        _ => {
+            expect_response_fail(unit.title, resp).await;
+            return; // no need to check the payload if the request failed!
+        }
     };
 
     let got = sink.events();
@@ -267,7 +282,8 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     assert_eq!(
         expected_event_count,
         got_events.len(),
-        "event count: expected {}, got {}",
+        "mismatched event count in {}: expected {}, got {}",
+        title,
         expected_event_count,
         got_events.len(),
     );

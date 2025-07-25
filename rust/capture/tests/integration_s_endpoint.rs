@@ -1,13 +1,15 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
 use integration_utils::{
-    base64_payload, execute_test, form_lz64_urlencoded_payload, form_urlencoded_payload,
-    gzipped_payload, plain_json_payload, TestCase, DEFAULT_TEST_TIME, SINGLE_REPLAY_EVENT_JSON,
+    base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
+    form_urlencoded_payload, gzipped_payload, plain_json_payload, TestCase, DEFAULT_TEST_TIME,
+    SINGLE_REPLAY_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
+#[allow(warnings)]
 fn test_cases() -> Vec<Box<TestCase>> {
     let units = vec![
         // single event payload tests
@@ -19,7 +21,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input
@@ -44,7 +46,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input
@@ -69,7 +71,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input
@@ -94,7 +96,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input
@@ -119,7 +121,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input
@@ -137,14 +139,13 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // type of pre-processing and formatting to apply to payload
             Box::new(gzipped_payload),
         ),
-        // single event JSON payload submitted as POST form
         TestCase::new(
             // test case title
-            "s_post-form-urlencoded-event-payload",
+            "s_post-form-data-base64-event-payload",
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input
@@ -160,6 +161,31 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // determine how to eval the response - do we expect to succeed or fail this call?
             StatusCode::OK,
             // type of pre-processing and formatting to apply to payload
+            Box::new(form_data_base64_payload),
+        ),
+        // single event JSON payload submitted as POST form
+        TestCase::new(
+            // test case title
+            "s_post-form-urlencoded-event-payload",
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Recordings,
+            // capture-rs target endpoint
+            "/s",
+            // JSON payload to use as input
+            SINGLE_REPLAY_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::POST,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/x-www-form-urlencoded",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::BAD_REQUEST,
+            // type of pre-processing and formatting to apply to payload
             Box::new(form_urlencoded_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
@@ -170,7 +196,7 @@ fn test_cases() -> Vec<Box<TestCase>> {
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
-            CaptureMode::Events,
+            CaptureMode::Recordings,
             // capture-rs target endpoint
             "/s",
             // JSON payload to use as input

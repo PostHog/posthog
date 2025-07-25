@@ -8,6 +8,7 @@ use integration_utils::{
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
+#[allow(warnings)]
 fn test_cases() -> Vec<Box<TestCase>> {
     let units = vec![
         // single event payload tests
