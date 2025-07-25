@@ -1829,14 +1829,14 @@ describe('processEvent', () => {
             group_key: 'org::5',
             group_properties: JSON.stringify({ foo: 'bar' }),
             group_type_index: 0,
-            team_id: team.id,
+            team_id: team.id.toString(),
             created_at: expect.any(String),
         })
 
         const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
         expect(group).toEqual({
             id: expect.any(Number),
-            team_id: team.id,
+            team_id: team.id.toString(),
             group_type_index: 0,
             group_key: 'org::5',
             group_properties: { foo: 'bar' },
@@ -1909,14 +1909,14 @@ describe('processEvent', () => {
             group_key: 'org::5',
             group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
             group_type_index: 0,
-            team_id: team.id,
+            team_id: team.id.toString(),
             created_at: expect.any(String),
         })
 
         const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
         expect(group).toEqual({
             id: expect.any(Number),
-            team_id: team.id,
+            team_id: team.id.toString(),
             group_type_index: 0,
             group_key: 'org::5',
             group_properties: { a: 3, b: 2, foo: 'bar' },
