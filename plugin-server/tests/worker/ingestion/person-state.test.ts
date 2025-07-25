@@ -85,8 +85,8 @@ describe('PersonState.processEvent()', () => {
 
     beforeAll(async () => {
         hub = await createHub({})
-        await clickhouse.exec('SYSTEM STOP MERGES')
         clickhouse = Clickhouse.create()
+        await clickhouse.exec('SYSTEM STOP MERGES')
         await clickhouse.resetTestDatabase()
         organizationId = await createOrganization(hub.db.postgres)
     })

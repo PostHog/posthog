@@ -424,8 +424,9 @@ describe('DB', () => {
         })
 
         describe('clickhouse behavior', () => {
-            const clickhouse = Clickhouse.create()
+            let clickhouse: Clickhouse
             beforeEach(async () => {
+                clickhouse = Clickhouse.create()
                 await clickhouse.resetTestDatabase()
                 // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
                 await clickhouse.exec('SYSTEM STOP MERGES')
