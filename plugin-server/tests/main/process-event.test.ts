@@ -1456,7 +1456,7 @@ describe('when handling $identify', () => {
         const createPersonMock = jest.fn(async (...args) => {
             // We need to slice off the txn arg, or else we conflict with the `identify` below.
             // @ts-expect-error because TS is crazy, this is valid
-            const result = await originalCreatePerson(...args.slice(0, -1))
+            const result = await originalCreatePerson(...args)
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call
