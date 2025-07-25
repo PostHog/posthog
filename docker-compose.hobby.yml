@@ -283,13 +283,6 @@ services:
             - db
             - redis
 
-    cassandra:
-        extends:
-            file: docker-compose.base.yml
-            service: cassandra
-        volumes:
-            - cassandra-data:/var/lib/cassandra
-
 volumes:
     zookeeper-data:
     zookeeper-datalog:
@@ -302,4 +295,3 @@ volumes:
     redis-data:
     redis7-data:
     kafka-data:
-    cassandra-data:
