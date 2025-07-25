@@ -56,29 +56,6 @@ export async function createPerson(
 
 type EventsByPerson = [string[], string[]]
 
-export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
-    // Helper function to retrieve events paired with their associated distinct
-    // ids
-    const persons = await hub.db.fetchPersons()
-    const events = await clickhouse.fetchEvents()
-
-    return await Promise.all(
-        persons
-            .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
-            .map(async (person) => {
-                const distinctIds = await hub.db.fetchDistinctIdValues(person)
-
-                return [
-                    distinctIds,
-                    (events as ClickHouseEvent[])
-                        .filter((event) => distinctIds.includes(event.distinct_id))
-                        .sort((e1, e2) => e1.timestamp.diff(e2.timestamp).toMillis())
-                        .map((event) => event.event),
-                ] as EventsByPerson
-            })
-    )
-}
-
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Info,
 }
@@ -136,6 +113,29 @@ describe('processEvent', () => {
         await hub.redisPool.release(redis)
         await closeHub(hub)
     })
+
+    const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
+        // Helper function to retrieve events paired with their associated distinct
+        // ids
+        const persons = await hub.db.fetchPersons()
+        const events = await clickhouse.fetchEvents()
+
+        return await Promise.all(
+            persons
+                .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
+                .map(async (person) => {
+                    const distinctIds = await hub.db.fetchDistinctIdValues(person)
+
+                    return [
+                        distinctIds,
+                        (events as ClickHouseEvent[])
+                            .filter((event) => distinctIds.includes(event.distinct_id))
+                            .sort((e1, e2) => e1.timestamp.diff(e2.timestamp).toMillis())
+                            .map((event) => event.event),
+                    ] as EventsByPerson
+                })
+        )
+    }
 
     async function processEvent(
         distinctId: string,
