@@ -65,7 +65,8 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                 ...currentLocation.searchParams,
             }
             const searchTerm = values.query.source.search
-            if (searchTerm == null) {
+
+            if (searchTerm != null) {
                 searchParams['search'] = searchTerm
             }
             if (values.query.source.properties != null) {
@@ -80,6 +81,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                 currentLocation.hashParams,
                 { replace: false },
             ]
+
             return newUrl
         }
 
