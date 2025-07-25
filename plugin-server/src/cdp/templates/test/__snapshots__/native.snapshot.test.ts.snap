@@ -93,7 +93,6 @@ exports[`Testing snapshots for native-webhook destination: all fields 1`] = `
       "inputs_schema": [
         {
           "description": "Endpoint URL to send event data to.",
-          "format": "uri",
           "key": "url",
           "label": "Webhook URL",
           "required": true,
@@ -384,7 +383,6 @@ exports[`Testing snapshots for native-webhook destination: required fields 1`] =
       "inputs_schema": [
         {
           "description": "Endpoint URL to send event data to.",
-          "format": "uri",
           "key": "url",
           "label": "Webhook URL",
           "required": true,

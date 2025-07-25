@@ -309,7 +309,6 @@ export type HogFunctionInputSchemaType = {
     integration_field?: string
     requiredScopes?: string
     templating?: boolean
-    format?: 'date' | 'date-time' | 'email' | 'hostname' | 'ipv4' | 'ipv6' | 'time' | 'uri' | 'uuid'
 }
 
 export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'

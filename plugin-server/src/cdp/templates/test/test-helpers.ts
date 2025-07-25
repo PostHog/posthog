@@ -418,6 +418,19 @@ export const generateTestData = (
             return choice.value
         }
 
+        const getFormat = (input: HogFunctionInputSchemaType): string => {
+            if (input.key === 'url') {
+                return 'uri'
+            } else if (input.key === 'email') {
+                return 'email'
+            } else if (input.key === 'uuid') {
+                return 'uuid'
+            } else if (input.key === 'phone') {
+                return 'phone'
+            }
+            return 'string'
+        }
+
         let val: any
         switch (input.type) {
             case 'boolean':
@@ -428,7 +441,7 @@ export const generateTestData = (
                 break
             default:
                 // covers string
-                switch (input.format) {
+                switch (getFormat(input)) {
                     case 'date': {
                         const d = chance.date()
                         val = [d.getFullYear(), d.getMonth() + 1, d.getDate()]
@@ -463,6 +476,9 @@ export const generateTestData = (
                         break
                     case 'uuid':
                         val = chance.guid()
+                        break
+                    case 'phone':
+                        val = chance.phone()
                         break
                     default:
                         val = chance.string()

@@ -28,7 +28,6 @@ export const template: NativeTemplate = {
             secret: false,
             required: true,
             description: 'Endpoint URL to send event data to.',
-            format: 'uri',
         },
         {
             key: 'method',
