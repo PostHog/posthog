@@ -43,7 +43,6 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
     ~100 sources still use this method for auth. We recommend using
     `GoogleAdsSourceConfig` instead"""
 
-    resource_name: str
     customer_id: str = config.value(converter=_clean_customer_id)
 
     private_key: str = config.value(

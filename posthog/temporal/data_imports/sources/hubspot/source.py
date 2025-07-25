@@ -94,7 +94,7 @@ class HubspotSource(BaseSource[HubspotSourceConfig | HubspotSourceOldConfig], OA
             hubspot(
                 api_key=hubspot_access_code,
                 refresh_token=refresh_token,
-                endpoints=tuple(inputs.schema_name),
+                endpoints=[inputs.schema_name],
                 logger=inputs.logger,
             )
         )

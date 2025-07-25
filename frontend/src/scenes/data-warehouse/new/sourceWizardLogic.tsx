@@ -34,7 +34,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
-    name: 'ssh-tunnel',
+    name: 'ssh_tunnel',
     label: 'Use SSH tunnel?',
     type: 'switch-group',
     default: false,
@@ -55,7 +55,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
         },
         {
             type: 'select',
-            name: 'type',
+            name: 'auth',
             label: 'Authentication type',
             required: true,
             defaultValue: 'password',
