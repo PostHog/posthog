@@ -198,7 +198,6 @@ export class Clickhouse {
                 snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
-        return events
     }
 
     // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
