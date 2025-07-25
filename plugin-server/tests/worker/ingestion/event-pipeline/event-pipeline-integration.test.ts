@@ -17,7 +17,7 @@ import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipe
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
+import { Clickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
@@ -46,6 +46,7 @@ const team: Team = {
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
+    let clickhouse: Clickhouse
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let hookCannon: HookCommander
@@ -68,7 +69,8 @@ describe('Event Pipeline integration test', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        clickhouse = Clickhouse.create()
+        await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
 
