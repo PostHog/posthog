@@ -31,7 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
@@ -238,6 +238,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
+
+        survey_white_label = value.get("whiteLabel")
+        if survey_white_label is not None and not isinstance(survey_white_label, bool):
+            raise serializers.ValidationError("whiteLabel must be a boolean")
+
+        # Check if the organization has the white labelling feature available
+        use_survey_white_labelling = self.context["request"].user.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        )
+
+        if survey_white_label and not use_survey_white_labelling:
+            raise serializers.ValidationError("You need to upgrade to PostHog Enterprise to use white labelling")
 
         return value
 
