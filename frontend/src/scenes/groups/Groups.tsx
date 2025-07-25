@@ -15,15 +15,14 @@ import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
 import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
+import { groupViewLogic } from './groupViewLogic'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
-    const { query, queryWasModified, saveFiltersModalOpen, filterShortcutName } = useValues(
-        groupsListLogic({ groupTypeIndex })
-    )
-    const { setQuery, setSaveFiltersModalOpen, setFilterShortcutName, saveFilterAsShortcut } = useActions(
-        groupsListLogic({ groupTypeIndex })
-    )
+    const { query, queryWasModified } = useValues(groupsListLogic({ groupTypeIndex }))
+    const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
+    const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
+    const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
     const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
@@ -83,16 +82,16 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
 
             {hasCrmIterationOneEnabled && (
                 <LemonModal
-                    isOpen={saveFiltersModalOpen}
-                    onClose={() => setSaveFiltersModalOpen(false)}
+                    isOpen={saveGroupViewModalOpen}
+                    onClose={() => setSaveGroupViewModalOpen(false)}
                     title="Save filtered groups view"
                     footer={
                         <>
-                            <LemonButton onClick={() => setSaveFiltersModalOpen(false)}>Cancel</LemonButton>
+                            <LemonButton onClick={() => setSaveGroupViewModalOpen(false)}>Cancel</LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={() => saveFilterAsShortcut(window.location.href)}
-                                disabledReason={!filterShortcutName.trim() ? 'Name is required' : undefined}
+                                onClick={() => saveGroupView(window.location.href, groupTypeIndex)}
+                                disabledReason={!groupViewName.trim() ? 'Name is required' : undefined}
                             >
                                 Save
                             </LemonButton>
@@ -102,9 +101,9 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     <div className="space-y-4">
                         <p>Save this filtered view as a shortcut in the People panel.</p>
                         <LemonInput
-                            placeholder="Enter shortcut name"
-                            value={filterShortcutName}
-                            onChange={setFilterShortcutName}
+                            placeholder="Enter view name"
+                            value={groupViewName}
+                            onChange={setGroupViewName}
                             autoFocus
                         />
                     </div>

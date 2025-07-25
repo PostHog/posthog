@@ -579,7 +579,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           visualOrder: 30 + groupType.group_type_index,
                       }))
 
-                // Add saved group filter shortcuts - these are created when users save filtered views
+                // these are created when users save filtered views
                 // from the groups page and should appear in the persons:// tree under "Saved Views"
                 const groupFilterShortcuts = featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
                     ? shortcutData
@@ -612,6 +612,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
+                        // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
                         (shortcut) => !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut))
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({

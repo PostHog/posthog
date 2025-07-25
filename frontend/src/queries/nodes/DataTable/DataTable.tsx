@@ -72,6 +72,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -136,7 +137,7 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
-    const { setSaveFiltersModalOpen } = useActions(builtDataNodeLogic)
+    const { setSaveGroupViewModalOpen } = useActions(groupViewLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
@@ -510,7 +511,7 @@ export function DataTable({
                     <LemonButton
                         data-attr="save-group-filters"
                         type="primary"
-                        onClick={() => setSaveFiltersModalOpen(true)}
+                        onClick={() => setSaveGroupViewModalOpen(true)}
                     >
                         Save filters
                     </LemonButton>

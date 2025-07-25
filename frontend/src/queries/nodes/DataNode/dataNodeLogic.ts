@@ -66,11 +66,10 @@ import {
     isPersonsNode,
     isTracesQuery,
 } from '~/queries/utils'
-import { GroupTypeIndex, TeamType } from '~/types'
+import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { groupsListLogic } from 'scenes/groups/groupsListLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -161,10 +160,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 'collectionNodeLoadDataSuccess',
                 'collectionNodeLoadDataFailure',
             ],
-            groupsListLogic({
-                groupTypeIndex: isGroupsQuery(props.query) ? (props.query?.group_type_index as GroupTypeIndex) : 0,
-            }),
-            ['setSaveFiltersModalOpen'],
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),

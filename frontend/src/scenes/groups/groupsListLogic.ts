@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -12,8 +11,6 @@ import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 import posthog from 'posthog-js'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex
@@ -29,7 +26,7 @@ const persistConfig = (groupTypeIndex: GroupTypeIndex): { persist: boolean; pref
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
     key((props: GroupsListLogicProps) => props.groupTypeIndex),
-    path(['groups', 'groupsListLogic']),
+    path(['scenes', 'groups', 'groupsListLogic']),
     connect(() => ({
         values: [
             teamLogic,
@@ -39,15 +36,11 @@ export const groupsListLogic = kea<groupsListLogicType>([
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
-        actions: [projectTreeDataLogic, ['addShortcutItem'], eventUsageLogic, ['reportGroupFilterShortcutSaved']],
     })),
     actions(() => ({
         setQuery: (query: DataTableNode) => ({ query }),
         setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
         setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
-        setSaveFiltersModalOpen: (isOpen: boolean) => ({ isOpen }),
-        setFilterShortcutName: (name: string) => ({ name }),
-        saveFilterAsShortcut: (href: string) => ({ href }),
     })),
     reducers(({ props }) => ({
         query: [
@@ -96,50 +89,10 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
             },
         ],
-        saveFiltersModalOpen: [
-            false,
-            {
-                setSaveFiltersModalOpen: (_, { isOpen }) => isOpen,
-            },
-        ],
-        filterShortcutName: [
-            '',
-            {
-                setFilterShortcutName: (_, { name }) => name,
-                setSaveFiltersModalOpen: (state, { isOpen }) => {
-                    if (isOpen) {
-                        return state
-                    }
-                    return ''
-                },
-            },
-        ],
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions }) => ({
         setQuery: () => {
             actions.setQueryWasModified(true)
-        },
-        saveFilterAsShortcut: ({ href }) => {
-            if (!values.filterShortcutName.trim()) {
-                return
-            }
-            try {
-                const currentUrl = new URL(href)
-                actions.addShortcutItem({
-                    id: '',
-                    path: values.filterShortcutName,
-                    type: `group_${props.groupTypeIndex}_view`,
-                    href: currentUrl.pathname + currentUrl.search,
-                    ref: `groups/${props.groupTypeIndex}`,
-                    created_at: new Date().toISOString(),
-                })
-                actions.reportGroupFilterShortcutSaved(props.groupTypeIndex, values.filterShortcutName)
-                actions.setSaveFiltersModalOpen(false)
-                lemonToast.success('Filter view saved')
-            } catch (error) {
-                posthog.captureException(error)
-                lemonToast.error('Failed to save filter shortcut')
-            }
         },
     })),
     actionToUrl(({ values, props }) => ({

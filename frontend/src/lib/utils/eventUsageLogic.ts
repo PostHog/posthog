@@ -398,8 +398,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
-        // Group Filter Shortcuts
-        reportGroupFilterShortcutSaved: (groupTypeIndex: number, shortcutName: string) => ({
+        // Group view Shortcuts
+        reportGroupViewSaved: (groupTypeIndex: number, shortcutName: string) => ({
             groupTypeIndex,
             shortcutName,
         }),
@@ -1103,8 +1103,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 roles_length: rolesLength,
             })
         },
-        reportGroupFilterShortcutSaved: ({ groupTypeIndex, shortcutName }) => {
-            posthog.capture('group filter shortcut saved', {
+        reportGroupViewSaved: ({ groupTypeIndex, shortcutName }) => {
+            posthog.capture('group view saved', {
                 group_type_index: groupTypeIndex,
                 shortcut_name: shortcutName,
             })
