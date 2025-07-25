@@ -1281,8 +1281,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             }, {} as Record<string, CyclotronJobInputType>),
                         })),
                 ]
-            } else {
-                config.mappings = undefined
             }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
