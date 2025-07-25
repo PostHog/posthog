@@ -293,7 +293,7 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toBe(1)
-            expect(events[0].team_id).toBe(team.id)
+            expect(events[0].team_id).toBe(team.id.toString())
         })
     })
 
