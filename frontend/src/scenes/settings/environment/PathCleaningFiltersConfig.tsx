@@ -55,7 +55,6 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
 
     const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
-    const useDebuggerPanel = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
 
     const updateFilters = (filters: PathCleaningFilter[]): void => {
         updateCurrentTeam({ path_cleaning_filters: filters })
@@ -132,7 +131,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 </span>
             </div>
 
-            {useDebuggerPanel && (
+            {useTableUI && (
                 <PathCleaningRulesDebugger
                     testPath={testValue}
                     filters={currentTeam.path_cleaning_filters ?? []}
