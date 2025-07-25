@@ -59,7 +59,7 @@ export class Clickhouse {
     async resetTestDatabase(): Promise<void> {
         // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
         await Promise.all([
-            this.truncate('sharded_events'),
+            this.truncate('events'),
             this.truncate('person'),
             this.truncate('person_distinct_id'),
             this.truncate('person_distinct_id2'),
@@ -67,17 +67,9 @@ export class Clickhouse {
         ])
 
         await Promise.all([
-            this.truncate('person_static_cohort'),
-            this.truncate('sharded_session_recording_events'),
-            this.truncate('plugin_log_entries'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
-        ])
-
-        await Promise.all([
             this.truncate('ingestion_warnings'),
-            this.truncate('sharded_ingestion_warnings'),
-            this.truncate('sharded_app_metrics'),
         ])
     }
 
@@ -202,13 +194,6 @@ export class Clickhouse {
                 snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
-    }
-
-    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
-
-    public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        const queryResult = await this.query<PluginLogEntry>(`SELECT * FROM plugin_log_entries`)
-        return queryResult
     }
 
     public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
