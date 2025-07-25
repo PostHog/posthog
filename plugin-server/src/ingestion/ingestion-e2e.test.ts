@@ -1,11 +1,10 @@
-import ClickHouse from '@posthog/clickhouse'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
+import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
 import {
     Database,
@@ -257,15 +256,16 @@ const testWithTeamIngester = (
 }
 
 describe('Event Pipeline E2E tests', () => {
+    const clickhouse = Clickhouse.create()
     beforeAll(async () => {
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
     })
 
     afterAll(async () => {
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        await clickhouse.resetTestDatabase()
     })
 
     testWithTeamIngester('should handle $$client_ingestion_warning events', {}, async (ingester, hub, team) => {
@@ -1136,7 +1136,7 @@ describe('Event Pipeline E2E tests', () => {
     })
 
     const fetchPersons = async (hub: Hub, teamId: number) => {
-        const persons = await hub.db.fetchPersons(Database.ClickHouse, teamId)
+        const persons = await clickhouse.fetchPersons(teamId)
         return persons.map((person) => ({
             ...person,
             properties: parseJSON(person.properties),
@@ -1145,9 +1145,9 @@ describe('Event Pipeline E2E tests', () => {
 
     const fetchEvents = async (hub: Hub, teamId: number) => {
         // Force ClickHouse to merge parts to ensure FINAL consistency
-        await hub.db.clickhouse.querying(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
+        await clickhouse.query(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
 
-        const queryResult = (await hub.db.clickhouse.querying(`
+        const queryResult = (await clickhouse.query(`
             SELECT *,
                    if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
             FROM events e
@@ -1163,17 +1163,17 @@ describe('Event Pipeline E2E tests', () => {
             ) AS overrides USING distinct_id
             WHERE team_id = ${teamId}
             ORDER BY timestamp ASC
-        `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
-        return queryResult.data.map(parseRawClickHouseEvent)
+        `)) as unknown as RawClickHouseEvent[]
+        return queryResult.map(parseRawClickHouseEvent)
     }
 
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
-        const queryResult = (await hub.db.clickhouse.querying(`
+        const queryResult = (await clickhouse.query(`
             SELECT *
             FROM ingestion_warnings
             WHERE team_id = ${teamId}
-        `)) as unknown as ClickHouse.ObjectQueryResult<any>
-        return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
+        `)) as unknown as any[]
+        return queryResult.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
     }
 
     testWithTeamIngester('alias events ordering scenario 1: original order', {}, async (ingester, hub, team) => {

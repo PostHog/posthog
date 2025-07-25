@@ -18,7 +18,7 @@ import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { Clickhouse } from '../helpers/clickhouse'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/logger')
@@ -424,19 +424,20 @@ describe('DB', () => {
         })
 
         describe('clickhouse behavior', () => {
+            const clickhouse = Clickhouse.create()
             beforeEach(async () => {
-                await resetTestDatabaseClickhouse()
+                await clickhouse.resetTestDatabase()
                 // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
-                await db.clickhouseQuery('SYSTEM STOP MERGES')
+                await clickhouse.query('SYSTEM STOP MERGES')
             })
 
             afterEach(async () => {
-                await db.clickhouseQuery('SYSTEM START MERGES')
+                await clickhouse.query('SYSTEM START MERGES')
             })
 
             async function fetchPersonsRows(options: { final?: boolean } = {}) {
                 const query = `SELECT * FROM person ${options.final ? 'FINAL' : ''} WHERE id = '${uuid}'`
-                return (await db.clickhouseQuery(query)).data
+                return await clickhouse.query(query)
             }
 
             it('marks person as deleted in clickhouse', async () => {
@@ -454,7 +455,7 @@ describe('DB', () => {
                     []
                 )
                 await hub.db.kafkaProducer.queueMessages(kafkaMessagesPersonBefore)
-                await delayUntilEventIngested(fetchPersonsRows, 1)
+                await clickhouse.delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
                 const [_personUpdated, updatePersonKafkaMessages] = await db.updatePerson(personBefore, {
@@ -462,13 +463,13 @@ describe('DB', () => {
                 })
                 await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
                 await db.kafkaProducer.flush()
-                await delayUntilEventIngested(fetchPersonsRows, 2)
+                await clickhouse.delayUntilEventIngested(fetchPersonsRows, 2)
 
                 const kafkaMessages = await db.deletePerson(personBefore)
                 await hub.db.kafkaProducer.queueMessages(kafkaMessages)
                 await db.kafkaProducer.flush()
 
-                const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
+                const persons = await clickhouse.delayUntilEventIngested(fetchPersonsRows, 3)
 
                 expect(persons).toEqual(
                     expect.arrayContaining([

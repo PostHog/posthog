@@ -1,4 +1,3 @@
-import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -11,7 +10,6 @@ import {
     Action,
     ClickHouseEvent,
     ClickhouseGroup,
-    ClickHousePerson,
     ClickHousePersonDistinctId2,
     ClickHouseTimestamp,
     Cohort,
@@ -173,25 +171,6 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
-    }
-
-    // ClickHouse
-
-    public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
-        query: string,
-        options?: ClickHouse.QueryOptions
-    ): Promise<ClickHouse.ObjectQueryResult<R>> {
-        return instrumentQuery('query.clickhouse', undefined, async () => {
-            const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
-            try {
-                const queryResult = await this.clickhouse.querying(query, options)
-                // This is annoying to type, because the result depends on contructor and query options provided
-                // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
-                return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
-            } finally {
-                clearTimeout(timeout)
-            }
-        })
     }
 
     // Redis
@@ -467,42 +446,10 @@ export class DB {
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres, teamId?: number): Promise<InternalPerson[]>
-    public async fetchPersons(database: Database.ClickHouse, teamId?: number): Promise<ClickHousePerson[]>
-    public async fetchPersons(
-        database: Database = Database.Postgres,
-        teamId?: number
-    ): Promise<InternalPerson[] | ClickHousePerson[]> {
-        if (database === Database.ClickHouse) {
-            const query = `
-            SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
-            FROM (
-                SELECT id,
-                    team_id,
-                    max(is_identified) as is_identified,
-                    max(_timestamp) as ts,
-                    argMax(properties, _timestamp) as properties,
-                    argMin(created_at, _timestamp) as created_at,
-                    max(is_deleted) as is_del,
-                    argMax(_offset, _timestamp) as _offset
-                FROM person
-                FINAL
-                ${teamId ? `WHERE team_id = ${teamId}` : ''}
-                GROUP BY team_id, id
-                HAVING max(is_deleted)=0
-            )
-            `
-            return (await this.clickhouseQuery(query)).data.map((row) => {
-                const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
-                return rest
-            }) as ClickHousePerson[]
-        } else if (database === Database.Postgres) {
-            return await this.postgres
-                .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
-                .then(({ rows }) => rows.map(this.toPerson))
-        } else {
-            throw new Error(`Can't fetch persons for database: ${database}`)
-        }
+    public async fetchPersons(): Promise<InternalPerson[]> {
+        return await this.postgres
+            .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+            .then(({ rows }) => rows.map(this.toPerson))
     }
 
     // temporary: measure person record JSONB blob sizes
