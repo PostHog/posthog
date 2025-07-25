@@ -167,7 +167,6 @@ export class IngestionConsumer {
         this.kafkaConsumer = new KafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
-            waitForBackgroundTasksOnRebalance: this.hub.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE,
         })
     }
 
