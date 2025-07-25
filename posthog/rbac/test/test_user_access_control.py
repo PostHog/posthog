@@ -1003,10 +1003,8 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
         """Test organization-specific access controls"""
         uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
 
-        # Organization access is controlled via membership level only
-        # No specific access controls should be found
         access_level = uac.specific_access_level_for_object(self.organization)
-        assert access_level is None
+        assert access_level == "member"
 
     def test_feature_flag_specific_access_control(self):
         """Test feature flag-specific access controls"""
