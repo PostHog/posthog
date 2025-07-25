@@ -211,8 +211,11 @@ class QueryEventsExtractor:
     @staticmethod
     @cache_for(timedelta(minutes=1))
     def _get_action_events(action_id: int, project_id: int) -> list[str]:
-        action = Action.objects.get(pk=action_id, team__project_id=project_id)
-        return [event for event in action.get_step_events() if event is not None]
+        try:
+            action = Action.objects.get(pk=action_id, team__project_id=project_id)
+            return [event for event in action.get_step_events() if event is not None]
+        except Action.DoesNotExist:
+            return []
 
 
 def extract_query_metadata(
