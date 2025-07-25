@@ -26,7 +26,6 @@ describe('PersonsManager', () => {
         team2 = (await getTeam(hub, team2Id))!
 
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const uuid = new UUIDT().toString()
         const [person1] = await personRepository.createPerson(
             TIMESTAMP,
             { foo: '1' },
@@ -35,7 +34,7 @@ describe('PersonsManager', () => {
             team.id,
             null,
             true,
-            uuid,
+            new UUIDT().toString(),
             [{ distinctId: 'distinct_id_A_1' }, { distinctId: 'distinct_id_A_2' }, { distinctId: 'distinct_id_A_3' }]
         )
         const [person2] = await personRepository.createPerson(
@@ -46,7 +45,7 @@ describe('PersonsManager', () => {
             team.id,
             null,
             true,
-            uuid,
+            new UUIDT().toString(),
             [{ distinctId: 'distinct_id_B_1' }]
         )
         const [person3] = await personRepository.createPerson(
@@ -57,7 +56,7 @@ describe('PersonsManager', () => {
             team2.id,
             null,
             true,
-            uuid,
+            new UUIDT().toString(),
             [{ distinctId: 'distinct_id_A_1' }]
         )
 
