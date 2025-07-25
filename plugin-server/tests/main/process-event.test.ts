@@ -7,9 +7,9 @@ unit tests to appropriate classes/functions.
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
+import { createRedis } from '~/utils/db/redis'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
@@ -64,7 +64,6 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
 
@@ -93,7 +92,6 @@ describe('processEvent', () => {
         await clickhouse.resetTestDatabase()
 
         hub = await createHub({ ...TEST_CONFIG })
-        redis = await hub.redisPool.acquire()
 
         eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
@@ -102,15 +100,15 @@ describe('processEvent', () => {
         now = DateTime.utc()
 
         // clear the webhook redis cache
+        const redis = await createRedis(hub, 'ingestion')
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
-
+        await redis.quit()
         // Always start with an anonymous state
         state = { currentDistinctId: 'anonymous_id' }
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
         await closeHub(hub)
     })
 
