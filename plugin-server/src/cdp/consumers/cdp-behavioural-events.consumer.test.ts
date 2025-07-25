@@ -1,8 +1,9 @@
-import { Client as CassandraClient, types as CassandraTypes } from 'cassandra-driver'
+import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
+import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioural-counter.repository'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
@@ -11,6 +12,10 @@ import { BehavioralEvent, CdpBehaviouralEventsConsumer, counterEventsDropped } f
 class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
     public getCassandraClient(): CassandraClient | null {
         return this.cassandra
+    }
+
+    public getBehavioralCounterRepository(): BehavioralCounterRepository | null {
+        return this.behavioralCounterRepository
     }
 }
 
@@ -30,9 +35,10 @@ describe('CdpBehaviouralEventsConsumer', () => {
         }
 
         await cassandra.connect()
-        await cassandra.execute('TRUNCATE behavioral_event_counters')
+        const repository = processor.getBehavioralCounterRepository()!
+        await repository.truncateCounters()
 
-        return { hub, team, processor, cassandra }
+        return { hub, team, processor, cassandra, repository }
     }
 
     // Helper function to setup test environment with Cassandra disabled
@@ -61,6 +67,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         let hub: Hub
         let team: Team
         let cassandra: CassandraClient
+        let repository: BehavioralCounterRepository
 
         beforeEach(async () => {
             const setup = await setupWithCassandraEnabled()
@@ -68,6 +75,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             team = setup.team
             processor = setup.processor
             cassandra = setup.cassandra
+            repository = setup.repository
         })
 
         afterEach(async () => {
@@ -312,14 +320,15 @@ describe('CdpBehaviouralEventsConsumer', () => {
                     .substring(0, 16)
                 const today = new Date().toISOString().split('T')[0]
 
-                const cassandraResult = await cassandra.execute(
-                    'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                    [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
-                    { prepare: true }
-                )
+                const counter = await repository.getCounter({
+                    teamId: team.id,
+                    filterHash,
+                    personId,
+                    date: today,
+                })
 
-                expect(cassandraResult.rows).toHaveLength(1)
-                expect(cassandraResult.rows[0].count.toNumber()).toBe(1)
+                expect(counter).not.toBeNull()
+                expect(counter!.count).toBe(1)
             })
 
             it('should increment existing counter', async () => {
@@ -378,14 +387,15 @@ describe('CdpBehaviouralEventsConsumer', () => {
                     .substring(0, 16)
                 const today = new Date().toISOString().split('T')[0]
 
-                const cassandraResult = await cassandra.execute(
-                    'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                    [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
-                    { prepare: true }
-                )
+                const counter = await repository.getCounter({
+                    teamId: team.id,
+                    filterHash,
+                    personId,
+                    date: today,
+                })
 
-                expect(cassandraResult.rows).toHaveLength(1)
-                expect(cassandraResult.rows[0].count.toNumber()).toBe(2)
+                expect(counter).not.toBeNull()
+                expect(counter!.count).toBe(2)
             })
 
             it('should not write counter when event does not match', async () => {
@@ -444,13 +454,14 @@ describe('CdpBehaviouralEventsConsumer', () => {
                     .substring(0, 16)
                 const today = new Date().toISOString().split('T')[0]
 
-                const cassandraResult = await cassandra.execute(
-                    'SELECT count FROM behavioral_event_counters WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                    [team.id, filterHash, CassandraTypes.Uuid.fromString(personId), today],
-                    { prepare: true }
-                )
+                const counter = await repository.getCounter({
+                    teamId: team.id,
+                    filterHash,
+                    personId,
+                    date: today,
+                })
 
-                expect(cassandraResult.rows).toHaveLength(0)
+                expect(counter).toBeNull()
             })
 
             it('should drop events with missing person ID at parsing stage', async () => {
@@ -487,13 +498,9 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 expect(finalMissingPersonIdCount).toBe(initialMissingPersonIdCount + 1)
 
                 // Assert - no counter should be written to Cassandra since event was dropped
-                const cassandraResult = await cassandra.execute(
-                    'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
-                    [team.id],
-                    { prepare: true }
-                )
+                const counters = await repository.getCountersForTeam(team.id)
 
-                expect(cassandraResult.rows).toHaveLength(0)
+                expect(counters).toHaveLength(0)
             })
         })
     })
@@ -566,13 +573,10 @@ describe('CdpBehaviouralEventsConsumer', () => {
             await processor.processBatch([behavioralEvent])
 
             // Assert - no counter should be written to Cassandra despite matching
-            const cassandraResult = await testCassandra.execute(
-                'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
-                [team.id],
-                { prepare: true }
-            )
+            const testRepository = new BehavioralCounterRepository(testCassandra)
+            const counters = await testRepository.getCountersForTeam(team.id)
 
-            expect(cassandraResult.rows).toHaveLength(0)
+            expect(counters).toHaveLength(0)
         })
     })
 })

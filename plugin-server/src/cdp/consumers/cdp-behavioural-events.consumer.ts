@@ -1,4 +1,4 @@
-import { Client as CassandraClient, types as CassandraTypes } from 'cassandra-driver'
+import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
@@ -8,6 +8,7 @@ import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { Action } from '../../utils/action-manager-cdp'
+import { BehavioralCounterRepository, CounterUpdate } from '../../utils/db/cassandra/behavioural-counter.repository'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogFunctionFilterGlobals } from '../types'
@@ -43,17 +44,11 @@ export const counterEventsMatchedTotal = new Counter({
     help: 'Total number of events that matched at least one action filter',
 })
 
-type CounterUpdate = {
-    teamId: number
-    filterHash: string
-    personId: string
-    date: string
-}
-
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     protected kafkaConsumer: KafkaConsumer
     protected cassandra: CassandraClient | null
+    protected behavioralCounterRepository: BehavioralCounterRepository | null
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
@@ -70,8 +65,10 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                         ? { username: hub.CASSANDRA_USER, password: hub.CASSANDRA_PASSWORD }
                         : undefined,
             })
+            this.behavioralCounterRepository = new BehavioralCounterRepository(this.cassandra)
         } else {
             this.cassandra = null
+            this.behavioralCounterRepository = null
         }
     }
 
@@ -177,23 +174,13 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     private async writeBehavioralCounters(updates: CounterUpdate[]): Promise<void> {
-        if (!this.cassandra) {
-            logger.warn('Cassandra client not initialized, skipping counter writes')
+        if (!this.behavioralCounterRepository) {
+            logger.warn('Behavioral counter repository not initialized, skipping counter writes')
             return
         }
 
         try {
-            const batch = updates.map((update) => ({
-                query: 'UPDATE behavioral_event_counters SET count = count + 1 WHERE team_id = ? AND filter_hash = ? AND person_id = ? AND date = ?',
-                params: [
-                    update.teamId,
-                    update.filterHash,
-                    CassandraTypes.Uuid.fromString(update.personId),
-                    update.date,
-                ],
-            }))
-
-            await this.cassandra.batch(batch, { prepare: true, logged: false })
+            await this.behavioralCounterRepository.batchIncrementCounters(updates)
         } catch (error) {
             logger.error('Error batch writing behavioral counters', { error, updateCount: updates.length })
         }
