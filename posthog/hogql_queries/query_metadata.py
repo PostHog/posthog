@@ -31,6 +31,8 @@ from posthog.schema import (
     FunnelCorrelationQuery,
     EventsQuery,
     InsightQueryMetadata,
+    FunnelExclusionEventsNode,
+    FunnelExclusionActionsNode,
 )
 from posthog.utils import get_from_dict_or_attr
 from posthog.hogql_queries.query_runner import RunnableQueryNode
@@ -127,11 +129,16 @@ class QueryEventsExtractor:
 
     def _extract_events_from_funnels_query(self, query: FunnelsQuery) -> list[str]:
         series_events = [event for series in query.series for event in self._get_series_events(series)]
-        funnel_filter_events = (
-            [_.event for _ in query.funnelsFilter.exclusions]
-            if query.funnelsFilter and query.funnelsFilter.exclusions
-            else []
-        )
+
+        funnel_filter_events = []
+        if query.funnelsFilter and query.funnelsFilter.exclusions:
+            for exclusion in query.funnelsFilter.exclusions:
+                if isinstance(exclusion, FunnelExclusionEventsNode) and exclusion.event:
+                    funnel_filter_events.append(exclusion.event)
+                elif isinstance(exclusion, FunnelExclusionActionsNode) and exclusion.id:
+                    funnel_filter_events.extend(
+                        self._get_action_events(action_id=int(exclusion.id), project_id=self.team.project_id)
+                    )
 
         return list(set(series_events + funnel_filter_events))
 
