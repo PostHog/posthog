@@ -401,7 +401,6 @@ export const SURVEY_TYPE_LABEL_MAP = {
     [SurveyType.Widget]: 'Feedback Button',
     [SurveyType.Popover]: 'Popover',
     [SurveyType.FullScreen]: 'Full Screen',
-    [SurveyType.Email]: 'Email',
     [SurveyType.ExternalSurvey]: 'External Survey',
 }
 
