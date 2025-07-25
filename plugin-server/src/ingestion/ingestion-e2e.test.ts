@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { resetKafka } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
@@ -155,6 +156,7 @@ const testWithTeamIngesterBase = (
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
             ...pluginServerConfig,
         })
+
         const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
         const organizationId = new UUIDT().toString()
@@ -249,6 +251,7 @@ const testWithTeamIngester = (
 describe('Event Pipeline E2E tests', () => {
     const clickhouse = Clickhouse.create()
     beforeAll(async () => {
+        await resetKafka()
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
@@ -268,7 +271,6 @@ describe('Event Pipeline E2E tests', () => {
         ]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
-
         await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
@@ -276,7 +278,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(warnings).toEqual([
                 expect.objectContaining({
                     type: 'client_ingestion_warning',
-                    team_id: team.id,
+                    team_id: team.id.toString(),
                     details: expect.objectContaining({ message: 'test message' }),
                 }),
             ])
@@ -1159,12 +1161,13 @@ describe('Event Pipeline E2E tests', () => {
     }
 
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
-        const queryResult = (await clickhouse.query(`
+        const queryResult = await clickhouse.query(`
             SELECT *
             FROM ingestion_warnings
             WHERE team_id = ${teamId}
-        `)) as unknown as any[]
-        return queryResult.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
+        `)
+
+        return queryResult.map((warning: any) => ({ ...warning, details: parseJSON(warning.details) }))
     }
 
     testWithTeamIngester('alias events ordering scenario 1: original order', {}, async (ingester, hub, team) => {
