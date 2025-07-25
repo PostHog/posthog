@@ -2322,7 +2322,6 @@ export enum AnnotationScope {
     Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
-    Recording = 'recording',
 }
 
 export interface RawAnnotationType {
@@ -2341,9 +2340,6 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
-    recording_id?: string | null
-    // convenience flag that indicates the content _should_ be a single emoji
-    is_emoji?: boolean
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -3960,6 +3956,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         personUrl?: string
         /** Action/event filter defition */
         action?: ActionFilter | null
+        yAxisID?: string
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4149,21 +4146,24 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind =
-    | 'slack'
-    | 'salesforce'
-    | 'hubspot'
-    | 'google-pubsub'
-    | 'google-cloud-storage'
-    | 'google-ads'
-    | 'linkedin-ads'
-    | 'snapchat'
-    | 'intercom'
-    | 'email'
-    | 'twilio'
-    | 'linear'
-    | 'github'
-    | 'meta-ads'
+export const INTEGRATION_KINDS = [
+    'slack',
+    'salesforce',
+    'hubspot',
+    'google-pubsub',
+    'google-cloud-storage',
+    'google-ads',
+    'linkedin-ads',
+    'snapchat',
+    'intercom',
+    'email',
+    'twilio',
+    'linear',
+    'github',
+    'meta-ads',
+] as const
+
+export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 
 export interface IntegrationType {
     id: number
@@ -4183,6 +4183,12 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
     is_private_without_access?: boolean
+}
+
+export interface TwilioPhoneNumberType {
+    sid: string
+    phone_number: string
+    friendly_name: string
 }
 export interface LinearTeamType {
     id: string

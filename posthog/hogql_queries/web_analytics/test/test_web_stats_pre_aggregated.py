@@ -373,6 +373,18 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         assert response.results == expected_results
 
+    def test_page_breakdown_with_pathname_filter(self):
+        properties = [EventPropertyFilter(key="$pathname", value="/landing", operator=PropertyOperator.EXACT)]
+        response = self._calculate_breakdown_query(WebStatsBreakdown.PAGE, use_preagg=True, properties=properties)
+
+        # Only /landing should be returned since we're filtering by pathname
+        expected_results = [
+            ["/landing", (2.0, None), (2.0, None), (1.0, None), ""],  # user_0, user_2
+        ]
+
+        assert response.results == expected_results
+        assert response.usedPreAggregatedTables
+
     def test_breakdown_consistency_preagg_vs_regular(self):
         # Note: PAGE and VIEWPORT breakdowns are excluded. I will add them back in later.
         breakdowns_to_test = [

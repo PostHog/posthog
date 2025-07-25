@@ -212,8 +212,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Build the CTE SELECT query
         return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
 
-    def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
-        all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
+    def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Alias]:
+        all_columns: dict[str, ast.Alias] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
         for processor in processors:
             conversion_goal_expr, cost_per_goal_expr = processor.generate_select_columns()
             all_columns.update(
@@ -232,7 +232,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             conversion_joins = []
 
         # Combine base and conversion goal columns
-        all_columns: list[ast.Expr] = []
+        all_columns: list[ast.Alias] = []
         try:
             if self.query.select is None or len(self.query.select) == 0:
                 all_columns = list(conversion_columns_mapping.values())
@@ -260,7 +260,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         actual_limit = limit + PAGINATION_EXTRA  # Request one extra for pagination
 
         return ast.SelectQuery(
-            select=all_columns,
+            select=cast(list[ast.Expr], all_columns),
             select_from=from_clause,
             order_by=order_by_exprs,
             limit=ast.Constant(value=actual_limit),
@@ -276,10 +276,10 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             base_join.next_join = current_join
         return initial_join
 
-    def _build_order_by_exprs(self, select_columns: list[ast.Expr]) -> list[ast.OrderExpr]:
+    def _build_order_by_exprs(self, select_columns: list[ast.Alias]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
 
-        order_by_exprs = []
+        order_by_exprs: list[ast.OrderExpr] = []
         select_columns_aliases = [column.alias for column in select_columns]
 
         if hasattr(self.query, "orderBy") and self.query.orderBy and len(self.query.orderBy) > 0:
@@ -351,8 +351,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             self.team.marketing_analytics_config.conversion_goals, self.team.pk
         )
 
-        if self.query.dynamicConversionGoal:
-            conversion_goals = [self.query.dynamicConversionGoal, *conversion_goals]
+        if self.query.draftConversionGoal:
+            conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
 
         return conversion_goals
 
