@@ -153,10 +153,12 @@ describe('process-event', () => {
                 return event
             }
         `
+            console.log('beforeEach', 'resetTestDatabase')
             await resetTestDatabase(testCode, TEST_CONFIG)
+            console.log('beforeEach', 'resetTestDatabaseClickhouse')
             await resetTestDatabaseClickhouse(TEST_CONFIG)
 
-            console.log('beforeEach', 'createHub')
+            console.log('beforeEach', 'createHub', 'TEST_CONFIG', TEST_CONFIG)
             hub = await createHub({ ...TEST_CONFIG }).catch((error) => {
                 logger.error('🛑', 'Failed to create Hub', { error })
                 throw error
