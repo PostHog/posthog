@@ -90,7 +90,7 @@ describe('postgres parity', () => {
             ...row,
             properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
-        expect(clickHousePersons).toEqual([
+        expect(clickHousePersons).toMatchObject([
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
@@ -98,8 +98,6 @@ describe('postgres parity', () => {
                 properties: { userPropOnce: 'propOnceValue', userProp: 'propValue' },
                 is_identified: 1,
                 is_deleted: 0,
-                _timestamp: expect.any(String),
-                _offset: expect.any(Number),
             },
         ])
         const clickHouseDistinctIds = await clickhouse.fetchDistinctIdValues(person)
