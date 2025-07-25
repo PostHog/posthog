@@ -73,7 +73,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             eventsMatched = results.reduce((sum, count) => sum + count, 0)
 
             // Batch write all counter updates
-            if (counterUpdates.length > 0) {
+            if (counterUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
                 await this.writeBehavioralCounters(counterUpdates)
             }
 

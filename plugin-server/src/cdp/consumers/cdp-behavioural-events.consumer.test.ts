@@ -22,6 +22,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         team = await getFirstTeam(hub)
         cassandra = hub.cassandra
         processor = new CdpBehaviouralEventsConsumer(hub)
+        hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA = true
 
         // Clean up test data
         await cassandra.execute('TRUNCATE behavioral_event_counters')
@@ -443,6 +444,64 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(finalMissingPersonIdCount).toBe(initialMissingPersonIdCount + 1)
 
             // Assert - no counter should be written to Cassandra since event was dropped
+            const cassandraResult = await cassandra.execute(
+                'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
+                [team.id],
+                { prepare: true }
+            )
+
+            expect(cassandraResult.rows).toHaveLength(0)
+        })
+
+        it('should not write to Cassandra when WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA is false', async () => {
+            hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA = false
+            // Arrange
+            const personId = '550e8400-e29b-41d4-a716-446655440000'
+            const bytecode = [
+                '_H',
+                1,
+                32,
+                'Chrome',
+                32,
+                '$browser',
+                32,
+                'properties',
+                1,
+                2,
+                11,
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                3,
+                2,
+                4,
+                1,
+            ]
+
+            await createAction(hub.postgres, team.id, 'Test action', bytecode)
+
+            // Create a matching event with person ID
+            const matchingEvent = createIncomingEvent(team.id, {
+                event: '$pageview',
+                properties: JSON.stringify({ $browser: 'Chrome' }),
+                person_id: personId,
+            } as RawClickHouseEvent)
+
+            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
+            const behavioralEvent: BehavioralEvent = {
+                teamId: team.id,
+                filterGlobals,
+                personId,
+            }
+
+            // Act
+            await processor.processBatch([behavioralEvent])
+
+            // Assert - no counter should be written to Cassandra despite matching
             const cassandraResult = await cassandra.execute(
                 'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
                 [team.id],

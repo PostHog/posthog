@@ -50,6 +50,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
         CASSANDRA_USER: null,
         CASSANDRA_PASSWORD: null,
+        WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
