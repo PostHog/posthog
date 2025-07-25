@@ -430,6 +430,32 @@ export function OverViewTab({
                     }}
                     data-attr="feature-flag-select-created-by"
                 />
+                <span className="ml-1">
+                    <b>Environment</b>
+                </span>
+                <LemonSelect
+                    dropdownMatchSelectWidth={false}
+                    size="small"
+                    onChange={(environment) => {
+                        const { evaluation_environment, ...restFilters } = filters || {}
+                        if (environment === 'all') {
+                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                        } else {
+                            setFeatureFlagsFilters(
+                                { ...restFilters, evaluation_environment: environment, page: 1 },
+                                true
+                            )
+                        }
+                    }}
+                    options={[
+                        { label: 'All', value: 'all', 'data-attr': 'feature-flag-select-environment-all' },
+                        { label: 'Both', value: 'both' },
+                        { label: 'Client', value: 'client' },
+                        { label: 'Server', value: 'server' },
+                    ]}
+                    value={filters.evaluation_environment ?? 'all'}
+                    data-attr="feature-flag-select-environment"
+                />
             </div>
         </div>
     )

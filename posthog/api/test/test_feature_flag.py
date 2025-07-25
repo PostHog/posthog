@@ -5315,6 +5315,34 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_multivariate"
         assert response["results"][0]["status"] == "STALE"
 
+    def test_get_flags_with_evaluation_environment_filter(self):
+        # Create flags with different evaluation environments
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="server_flag", evaluation_environment="server"
+        )
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="client_flag", evaluation_environment="client"
+        )
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="both_flag", evaluation_environment="both")
+
+        # Test filtering by server environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_environment=server")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "server_flag"
+
+        # Test filtering by client environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_environment=client")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "client_flag"
+
+        # Test filtering by both environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_environment=both")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "both_flag"
+
     def test_flag_is_cached_on_create_and_update(self):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()
