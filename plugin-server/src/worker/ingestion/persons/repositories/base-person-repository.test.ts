@@ -8,7 +8,7 @@ import { parseJSON } from '../../../../utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
 import { BasePersonRepository } from './base-person-repository'
 
-jest.mock('../../../utils/logger')
+jest.mock('../../../../utils/logger')
 
 describe('BasePersonRepository', () => {
     let hub: Hub
