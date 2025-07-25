@@ -808,6 +808,8 @@ export interface DataTableNode
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
+    /** Columns that are sticky when scrolling horizontally */
+    pinnedColumns?: HogQLExpression[]
 }
 
 export interface GoalLine {

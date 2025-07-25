@@ -7276,6 +7276,13 @@
                     "const": "DataTableNode",
                     "type": "string"
                 },
+                "pinnedColumns": {
+                    "description": "Columns that are pinned to the left side of the table and stay visible when scrolling",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "propertiesViaUrl": {
                     "description": "Link properties via the URL (default: false)",
                     "type": "boolean"

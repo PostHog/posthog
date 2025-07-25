@@ -51,6 +51,7 @@ import {
     GroupsQuery,
     HogQLQuery,
     MarketingAnalyticsOrderBy,
+    MarketingAnalyticsTableQuery,
     NodeKind,
     PersonsNode,
     SessionAttributionExplorerQuery,
@@ -64,6 +65,7 @@ import {
     isHogQLAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
+    isMarketingAnalyticsTableQuery,
     isRevenueExampleEventsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
@@ -450,17 +452,31 @@ export function DataTable({
                                                     (_, i) => i !== index
                                                 ),
                                                 // remove the current column from orderBy if it's there
-                                                orderBy: (query.source as EventsQuery).orderBy?.find(
-                                                    (orderKey) =>
-                                                        removeExpressionComment(orderKey) === cleanColumnKey ||
-                                                        removeExpressionComment(orderKey) === `-${cleanColumnKey}`
-                                                )
+                                                orderBy: (
+                                                    query.source as EventsQuery | MarketingAnalyticsTableQuery
+                                                ).orderBy?.find((orderKey) => {
+                                                    if (
+                                                        typeof orderKey === 'object' &&
+                                                        isMarketingAnalyticsTableQuery(query.source)
+                                                    ) {
+                                                        return orderKey[0] === cleanColumnKey
+                                                    } else if (typeof orderKey === 'string') {
+                                                        return (
+                                                            removeExpressionComment(orderKey) === cleanColumnKey ||
+                                                            removeExpressionComment(orderKey) === `-${cleanColumnKey}`
+                                                        )
+                                                    }
+                                                })
                                                     ? undefined
                                                     : (query.source as EventsQuery).orderBy,
                                             }
+                                            const newPinnedColumns = query.pinnedColumns?.filter(
+                                                (column) => column !== key
+                                            )
                                             setQuery?.({
                                                 ...query,
                                                 source: newSource,
+                                                pinnedColumns: newPinnedColumns,
                                             })
                                         }}
                                     >
@@ -722,6 +738,7 @@ export function DataTable({
                                 ) : null
                             }
                             onRow={context?.rowProps}
+                            pinnedColumns={query.pinnedColumns}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
