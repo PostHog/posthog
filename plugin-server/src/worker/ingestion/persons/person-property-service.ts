@@ -129,4 +129,8 @@ export class PersonPropertyService {
 
         return
     }
+
+    getContext(): PersonContext {
+        return this.context
+    }
 }

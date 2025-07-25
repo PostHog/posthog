@@ -2,8 +2,6 @@ import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -21,10 +19,13 @@ import { sourceWizardLogic } from './sourceWizardLogic'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
-    logic: sourceWizardLogic,
+    // logic: sourceWizardLogic, // NOTE: We can't mount it here as it needs the availableSourcesDataLogic to be mounted first
 }
 
 export function NewSourceWizardScene(): JSX.Element {
@@ -170,12 +171,8 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     }
 
     const filteredConnectors = connectors.filter((n) => {
-        if (n.name === 'GoogleAds') {
-            return featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH]
-        }
-
-        if (n.name === 'GoogleSheets') {
-            return featureFlags[FEATURE_FLAGS.GOOGLE_SHEETS_DWH]
+        if (n.name === 'MetaAds') {
+            return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
         }
 
         return true
@@ -198,7 +195,11 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Source',
                         width: 0,
                         render: function (_, sourceConfig) {
-                            return <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            return sourceConfig.name ? (
+                                <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            ) : (
+                                <IconBlank />
+                            )
                         },
                     },
                     {

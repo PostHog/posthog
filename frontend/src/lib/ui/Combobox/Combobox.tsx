@@ -103,6 +103,12 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
                 virtualFocus
                 role="listbox"
                 id="combobox-listbox"
+                style={
+                    {
+                        // Match text input base height with p-1 padding
+                        '--combobox-search-height': 'calc(var(--text-input-height-base) + (var(--spacing) * 2))',
+                    } as React.CSSProperties
+                }
             >
                 {children}
             </ListBox>
@@ -130,10 +136,11 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 type="text"
                 value={context.searchValue}
                 onChange={(e) => context.setSearchValue(e.target.value)}
-                className={className}
+                className={cn(className, 'w-full')}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 role="combobox"
+                size="default"
                 aria-controls="combobox-listbox"
             />
         </div>
@@ -171,7 +178,7 @@ const Group = ({ value, children }: GroupProps): JSX.Element | null => {
         return null
     }
 
-    return <div>{children}</div>
+    return <div className="contents">{children}</div>
 }
 
 interface EmptyProps {
@@ -198,7 +205,12 @@ interface ContentProps {
 
 const Content = ({ className, children }: ContentProps): JSX.Element => {
     return (
-        <div className={cn('primitive-menu-content max-h-[300px] max-w-none border-transparent', className)}>
+        <div
+            className={cn(
+                'primitive-menu-content max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent',
+                className
+            )}
+        >
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars

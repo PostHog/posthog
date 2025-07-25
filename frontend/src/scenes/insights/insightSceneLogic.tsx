@@ -26,6 +26,7 @@ import {
     InsightType,
     ItemMode,
     ProjectTreeRef,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -34,6 +35,8 @@ import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 import api from 'lib/api'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
+
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -231,6 +234,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           access_control_resource_id: `${insight.id}`,
                       }
                     : null
+            },
+        ],
+        maxContext: [
+            (s) => [s.insight],
+            (insight: Partial<QueryBasedInsightModel>): MaxContextInput[] => {
+                if (!insight || !insight.short_id || !insight.query) {
+                    return []
+                }
+                return [createMaxContextHelpers.insight(insight)]
             },
         ],
     })),
@@ -470,7 +482,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return false
             }
 
-            return metadataChanged || queryChanged
+            const isChanged = metadataChanged || queryChanged
+
+            if (!isChanged) {
+                return false
+            }
+
+            // Do not show confirmation if newPathname is undefined; this usually means back button in browser
+            if (newPathname === undefined) {
+                const savedQuery = values.insightDataLogicRef?.logic.values.savedInsight.query
+                values.insightDataLogicRef?.logic.actions.setQuery(savedQuery || null)
+                return false
+            }
+
+            return true
         },
         message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {

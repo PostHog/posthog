@@ -12,7 +12,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
+import {
+    getDefaultInterval,
+    isNotNil,
+    isValidRelativeOrAbsoluteDate,
+    objectsEqual,
+    UnexpectedNeverError,
+    updateDatesWithInterval,
+} from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -51,7 +58,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
@@ -440,7 +447,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
+            [
+                'loading',
+                'createMarketingDataWarehouseNodes',
+                'draftConversionGoal',
+                'compareFilter as marketingCompareFilter',
+                'dateFilter as marketingDateFilter',
+            ],
         ],
     })),
     actions({
@@ -680,11 +693,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval: getDefaultInterval(dateFrom, dateTo),
-                }),
+                setDates: (_, { dateTo, dateFrom }) => {
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
                 setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
                     return {
@@ -697,6 +718,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
                         dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
                     }
                     return {
                         dateTo,
@@ -946,6 +973,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
+        marketingContext: [
+            (s) => [s.createMarketingDataWarehouseNodes, s.marketingCompareFilter, s.marketingDateFilter],
+            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter) => ({
+                createMarketingDataWarehouseNodes,
+                marketingCompareFilter,
+                marketingDateFilter,
+            }),
+        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -958,7 +993,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
                 () => values.campaignCostsBreakdown,
-                s.createMarketingDataWarehouseNodes,
+                s.marketingContext,
             ],
             (
                 productTab,
@@ -980,8 +1015,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tileVisualizations,
                 preAggregatedEnabled,
                 campaignCostsBreakdown,
-                createMarketingDataWarehouseNodes
+                marketingContext
             ): WebAnalyticsTile[] => {
+                const { createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter } =
+                    marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1116,7 +1153,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ].filter(isNotNil)
 
                     // Check if this tile has a visualization preference
-                    const visualization = tileVisualizations[tileId]
+                    const visualization =
+                        tileVisualizations[tileId as unknown as keyof typeof tileVisualizations] || undefined
 
                     const baseTabProps = {
                         id: tabId,
@@ -1292,6 +1330,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
+                                    compareFilter: marketingCompareFilter,
                                     series:
                                         createMarketingDataWarehouseNodes.length > 0
                                             ? createMarketingDataWarehouseNodes
@@ -1304,8 +1343,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                       math: BaseMathType.TotalCount,
                                                   },
                                               ],
-                                    interval: 'week',
-                                    dateRange: dateRange,
+                                    interval: marketingDateFilter.interval,
+                                    dateRange: {
+                                        date_from: marketingDateFilter.dateFrom,
+                                        date_to: marketingDateFilter.dateTo,
+                                    },
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsAreaGraph,
                                         aggregationAxisFormat: 'numeric',
@@ -1313,6 +1355,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                             },
+                            showIntervalSelect: true,
                             insightProps: createInsightProps(TileId.MARKETING),
                             canOpenInsight: true,
                             canOpenModal: false,
@@ -2445,17 +2488,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         campaignCostsBreakdown: [
             (s) => [
                 s.loading,
-                s.dateFilter,
+                s.marketingDateFilter,
                 s.webAnalyticsFilters,
                 s.shouldFilterTestAccounts,
-                s.dynamicConversionGoal,
+                s.draftConversionGoal,
+                s.conversion_goals,
             ],
             (
                 loading: boolean,
-                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
-                dynamicConversionGoal: ConversionGoalFilter | null
+                draftConversionGoal: ConversionGoalFilter | null,
+                conversionGoals: ConversionGoalFilter[]
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -2466,14 +2511,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     source: {
                         kind: NodeKind.MarketingAnalyticsTableQuery,
                         dateRange: {
-                            date_from: dateFilter.dateFrom,
-                            date_to: dateFilter.dateTo,
+                            date_from: marketingDateFilter.dateFrom,
+                            date_to: marketingDateFilter.dateTo,
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
-                        dynamicConversionGoal: dynamicConversionGoal,
+                        draftConversionGoal: draftConversionGoal,
                         limit: 200,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        select: [
+                            draftConversionGoal ? draftConversionGoal.conversion_goal_name : null,
+                            ...conversionGoals.map((goal) => goal.conversion_goal_name),
+                        ].filter(isNotNil),
                     } as MarketingAnalyticsTableQuery,
                     full: true,
                     embedded: false,
@@ -2804,7 +2853,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
-            if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
+            if (
+                compare_filter &&
+                isCompareFilter(compare_filter) &&
+                !objectsEqual(compare_filter, values.compareFilter)
+            ) {
                 actions.setCompareFilter(compare_filter)
             }
             if (productTab && productTab !== values.productTab) {

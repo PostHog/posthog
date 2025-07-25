@@ -13,6 +13,7 @@ export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
         description: 'Filter out events where property values satisfy the given condition',
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png',
         category: ['Transformation'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

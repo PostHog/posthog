@@ -27,14 +27,8 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
     def validate(self) -> ValidationResult:
         """Validate BigQuery table and required field mappings"""
         errors: list[str] = []
-        warnings: list[str] = []
 
         try:
-            # BigQuery-specific validation
-            bigquery_errors, bigquery_warnings = self._validate_bigquery_specific()
-            errors.extend(bigquery_errors)
-            warnings.extend(bigquery_warnings)
-
             # Validate required schema fields
             missing_required_fields = []
             for field_name, field_config in MARKETING_ANALYTICS_SCHEMA.items():
@@ -47,32 +41,14 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
                 errors.extend([f"Missing required field: {field}" for field in missing_required_fields])
 
             is_valid = len(errors) == 0
-            self._log_validation_errors(errors, warnings)
+            self._log_validation_errors(errors)
 
-            return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
+            return ValidationResult(is_valid=is_valid, errors=errors)
 
         except Exception as e:
             error_msg = f"Validation error: {str(e)}"
             self.logger.exception("BigQuery table validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
-
-    def _validate_bigquery_specific(self) -> tuple[list[str], list[str]]:
-        """BigQuery-specific validation checks"""
-        errors: list[str] = []
-        warnings: list[str] = []
-
-        # Check for BigQuery-specific data types in field mappings
-        # BigQuery typically uses different column naming conventions
-        date_field = self.config.source_map.date
-        if date_field and "timestamp" in date_field.lower():
-            warnings.append("BigQuery timestamp fields may need special date conversion")
-
-        # Check for potential BigQuery cost fields (often in different formats)
-        cost_field = self.config.source_map.cost
-        if cost_field and any(keyword in cost_field.lower() for keyword in ["spend", "cost_micros"]):
-            warnings.append("BigQuery cost field may need unit conversion (micros to standard currency)")
-
-        return errors, warnings
 
     def _get_campaign_name_field(self) -> ast.Expr:
         if self.config.source_map.campaign:

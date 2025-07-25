@@ -94,6 +94,7 @@ const errorTrackingTypeIssue: ErrorTrackingRelationalIssue = {
     assignee: null,
     status: 'active',
     first_seen: '2023-07-07T00:00:00.000000-00:00',
+    external_issues: [],
 }
 
 const errorTrackingGenericIssue: ErrorTrackingRelationalIssue = {
@@ -103,6 +104,7 @@ const errorTrackingGenericIssue: ErrorTrackingRelationalIssue = {
     assignee: null,
     status: 'active',
     first_seen: '2023-07-07T00:00:00.000000-00:00',
+    external_issues: [],
 }
 
 const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {

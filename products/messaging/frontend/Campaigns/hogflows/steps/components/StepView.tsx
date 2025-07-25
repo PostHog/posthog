@@ -6,15 +6,7 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'
 import { getHogFlowStep } from '../HogFlowSteps'
 
-export function StepView({
-    action,
-    name,
-    children,
-}: {
-    action: HogFlowAction
-    name?: string
-    children?: React.ReactNode
-}): JSX.Element {
+export function StepView({ action, children }: { action: HogFlowAction; children?: React.ReactNode }): JSX.Element {
     const { selectedNode } = useValues(hogFlowEditorLogic)
     const isSelected = selectedNode?.id === action.id
 
@@ -23,7 +15,7 @@ export function StepView({
     return (
         <div
             className={clsx(
-                'p-2 rounded border transition-all cursor-pointer bg-surface-primary',
+                'flex justify-center items-center rounded border transition-all cursor-pointer bg-surface-primary',
                 isSelected ? 'border-secondary bg-surface-secondary' : 'hover:bg-surface-secondary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -34,7 +26,7 @@ export function StepView({
         >
             <div className="flex gap-1 justify-center items-center">
                 {Step?.icon}
-                <div className="text-xs">{name ?? action.name}</div>
+                <div className="text-[0.6rem]">{action.name}</div>
             </div>
             {children}
         </div>

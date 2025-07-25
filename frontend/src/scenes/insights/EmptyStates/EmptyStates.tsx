@@ -11,6 +11,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -123,6 +124,45 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
             className="max-w-80"
         >
             Open in query debugger
+        </LemonButton>
+    )
+}
+
+const RetryButton = ({
+    onRetry,
+    query,
+}: {
+    onRetry: () => void
+    query?: Record<string, any> | Node | null
+}): JSX.Element => {
+    let sideAction = {}
+    if (query) {
+        sideAction = {
+            dropdown: {
+                overlay: (
+                    <LemonMenuOverlay
+                        items={[
+                            {
+                                label: 'Open in query debugger',
+                                to: urls.debugQuery(query),
+                            },
+                        ]}
+                    />
+                ),
+                placement: 'bottom-end',
+            },
+        }
+    }
+
+    return (
+        <LemonButton
+            data-attr="insight-retry-button"
+            size="small"
+            type="primary"
+            onClick={() => onRetry()}
+            sideAction={sideAction}
+        >
+            Try again
         </LemonButton>
     )
 }
@@ -243,9 +283,10 @@ export function StatelessInsightLoadingState({
         }
     }, [pollResponse, showLoadingDetails])
 
-    // Toggle between loading messages every 3 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
+    // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
     useEffect(() => {
-        const TOGGLE_INTERVAL = 3000
+        const TOGGLE_INTERVAL_MIN = 2500
+        const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
 
         // Don't toggle loading messages in storybook, will make tests flaky if so
@@ -266,7 +307,7 @@ export function StatelessInsightLoadingState({
                 })
                 setIsLoadingMessageVisible(true)
             }, FADE_OUT_DURATION)
-        }, TOGGLE_INTERVAL)
+        }, TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER)
 
         return () => clearInterval(interval)
     }, [])
@@ -524,10 +565,11 @@ export function InsightValidationError({
 
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
-    title?: string
+    title?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     fixWithAIComponent?: JSX.Element
+    onRetry?: () => void
 }
 
 export function InsightErrorState({
@@ -536,6 +578,7 @@ export function InsightErrorState({
     query,
     queryId,
     fixWithAIComponent,
+    onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -585,7 +628,7 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                <QueryDebuggerButton query={query} />
+                {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />

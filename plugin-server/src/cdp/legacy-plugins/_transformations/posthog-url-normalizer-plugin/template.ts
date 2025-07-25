@@ -13,6 +13,7 @@ export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
             'Normalize the format of urls in your application allowing you to more easily compare them in insights.',
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png',
         category: ['Transformation'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [],
     },

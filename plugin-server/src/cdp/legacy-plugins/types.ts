@@ -1,7 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent, StorageExtension } from '@posthog/plugin-scaffold'
 
 import { fetch, FetchResponse } from '../../utils/request'
-import { HogFunctionTemplate } from '../templates/types'
+import { HogFunctionTemplate } from '../types'
 
 export type LegacyPluginLogger = {
     debug: (...args: any[]) => void

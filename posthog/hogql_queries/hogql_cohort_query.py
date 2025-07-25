@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -118,6 +118,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -462,7 +463,7 @@ class HogQLCohortQuery:
                             subsequent_select_queries=[
                                 SelectSetNode(
                                     select_query=query,
-                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT",
+                                    set_operator="UNION DISTINCT" if all_children_positive else "INTERSECT DISTINCT",
                                 )
                                 for (query, negation) in children[1:]
                             ],
@@ -484,7 +485,9 @@ class HogQLCohortQuery:
                         SelectSetNode(
                             select_query=query,
                             set_operator=(
-                                "UNION DISTINCT" if all_children_negated else ("EXCEPT" if negation else "INTERSECT")
+                                "UNION DISTINCT"
+                                if all_children_negated
+                                else ("EXCEPT" if negation else "INTERSECT DISTINCT")
                             ),
                         )
                         for (query, negation) in children[1:]

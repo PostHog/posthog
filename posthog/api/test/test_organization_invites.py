@@ -12,11 +12,20 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 from posthog.constants import AvailableFeature
+from posthog.models import User
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
     def helper_generate_bulk_invite_payload(self, count: int):
         payload = []
 
@@ -824,7 +833,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = False
         self.organization.save()
 
@@ -850,6 +862,27 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_member_cannot_delete_invite_when_members_can_invite_false(self):
+        # Create a member user and log in as them
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Create an invite as an admin (so it exists)
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        invite = OrganizationInvite.objects.create(organization=self.organization, created_by=admin_user)
+
+        # Try to delete as member
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+
     def test_member_can_invite_when_members_can_invite_true_and_feature_available(self):
         """Test that members can invite when members_can_invite is True and ORGANIZATION_INVITE_SETTINGS is available."""
         # Create a member user
@@ -857,7 +890,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to True
-        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+        ]
         self.organization.members_can_invite = True
         self.organization.save()
 
@@ -960,7 +996,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create an admin user
         admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
 
         # Login as the admin
         self.client.force_login(admin_user)
@@ -994,7 +1029,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
 
         # Login as the member
         self.client.force_login(member_user)
@@ -1029,13 +1063,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Create a member user
         member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
 
         # Login as the member
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Try to invite a user to the private team
         response = self.client.post(
@@ -1071,12 +1104,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Give the member admin access to the team
         AccessControl.objects.create(
             team=team,
-            resource="team",
+            resource="project",
             resource_id=str(team.id),
             organization_member=member_membership,
             access_level="admin",
@@ -1099,3 +1132,66 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mixed_case_email = "Test.User@Example.COM"
+        expected_normalized_email = "test.user@example.com"
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": mixed_case_email},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        invite = OrganizationInvite.objects.get()
+        self.assertEqual(invite.target_email, expected_normalized_email)
+
+        response_data = response.json()
+        self.assertEqual(response_data["target_email"], expected_normalized_email)
+
+    def test_add_organization_invite_case_insensitive_duplicate_prevention(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        base_email = "user@example.com"
+
+        # Create first invite with lowercase email
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response1 = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": base_email},
+            )
+
+        self.assertEqual(response1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
+
+        mixed_case_email = "User@Example.COM"
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response2 = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": mixed_case_email},
+            )
+
+        self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
+
+    def test_add_organization_invite_case_insensitive_existing_member_check(self):
+        """Test that invites are rejected if a user with case variation already exists as member"""
+        existing_user = User.objects.create_user(
+            email="Existing.User@Example.COM", password="password123", first_name="Existing"
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=existing_user, level=OrganizationMembership.Level.MEMBER
+        )
+
+        invite_email = "existing.user@example.com"
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": invite_email},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(OrganizationInvite.objects.count(), 0)

@@ -34,7 +34,7 @@ export function OrganizationLogo(): JSX.Element {
                 onChange={setFilesToUpload}
                 loading={uploading}
                 value={filesToUpload}
-                disabled={!!restrictionReason}
+                disabledReason={restrictionReason}
                 callToAction={
                     <>
                         <div className="relative">

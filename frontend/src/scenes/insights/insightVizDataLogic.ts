@@ -21,7 +21,7 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -292,7 +292,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        isDataWarehouseSeries: [
+        hasDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
             (isTrends, series): boolean => {
                 return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
@@ -300,11 +300,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.dataWarehouseTablesMap],
+            (s) => [
+                s.series,
+                s.isSingleSeries,
+                s.hasDataWarehouseSeries,
+                s.isBreakdownSeries,
+                s.dataWarehouseTablesMap,
+            ],
             (
                 series,
                 isSingleSeries,
-                isDataWarehouseSeries,
+                hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
@@ -312,7 +318,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     !series ||
                     series.length === 0 ||
                     (!isSingleSeries && !isBreakdownSeries) ||
-                    !isDataWarehouseSeries
+                    !hasDataWarehouseSeries
                 ) {
                     return []
                 }
@@ -402,13 +408,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         validationError: [
             (s) => [s.insightDataError],
-            (insightDataError): string | null => {
-                // We use 512 for query timeouts
-                // Async queries put the error message on data.error_message, while synchronous ones use detail
-                return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
-                    : null
-            },
+            (insightDataError): string | null => extractValidationError(insightDataError),
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],

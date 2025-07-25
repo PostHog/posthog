@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Adds geoip data to the event',
     icon_url: '/static/transformations/geoip.png',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 // Define the properties to be added to the event
 let geoipProperties := {

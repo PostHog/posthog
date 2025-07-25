@@ -51,7 +51,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
     join_with_error_tracking_issue_fingerprint_overrides_table,
 )
-from posthog.hogql.database.schema.events import EventsTable, RecentEventsTable
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -137,7 +137,6 @@ class Database(BaseModel):
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
-    recent_events: RecentEventsTable = RecentEventsTable()
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
@@ -331,34 +330,16 @@ class Database(BaseModel):
 
 def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
-    database.recent_events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    database.recent_events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-
     database.events.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.person_distinct_id_overrides,
         join_function=join_with_person_distinct_id_overrides_table,
     )
-    database.recent_events.fields["override"] = LazyJoin(
-        from_field=["distinct_id"],
-        join_table=database.person_distinct_id_overrides,
-        join_function=join_with_person_distinct_id_overrides_table,
-    )
-
     database.events.fields["person_id"] = ExpressionField(
-        name="person_id",
-        expr=parse_expr(
-            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
-            start=None,
-        ),
-        isolate_scope=True,
-    )
-    database.recent_events.fields["person_id"] = ExpressionField(
         name="person_id",
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable

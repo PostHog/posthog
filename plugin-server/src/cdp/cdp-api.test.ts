@@ -14,11 +14,12 @@ import { createHogFunction, insertHogFunction as _insertHogFunction } from './_t
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { setupExpressApp } from '~/router'
 
 describe('CDP API', () => {
     let hub: Hub
     let team: Team
-    let app: express.Express
+    let app: express.Application
     let api: CdpApi
     let hogFunction: HogFunctionType
 
@@ -54,13 +55,14 @@ describe('CDP API', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+        })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub)
 
         api = new CdpApi(hub)
-        app = express()
-        app.use(express.json())
+        app = setupExpressApp()
         app.use('/', api.router())
 
         mockFetch.mockClear()

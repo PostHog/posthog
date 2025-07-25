@@ -12,7 +12,7 @@ from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
+from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr, map_virtual_properties
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -83,7 +83,9 @@ class EventsQueryRunner(QueryRunner):
                 select_input.append(expr)
             else:
                 select_input.append(col)
-        return select_input, [parse_expr(column, timings=self.timings) for column in select_input]
+        return select_input, [
+            map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
+        ]
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -173,7 +175,6 @@ class EventsQueryRunner(QueryRunner):
                             timings=self.timings,
                         )
                     )
-                    # Note: We'll add inserted_at filter later only if we actually use recent_events table
 
             # where & having
             with self.timings.measure("where"):
@@ -185,7 +186,24 @@ class EventsQueryRunner(QueryRunner):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
-                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+                    columns: list[str] = []
+                    for _, col in enumerate(self.query.orderBy):
+                        if col.split("--")[0].strip() == "person_display_name":
+                            property_keys = (
+                                self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                            )
+                            props = []
+                            for key in property_keys:
+                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                    props.append(f"toString(person.properties.{key})")
+                                else:
+                                    props.append(f"toString(person.properties.`{key}`)")
+                            expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                            newCol = re.sub(r"person_display_name -- Person ", expr, col)
+                            columns.append(newCol)
+                        else:
+                            columns.append(col)
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in columns]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:
@@ -217,40 +235,9 @@ class EventsQueryRunner(QueryRunner):
                     events_query.order_by = order_by
                     return events_query
 
-                # Choose table based on useRecentEventsTable flag
-                # Only use recent_events if the date range is within the last 7 days
-                use_recent_events = self.query.useRecentEventsTable
-                if use_recent_events:
-                    # Check if the query date range falls within the last 7 days
-                    current_time = now()
-                    seven_days_ago = current_time - timedelta(days=7)
-
-                    # Parse the after date - if it's before 7 days ago, we need the full events table
-                    if self.query.after and self.query.after != "all":
-                        after_date = relative_date_parse(self.query.after, self.team.timezone_info)
-                        if after_date < seven_days_ago:
-                            use_recent_events = False
-
-                table_name = "recent_events" if use_recent_events else "events"
-
-                # Add partition pruning for recent_events table
-                if use_recent_events and self.query.after and self.query.after != "all":
-                    # Add inserted_at filter for partition pruning
-                    parsed_date = relative_date_parse(self.query.after, self.team.timezone_info)
-                    # Add a buffer for potential delays between timestamp and inserted_at
-                    inserted_after = parsed_date - timedelta(hours=1)
-                    where_list.append(
-                        parse_expr(
-                            "inserted_at > {inserted_at}",
-                            {"inserted_at": ast.Constant(value=inserted_after)},
-                            timings=self.timings,
-                        )
-                    )
-                    where = ast.And(exprs=where_list) if len(where_list) > 0 else None
-
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -269,7 +256,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        f"SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM {table_name}"
+                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
                     )
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where

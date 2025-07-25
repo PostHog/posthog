@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import ViewRecordingTrigger from 'lib/components/ViewRecordingButton/ViewRecordingTrigger'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -24,7 +22,6 @@ import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
-import { match, P } from 'ts-pattern'
 
 export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
     issue?: ErrorTrackingRelationalIssue
@@ -40,7 +37,7 @@ export function StacktraceTab({
     ...props
 }: StacktraceTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList, sessionId, mightHaveRecording } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
     return (
@@ -50,25 +47,6 @@ export function StacktraceTab({
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 </div>
                 <ButtonGroupPrimitive size="sm">
-                    <ViewRecordingTrigger sessionId={sessionId} inModal={true} timestamp={timestamp}>
-                        {(onClick, _, disabledReason, maybeSpinner) => {
-                            return (
-                                <ButtonPrimitive
-                                    disabled={disabledReason != null || !mightHaveRecording}
-                                    onClick={onClick}
-                                    className="px-2 h-[1.4rem]"
-                                    tooltip={match([disabledReason != null, mightHaveRecording])
-                                        .with([true, P.any], () => 'No recording available')
-                                        .with([false, false], () => 'Recording not ready')
-                                        .otherwise(() => 'View Recording')}
-                                >
-                                    <IconPlayCircle />
-                                    View Recording
-                                    {maybeSpinner}
-                                </ButtonPrimitive>
-                            )
-                        }}
-                    </ViewRecordingTrigger>
                     {showFixButton && (
                         <ButtonPrimitive
                             onClick={() => setShowFixModal(true)}
@@ -76,7 +54,7 @@ export function StacktraceTab({
                             tooltip="Generate AI prompt to fix this error"
                         >
                             <IconMagicWand />
-                            Fix
+                            Fix with AI
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>
@@ -123,6 +101,7 @@ function StacktraceIssueDisplay({
 function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Element {
     const { showAllFrames, showAsText } = useValues(exceptionCardLogic)
     const { setShowAllFrames, setShowAsText } = useActions(exceptionCardLogic)
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>

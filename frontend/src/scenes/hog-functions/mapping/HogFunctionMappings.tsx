@@ -90,7 +90,7 @@ export function HogFunctionMapping({
     parentConfiguration: HogFunctionConfigurationType
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { showSource } = useValues(hogFunctionConfigurationLogic)
+    const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
     return (
         <>
@@ -153,6 +153,7 @@ export function HogFunctionMapping({
                             onChange({ ...mapping, inputs: { ...mapping.inputs, [key]: value } })
                         }}
                         showSource={showSource}
+                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />
                 </Group>
                 {showSource ? (

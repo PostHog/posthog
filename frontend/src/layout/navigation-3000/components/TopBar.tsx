@@ -19,6 +19,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ProjectDropdownMenu } from '~/layout/panel-layout/ProjectDropdownMenu'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -247,6 +248,18 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             {breadcrumb.popover && !breadcrumb.symbol && <IconChevronDown />}
         </Component>
     )
+
+    if (breadcrumb.isPopoverProject) {
+        return (
+            <ProjectDropdownMenu
+                buttonProps={{
+                    size: 'xxs',
+                    className:
+                        '-mr-1 [font-size:var(--content-font-size)] text-secondary p-0 hover:text-primary hover:bg-transparent font-semibold',
+                }}
+            />
+        )
+    }
 
     if (breadcrumb.popover) {
         return (

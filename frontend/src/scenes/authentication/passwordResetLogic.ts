@@ -81,7 +81,9 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
         passwordReset: {
             defaults: {} as unknown as PasswordResetForm,
             errors: ({ password, passwordConfirm }) => ({
-                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : values.validatedPassword.feedback || undefined,
                 passwordConfirm: !passwordConfirm
                     ? 'Please confirm your password to continue'
                     : password !== passwordConfirm

@@ -46,7 +46,7 @@ jobs:
               if: ${{ github.actor != 'posthog-bot' && needs.changes.outputs.docker_files == 'true' }}
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  workflow: .github/workflows/storybook-chromatic.yml
+                  workflow: .github/workflows/ci-storybook.yml
 
             - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
               if: ${{ github.actor != 'posthog-bot' && needs.changes.outputs.docker_files == 'true' }}

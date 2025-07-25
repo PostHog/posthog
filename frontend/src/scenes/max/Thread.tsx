@@ -1,5 +1,5 @@
 import {
-    IconCheck,
+    IconBolt,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -26,11 +26,11 @@ import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconOpenInNew, IconSync } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { twMerge } from 'tailwind-merge'
@@ -61,6 +61,8 @@ import {
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -166,8 +168,9 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
             >
                 {messages.map((message, messageIndex) => {
                     const key = message.id || messageIndex
-
                     if (isHumanMessage(message)) {
+                        const maybeCommand = MAX_SLASH_COMMANDS.find((cmd) => cmd.name === message.content)
+
                         return (
                             <MessageTemplate
                                 key={key}
@@ -183,10 +186,27 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                         useCurrentPageContext={false}
                                     />
                                 )}
-                                <MarkdownMessage
-                                    content={message.content || '*No text.*'}
-                                    id={message.id || 'no-text'}
-                                />
+                                {maybeCommand ? (
+                                    <div className="flex items-center">
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    This is a Max command:
+                                                    <br />
+                                                    <i>{maybeCommand.description}</i>
+                                                </>
+                                            }
+                                        >
+                                            <IconBolt className="text-base mr-1.5" />
+                                        </Tooltip>
+                                        <span className="font-mono">{message.content}</span>
+                                    </div>
+                                ) : (
+                                    <MarkdownMessage
+                                        content={message.content || '*No text.*'}
+                                        id={message.id || 'no-text'}
+                                    />
+                                )}
                             </MessageTemplate>
                         )
                     } else if (
@@ -384,10 +404,13 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     isEditingInsight: boolean
 }): JSX.Element | null {
     const { insight } = useValues(insightSceneLogic)
-    const { setQuery } = useActions(insightVizDataLogic({ dashboardItemId: insight?.short_id }))
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const [isApplied, setIsApplied] = useState(false)
+    // Get insight props for the logic
+    const insightProps = { dashboardItemId: insight?.short_id }
+
+    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -430,18 +453,21 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight ? (
+                              {isEditingInsight && suggestedQuery && (
                                   <LemonButton
                                       onClick={() => {
-                                          setQuery(query)
-                                          setIsApplied(true)
+                                          if (previousQuery) {
+                                              onRejectSuggestedInsight()
+                                          } else {
+                                              onReapplySuggestedInsight()
+                                          }
                                       }}
-                                      sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                      sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                                       size="xsmall"
-                                  >
-                                      Apply to current insight
-                                  </LemonButton>
-                              ) : (
+                                      tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                                  />
+                              )}
+                              {!isEditingInsight && (
                                   <LemonButton
                                       to={urls.insightNew({ query })}
                                       icon={<IconOpenInNew />}
@@ -495,6 +521,8 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
+    const { submitZendeskTicket } = useActions(supportLogic)
+    const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
@@ -512,11 +540,24 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId) {
+        if (!feedback || !traceId || !user) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
+        // Also create a support ticket for thumbs down feedback, for the support hero to see
+        submitZendeskTicket({
+            name: user.first_name,
+            email: user.email,
+            kind: 'feedback',
+            target_area: 'max-ai',
+            severity_level: 'medium',
+            message: [
+                feedback,
+                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
+                `Trace: https://us.posthog.com/project/2/llm-observability/traces/${traceId}`,
+            ].join('\n'),
+        })
     }
 
     return (
@@ -562,7 +603,9 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                             icon={<IconX />}
                             type="tertiary"
                             size="xsmall"
-                            onClick={() => setFeedbackInputStatus('hidden')}
+                            onClick={() => {
+                                setFeedbackInputStatus('hidden')
+                            }}
                         />
                     </div>
                     {feedbackInputStatus === 'pending' && (

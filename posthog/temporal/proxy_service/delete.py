@@ -17,7 +17,7 @@ from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     UpdateProxyRecordInputs,
     get_grpc_client,
-    update_proxy_record,
+    activity_update_proxy_record,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
 
@@ -143,7 +143,7 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
         except Exception:
             # Something went wrong - set the record to error state
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,

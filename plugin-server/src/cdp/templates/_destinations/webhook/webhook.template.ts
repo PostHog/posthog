@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
@@ -9,6 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Sends a webhook templated by the incoming event data',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
+    code_language: 'hog',
     hog: `
 let payload := {
   'headers': inputs.headers,

@@ -29,7 +29,7 @@ from posthog.hogql.functions.mapping import (
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.sparkline import sparkline
-from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
+from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
@@ -428,7 +428,7 @@ class Resolver(CloningVisitor):
             raise QueryError(f"A {type(node.table).__name__} cannot be used as a SELECT source")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        if node.kind in HOGQLX_COMPONENTS:
+        if node.kind in HOGQLX_TAGS or node.kind in HOGQLX_COMPONENTS:
             return self.visit(convert_to_hx(node))
         return self.visit(expand_hogqlx_query(node, self.context.team_id))
 

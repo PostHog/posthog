@@ -5,7 +5,6 @@ import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUIDT } from '../../utils/utils'
-import { buildGlobalsWithInputs } from '../services/hog-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocationHogFunction,
@@ -63,7 +62,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         // TODO: Should this be filled via other headers?
         const ip = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
 
-        const projectUrl = `${this.hub.SITE_URL ?? ''}/project/${hogFunction.team_id}`
+        const projectUrl = `${this.hub.SITE_URL}/project/${hogFunction.team_id}`
 
         const globals: HogFunctionInvocationGlobals = {
             source: {
@@ -95,7 +94,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         try {
             // TODO: Add error handling and logging
-            const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
+            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
             // TODO: Do we want to use hogwatcher here as well?
             const invocation = createInvocation(globalsWithInputs, hogFunction)

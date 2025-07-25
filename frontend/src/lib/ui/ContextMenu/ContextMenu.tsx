@@ -44,7 +44,10 @@ const ContextMenuSubContent = React.forwardRef<
         <ContextMenuPrimitive.SubContent
             ref={ref}
             collisionPadding={collisionPadding}
-            className={cn('primitive-menu-content', className)}
+            className={cn(
+                'primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]',
+                className
+            )}
             {...props}
         >
             <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
@@ -64,7 +67,10 @@ const ContextMenuContent = React.forwardRef<
             <ContextMenuPrimitive.Content
                 ref={ref}
                 collisionPadding={collisionPadding}
-                className={cn(`primitive-menu-content`, className)}
+                className={cn(
+                    `primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]`,
+                    className
+                )}
                 {...props}
             >
                 <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">

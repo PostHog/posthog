@@ -127,7 +127,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             team=self._team,
             query_type="SessionRecordingListQuery",
             modifiers=self._hogql_query_modifiers,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=False),  # This needs to be turned on eventually
+            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
         )
 
         return SessionRecordingQueryResult(

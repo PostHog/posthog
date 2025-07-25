@@ -2,11 +2,15 @@ import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersFetchSchema,
+} from '~/schema/cyclotron'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
-import { PluginsServerConfig, ValueMatcher } from '../../types'
+import { Hub, PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -16,16 +20,17 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
     LogEntry,
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
+import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
-import { LiquidRenderer } from '../utils/liquid'
+import { HogInputsService } from './hog-inputs.service'
+import { EmailService } from './messaging/email.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -46,10 +51,14 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
 
     if (error) {
-        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+        if (
+            error instanceof SecureRequestError ||
+            error instanceof InvalidRequestError ||
+            error.name === 'ResponseContentLengthMismatchError'
+        ) {
             canRetry = false
         } else {
-            canRetry = true // Only retry on general errors, not security or validation errors
+            canRetry = true // Only retry on general errors, not security, validation, or response parsing errors
         }
     }
 
@@ -66,7 +75,6 @@ export const getNextRetryTime = (config: PluginsServerConfig, tries: number): Da
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
-export const MAX_LOG_LENGTH = 10000
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
@@ -82,142 +90,28 @@ const hogFunctionStateMemory = new Histogram({
     buckets: [0, 50, 100, 250, 500, 1000, 2000, 3000, 5000, Infinity],
 })
 
-export const formatHogInput = async (
-    bytecode: any,
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
-): Promise<any> => {
-    // Similar to how we generate the bytecode by iterating over the values,
-    // here we iterate over the object and replace the bytecode with the actual values
-    // bytecode is indicated as an array beginning with ["_H"] (versions 1+) or ["_h"] (version 0)
-
-    if (bytecode === null || bytecode === undefined) {
-        return bytecode // Preserve null and undefined values
-    }
-
-    if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
-        const { execResult: result, error } = await execHog(bytecode, { globals })
-        if (!result || error) {
-            throw error ?? result?.error
-        }
-        if (!result?.finished) {
-            // NOT ALLOWED
-            throw new Error(`Could not execute bytecode for input field: ${key}`)
-        }
-        return convertHogToJS(result.result)
-    }
-
-    if (Array.isArray(bytecode)) {
-        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key)))
-    } else if (typeof bytecode === 'object' && bytecode !== null) {
-        let ret: Record<string, any> = {}
-
-        if (bytecode[EXTEND_OBJECT_KEY]) {
-            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
-            if (res && typeof res === 'object') {
-                ret = {
-                    ...res,
-                }
-            }
-        }
-
-        await Promise.all(
-            Object.entries(bytecode).map(async ([subkey, value]) => {
-                if (subkey === EXTEND_OBJECT_KEY) {
-                    return
-                }
-                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
-            })
-        )
-
-        return ret
-    }
-
-    return bytecode
-}
-
-const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
-    if (value === null || value === undefined) {
-        return value
-    }
-
-    if (typeof value === 'string') {
-        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals)
-    }
-
-    if (Array.isArray(value)) {
-        return value.map((item) => formatLiquidInput(item, globals, key))
-    }
-
-    if (typeof value === 'object' && value !== null) {
-        return Object.fromEntries(
-            Object.entries(value).map(([key2, value]) => [
-                key2,
-                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2),
-            ])
-        )
-    }
-
-    return value
-}
-
-export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
-    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
-
-    // Find and replace any sensitive values
-    sensitiveValues?.forEach((sensitiveValue) => {
-        message = message.replaceAll(sensitiveValue, '***REDACTED***')
-    })
-
-    if (message.length > MAX_LOG_LENGTH) {
-        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
-    }
-
-    return message
-}
-
-export const buildGlobalsWithInputs = async (
-    globals: HogFunctionInvocationGlobals,
-    inputs: HogFunctionType['inputs']
-): Promise<HogFunctionInvocationGlobalsWithInputs> => {
-    const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
-        ...globals,
-        inputs: {},
-    }
-
-    const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
-        return (input1?.order ?? -1) - (input2?.order ?? -1)
-    })
-
-    for (const [key, input] of orderedInputs) {
-        if (!input) {
-            continue
-        }
-
-        newGlobals.inputs[key] = input.value
-
-        const templating = input.templating ?? 'hog'
-
-        if (templating === 'liquid') {
-            newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
-        } else if (templating === 'hog' && input?.bytecode) {
-            newGlobals.inputs[key] = await formatHogInput(input.bytecode, newGlobals, key)
-        }
-    }
-
-    return newGlobals
-}
-
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: string[]
+    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
 }
 
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
+    private hogInputsService: HogInputsService
+    private emailService: EmailService
 
-    constructor(private config: PluginsServerConfig) {
-        this.telemetryMatcher = buildIntegerMatcher(this.config.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+    constructor(private hub: Hub) {
+        this.hogInputsService = new HogInputsService(hub)
+        this.emailService = new EmailService(hub)
+        this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+    }
+
+    async buildInputsWithGlobals(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals,
+        additionalInputs?: Record<string, any>
+    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        return this.hogInputsService.buildInputsWithGlobals(hogFunction, globals, additionalInputs)
     }
 
     async buildHogFunctionInvocations(
@@ -257,7 +151,7 @@ export class HogExecutorService {
 
         const _buildInvocation = async (
             hogFunction: HogFunctionType,
-            inputs: HogFunctionType['inputs']
+            additionalInputs?: HogFunctionType['inputs']
         ): Promise<CyclotronJobInvocationHogFunction | null> => {
             try {
                 const globalsWithSource = {
@@ -268,7 +162,11 @@ export class HogExecutorService {
                     },
                 }
 
-                const globalsWithInputs = await buildGlobalsWithInputs(globalsWithSource, inputs)
+                const globalsWithInputs = await this.hogInputsService.buildInputsWithGlobals(
+                    hogFunction,
+                    globalsWithSource,
+                    additionalInputs
+                )
 
                 return createInvocation(globalsWithInputs, hogFunction)
             } catch (error) {
@@ -303,10 +201,7 @@ export class HogExecutorService {
 
                 // Check for non-mapping functions first
                 if (!hogFunction.mappings) {
-                    const invocation = await _buildInvocation(hogFunction, {
-                        ...hogFunction.inputs,
-                        ...hogFunction.encrypted_inputs,
-                    })
+                    const invocation = await _buildInvocation(hogFunction)
                     if (!invocation) {
                         return
                     }
@@ -321,11 +216,7 @@ export class HogExecutorService {
                             return
                         }
 
-                        const invocation = await _buildInvocation(hogFunction, {
-                            ...hogFunction.inputs,
-                            ...hogFunction.encrypted_inputs,
-                            ...mapping.inputs,
-                        })
+                        const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {})
                         if (!invocation) {
                             return
                         }
@@ -359,7 +250,8 @@ export class HogExecutorService {
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
-            if (nextInvocation.queueParameters?.type === 'fetch') {
+            const queueParamsType = nextInvocation.queueParameters?.type
+            if (['fetch', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -367,19 +259,23 @@ export class HogExecutorService {
                     logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
                     break
                 }
-                result = await this.executeFetch(nextInvocation)
+
+                if (queueParamsType === 'fetch') {
+                    result = await this.executeFetch(nextInvocation)
+                } else if (queueParamsType === 'email') {
+                    result = await this.emailService.executeSendEmail(nextInvocation)
+                } else {
+                    throw new Error(`Unknown queue type: ${queueParamsType}`)
+                }
             } else {
                 result = await this.execute(nextInvocation, options)
             }
-
-            // NOTE: this is a short term hack until we have removed the old fetch queue method
-            result.invocation.queue = 'hog'
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {
+            if (result.finished || result.invocation.queueScheduledAt) {
                 break
             }
         }
@@ -404,6 +300,7 @@ export class HogExecutorService {
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -415,18 +312,13 @@ export class HogExecutorService {
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {
-                    const inputs: HogFunctionType['inputs'] = {
-                        ...invocation.hogFunction.inputs,
-                        ...invocation.hogFunction.encrypted_inputs,
-                    }
-                    globals = await buildGlobalsWithInputs(invocation.state.globals, inputs)
+                    globals = await this.hogInputsService.buildInputsWithGlobals(
+                        invocation.hogFunction,
+                        invocation.state.globals
+                    )
                 }
             } catch (e) {
-                result.logs.push({
-                    level: 'error',
-                    timestamp: DateTime.now(),
-                    message: `Error building inputs: ${e}`,
-                })
+                addLog('error', `Error building inputs: ${e}`)
 
                 throw e
             }
@@ -438,7 +330,7 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
                 const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
                     acc[fn] = async () => Promise.resolve()
                     return acc
@@ -446,18 +338,17 @@ export class HogExecutorService {
 
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,
-                    timeout: this.config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                    timeout: this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: asyncFunctions,
                     functions: {
                         print: (...args) => {
                             hogLogs++
                             if (hogLogs === MAX_HOG_LOGS) {
-                                result.logs.push({
-                                    level: 'warn',
-                                    timestamp: DateTime.now(),
-                                    message: `Function exceeded maximum log entries. No more logs will be collected. Event: ${eventId}`,
-                                })
+                                addLog(
+                                    'warn',
+                                    `Function exceeded maximum log entries. No more logs will be collected. Event: ${eventId}`
+                                )
                             }
 
                             if (hogLogs >= MAX_HOG_LOGS) {
@@ -495,11 +386,10 @@ export class HogExecutorService {
                                 const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
                                 if (executionCount > 0) {
-                                    result.logs.push({
-                                        level: 'warn',
-                                        timestamp: DateTime.now(),
-                                        message: `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`,
-                                    })
+                                    addLog(
+                                        'warn',
+                                        `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                    )
                                     return
                                 }
 
@@ -539,11 +429,7 @@ export class HogExecutorService {
                     result.execResult = convertHogToJS(execRes.result)
                 }
             } catch (e) {
-                result.logs.push({
-                    level: 'error',
-                    timestamp: DateTime.now(),
-                    message: `Error executing function on event ${eventId}: ${e}`,
-                })
+                addLog('error', `Error executing function on event ${eventId}: ${e}`)
                 throw e
             }
 
@@ -563,10 +449,6 @@ export class HogExecutorService {
                             // Sanitize the args
                             const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
 
-                            if (typeof url !== 'string') {
-                                throw new Error('fetch: Invalid URL')
-                            }
-
                             const method = fetchOptions?.method || 'POST'
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
@@ -578,26 +460,29 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            const fetchQueueParameters: HogFunctionQueueParametersFetchRequest = {
+                            const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers,
-                            }
+                            })
 
                             result.invocation.queueParameters = fetchQueueParameters
+                            break
+                        }
+
+                        case 'sendEmail': {
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
+                                args[0]
+                            )
                             break
                         }
                         default:
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
                 } else {
-                    result.logs.push({
-                        level: 'warn',
-                        timestamp: DateTime.now(),
-                        message: `Function was not finished but also had no async function to execute.`,
-                    })
+                    addLog('warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
                 const totalDuration = result.invocation.state.timings.reduce(
@@ -624,11 +509,7 @@ export class HogExecutorService {
                         })
                     }
                 }
-                result.logs.push({
-                    level: 'debug',
-                    timestamp: DateTime.now(),
-                    message: messages.join(' '),
-                })
+                addLog('debug', messages.join(' '))
             }
         } catch (err) {
             result.error = err.message
@@ -654,19 +535,20 @@ export class HogExecutorService {
                 finished: false,
             }
         )
+        const addLog = createAddLogFunction(result.logs)
 
         const start = performance.now()
         const method = params.method.toUpperCase()
         const headers = params.headers ?? {}
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
-            headers['developer-token'] = this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+            headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
         }
 
         const fetchParams: FetchOptions = {
             method,
             headers,
-            timeoutMs: this.config.CDP_FETCH_TIMEOUT_MS,
+            timeoutMs: this.hub.CDP_FETCH_TIMEOUT_MS,
         }
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
@@ -685,9 +567,9 @@ export class HogExecutorService {
 
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             const backoffMs = Math.min(
-                this.config.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.config.CDP_FETCH_BACKOFF_BASE_MS),
-                this.config.CDP_FETCH_BACKOFF_MAX_MS
+                this.hub.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
+                    Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
+                this.hub.CDP_FETCH_BACKOFF_MAX_MS
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
@@ -704,13 +586,9 @@ export class HogExecutorService {
                 message += ` Retrying in ${backoffMs}ms.`
             }
 
-            result.logs.push({
-                level: 'warn',
-                timestamp: DateTime.now(),
-                message,
-            })
+            addLog('warn', message)
 
-            if (canRetry && result.invocation.state.attempts < this.config.CDP_FETCH_RETRIES) {
+            if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
@@ -723,14 +601,20 @@ export class HogExecutorService {
         // Reset the attempts as we are done
         result.invocation.state.attempts = 0
 
-        let body = await fetchResponse?.text()
+        let body: unknown = undefined
+        try {
+            body = await fetchResponse?.text()
 
-        if (typeof body === 'string') {
-            try {
-                body = parseJSON(body)
-            } catch (e) {
-                // Pass through the error
+            if (typeof body === 'string') {
+                try {
+                    body = parseJSON(body)
+                } catch (e) {
+                    // Pass through the error
+                }
             }
+        } catch (e) {
+            addLog('error', `Failed to parse response body: ${e.message}`)
+            body = undefined
         }
 
         const hogVmResponse: {
@@ -779,18 +663,5 @@ export class HogExecutorService {
 
         // We don't want to add "REDACTED" for empty strings
         return values.filter((v) => v.trim())
-    }
-
-    public enrichFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        // TRICKY: Some 3rd parties require developer tokens to be passed in the headers
-        // We don't want to expose these to the user so we add them here out of the custom code loop
-
-        request.headers = request.headers ?? {}
-
-        if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
-            request.headers['developer-token'] = this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
-        }
-
-        return request
     }
 }

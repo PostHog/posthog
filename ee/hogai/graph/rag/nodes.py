@@ -1,6 +1,6 @@
 import json
 import xml.etree.ElementTree as ET
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
@@ -33,7 +33,8 @@ class InsightRagContextNode(AssistantNode):
         distinct_id = self._get_user_distinct_id(config)
 
         plan = state.root_tool_insight_plan
-        assert plan is not None
+        if not plan:
+            return None
 
         # Kick off retrieval of the event taxonomy.
         self._prewarm_queries()
@@ -56,12 +57,6 @@ class InsightRagContextNode(AssistantNode):
                 vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
             )
         )
-
-    def router(self, state: AssistantState) -> NextRagNode:
-        if state.root_tool_insight_type and state.root_tool_insight_type not in NEXT_RAG_NODES:
-            raise ValueError(f"Invalid insight type: {state.root_tool_insight_type}")
-        next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
-        return next_node
 
     def _retrieve_actions(
         self,

@@ -40,6 +40,7 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsArpuQuery,
     RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
@@ -62,6 +63,7 @@ import {
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -150,6 +152,10 @@ export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQ
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
+}
+
+export function isRevenueAnalyticsArpuQuery(node?: Record<string, any> | null): node is RevenueAnalyticsArpuQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsArpuQuery
 }
 
 export function isRevenueAnalyticsCustomerCountQuery(
@@ -628,13 +634,11 @@ function isHogQLRaw(value: any): value is HogQLRaw {
 }
 
 function formatHogQLValue(value: any): string {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { teamLogic } = require('scenes/teamLogic')
-
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQLValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
-        return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+        const timezone = getAppContext()?.current_team?.timezone || 'UTC'
+        return value.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
     } else if (isHogQLIdentifier(value)) {
         return escapePropertyAsHogQLIdentifier(value.identifier)
     } else if (isHogQLRaw(value)) {

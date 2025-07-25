@@ -469,16 +469,7 @@ export const mathsLogic = kea<mathsLogicType>([
             },
         ],
         // Static means the options do not have nested selectors (like math function)
-        staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
-            (groupsMathDefinitions, needsUpgradeForGroups): Partial<Record<MathType, MathDefinition>> => {
-                const staticMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
-                    ...BASE_MATH_DEFINITIONS,
-                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
-                }
-                return staticMathDefinitions
-            },
-        ],
+        staticMathDefinitions: [() => [], (): Partial<Record<MathType, MathDefinition>> => BASE_MATH_DEFINITIONS],
         staticActorsOnlyMathDefinitions: [
             (s) => [s.staticMathDefinitions],
             (staticMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
@@ -498,8 +489,8 @@ export const mathsLogic = kea<mathsLogicType>([
                         .map((groupType) => [
                             apiValueToMathType('unique_group', groupType.group_type_index),
                             {
-                                name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-                                shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                                name: `${aggregationLabel(groupType.group_type_index).plural}`,
+                                shortName: `${aggregationLabel(groupType.group_type_index).plural}`,
                                 description: (
                                     <>
                                         Number of unique {aggregationLabel(groupType.group_type_index).plural} who

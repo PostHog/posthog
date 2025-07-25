@@ -11,8 +11,8 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
-import { RawTab } from './Tabs/RawTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
+import { SessionTab } from './Tabs/SessionTab'
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
@@ -26,7 +26,7 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
     eventLoading: boolean
 }
 
-export function ExceptionCard({ issue, issueLoading, label, event, eventLoading }: ExceptionCardProps): JSX.Element {
+export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
     const { setLoading } = useActions(exceptionCardLogic)
 
     useEffect(() => {
@@ -45,9 +45,9 @@ export function ExceptionCard({ issue, issueLoading, label, event, eventLoading 
         >
             <ExceptionCardContent
                 issue={issue}
-                label={label}
                 timestamp={event?.timestamp}
                 issueLoading={issueLoading}
+                label={label}
             />
         </BindLogic>
     )
@@ -55,15 +55,15 @@ export function ExceptionCard({ issue, issueLoading, label, event, eventLoading 
 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     return (
-        <LemonCard hoverEffect={false} className="group p-0 relative overflow-hidden">
+        <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
             <TabsPrimitive defaultValue="stacktrace">
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
-                            <TabsPrimitiveTrigger value="raw" className="flex items-center gap-1 text-lg h-full">
+                            <div className="flex items-center gap-1 text-lg h-full">
                                 <IconLogomark />
                                 <span className="text-sm">Exception</span>
-                            </TabsPrimitiveTrigger>
+                            </div>
                         </div>
                         <div className="flex gap-2 w-full justify-center h-full">
                             <TabsPrimitiveTrigger className="px-2" value="stacktrace">
@@ -71,6 +71,9 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             </TabsPrimitiveTrigger>
                             <TabsPrimitiveTrigger className="px-2" value="properties">
                                 Properties
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2" value="session">
+                                Session
                             </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
@@ -81,7 +84,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                 </div>
                 <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
                 <PropertiesTab value="properties" />
-                <RawTab value="raw" />
+                <SessionTab value="session" timestamp={timestamp} />
             </TabsPrimitive>
         </LemonCard>
     )

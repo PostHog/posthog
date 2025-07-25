@@ -99,6 +99,7 @@ class TestErrorTracking(APIBaseTest):
             "status": "active",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
+            "external_issues": [],
         }
 
     @freeze_time("2025-01-01")
@@ -118,6 +119,7 @@ class TestErrorTracking(APIBaseTest):
             "status": "resolved",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
+            "external_issues": [],
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 

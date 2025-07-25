@@ -10,13 +10,13 @@ import {
     getExceptionAttributes,
     getExceptionList,
     getFingerprintRecords,
+    getRecordingStatus,
     getSessionId,
     hasStacktrace,
 } from 'lib/components/Errors/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
-import { mightHaveRecording } from '../ViewRecordingButton/ViewRecordingButton'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -61,9 +61,9 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
         ],
-        mightHaveRecording: [
+        recordingStatus: [
             (s) => [s.properties],
-            (properties: ErrorEventProperties) => (properties ? mightHaveRecording(properties) : false),
+            (properties: ErrorEventProperties) => (properties ? getRecordingStatus(properties) : undefined),
         ],
         getExceptionFingerprint: [
             (s) => [s.fingerprintRecords],

@@ -62,14 +62,14 @@ def get_organization_from_view(view) -> Organization:
         organization = view.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError, AssertionError):
         pass
 
     try:
         organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError, AssertionError):
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
@@ -439,6 +439,8 @@ class APIScopePermission(ScopeBasePermission):
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
+        self._check_organization_personal_api_key_restrictions(request, view)
+
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
@@ -461,6 +463,31 @@ class APIScopePermission(ScopeBasePermission):
                 # Indicates this is not an organization scoped view
                 pass
 
+    def _check_organization_personal_api_key_restrictions(self, request, view) -> None:
+        """
+        Check if the organization being accessed allows personal API keys.
+        Admins can always use personal API keys regardless of the organization setting.
+        """
+        try:
+            org = get_organization_from_view(view)
+        except ValueError:
+            # Indicates this is not an organization scoped view
+            return
+
+        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+            return
+
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
+
+            if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+                raise PermissionDenied(
+                    f"Organization '{org.name}' does not allow using personal API keys. "
+                    f"Contact an admin to enable personal API keys for this organization."
+                )
+        except OrganizationMembership.DoesNotExist:
+            return
+
 
 class AccessControlPermission(ScopeBasePermission):
     """
@@ -477,8 +504,15 @@ class AccessControlPermission(ScopeBasePermission):
         if resource == "INTERNAL":
             return None
 
-        READ_LEVEL = ordered_access_levels(resource)[-2]
-        WRITE_LEVEL = ordered_access_levels(resource)[-1]
+        ordered_access_levels_list = ordered_access_levels(resource)
+        # For project and organization, the last two levels are the read and write levels
+        # For other resources, since we have the manager level, the last three levels are the read, write, and manager levels
+        if resource in ["project", "organization"]:
+            READ_LEVEL = ordered_access_levels_list[-2]
+            WRITE_LEVEL = ordered_access_levels_list[-1]
+        else:
+            READ_LEVEL = ordered_access_levels_list[-3]
+            WRITE_LEVEL = ordered_access_levels_list[-2]
 
         if not required_scopes:
             return READ_LEVEL if request.method in SAFE_METHODS else WRITE_LEVEL

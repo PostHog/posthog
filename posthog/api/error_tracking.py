@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, TypeVar
 
 from django.core.files.uploadedfile import UploadedFile
 from posthog.models.team.team import Team
@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.utils import action
 from posthog.models.utils import UUIDT
+from posthog.models.integration import Integration, GitHubIntegration, LinearIntegration
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingRelease,
@@ -30,6 +31,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingExternalReference,
 )
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -54,6 +56,76 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 logger = structlog.get_logger(__name__)
 
 
+class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Integration
+        fields = ["id", "kind", "display_name"]
+        read_only_fields = ["id", "kind", "display_name"]
+
+
+class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
+    config = serializers.JSONField(write_only=True)
+    issue = serializers.PrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
+    integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration"
+    )
+    external_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingExternalReference
+        fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
+        read_only_fields = ["external_url"]
+
+    def get_external_url(self, reference: ErrorTrackingExternalReference):
+        if reference.integration.kind == Integration.IntegrationKind.LINEAR:
+            url_key = LinearIntegration(reference.integration).url_key()
+            return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
+            org = GitHubIntegration(reference.integration).organization()
+            return f"https://github.com/{org}/{reference.external_context['repository']}/issues/{reference.external_context['number']}"
+
+    def validate(self, data):
+        issue = data["issue"]
+        integration = data["integration"]
+        team = self.context["get_team"]()
+
+        if issue.team_id != team.id:
+            raise serializers.ValidationError("Issue does not belong to this team.")
+
+        if integration.team_id != team.id:
+            raise serializers.ValidationError("Integration does not belong to this team.")
+
+        return data
+
+    def create(self, validated_data) -> ErrorTrackingExternalReference:
+        team = self.context["get_team"]()
+        issue: ErrorTrackingIssue = validated_data.get("issue")
+        integration: Integration = validated_data.get("integration")
+
+        config: dict[str, Any] = validated_data.pop("config")
+
+        if integration.kind == "github":
+            external_context = GitHubIntegration(integration).create_issue(config)
+        elif integration.kind == "linear":
+            external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
+        else:
+            raise ValidationError("Provider not supported")
+
+        instance = ErrorTrackingExternalReference.objects.create(
+            issue=issue,
+            integration=integration,
+            external_context=external_context,
+        )
+        return instance
+
+
+class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingExternalReference.objects.all()
+    serializer_class = ErrorTrackingExternalReferenceSerializer
+
+
 class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
     id = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
@@ -63,7 +135,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         fields = ["id", "type"]
 
     def get_id(self, obj):
-        return obj.user_id or obj.role_id
+        return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
     def get_type(self, obj):
         return "role" if obj.role else "user"
@@ -72,10 +144,11 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
     first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
 
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues"]
 
     def update(self, instance, validated_data):
         team = instance.team
@@ -129,7 +202,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     serializer_class = ErrorTrackingIssueSerializer
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        return (
+            queryset.select_related("assignment")
+            .prefetch_related("external_issues__integration")
+            .filter(team_id=self.team.id)
+        )
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
@@ -143,8 +220,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 if not str(record.issue_id) == self.kwargs.get("pk"):
                     return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-                issue_with_first_seen = ErrorTrackingIssue.objects.with_first_seen().get(id=record.issue_id)
-                serializer = self.get_serializer(issue_with_first_seen)
+                issue = (
+                    ErrorTrackingIssue.objects.with_first_seen()
+                    .select_related("assignment")
+                    .prefetch_related("external_issues__integration")
+                    .get(id=record.issue_id)
+                )
+                serializer = self.get_serializer(issue)
                 return Response(serializer.data)
 
         return super().retrieve(request, *args, **kwargs)
@@ -655,12 +737,33 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
+class HasGetQueryset(Protocol):
+    def get_queryset(self): ...
+
+
+T = TypeVar("T", bound=HasGetQueryset)
+
+
+class RuleReorderingMixin:
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self: T, request, **kwargs):
+        orders: dict[str, int] = request.data.get("orders", {})
+        rules = self.get_queryset().filter(id__in=orders.keys())
+
+        for rule in rules:
+            rule.order_key = orders[str(rule.id)]
+
+        self.get_queryset().bulk_update(rules, ["order_key"])
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -671,9 +774,9 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingAssignmentRule.objects.all()
+    queryset = ErrorTrackingAssignmentRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -728,7 +831,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -739,9 +842,9 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingGroupingRule.objects.all()
+    queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -801,9 +904,9 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingSuppressionRule.objects.all()
+    queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def safely_get_queryset(self, queryset):

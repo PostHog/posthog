@@ -120,7 +120,7 @@ def materialize_properties_task(
 
     materialized_columns: dict[TableWithProperties, list[MaterializedColumn]] = defaultdict(list)
     for table, table_column, property_name in result[:maximum]:
-        logger.info(f"Materializing column. table={table}, property_name={property_name}")
+        logger.info(f"Materializing column. table={table}, table_column={table_column} property_name={property_name}")
         if not dry_run:
             materialized_columns[table].append(
                 materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)

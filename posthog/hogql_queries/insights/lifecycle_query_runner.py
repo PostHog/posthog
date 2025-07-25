@@ -13,6 +13,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
 from posthog.models.filters.mixins.utils import cached_property
@@ -26,8 +27,8 @@ from posthog.schema import (
     IntervalType,
     StatusItem,
     DayItem,
+    ResolvedDateRangeResponse,
 )
-from posthog.utils import format_label_date
 
 
 class LifecycleQueryRunner(QueryRunner):
@@ -129,7 +130,10 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         return InsightActorsQueryOptionsResponse(
-            day=[DayItem(label=format_label_date(value), value=value) for value in self.query_date_range.all_values()],
+            day=[
+                DayItem(label=format_label_date(value, self.query_date_range, self.team.week_start_day), value=value)
+                for value in self.query_date_range.all_values()
+            ],
             status=[
                 StatusItem(label="Dormant", value="dormant"),
                 StatusItem(label="New", value="new"),
@@ -161,7 +165,7 @@ class LifecycleQueryRunner(QueryRunner):
         res = []
         for val in results:
             counts = val[1]
-            labels = [format_label_date(item, self.query_date_range.interval_name) for item in val[0]]
+            labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in val[0]]
             days = [
                 item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
                 for item in val[0]
@@ -203,7 +207,16 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return LifecycleQueryResponse(
+            results=res,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     @cached_property
     def query_date_range(self):

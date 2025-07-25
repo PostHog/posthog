@@ -57,10 +57,12 @@ from posthog.models import (
     User,
 )
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
-from posthog.temporal.batch_exports.destination_tests import get_destination_test
-from posthog.temporal.batch_exports.s3_batch_export import SUPPORTED_COMPRESSIONS
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    SUPPORTED_COMPRESSIONS,
+)
 
 logger = structlog.get_logger(__name__)
 

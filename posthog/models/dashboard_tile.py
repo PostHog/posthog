@@ -144,5 +144,5 @@ def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> lis
         .order_by("insight__order")
         .all()
     )
-    tiles.sort(key=lambda x: x.layouts.get(size, {}).get("y", 100))
+    tiles.sort(key=lambda x: (x.layouts.get(size, {}).get("y", 100), x.layouts.get(size, {}).get("x", 100)))
     return tiles

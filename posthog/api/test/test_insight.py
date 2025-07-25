@@ -2764,7 +2764,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_placeholder.json(),
             )
             # With the new HogQL query runner this legacy endpoint now returns 500 instead of a proper 400.
-            # We don't really care, since this endpoint should eventually be removed alltogether.
+            # We don't really care, since this endpoint should eventually be removed altogether.
             # self.assertEqual(
             #     response_placeholder.json(),
             #     self.validation_error_response("Unresolved placeholder: {team_id}"),

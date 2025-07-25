@@ -712,9 +712,26 @@ Currently, **read permissions are required** for the following resources:
     ExternalDataSource.Type.METAADS: SourceConfig(
         name=ExternalDataSourceType.META_ADS,
         label="Meta Ads",
-        caption="",
-        fields=cast(list[FieldType], []),
-        unreleasedSource=True,
+        caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
+        fields=cast(
+            list[FieldType],
+            [
+                SourceFieldInputConfig(
+                    name="account_id",
+                    label="Account ID",
+                    type=Type4.TEXT,
+                    required=True,
+                    placeholder="",
+                ),
+                SourceFieldOauthConfig(
+                    name="meta_ads_integration_id",
+                    label="Meta Ads account",
+                    required=True,
+                    kind="meta-ads",
+                ),
+            ],
+        ),
+        betaSource=True,
     ),
     ExternalDataSource.Type.KLAVIYO: SourceConfig(
         name=ExternalDataSourceType.KLAVIYO,

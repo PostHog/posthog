@@ -8,26 +8,28 @@ import dagster
 from dagster import (
     Field,
     MetadataValue,
+    AssetCheckExecutionContext,
     AssetCheckResult,
     AssetCheckSeverity,
     asset_check,
 )
-from dags.common import JobOwners
+from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
-from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
-from posthog.settings.base_variables import DEBUG
-from posthog.hogql.query import HogQLQueryExecutor
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.database.schema.web_analytics_s3 import (
     get_s3_url,
     get_s3_web_stats_structure,
     get_s3_web_bounces_structure,
     get_s3_function_args,
 )
+from posthog.models import Team
+from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
+from posthog.settings.base_variables import DEBUG
 
 
 logger = structlog.get_logger(__name__)
@@ -51,9 +53,10 @@ WEB_DATA_QUALITY_CONFIG_SCHEMA = {
 }
 
 
-def table_has_data(table_name: str) -> AssetCheckResult:
+def table_has_data(table_name: str, tags: DagsterTags = None) -> AssetCheckResult:
     try:
-        result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
+        with tags_context(kind="dagster", dagster=tags):
+            result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
         row_count = result[0][0] if result and result[0] else 0
 
         passed = row_count > 0
@@ -74,8 +77,8 @@ def table_has_data(table_name: str) -> AssetCheckResult:
     name="bounces_daily_has_data",
     description="Check if web_bounces_daily table has data",
 )
-def bounces_daily_has_data() -> AssetCheckResult:
-    return table_has_data("web_bounces_daily")
+def bounces_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_bounces_daily", dagster_tags(context))
 
 
 @asset_check(
@@ -83,8 +86,8 @@ def bounces_daily_has_data() -> AssetCheckResult:
     name="stats_daily_has_data",
     description="Check if web_stats_daily table has data",
 )
-def stats_daily_has_data() -> AssetCheckResult:
-    return table_has_data("web_stats_daily")
+def stats_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_stats_daily", dagster_tags(context))
 
 
 @asset_check(
@@ -92,17 +95,17 @@ def stats_daily_has_data() -> AssetCheckResult:
     name="bounces_hourly_has_data",
     description="Check if web_bounces_hourly table has data",
 )
-def bounces_hourly_has_data() -> AssetCheckResult:
-    return table_has_data("web_bounces_hourly")
+def bounces_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_bounces_hourly", dagster_tags(context))
 
 
 @asset_check(
     asset="web_analytics_stats_table_hourly",
     name="stats_hourly_has_data",
-    description="Check if web_stats_daily table has data",
+    description="Check if web_stats_hourly table has data",
 )
-def stats_hourly_has_data() -> AssetCheckResult:
-    return table_has_data("web_stats_hourly")
+def stats_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    return table_has_data("web_stats_hourly", dagster_tags(context))
 
 
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
@@ -254,7 +257,7 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
 
 
 def log_query_sql(
-    runner, query_name: str, context: dagster.AssetCheckExecutionContext, team: Team, use_pre_agg: bool = False
+    runner, query_name: str, context: AssetCheckExecutionContext, team: Team, use_pre_agg: bool = False
 ) -> None:
     try:
         if use_pre_agg:
@@ -274,7 +277,7 @@ def compare_web_overview_metrics(
     team_id: int,
     date_from: str,
     date_to: str,
-    context: dagster.AssetCheckExecutionContext,
+    context: AssetCheckExecutionContext,
     tolerance_pct: float = DEFAULT_TOLERANCE_PCT,
 ) -> tuple[bool, dict[str, Any]]:
     """
@@ -381,12 +384,12 @@ def compare_web_overview_metrics(
 
 
 @asset_check(
-    asset="web_analytics_combined_views",
+    asset="web_analytics_bounces_daily",
     name="web_analytics_accuracy_check",
     description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
     blocking=False,  # Don't block asset materialization if check fails
 )
-def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+def web_analytics_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
     """
     Data quality check: validates pre-aggregated tables match regular WebOverview queries within some % accuracy.
     """
@@ -399,6 +402,8 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     start_date = end_date - timedelta(days=days_back)
     date_from = start_date.strftime("%Y-%m-%d")
     date_to = end_date.strftime("%Y-%m-%d")
+
+    get_query_tags().with_dagster(dagster_tags(context))
 
     check_results = {}
 

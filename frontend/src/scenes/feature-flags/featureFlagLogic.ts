@@ -67,6 +67,7 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -366,10 +367,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                if (featureFlag.id) {
-                    actions.saveFeatureFlag(featureFlag)
-                } else {
-                    actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                // Use confirmation logic from dedicated file
+                const confirmationShown = checkFeatureFlagConfirmation(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.currentTeam?.feature_flag_confirmation_enabled,
+                    values.currentTeam?.feature_flag_confirmation_message || undefined,
+                    () => {
+                        // This callback is called when confirmation is completed or not needed
+                        if (featureFlag.id) {
+                            actions.saveFeatureFlag(featureFlag)
+                        } else {
+                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                        }
+                    }
+                )
+
+                // If no confirmation was shown, proceed immediately
+                if (!confirmationShown) {
+                    if (featureFlag.id) {
+                        actions.saveFeatureFlag(featureFlag)
+                    } else {
+                        actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                    }
                 }
             },
         },

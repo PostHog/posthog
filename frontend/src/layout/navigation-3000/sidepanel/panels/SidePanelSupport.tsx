@@ -58,8 +58,10 @@ const SupportResponseTimesTable = ({
     const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
         (a) => a.current_plan && a.plan_key?.includes('enterprise')
     )
+    // Treat add-ons without Stripe prices (included_with_main_product) the same as subscribed ones.
     const hasPlatformAndSupportAddon =
-        platformAndSupportProduct?.addons?.find((a) => !!a.subscribed) || hasLegacyEnterprisePlan
+        platformAndSupportProduct?.addons?.find((a) => a.subscribed || a.included_with_main_product) ||
+        hasLegacyEnterprisePlan
 
     // Check for expired trials
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -103,13 +105,22 @@ const SupportResponseTimesTable = ({
                 name: addon.name,
                 // Note(@zach): This is a legacy check that we can remove after migrating users off it.
                 current_plan:
-                    (addon.subscribed || (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) && !hasActiveTrial,
+                    (addon.subscribed ||
+                        addon.included_with_main_product ||
+                        (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) &&
+                    !hasActiveTrial,
                 features: [getResponseTimeFeature(addon.name) || { note: '1 business day' }],
                 plan_key: addon.type,
                 legacy_product: addon.legacy_product,
             }
         }) || []),
     ]
+
+    // Ensure only one plan (the last matching) remains marked as current.
+    const lastActiveIndex = plansToDisplay.map((p) => p.current_plan).lastIndexOf(true)
+    plansToDisplay.forEach((plan, idx) => {
+        plan.current_plan = idx === lastActiveIndex
+    })
 
     return (
         <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
@@ -177,7 +188,7 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, sendSupportRequest } = useValues(supportLogic)
+    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
@@ -187,7 +198,7 @@ export function SidePanelSupport(): JSX.Element {
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
         (!!billing?.trial?.status && billing.trial.status === 'active') ||
-        sendSupportRequest.target_area === 'billing' ||
+        targetArea === 'billing' ||
         isCurrentOrganizationNew
 
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'

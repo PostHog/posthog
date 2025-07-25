@@ -34,6 +34,11 @@ export function ProjectHomepage(): JSX.Element {
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
 
+    // TODO: Remove this after AA test is over
+    const { featureFlags } = useValues(featureFlagLogic)
+    const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
+    const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
+
     const headerButtons = (
         <>
             <LemonButton
@@ -58,6 +63,10 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="ProjectHomepage">
+            {/* TODO: Remove this after AA test is over. Just a hidden element. */}
+            <span className="hidden" data-attr="aa-test-flag-result">
+                AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
+            </span>
             <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />

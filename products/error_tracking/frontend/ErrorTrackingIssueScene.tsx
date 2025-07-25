@@ -3,7 +3,7 @@ import './ErrorTracking.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect } from 'react'
+
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -17,21 +17,23 @@ import { GenericSelect } from './components/GenericSelect'
 import { IssueStatus, StatusIndicator } from './components/Indicator'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
 import { ISSUE_STATUS_OPTIONS } from './utils'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
+import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
+import { EventsTable } from './components/EventsTable/EventsTable'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
     paramsToProps: ({
         params: { id },
-        searchParams: { fingerprint },
-    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
+        searchParams: { fingerprint, timestamp },
+    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint, timestamp }),
 }
 
 export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
@@ -43,23 +45,20 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueLoading, selectedEvent, firstSeenEventLoading } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
-
-    useEffect(() => {
-        loadIssue()
-    }, [loadIssue])
+    const hasIntegrations = useFeatureFlag('ERROR_TRACKING_INTEGRATIONS')
 
     return (
         <ErrorTrackingSetupPrompt>
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
+                        {hasIntegrations ? <ConnectIssueButton /> : null}
                         {hasDiscussions && (
                             <LemonButton
                                 type="secondary"
@@ -104,7 +103,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     issue={issue ?? undefined}
                     issueLoading={issueLoading}
                     event={selectedEvent ?? undefined}
-                    eventLoading={firstSeenEventLoading}
+                    eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
                 <ErrorFilters.Root>
@@ -112,7 +111,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <ErrorFilters.FilterGroup />
                     <ErrorFilters.InternalAccounts />
                 </ErrorFilters.Root>
-                <Metadata />
+                <Metadata>
+                    <EventsTable
+                        issueId={issueId}
+                        selectedEvent={selectedEvent}
+                        onEventSelect={(selectedEvent) => (selectedEvent ? selectEvent(selectedEvent) : null)}
+                    />
+                </Metadata>
             </div>
         </ErrorTrackingSetupPrompt>
     )

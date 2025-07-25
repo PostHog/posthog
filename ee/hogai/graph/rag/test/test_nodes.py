@@ -10,7 +10,7 @@ from ee.hogai.utils.types import AssistantState
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
-from posthog.schema import MaxActionContext, MaxContextShape, TeamTaxonomyQuery
+from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
@@ -89,7 +89,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
 
         # Mock UI context with actions
-        mock_ui_context = MaxContextShape(
+        mock_ui_context = MaxUIContext(
             actions=[MaxActionContext(id=context_action.id, name="Context Action", description="From UI Context")]
         )
         mock_get_ui_context.return_value = mock_ui_context
@@ -117,7 +117,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
             description="Only from context",
         )
 
-        mock_ui_context = MaxContextShape(
+        mock_ui_context = MaxUIContext(
             actions=[
                 MaxActionContext(id=context_action.id, name="Context Only Action", description="Only from context")
             ]

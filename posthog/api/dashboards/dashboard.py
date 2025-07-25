@@ -113,6 +113,7 @@ class DashboardBasicSerializer(
             "pinned",
             "created_at",
             "created_by",
+            "last_accessed_at",
             "is_shared",
             "deleted",
             "creation_mode",

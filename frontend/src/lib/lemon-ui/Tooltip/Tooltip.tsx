@@ -66,6 +66,7 @@ export function Tooltip({
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
+    const [isPressingReference, setIsPressingReference] = useState(false) // Track reference hover state
     const caretRef = useRef(null)
     const floatingContainer = useFloatingContainer()
 
@@ -85,6 +86,7 @@ export function Tooltip({
     })
 
     const hover = useHover(context, {
+        enabled: !isPressingReference, // Need to disable esp. for elements where the tooltip is a dragging handle
         move: false,
         delay: {
             open: delayMs,
@@ -92,15 +94,17 @@ export function Tooltip({
         },
     })
     const focus = useFocus(context)
-    const dismiss = useDismiss(context)
+    const dismiss = useDismiss(context, {
+        referencePress: true, // referencePress closes tooltip on click
+    })
     const role = useRole(context, { role: 'tooltip' })
 
     const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss, role])
 
-    const { styles: transitionStyles } = useTransitionStyles(context, {
+    const { isMounted, styles: transitionStyles } = useTransitionStyles(context, {
         duration: {
-            open: 150,
-            close: 0,
+            open: 100,
+            close: 50,
         },
         initial: ({ side }) => ({
             opacity: 0,
@@ -121,8 +125,16 @@ export function Tooltip({
     const clonedChild = React.cloneElement(
         child,
         getReferenceProps({
-            ref: triggerRef,
             ...child.props,
+            ref: triggerRef,
+            onMouseDown: () => {
+                setIsPressingReference(true)
+                child.props.onMouseEnter?.()
+            },
+            onMouseUp: () => {
+                setIsPressingReference(false)
+                child.props.onMouseUp?.()
+            },
         })
     )
 
@@ -135,7 +147,7 @@ export function Tooltip({
     return (
         <>
             {clonedChild}
-            {open && (
+            {isMounted && (
                 <FloatingPortal root={floatingContainer}>
                     <div
                         ref={refs.setFloating}

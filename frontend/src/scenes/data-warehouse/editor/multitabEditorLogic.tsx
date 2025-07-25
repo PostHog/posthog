@@ -61,6 +61,14 @@ export const editorModelsStateKey = (key: string | number): string => `${key}/ed
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
+export const deprecatedAllTabsStateKey = (key: string | number): string =>
+    `data-warehouse.editor.multitabEditorLogic.${key}.allTabs`
+export const allTabsStateKey = (key: string | number): string => `${key}/allTabs`
+
+export const deprecatedInProgressViewEditStateKey = (key: string | number): string =>
+    `data-warehouse.editor.multitabEditorLogic.${key}.inProgressViewEdits`
+export const inProgressViewEditStateKey = (key: string | number): string => `${key}/inProgressViewEdits`
+
 export const NEW_QUERY = 'Untitled'
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
@@ -85,17 +93,26 @@ const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     return untitledNumbers.length + 1
 }
 
-const getStorageItem = async (key: string): Promise<string | null> => {
+const getStorageItem = async (key: string, newKey?: string): Promise<string | null> => {
+    // If we're migrating from a deprecated key, we need to get the value from the old key and set it to the new key
+
     const dbValue = await get(key)
 
     if (dbValue) {
         return dbValue
     }
 
+    if (newKey) {
+        const newKeyDbValue = await get(newKey)
+        if (newKeyDbValue) {
+            return newKeyDbValue
+        }
+    }
+
     const lsValue = localStorage.getItem(key)
 
     if (lsValue) {
-        await set(key, lsValue)
+        await set(newKey || key, lsValue)
         localStorage.removeItem(key)
         return lsValue
     }
@@ -219,6 +236,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         openHistoryModal: true,
         closeHistoryModal: true,
         setInProgressViewEdit: (viewId: string, historyId: string) => ({ viewId, historyId }),
+        setInProgressViewEdits: (inProgressViewEdits: Record<DataWarehouseSavedQuery['id'], string>) => ({
+            inProgressViewEdits,
+        }),
         deleteInProgressViewEdit: (viewId: string) => ({ viewId }),
         updateView: (
             view: Partial<DatabaseSchemaViewTable> & {
@@ -230,6 +250,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 types: string[][]
             }
         ) => ({ view }),
+        setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
+        setHoveredNode: (nodeId: string | null) => ({ nodeId }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -330,7 +352,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         allTabs: [
             [] as QueryTab[],
-            { persist: true },
             {
                 addTab: (state, { tab }) => {
                     return [...state, tab]
@@ -387,7 +408,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         // if a view edit starts, store the historyId in the state
         inProgressViewEdits: [
             {} as Record<DataWarehouseSavedQuery['id'], string>,
-            { persist: true },
             {
                 setInProgressViewEdit: (state, { viewId, historyId }) => ({
                     ...state,
@@ -398,6 +418,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     delete newInProgressViewEdits[viewId]
                     return newInProgressViewEdits
                 },
+                setInProgressViewEdits: (_, { inProgressViewEdits }) => inProgressViewEdits,
             },
         ],
         fixErrorsError: [
@@ -405,6 +426,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             {
                 setQueryInput: () => null,
                 fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
+        upstreamViewMode: [
+            'graph' as 'graph' | 'table',
+            {
+                setUpstreamViewMode: (_: 'graph' | 'table', { mode }: { mode: 'graph' | 'table' }) => mode,
+            },
+        ],
+        hoveredNode: [
+            null as string | null,
+            {
+                setHoveredNode: (_, { nodeId }) => nodeId,
             },
         ],
     })),
@@ -734,6 +767,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             // TODO: replace with queryTabState
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
+            const allTabs = await getStorageItem(deprecatedAllTabsStateKey(props.key), allTabsStateKey(props.key))
+            const inProgressViewEdit = await getStorageItem(
+                deprecatedInProgressViewEditStateKey(props.key),
+                inProgressViewEditStateKey(props.key)
+            )
+
+            const allTabsParsed = allTabs && allTabs !== 'undefined' ? JSON.parse(allTabs) : []
+            const inProgressViewEditParsed =
+                inProgressViewEdit && inProgressViewEdit !== 'undefined' ? JSON.parse(inProgressViewEdit) : {}
+            actions.setInProgressViewEdits(inProgressViewEditParsed)
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -758,7 +801,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         const newModel = props.monaco.editor.createModel(model.query, 'hogQL', uri)
                         props.editor?.setModel(newModel)
 
-                        const existingTab = values.allTabs.find((tab) => tab.uri.path === uri.path)
+                        const existingTab = allTabsParsed.find((tab: QueryTab) => tab.uri.path === uri.path)
 
                         newModels.push({
                             uri,
@@ -853,6 +896,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
             actions.updateQueryTabState(skipBreakpoint)
+
+            actions.setLocalState(allTabsStateKey(props.key), JSON.stringify(values.allTabs))
+            actions.setLocalState(inProgressViewEditStateKey(props.key), JSON.stringify(values.inProgressViewEdits))
         },
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
@@ -884,6 +930,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 key: values.dataLogicKey,
                 query: newSource,
             }).actions.loadData(!switchTab ? 'force_async' : 'async')
+
+            actions.updateState()
         },
         saveAsView: async ({ materializeAfterSave = false }) => {
             LemonDialog.openForm({
@@ -1035,6 +1083,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions._deleteTab(tabToRemove)
             }
             lemonToast.success('View deleted')
+            actions.updateState()
         },
         createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
             const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
@@ -1059,6 +1108,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
             }
             lemonToast.success('View updated')
+            actions.updateState()
         },
         updateQueryTabState: async ({ skipBreakpoint }, breakpoint) => {
             if (skipBreakpoint !== true) {
@@ -1087,13 +1137,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const responseInBytes = sizeOfInBytes(response)
 
+            const existingTab = values.allTabs.find((tab) => tab.uri.path === currentTab.uri.path)
+
             // Store in local storage if the response is less than 1 MB
-            if (responseInBytes <= 1024 * 1024) {
+            if (responseInBytes <= 1024 * 1024 && existingTab) {
                 actions.updateTab({
-                    ...currentTab,
+                    ...existingTab,
                     response,
                 })
             }
+            actions.updateState()
         },
         updateView: async ({ view }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)

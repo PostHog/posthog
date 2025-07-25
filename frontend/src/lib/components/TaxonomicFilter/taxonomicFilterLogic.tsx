@@ -25,7 +25,7 @@ import {
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -53,6 +53,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    TeamType,
 } from '~/types'
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
@@ -104,7 +105,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -208,7 +209,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         taxonomicGroups: [
             (s) => [
-                s.currentTeamId,
+                s.currentTeam,
                 s.currentProjectId,
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
@@ -221,7 +222,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
             ],
             (
-                teamId: number | null,
+                currentTeam: TeamType,
                 projectId: number | null,
                 groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
                 groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
@@ -231,8 +232,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters: { excludedProperties: any; propertyAllowList: any },
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[]
             ): TaxonomicFilterGroup[] => {
+                const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -422,6 +424,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         valuesEndpoint: (key) =>
                             `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
                         getPopoverHeader: () => 'Issues',
+                    },
+                    {
+                        name: 'Exception properties',
+                        searchPlaceholder: 'exceptions',
+                        type: TaxonomicFilterGroupType.ErrorTrackingProperties,
+                        options: [
+                            ...[
+                                '$exception_types',
+                                '$exception_values',
+                                '$exception_sources',
+                                '$exception_functions',
+                            ].map((value) => ({ name: value, value, group: TaxonomicFilterGroupType.EventProperties })),
+                            ...(currentTeam?.person_display_name_properties
+                                ? currentTeam.person_display_name_properties.map((property) => ({
+                                      name: property,
+                                      value: property,
+                                      group: TaxonomicFilterGroupType.PersonProperties,
+                                  }))
+                                : []),
+                        ],
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Exception properties',
                     },
                     {
                         name: 'Revenue analytics properties',
@@ -683,9 +707,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'elements from this page',
                         type: TaxonomicFilterGroupType.MaxAIContext,
                         options: maxContextOptions,
-                        getName: (option: MaxContextOption) => option.name,
-                        getValue: (option: MaxContextOption) => option.value,
-                        getIcon: (option: MaxContextOption) => {
+                        getName: (option: MaxContextTaxonomicFilterOption) => option.name,
+                        getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
+                        getIcon: (option: MaxContextTaxonomicFilterOption) => {
                             const Icon = option.icon as React.ComponentType
                             if (Icon) {
                                 return <Icon />

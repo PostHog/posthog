@@ -4,8 +4,10 @@ import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
 import { HogFlow } from '../../schema/hogflow'
+import { RawClickHouseEvent } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { UUIDT } from '../../utils/utils'
+import { clickHouseTimestampToISO, UUIDT } from '../../utils/utils'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
@@ -68,6 +70,128 @@ function getElementsChainElements(elementsChain: string): string[] {
         elementMatches.add(elementMatch[1])
     }
     return Array.from(elementMatches)
+}
+
+export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEvent): HogFunctionFilterGlobals {
+    const properties = event.properties ? parseJSON(event.properties) : {}
+    const elementsChain = event.elements_chain ?? properties['$elements_chain']
+
+    // Handle timestamp conversion
+    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+        ? event.timestamp
+        : clickHouseTimestampToISO(event.timestamp)
+
+    // Handle person
+    let person: HogFunctionFilterGlobals['person'] = null
+    let pdi: HogFunctionFilterGlobals['pdi'] = null
+
+    if (event.person_id) {
+        const personProperties = event.person_properties ? parseJSON(event.person_properties) : {}
+
+        person = {
+            id: event.person_id,
+            properties: personProperties,
+        }
+
+        pdi = {
+            distinct_id: event.distinct_id,
+            person_id: event.person_id,
+            person: {
+                id: event.person_id,
+                properties: personProperties,
+            },
+        }
+    }
+
+    // Initialize response with basic structure
+    const response: HogFunctionFilterGlobals = {
+        event: event.event,
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
+        timestamp: eventTimestamp,
+        properties,
+        person,
+        pdi,
+        distinct_id: event.distinct_id,
+        $group_0: null,
+        $group_1: null,
+        $group_2: null,
+        $group_3: null,
+        $group_4: null,
+        group_0: { properties: {} },
+        group_1: { properties: {} },
+        group_2: { properties: {} },
+        group_3: { properties: {} },
+        group_4: { properties: {} },
+    }
+
+    // Handle groups from RawClickHouseEvent
+    const groupProperties = [
+        event.group0_properties,
+        event.group1_properties,
+        event.group2_properties,
+        event.group3_properties,
+        event.group4_properties,
+    ]
+
+    groupProperties.forEach((groupPropsString, index) => {
+        if (groupPropsString) {
+            const groupProps = parseJSON(groupPropsString)
+            const groupKey = `group_${index}` as keyof HogFunctionFilterGlobals
+
+            if (groupKey in response) {
+                ;(response as any)[groupKey] = {
+                    properties: groupProps,
+                }
+            }
+        }
+    })
+
+    // Extract group IDs from properties
+    for (let i = 0; i < 5; i++) {
+        const groupIdKey = `$group_${i}` as keyof HogFunctionFilterGlobals
+        const groupIdValue = properties[groupIdKey]
+
+        if (groupIdValue && groupIdKey in response) {
+            ;(response as any)[groupIdKey] = groupIdValue
+        }
+    }
+
+    // Handle elements_chain processing with lazy evaluation
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
+    }
+
+    return response
 }
 
 export function convertToHogFunctionFilterGlobal(
