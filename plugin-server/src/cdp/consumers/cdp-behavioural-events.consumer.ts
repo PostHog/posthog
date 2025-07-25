@@ -18,13 +18,19 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export type BehavioralEvent = {
     teamId: number
     filterGlobals: HogFunctionFilterGlobals
-    personId?: string
+    personId: string
 }
 
 export const counterParseError = new Counter({
     name: 'cdp_behavioural_function_parse_error',
     help: 'A behavioural function invocation was parsed with an error',
     labelNames: ['error'],
+})
+
+export const counterEventsDropped = new Counter({
+    name: 'cdp_behavioural_events_dropped_total',
+    help: 'Total number of events dropped due to missing personId or other validation errors',
+    labelNames: ['reason'],
 })
 
 export const counterEventsConsumed = new Counter({
@@ -133,8 +139,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             const matchedFilter =
                 typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
-            // If matched and we have person info, collect counter update
-            if (matchedFilter && event.personId) {
+            if (matchedFilter) {
                 const filterHash = this.createFilterHash(action.bytecode!)
                 const date = new Date().toISOString().split('T')[0]
                 counterUpdates.push({
@@ -189,6 +194,16 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     messages.forEach((message) => {
                         try {
                             const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+
+                            if (!clickHouseEvent.person_id) {
+                                logger.error('Dropping event: missing person_id', {
+                                    teamId: clickHouseEvent.team_id,
+                                    event: clickHouseEvent.event,
+                                    uuid: clickHouseEvent.uuid,
+                                })
+                                counterEventsDropped.labels({ reason: 'missing_person_id' }).inc()
+                                return
+                            }
 
                             // Convert directly to filter globals
                             const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)

@@ -6,7 +6,7 @@ import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
-import { BehavioralEvent, CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
+import { BehavioralEvent, CdpBehaviouralEventsConsumer, counterEventsDropped } from './cdp-behavioural-events.consumer'
 
 jest.setTimeout(5000)
 
@@ -72,6 +72,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const behavioralEvent: BehavioralEvent = {
                 teamId: team.id,
                 filterGlobals,
+                personId: '550e8400-e29b-41d4-a716-446655440000',
             }
 
             // Verify the action was loaded
@@ -124,6 +125,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const behavioralEvent: BehavioralEvent = {
                 teamId: team.id,
                 filterGlobals,
+                personId: '550e8400-e29b-41d4-a716-446655440000',
             }
 
             // Verify the action was loaded
@@ -199,6 +201,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const behavioralEvent: BehavioralEvent = {
                 teamId: team.id,
                 filterGlobals,
+                personId: '550e8400-e29b-41d4-a716-446655440000',
             }
 
             // Test processEvent directly and verify it returns 2 for both matching actions
@@ -406,52 +409,40 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(cassandraResult.rows).toHaveLength(0)
         })
 
-        it('should not write counter when person ID is missing', async () => {
-            // Arrange
-            const bytecode = [
-                '_H',
-                1,
-                32,
-                'Chrome',
-                32,
-                '$browser',
-                32,
-                'properties',
-                1,
-                2,
-                11,
-                32,
-                '$pageview',
-                32,
-                'event',
-                1,
-                1,
-                11,
-                3,
-                2,
-                4,
-                1,
-            ]
-
-            await createAction(hub.postgres, team.id, 'Test action', bytecode)
-
-            // Create a matching event without person ID
-            const matchingEvent = createIncomingEvent(team.id, {
+        it('should drop events with missing person ID at parsing stage', async () => {
+            // Create a raw event without person_id (simulating what comes from Kafka)
+            const rawEventWithoutPersonId = {
+                uuid: '12345',
                 event: '$pageview',
+                team_id: team.id,
                 properties: JSON.stringify({ $browser: 'Chrome' }),
-            } as RawClickHouseEvent)
-
-            const filterGlobals = convertClickhouseRawEventToFilterGlobals(matchingEvent)
-            const behavioralEvent: BehavioralEvent = {
-                teamId: team.id,
-                filterGlobals,
-                // personId is undefined
+                // person_id is undefined
             }
 
-            // Act
-            await processor.processBatch([behavioralEvent])
+            // Get initial metric value
+            const initialDroppedCount = await counterEventsDropped.get()
+            const initialMissingPersonIdCount =
+                initialDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
 
-            // Assert - check that no counter was written to Cassandra
+            const messages = [
+                {
+                    value: Buffer.from(JSON.stringify(rawEventWithoutPersonId)),
+                },
+            ] as any[]
+
+            // Act - parse the batch (should drop the event)
+            const parsedEvents = await (processor as any)._parseKafkaBatch(messages)
+
+            // Assert - no events should be parsed due to missing person_id
+            expect(parsedEvents).toHaveLength(0)
+
+            // Assert - metric should be incremented
+            const finalDroppedCount = await counterEventsDropped.get()
+            const finalMissingPersonIdCount =
+                finalDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
+            expect(finalMissingPersonIdCount).toBe(initialMissingPersonIdCount + 1)
+
+            // Assert - no counter should be written to Cassandra since event was dropped
             const cassandraResult = await cassandra.execute(
                 'SELECT * FROM behavioral_event_counters WHERE team_id = ?',
                 [team.id],
