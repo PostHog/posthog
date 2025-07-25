@@ -96,6 +96,10 @@ export type HogExecutorExecuteOptions = {
     asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
 }
 
+export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
+    maxAsyncFunctions?: number
+}
+
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
@@ -237,9 +241,7 @@ export class HogExecutorService {
 
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
-        options?: HogExecutorExecuteOptions & {
-            maxAsyncFunctions?: number
-        }
+        options?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
