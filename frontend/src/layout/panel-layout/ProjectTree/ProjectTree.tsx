@@ -1,5 +1,6 @@
 import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -119,6 +120,7 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -131,7 +133,7 @@ export function ProjectTree({
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
             setSortMethod(sortMethod ?? 'folder')
         }
-    }, [sortMethod, projectSortMethod])
+    }, [sortMethod, projectSortMethod, setSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -347,7 +349,10 @@ export function ProjectTree({
                         onClick={(e) => {
                             e.stopPropagation()
                             // Use deleteShortcut for saved views (group view shortcuts), deleteItem for others
-                            if (isGroupViewShortcut(item.record as unknown as FileSystemEntry)) {
+                            if (
+                                hasCrmIterationOneEnabled &&
+                                isGroupViewShortcut(item.record as unknown as FileSystemEntry)
+                            ) {
                                 item.record && deleteShortcut(item.record?.id)
                             } else {
                                 deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)

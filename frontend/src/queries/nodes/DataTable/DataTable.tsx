@@ -139,6 +139,7 @@ export function DataTable({
     const { setSaveFiltersModalOpen } = useActions(builtDataNodeLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
         response &&
@@ -505,13 +506,15 @@ export function DataTable({
                     query={query.source as GroupsQuery}
                     setQuery={setQuerySource}
                 />
-                <LemonButton
-                    data-attr="save-group-filters"
-                    type="primary"
-                    onClick={() => setSaveFiltersModalOpen(true)}
-                >
-                    Save filters
-                </LemonButton>
+                {hasCrmIterationOneEnabled && (
+                    <LemonButton
+                        data-attr="save-group-filters"
+                        type="primary"
+                        onClick={() => setSaveFiltersModalOpen(true)}
+                    >
+                        Save filters
+                    </LemonButton>
+                )}
             </div>
         ) : null,
     ].filter((x) => !!x)

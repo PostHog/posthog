@@ -33,6 +33,7 @@ import {
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
+import { FEATURE_FLAGS } from '~/lib/constants'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 
@@ -552,8 +553,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         groupItems: [
-            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel, s.shortcutData],
-            (groupTypes, groupsAccessStatus, aggregationLabel, shortcutData): FileSystemImport[] => {
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel, s.shortcutData, s.featureFlags],
+            (groupTypes, groupsAccessStatus, aggregationLabel, shortcutData, featureFlags): FileSystemImport[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
@@ -580,34 +581,39 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
                 // Add saved group filter shortcuts - these are created when users save filtered views
                 // from the groups page and should appear in the persons:// tree under "Saved Views"
-                const groupFilterShortcuts = shortcutData
-                    .filter((shortcut) => isGroupViewShortcut(shortcut))
-                    .map((shortcut) => ({
-                        id: shortcut.id,
-                        path: shortcut.path,
-                        type: shortcut.type,
-                        category: 'Saved Views',
-                        iconType: 'database' as const,
-                        href: shortcut.href || '',
-                        visualOrder: 100,
-                        shortcut: true,
-                        tags: shortcut.tags || [],
-                    }))
+                const groupFilterShortcuts = featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
+                    ? shortcutData
+                          .filter((shortcut) => isGroupViewShortcut(shortcut))
+                          .map((shortcut) => ({
+                              id: shortcut.id,
+                              path: shortcut.path,
+                              type: shortcut.type,
+                              category: 'Saved Views',
+                              iconType: 'database' as const,
+                              href: shortcut.href || '',
+                              visualOrder: 100,
+                              shortcut: true,
+                              tags: shortcut.tags || [],
+                          }))
+                    : []
 
                 return [...groupItems, ...groupFilterShortcuts]
             },
         ],
         getShortcutTreeItems: [
-            (s) => [s.shortcutData, s.viableItems, s.folderStates, s.users],
+            (s) => [s.shortcutData, s.viableItems, s.folderStates, s.users, s.featureFlags],
             (
                 shortcutData,
                 viableItems,
                 folderStates,
-                users
+                users,
+                featureFlags
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
-                    for (const shortcut of shortcutData.filter((shortcut) => !isGroupViewShortcut(shortcut))) {
+                    for (const shortcut of shortcutData.filter(
+                        (shortcut) => !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut))
+                    )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
                             imports: [shortcut],

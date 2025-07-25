@@ -6,14 +6,13 @@ import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { Query } from '~/queries/Query/Query'
 import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
 
@@ -26,7 +25,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
         groupsListLogic({ groupTypeIndex })
     )
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -50,7 +49,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
         },
     } as QueryContext['columns']
     let hiddenColumns = [] as string[]
-    if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+    if (hasCrmIterationOneEnabled) {
         columns = getCRMColumns(groupTypeName, groupTypeIndex)
         hiddenColumns.push('key')
     }
@@ -82,33 +81,35 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 dataAttr="groups-table"
             />
 
-            <LemonModal
-                isOpen={saveFiltersModalOpen}
-                onClose={() => setSaveFiltersModalOpen(false)}
-                title="Save filtered groups view"
-                footer={
-                    <>
-                        <LemonButton onClick={() => setSaveFiltersModalOpen(false)}>Cancel</LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => saveFilterAsShortcut(window.location.href)}
-                            disabledReason={!filterShortcutName.trim() ? 'Name is required' : undefined}
-                        >
-                            Save
-                        </LemonButton>
-                    </>
-                }
-            >
-                <div className="space-y-4">
-                    <p>Save this filtered view as a shortcut in the People panel.</p>
-                    <LemonInput
-                        placeholder="Enter shortcut name"
-                        value={filterShortcutName}
-                        onChange={setFilterShortcutName}
-                        autoFocus
-                    />
-                </div>
-            </LemonModal>
+            {hasCrmIterationOneEnabled && (
+                <LemonModal
+                    isOpen={saveFiltersModalOpen}
+                    onClose={() => setSaveFiltersModalOpen(false)}
+                    title="Save filtered groups view"
+                    footer={
+                        <>
+                            <LemonButton onClick={() => setSaveFiltersModalOpen(false)}>Cancel</LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => saveFilterAsShortcut(window.location.href)}
+                                disabledReason={!filterShortcutName.trim() ? 'Name is required' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </>
+                    }
+                >
+                    <div className="space-y-4">
+                        <p>Save this filtered view as a shortcut in the People panel.</p>
+                        <LemonInput
+                            placeholder="Enter shortcut name"
+                            value={filterShortcutName}
+                            onChange={setFilterShortcutName}
+                            autoFocus
+                        />
+                    </div>
+                </LemonModal>
+            )}
         </>
     )
 }
