@@ -8,8 +8,6 @@ import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
-    ClickhouseGroup,
-    ClickHouseTimestamp,
     Cohort,
     CohortPeople,
     Group,
@@ -111,11 +109,6 @@ export interface CreatePersonalApiKeyPayload {
 }
 
 export type GroupId = [GroupTypeIndex, GroupKey]
-
-export interface CachedGroupData {
-    properties: Properties
-    created_at: ClickHouseTimestamp
-}
 
 export interface PersonPropertiesSize {
     total_props_bytes: number
