@@ -26,7 +26,7 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
         inputs[key] = {"value": value}
 
     data = {
-        "template_id": template.id,
+        "template_id": template.template_id,
         "type": template.type,
         "name": plugin.name,
         "description": template.description,
