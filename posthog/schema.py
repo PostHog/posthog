@@ -11940,6 +11940,7 @@ class StickinessActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compare: Optional[Compare] = None
     day: Optional[Union[str, int]] = None
     includeRecordings: Optional[bool] = None
     kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"

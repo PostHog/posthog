@@ -21830,6 +21830,10 @@
         "StickinessActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
                 "day": {
                     "anyOf": [
                         {

@@ -2585,6 +2585,7 @@ export interface StickinessActorsQuery extends InsightActorsQueryBase {
     operator?: StickinessOperator
     day?: string | Day
     series?: integer
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
