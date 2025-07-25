@@ -17,7 +17,11 @@ def argmax_select(
     from posthog.hogql import ast
 
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=[table_name, argmax_field])]
+        name="argMax",
+        args=[
+            ast.Call(name="ifNull", args=[field, ast.Constant(value=None)]),
+            ast.Field(chain=[table_name, argmax_field]),
+        ],
     )
 
     fields_to_group: list[ast.Expr] = []
