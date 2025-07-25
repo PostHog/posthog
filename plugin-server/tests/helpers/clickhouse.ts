@@ -3,6 +3,7 @@ import { performance } from 'perf_hooks'
 
 import {
     ClickHouseEvent,
+    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
     DeadLetterQueueEvent,
@@ -191,5 +192,12 @@ export class Clickhouse {
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
         const queryResult = await this.query<PluginLogEntry>(`SELECT * FROM plugin_log_entries`)
         return queryResult
+    }
+
+    public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
+        const query = `
+        SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
+        `
+        return await this.query<ClickhouseGroup>(query)
     }
 }

@@ -9,7 +9,6 @@ import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     ClickhouseGroup,
-    ClickHousePersonDistinctId2,
     ClickHouseTimestamp,
     Cohort,
     CohortPeople,
@@ -1326,14 +1325,6 @@ export class DB {
                 },
             ],
         })
-    }
-
-    // Used in tests
-    public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
-        const query = `
-        SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
-        `
-        return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
     }
 
     public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {

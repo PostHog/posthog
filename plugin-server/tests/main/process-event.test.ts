@@ -1823,9 +1823,9 @@ describe('processEvent', () => {
         )
 
         expect((await clickhouse.fetchEvents()).length).toBe(1)
-        await clickhouse.delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchClickhouseGroups(), 1)
 
-        const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+        const [clickhouseGroup] = await clickhouse.fetchClickhouseGroups()
         expect(clickhouseGroup).toEqual({
             group_key: 'org::5',
             group_properties: JSON.stringify({ foo: 'bar' }),
@@ -1903,9 +1903,9 @@ describe('processEvent', () => {
         )
 
         expect((await clickhouse.fetchEvents()).length).toBe(1)
-        await clickhouse.delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchClickhouseGroups(), 1)
 
-        const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
+        const [clickhouseGroup] = await clickhouse.fetchClickhouseGroups()
         expect(clickhouseGroup).toEqual({
             group_key: 'org::5',
             group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
