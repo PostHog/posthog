@@ -26,7 +26,6 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError
 from django.db.models.functions import Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
@@ -595,22 +594,20 @@ async def initialize_self_capture_api_token():
 
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
-    try:
-        user = (
-            await User.objects.filter(last_login__isnull=False)
-            .order_by("-last_login")
-            .select_related("current_team")
-            .afirst()
-        )
-        # Get the current user's team (or first team in the instance) to set self capture configs
-        team = None
-        if user and getattr(user, "current_team", None):
-            team = user.current_team
-        else:
-            team = await Team.objects.only("api_token").afirst()
-        local_api_key = team.api_token if team else None
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
-        local_api_key = None
+
+    user = (
+        await User.objects.filter(last_login__isnull=False)
+        .order_by("-last_login")
+        .select_related("current_team")
+        .afirst()
+    )
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team = None
+    if user and getattr(user, "current_team", None):
+        team = user.current_team
+    else:
+        team = await Team.objects.only("api_token").afirst()
+    local_api_key = team.api_token if team else None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:
