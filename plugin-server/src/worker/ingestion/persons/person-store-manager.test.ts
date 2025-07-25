@@ -155,10 +155,9 @@ describe('PersonStoreManager', () => {
         )
 
         db = {
-            postgres: {
-                transaction: jest.fn().mockImplementation(async (_usage, _tag, transaction) => {
-                    return await transaction(transaction)
-                }),
+            kafkaProducer: {
+                queueMessage: jest.fn(),
+                queueMessages: jest.fn(),
             },
         } as unknown as DB
 
@@ -345,10 +344,9 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         )
 
         db = {
-            postgres: {
-                transaction: jest.fn().mockImplementation(async (_usage, _tag, transaction) => {
-                    return await transaction(transaction)
-                }),
+            kafkaProducer: {
+                queueMessage: jest.fn(),
+                queueMessages: jest.fn(),
             },
         } as unknown as DB
 
