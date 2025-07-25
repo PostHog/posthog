@@ -19,6 +19,23 @@ export function setupCommonRoutes(
     return app
 }
 
+export function setupExpressApp(): express.Application {
+    const app = express()
+
+    app.use(
+        express.json({
+            limit: '200kb',
+            verify: (req, res, buf) => {
+                ;(req as any).rawBody = buf.toString('utf8')
+            },
+        })
+    )
+
+    return app
+}
+
+export type ModifiedRequest = Request & { rawBody?: string }
+
 const buildGetHealth =
     (services: Pick<PluginServerService, 'id' | 'healthcheck'>[]) => async (req: Request, res: Response) => {
         // Check that all health checks pass. Note that a failure of these

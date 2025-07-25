@@ -63,9 +63,6 @@ from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    UnsupportedFileFormatError,
-)
 from products.batch_exports.backend.tests.temporal.utils import (
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
@@ -528,7 +525,11 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
+        result = await self._run_activity(activity_environment, insert_inputs)
+        records_exported = result.records_completed
+        bytes_exported = result.bytes_exported
+        assert result.error is None
+
         events_to_export_created, persons_to_export_created = generate_test_data
         assert (
             records_exported == len(events_to_export_created)
@@ -647,7 +648,10 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        records_exported, bytes_exported = await self._run_activity(activity_environment, insert_inputs)
+        result = await self._run_activity(activity_environment, insert_inputs)
+        records_exported = result.records_completed
+        bytes_exported = result.bytes_exported
+        assert result.error is None
 
         assert records_exported == len(events_to_export_created)
         assert isinstance(bytes_exported, int)
@@ -735,7 +739,7 @@ class TestInsertIntoS3ActivityFromStage:
         model: BatchExportModel,
         ateam,
     ):
-        """Test the insert_into_s3_activity_from_stage_activity function fails with an invalid file format."""
+        """Test the insert_into_s3_activity_from_stage_activity function returns an error when an invalid file format is requested."""
 
         insert_inputs = S3InsertInputs(
             bucket_name=bucket_name,
@@ -756,8 +760,14 @@ class TestInsertIntoS3ActivityFromStage:
             destination_default_fields=s3_default_fields(),
         )
 
-        with pytest.raises(UnsupportedFileFormatError):
-            await self._run_activity(activity_environment, insert_inputs)
+        result = await self._run_activity(activity_environment, insert_inputs)
+        assert result.error is not None
+        assert result.error.type == "UnsupportedFileFormatError"
+        assert result.error.message == "'invalid' is not a supported format for S3 batch exports."
+        assert result.error_repr is not None  # this is the error that will be returned to the user
+        assert (
+            result.error_repr == "UnsupportedFileFormatError: 'invalid' is not a supported format for S3 batch exports."
+        )
 
 
 @pytest_asyncio.fixture
@@ -1331,10 +1341,15 @@ class RetryableTestException(Exception):
 
 
 class TestErrorHandling:
-    async def test_s3_export_workflow_handles_insert_activity_errors(self, ateam, s3_batch_export, interval):
-        """Test S3BatchExport Workflow can handle errors from executing the insert into S3 activity.
+    async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(self, ateam, s3_batch_export, interval):
+        """Test S3BatchExport Workflow can handle unexpected errors from executing the insert into S3 activity.
 
-        Currently, this only means we do the right updates to the BatchExportRun model.
+        This means we do the right updates to the BatchExportRun model and ensure the workflow fails (since we
+        treat this as an unexpected internal error).
+
+        To simulate an unexpected error, we mock the `ProducerFromInternalStage.start` activity. It doesn't matter where
+        the exception is raised, but since the insert into stage activity doesn't actually generate any data, we need to
+        raise it before the activity completes early.
         """
         data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
@@ -1347,13 +1362,9 @@ class TestErrorHandling:
             **s3_batch_export.destination.config,
         )
 
-        @activity.defn(name="insert_into_s3_activity")
-        async def insert_into_s3_activity_mocked(_: S3InsertInputs) -> str:
-            raise RetryableTestException("A useful error message")
-
-        @activity.defn(name="insert_into_s3_activity_from_stage")
-        async def insert_into_s3_activity_from_stage_mocked(_: S3InsertInputs) -> str:
-            raise RetryableTestException("A useful error message")
+        @activity.defn(name="insert_into_internal_stage_activity")
+        async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
+            return
 
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -1362,21 +1373,24 @@ class TestErrorHandling:
                 workflows=[S3BatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
-                    insert_into_s3_activity_mocked,
-                    insert_into_internal_stage_activity,
-                    insert_into_s3_activity_from_stage_mocked,
+                    insert_into_internal_stage_activity_mocked,
+                    insert_into_s3_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                with pytest.raises(WorkflowFailureError):
-                    await activity_environment.client.execute_workflow(
-                        S3BatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+                with mock.patch(
+                    "products.batch_exports.backend.temporal.destinations.s3_batch_export.ProducerFromInternalStage.start",
+                    side_effect=RetryableTestException("A useful error message"),
+                ):
+                    with pytest.raises(WorkflowFailureError):
+                        await activity_environment.client.execute_workflow(
+                            S3BatchExportWorkflow.run,
+                            inputs,
+                            id=workflow_id,
+                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
 
         runs = await afetch_batch_export_runs(batch_export_id=s3_batch_export.id)
         assert len(runs) == 1
@@ -1392,7 +1406,12 @@ class TestErrorHandling:
     ):
         """Test S3BatchExport Workflow can handle non-retryable errors from executing the insert into S3 activity.
 
-        Currently, this only means we do the right updates to the BatchExportRun model.
+        This means we do the right updates to the BatchExportRun model and ensure the workflow succeeds (since we
+        treat this as a user error).
+
+        To simulate a user error, we mock the `ProducerFromInternalStage.start` activity. It doesn't matter where
+        the exception is raised, but since the insert into stage activity doesn't actually generate any data, we need to
+        raise it before the activity completes early.
         """
         data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
@@ -1408,9 +1427,9 @@ class TestErrorHandling:
         class ParamValidationError(Exception):
             pass
 
-        @activity.defn(name="insert_into_s3_activity_from_stage")
-        async def insert_into_s3_activity_from_stage_mocked(_: S3InsertInputs) -> str:
-            raise ParamValidationError("A useful error message")
+        @activity.defn(name="insert_into_internal_stage_activity")
+        async def insert_into_internal_stage_activity_mocked(_: BatchExportInsertIntoInternalStageInputs):
+            return
 
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
@@ -1419,13 +1438,16 @@ class TestErrorHandling:
                 workflows=[S3BatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
-                    insert_into_internal_stage_activity,
-                    insert_into_s3_activity_from_stage_mocked,
+                    insert_into_internal_stage_activity_mocked,
+                    insert_into_s3_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                with pytest.raises(WorkflowFailureError):
+                with mock.patch(
+                    "products.batch_exports.backend.temporal.destinations.s3_batch_export.ProducerFromInternalStage.start",
+                    side_effect=ParamValidationError("A useful error message"),
+                ):
                     await activity_environment.client.execute_workflow(
                         S3BatchExportWorkflow.run,
                         inputs,
