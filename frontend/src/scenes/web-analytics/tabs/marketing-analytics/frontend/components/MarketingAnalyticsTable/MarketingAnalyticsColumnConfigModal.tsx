@@ -196,7 +196,7 @@ export function MarketingAnalyticsColumnConfigModal(): JSX.Element {
             },
             pinnedColumns: [],
         } as DataTableNode)
-    }, [marketingQuery, rawQuery, setQuery])
+    }, [marketingQuery, rawQuery, setQuery, sortedColumns])
 
     return (
         <LemonModal

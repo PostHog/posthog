@@ -240,8 +240,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 for column in self.query.select:
                     if column in conversion_columns_mapping:
                         all_columns.append(conversion_columns_mapping[column])
-        except ValueError:
-            logger.exception("Error building select query, error=str(e)")
+        except ValueError as e:
+            logger.exception("Error building select query", error=str(e))
             all_columns = list(conversion_columns_mapping.values())
 
         # Create the FROM clause with base table
