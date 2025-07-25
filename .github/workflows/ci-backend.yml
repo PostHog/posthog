@@ -49,6 +49,7 @@ jobs:
               with:
                   app-id: ${{ secrets.CI_TEST_RUNNER_1_APP_ID }}
                   private-key: ${{ secrets.CI_TEST_RUNNER_1_APP_PRIVATE_KEY }}
+                  skip-token-revoke: true
 
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
