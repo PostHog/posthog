@@ -31,13 +31,11 @@ describe('postgres parity', () => {
     let clickhouse: Clickhouse
 
     beforeAll(async () => {
-        console.log('[TEST] Resetting kafka')
         await resetKafka(extraServerConfig)
     })
 
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
-        console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
@@ -48,14 +46,12 @@ describe('postgres parity', () => {
 
         clickhouse = Clickhouse.create()
         await clickhouse.resetTestDatabase()
-        console.log('[TEST] Starting plugins server')
         server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
         await server.start()
         hub = server.hub!
         teamId++
-        console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
             hub.db.postgres,
             teamId,
@@ -64,11 +60,9 @@ describe('postgres parity', () => {
             new UUIDT().toString(),
             new UUIDT().toString()
         )
-        console.log('[TEST] BeforeEach complete')
     })
 
     afterEach(async () => {
-        console.log('[TEST] Stopping server')
         await server.stop()
     })
 
@@ -100,7 +94,7 @@ describe('postgres parity', () => {
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
-                team_id: teamId,
+                team_id: teamId.toString(),
                 properties: { userPropOnce: 'propOnceValue', userProp: 'propValue' },
                 is_identified: 1,
                 is_deleted: 0,
@@ -139,30 +133,28 @@ describe('postgres parity', () => {
         expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
 
         const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(person)
-        expect(newClickHouseDistinctIdValues).toEqual(
-            expect.arrayContaining([
-                {
-                    distinct_id: 'distinct1',
-                    person_id: person.uuid,
-                    team_id: teamId,
-                    version: 0,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-                {
-                    distinct_id: 'distinct2',
-                    person_id: person.uuid,
-                    team_id: teamId,
-                    version: 0,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-            ])
-        )
+        expect(newClickHouseDistinctIdValues).toMatchObject([
+            {
+                distinct_id: 'distinct1',
+                person_id: person.uuid,
+                team_id: teamId.toString(),
+                version: '0',
+                is_deleted: 0,
+                _timestamp: expect.any(String),
+                _offset: expect.any(Number),
+                _partition: expect.any(Number),
+            },
+            {
+                distinct_id: 'distinct2',
+                person_id: person.uuid,
+                team_id: teamId.toString(),
+                version: '0',
+                is_deleted: 0,
+                _timestamp: expect.any(String),
+                _offset: expect.any(Number),
+                _partition: expect.any(Number),
+            },
+        ])
 
         expect(person).toEqual(postgresPersons[0])
     })
