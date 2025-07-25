@@ -63,7 +63,7 @@ class HogQLQueryRunner(QueryRunner):
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
-        if len(finder.field_strings) > 0 or finder.has_expr_placeholders:
+        if finder.field_strings or finder.has_expr_placeholders:
             with self.timings.measure("replace_placeholders"):
                 parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, values))
 

@@ -96,7 +96,7 @@ class HogQLQueryExecutor:
                 self.select_query = replace_filters(self.select_query, self.filters, self.team)
 
             # If there are placeholders remaining
-            if len(finder.field_strings) > 0 or finder.has_expr_placeholders:
+            if finder.field_strings or finder.has_expr_placeholders:
                 self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
 
     def _apply_limit(self):

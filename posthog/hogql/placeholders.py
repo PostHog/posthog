@@ -62,7 +62,7 @@ class ReplacePlaceholders(CloningVisitor):
         elif is_simple_value(response.result):
             return ast.Constant(value=response.result, start=node.start, end=node.end)
         raise QueryError(
-            f"Placeholder {{{node.field}}} returned an unexpected type: {type(response.result).__name__}. "
+            f"Placeholder returned an unexpected type: {type(response.result).__name__}. "
             "Expected an AST node or a simple value."
         )
 

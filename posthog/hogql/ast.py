@@ -777,7 +777,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", Placeholder, "HogQLXTag", Field, Placeholder]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Placeholder, "HogQLXTag", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None

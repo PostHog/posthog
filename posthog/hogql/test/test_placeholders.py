@@ -184,7 +184,6 @@ class TestBytecodePlaceholders(BaseTest):
         self.assertIsInstance(elements[0], ast.Field)
         self.assertEqual(elements[0].chain, ["event"])
         self.assertEqual(elements[1], " ... ")
-        self.assertIsInstance(elements[0], ast.Field)
         self.assertIsInstance(elements[2], ast.HogQLXTag)
         self.assertEqual(elements[2].kind, "blink")
         self.assertEqual(elements[2].attributes, [ast.HogQLXAttribute(name="children", value=["fun"])])
