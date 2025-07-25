@@ -20,6 +20,7 @@ import { useState, useEffect } from 'react'
 import { PathCleaningFilter } from '~/types'
 
 import { PathRegexModal } from './PathRegexModal'
+import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 import { parseAliasToReadable } from './PathCleanFilterItem'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
@@ -126,7 +127,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     // Sync local state with props, but not during drag to avoid flicker
     useEffect(() => {
         if (!isDragging) {
-            setLocalFilters(filters)
+            setLocalFilters(ensureFilterOrder(filters))
         }
     }, [filters, isDragging])
 
@@ -142,9 +143,9 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     )
 
     const updateFilters = (newFilters: PathCleaningFilter[]): void => {
-        // Optimistic update
-        setLocalFilters(newFilters)
-        setFilters(newFilters)
+        const filtersWithOrder = updateFilterOrder(newFilters)
+        setLocalFilters(filtersWithOrder)
+        setFilters(filtersWithOrder)
     }
 
     const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
