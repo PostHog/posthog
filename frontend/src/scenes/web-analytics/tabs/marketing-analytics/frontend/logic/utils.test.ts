@@ -1,130 +1,7 @@
-import {
-    ConversionGoalFilter,
-    MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsHelperForColumnNames,
-    MarketingAnalyticsTableQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import { BaseMathType } from '~/types'
-
-import { injectDynamicConversionGoal, getOrderBy } from './utils'
+import { MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
+import { getOrderBy, orderArrayByPreference, getSortedColumnsByArray } from './utils'
 
 describe('marketing analytics utils', () => {
-    describe('injectDynamicConversionGoal', () => {
-        it('should inject dynamic conversion goal after base columns and before conversion goal columns', () => {
-            const selectList = [
-                MarketingAnalyticsBaseColumns.Campaign.toString(),
-                MarketingAnalyticsBaseColumns.Source.toString(),
-                'existing_goal',
-                'cost_per_existing_goal',
-            ]
-            const dynamicConversionGoal: ConversionGoalFilter = {
-                conversion_goal_id: 'test-id',
-                conversion_goal_name: 'test_goal',
-                kind: NodeKind.EventsNode,
-                event: 'test_event',
-                name: 'Test Goal',
-                math: BaseMathType.TotalCount,
-                schema_map: {},
-            }
-
-            const result = injectDynamicConversionGoal(selectList, dynamicConversionGoal)
-
-            expect(result).toContain('test_goal')
-            expect(result).toContain(`${MarketingAnalyticsHelperForColumnNames.CostPer} test_goal`)
-
-            // Check that the dynamic goal is inserted after base columns
-            const sourceIndex = result.indexOf(MarketingAnalyticsBaseColumns.Source.toString())
-            const testGoalIndex = result.indexOf('test_goal')
-            const costPerTestGoalIndex = result.indexOf(`${MarketingAnalyticsHelperForColumnNames.CostPer} test_goal`)
-
-            expect(testGoalIndex).toBeGreaterThan(sourceIndex)
-            expect(costPerTestGoalIndex).toBeGreaterThan(sourceIndex)
-            expect(costPerTestGoalIndex).toBe(testGoalIndex + 1)
-        })
-
-        it('should remove existing dynamic conversion goal from select list before injecting', () => {
-            const selectList = [
-                MarketingAnalyticsBaseColumns.Campaign.toString(),
-                'test_goal', // Already exists
-                'cost_per_test_goal', // Already exists
-                'other_goal',
-            ]
-            const dynamicConversionGoal: ConversionGoalFilter = {
-                conversion_goal_id: 'test-id',
-                conversion_goal_name: 'test_goal',
-                kind: NodeKind.EventsNode,
-                event: 'test_event',
-                name: 'Test Goal',
-                math: BaseMathType.TotalCount,
-                schema_map: {},
-            }
-
-            const result = injectDynamicConversionGoal(selectList, dynamicConversionGoal)
-
-            // Should only have one instance of test_goal and cost_per_test_goal
-            const testGoalCount = result.filter((col) => col === 'test_goal').length
-            const costPerTestGoalCount = result.filter(
-                (col) => col === `${MarketingAnalyticsHelperForColumnNames.CostPer} test_goal`
-            ).length
-
-            expect(testGoalCount).toBe(1)
-            expect(costPerTestGoalCount).toBe(1)
-        })
-
-        it('should handle null dynamic conversion goal', () => {
-            const selectList = [MarketingAnalyticsBaseColumns.Campaign.toString(), 'existing_goal']
-
-            const result = injectDynamicConversionGoal(selectList, null)
-
-            expect(result.length).toBe(selectList.length)
-            expect(result.every((col) => selectList.includes(col))).toBe(true)
-        })
-
-        it('should handle empty select list', () => {
-            const selectList: string[] = []
-            const dynamicConversionGoal: ConversionGoalFilter = {
-                conversion_goal_id: 'test-id',
-                conversion_goal_name: 'test_goal',
-                kind: NodeKind.EventsNode,
-                event: 'test_event',
-                name: 'Test Goal',
-                math: BaseMathType.TotalCount,
-                schema_map: {},
-            }
-
-            const result = injectDynamicConversionGoal(selectList, dynamicConversionGoal)
-
-            expect(result.length).toBe(2)
-            expect(result).toContain('test_goal')
-            expect(result).toContain(`${MarketingAnalyticsHelperForColumnNames.CostPer} test_goal`)
-        })
-
-        it('should handle select list with only base columns', () => {
-            const selectList = [
-                MarketingAnalyticsBaseColumns.Campaign.toString(),
-                MarketingAnalyticsBaseColumns.Source.toString(),
-            ]
-            const dynamicConversionGoal: ConversionGoalFilter = {
-                conversion_goal_id: 'test-id',
-                conversion_goal_name: 'test_goal',
-                kind: NodeKind.EventsNode,
-                event: 'test_event',
-                name: 'Test Goal',
-                math: BaseMathType.TotalCount,
-                schema_map: {},
-            }
-
-            const result = injectDynamicConversionGoal(selectList, dynamicConversionGoal)
-
-            expect(result.length).toBe(4)
-            expect(result[0]).toBe(MarketingAnalyticsBaseColumns.Campaign.toString())
-            expect(result[1]).toBe(MarketingAnalyticsBaseColumns.Source.toString())
-            expect(result[2]).toBe('test_goal')
-            expect(result[3]).toBe(`${MarketingAnalyticsHelperForColumnNames.CostPer} test_goal`)
-        })
-    })
-
     describe('getOrderBy', () => {
         it('should filter order by columns that exist in the columns list', () => {
             const query: MarketingAnalyticsTableQuery = {
@@ -219,6 +96,136 @@ describe('marketing analytics utils', () => {
             expect(result[0][0]).toBe('campaign')
             expect(result[1][0]).toBe('source')
             expect(result[2][0]).toBe('medium')
+        })
+    })
+
+    describe('orderArrayByPreference', () => {
+        it('should order array by preference with items in preference first', () => {
+            const array = ['a', 'b', 'c']
+            const preference = ['c', 'b']
+
+            const result = orderArrayByPreference(array, preference)
+
+            expect(result).toEqual(['b', 'c', 'a'])
+        })
+
+        it('should handle empty preference array', () => {
+            const array = ['a', 'b', 'c']
+            const preference: string[] = []
+
+            const result = orderArrayByPreference(array, preference)
+
+            expect(result).toEqual(['a', 'b', 'c'])
+        })
+
+        it('should handle empty array', () => {
+            const array: string[] = []
+            const preference = ['c', 'b']
+
+            const result = orderArrayByPreference(array, preference)
+
+            expect(result).toEqual([])
+        })
+
+        it('should handle preference with items not in array', () => {
+            const array = ['a', 'b', 'c']
+            const preference = ['d', 'e', 'b']
+
+            const result = orderArrayByPreference(array, preference)
+
+            expect(result).toEqual(['b', 'a', 'c'])
+        })
+
+        it('should handle duplicate items in preference', () => {
+            const array = ['a', 'b', 'c']
+            const preference = ['b', 'b', 'c']
+
+            const result = orderArrayByPreference(array, preference)
+
+            expect(result).toEqual(['b', 'c', 'a'])
+        })
+
+        it('should preserve order within preference groups', () => {
+            const array = ['a', 'b', 'c', 'd']
+            const preference = ['c', 'a']
+
+            const result = orderArrayByPreference(array, preference)
+
+            expect(result).toEqual(['a', 'c', 'b', 'd'])
+        })
+    })
+
+    describe('getSortedColumnsByArray', () => {
+        it('should sort columns by sortedArray order', () => {
+            const array = ['a', 'b', 'c']
+            const sortedArray = ['c', 'b']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['c', 'b', 'a'])
+        })
+
+        it('should handle empty sortedArray', () => {
+            const array = ['a', 'b', 'c']
+            const sortedArray: string[] = []
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['a', 'b', 'c'])
+        })
+
+        it('should handle empty array', () => {
+            const array: string[] = []
+            const sortedArray = ['c', 'b']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual([])
+        })
+
+        it('should handle sortedArray with items not in array', () => {
+            const array = ['a', 'b', 'c']
+            const sortedArray = ['d', 'e', 'b', 'f']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['b', 'a', 'c'])
+        })
+
+        it('should handle duplicate items in sortedArray', () => {
+            const array = ['a', 'b', 'c']
+            const sortedArray = ['b', 'b', 'c', 'b']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['b', 'c', 'a'])
+        })
+
+        it('should preserve order of items not in sortedArray', () => {
+            const array = ['a', 'b', 'c', 'd', 'e']
+            const sortedArray = ['c', 'a']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['c', 'a', 'b', 'd', 'e'])
+        })
+
+        it('should handle case where all items are in sortedArray', () => {
+            const array = ['a', 'b', 'c', 'a']
+            const sortedArray = ['c', 'a', 'b', 'b']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['c', 'a', 'a', 'b'])
+        })
+
+        it('should handle case where no items are in sortedArray', () => {
+            const array = ['a', 'b', 'c']
+            const sortedArray = ['d', 'e', 'f']
+
+            const result = getSortedColumnsByArray(array, sortedArray)
+
+            expect(result).toEqual(['a', 'b', 'c'])
         })
     })
 })

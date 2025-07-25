@@ -40,6 +40,7 @@ import {
     DataTableNode,
     EventsNode,
     InsightVizNode,
+    MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
     QueryLogTags,
@@ -85,7 +86,12 @@ import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/log
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import posthog from 'posthog-js'
 import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
-import { getOrderBy, injectDraftConversionGoal } from './tabs/marketing-analytics/frontend/logic/utils'
+import {
+    getOrderBy,
+    orderArrayByPreference,
+    getSortedColumnsByArray,
+    isDraftConversionGoalColumn,
+} from './tabs/marketing-analytics/frontend/logic/utils'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -2506,12 +2512,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return null
                 }
 
-                const typedQuery = query?.source as MarketingAnalyticsTableQuery | undefined
-                const select = injectDraftConversionGoal(typedQuery?.select || defaultColumns, draftConversionGoal)
-                const orderBy = getOrderBy(typedQuery, select)
+                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                const columnsWithDynamicConversionGoal = [
+                    ...(marketingQuery?.select || []).filter(
+                        (column) => !isDraftConversionGoalColumn(column, dynamicConversionGoal)
+                    ),
+                    ...(dynamicConversionGoal
+                        ? [
+                              dynamicConversionGoal.conversion_goal_name,
+                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${dynamicConversionGoal.conversion_goal_name}`,
+                          ]
+                        : []),
+                ]
+                const sortedColumns = getSortedColumnsByArray(columnsWithDynamicConversionGoal, defaultColumns)
+                const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
+                const orderBy = getOrderBy(marketingQuery, sortedColumns)
                 return {
+                    ...query,
                     kind: NodeKind.DataTableNode,
                     source: {
+                        ...marketingQuery,
                         kind: NodeKind.MarketingAnalyticsTableQuery,
                         dateRange: {
                             date_from: marketingDateFilter.dateFrom,
@@ -2523,7 +2543,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         limit: 200,
                         orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        select,
+                        select: orderedColumns,
                     },
                     full: true,
                     embedded: false,

@@ -12804,6 +12804,10 @@ class DataTableNode(BaseModel):
         default=None, description="Columns that aren't shown in the table, even if in columns or returned data"
     )
     kind: Literal["DataTableNode"] = "DataTableNode"
+    pinnedColumns: Optional[list[str]] = Field(
+        default=None,
+        description="Columns that are pinned to the left side of the table and stay visible when scrolling",
+    )
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     response: Optional[
         Union[

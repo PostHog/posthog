@@ -82,6 +82,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dateTo,
             interval,
         }),
+        showColumnConfigModal: true,
+        hideColumnConfigModal: true,
     }),
     reducers({
         draftConversionGoal: [
@@ -162,6 +164,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
+        columnConfigModalVisible: [
+            false,
+            {
+                showColumnConfigModal: () => true,
+                hideColumnConfigModal: () => false,
             },
         ],
     }),
