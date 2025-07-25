@@ -2,6 +2,9 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathCleaningRulesDebugger'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
@@ -27,6 +30,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
     if (!currentTeam) {
@@ -47,6 +51,8 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
 
     const cleanedTestPath = cleanPathWithRegexes(testValue, currentTeam.path_cleaning_filters ?? [])
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
+
+    const useDebuggerPanel = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
 
     return (
         <>
@@ -70,7 +76,11 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name that matches
                 the regex will be replaced with the alias. Rules are applied in the order that they're listed.
             </p>
-            <p>These will be applied in order. You can reorder them by dragging and dropping.</p>
+            <p>
+                These will be applied in order, so make sure to put the most specific rules first and remember that
+                subsequent rules will receive the result of the previous one, not the original path. You can reorder
+                them by dragging and dropping.
+            </p>
             <p>
                 <b>
                     Rules that you set here will be applied before wildcarding and other regex replacement if path
@@ -96,6 +106,14 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                     {readableTestPath}
                 </span>
             </div>
+
+            {useDebuggerPanel && (
+                <PathCleaningRulesDebugger
+                    testPath={testValue}
+                    filters={currentTeam.path_cleaning_filters ?? []}
+                    finalResult={readableTestPath}
+                />
+            )}
         </>
     )
 }
