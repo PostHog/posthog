@@ -111,7 +111,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
+                                'scene-layout__content-panel order-2 bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
                                 {
                                     hidden: !scenePanelOpen,
                                 }
@@ -132,7 +132,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             <ScrollableShadows
                                 direction="vertical"
                                 className="h-full flex-1"
-                                innerClassName="px-2 pb-4"
+                                innerClassName="px-2 pb-4 bg-primary"
                                 styledScrollbars
                             >
                                 <div ref={registerScenePanelElement} />
