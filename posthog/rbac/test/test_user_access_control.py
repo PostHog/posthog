@@ -836,12 +836,16 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = self.user_access_control.get_user_access_level(self.team)
         assert access_level == "admin"
 
-    def test_organization_access_for_organization_objects(self):
+    def test_organization_access_for_organization_objects_member(self):
         """Test organization access for organization objects"""
         uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
 
         access_level = uac.get_user_access_level(self.organization)
         assert access_level == "member"  # Default for org members
+
+    def test_organization_access_for_organization_objects_admin(self):
+        """Test organization access for organization objects"""
+        uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
 
         # Make user org admin
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

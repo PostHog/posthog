@@ -364,7 +364,7 @@ class UserAccessControl:
             # Permissions do not apply to models without a related scope
             return True
 
-        access_level = self.get_user_access_level(obj)
+        access_level = self.get_user_access_level(obj, explicit=explicit)
 
         if not access_level:
             return False
@@ -454,7 +454,7 @@ class UserAccessControl:
         return AccessSource.DEFAULT
 
     # Object level (specific) - checking conditions for specific items with a member or role
-    def specific_access_level_for_object(self, obj: Model) -> Optional[AccessControlLevel]:
+    def specific_access_level_for_object(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         """
         This is different than access_level_for_object, it's only looking at access levels that have
         a role or member for the object. It will fallback to access_level_for_object if none is found.
@@ -463,8 +463,26 @@ class UserAccessControl:
         resource = model_to_resource(obj)
         org_membership = self._organization_membership
 
-        if not resource or not org_membership:
+        if not resource or not org_membership or resource == "organization":
             return None
+
+        # Creators always have highest access
+        if getattr(obj, "created_by", None) == self._user:
+            return highest_access_level(resource)
+
+        # Org admins always have highest access
+        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return highest_access_level(resource)
+
+        if resource == "organization":
+            # Organization access is controlled via membership level only
+            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+                return "admin"
+            return "member"
+
+        # If access controls aren't supported, then we return the default access level
+        if not self.access_controls_supported:
+            return default_access_level(resource) if not explicit else None
 
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         access_controls = self._get_access_controls(filters)
@@ -641,13 +659,13 @@ class UserAccessControl:
 
         return queryset
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[str]:
         resource = model_to_resource(obj)
         specific_access_level_for_object = None
         access_level_for_resource = None
 
         # Check object specific access levels
-        specific_access_level_for_object = self.specific_access_level_for_object(obj)
+        specific_access_level_for_object = self.specific_access_level_for_object(obj, explicit=explicit)
 
         if specific_access_level_for_object:
             return specific_access_level_for_object
@@ -660,7 +678,7 @@ class UserAccessControl:
             return access_level_for_resource
 
         # Check object general access levels
-        access_level_for_object = self.access_level_for_object(obj)
+        access_level_for_object = self.access_level_for_object(obj, explicit=explicit)
         return access_level_for_object
 
 
