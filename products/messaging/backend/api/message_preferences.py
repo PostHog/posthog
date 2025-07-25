@@ -10,8 +10,8 @@ class MessagePreferencesSerializer(serializers.Serializer):
     identifier = serializers.CharField()
     updated_at = serializers.DateTimeField()
     category_id = serializers.UUIDField(required=False)
+    category_key = serializers.CharField(required=False)
     category_name = serializers.CharField(required=False)
-    source = serializers.CharField(default="manual")
 
 
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -20,12 +20,12 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def opt_outs(self, request, **kwargs):
         """Get opt-outs filtered by category or overall opt-outs if no category specified"""
-        category_id = request.query_params.get("category_id")
+        category_key = request.query_params.get("category_key")
 
-        if category_id:
+        if category_key:
             # Get opt-outs for a specific category
             try:
-                category = MessageCategory.objects.get(id=category_id, team_id=self.team_id, category_type="marketing")
+                category = MessageCategory.objects.get(key=category_key, team_id=self.team_id)
             except MessageCategory.DoesNotExist:
                 return Response({"error": "Category not found"}, status=404)
 
@@ -42,6 +42,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                             "identifier": recipient.identifier,
                             "updated_at": recipient.updated_at,
                             "category_id": str(category.id),
+                            "category_key": category.key,
                             "category_name": category.name,
                         }
                     )
@@ -61,15 +62,19 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         recipients = MessageRecipientPreference.objects.filter(team_id=self.team_id)
 
         for recipient in recipients:
-            # Check if user has opted out of all marketing categories
-            all_opted_out = True
+            # Check if user has at least one OPTED_OUT and no OPTED_IN values
+            has_opted_out = False
+            has_opted_in = False
+
             for category in marketing_categories:
                 preference_status = recipient.get_preference(category.id)
-                if preference_status != PreferenceStatus.OPTED_OUT:
-                    all_opted_out = False
-                    break
+                if preference_status == PreferenceStatus.OPTED_OUT:
+                    has_opted_out = True
+                elif preference_status == PreferenceStatus.OPTED_IN:
+                    has_opted_in = True
+                    break  # If we find any OPTED_IN, we can stop checking
 
-            if all_opted_out and marketing_categories.count() > 0:
+            if has_opted_out and not has_opted_in:
                 overall_opt_outs.append(
                     {
                         "id": str(recipient.id),

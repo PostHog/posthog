@@ -47,6 +47,14 @@ class MessageRecipientPreference(UUIDModel):
         help_text="Dictionary mapping MessageCategory UUIDs to preference statuses",
     )
 
+    read_only_fields = [
+        "id",
+        "identifier",
+        "created_at",
+        "updated_at",
+        "created_by",
+    ]
+
     class Meta:
         unique_together = (
             "team",

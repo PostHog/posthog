@@ -6,11 +6,19 @@ import { IconPerson } from '@posthog/icons'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode, ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { MessageCategory } from './optOutCategoriesLogic'
+import { useEffect } from 'react'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const { setSelectedIdentifier } = useActions(logic)
+    const { setSelectedIdentifier, loadOptOutPersons } = useActions(logic)
     const { selectedIdentifier, optOutPersons, optOutPersonsLoading } = useValues(logic)
+
+    useEffect(() => {
+        // If no category is provided or it's a marketing category, load opt-out persons
+        if (!category?.id || category?.category_type === 'marketing') {
+            loadOptOutPersons()
+        }
+    }, [category, loadOptOutPersons])
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -41,9 +49,9 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         },
         {
             title: 'Opt-out date',
-            dataIndex: 'updatedAt',
-            key: 'updatedAt',
-            render: (updatedAt) => <TZLabel time={updatedAt as string} />,
+            dataIndex: 'updated_at',
+            key: 'updated_at',
+            render: (updated_at) => <TZLabel time={updated_at as string} />,
         },
         {
             width: 0,
@@ -80,7 +88,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                 isOpen={Boolean(selectedIdentifier)}
                 onClose={handleCloseModal}
                 title={selectedIdentifier ? `Persons for ${selectedIdentifier}` : 'Persons'}
-                width="90%"
+                width="50rem"
                 footer={null}
             >
                 {actorsQuery && (

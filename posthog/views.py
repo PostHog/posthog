@@ -337,7 +337,9 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
     # Only fetch active categories and their preferences
-    categories = MessageCategory.objects.filter(deleted=False, team=recipient.team).order_by("name")
+    categories = MessageCategory.objects.filter(deleted=False, team=recipient.team, category_type="marketing").order_by(
+        "name"
+    )
     preferences = recipient.get_preferences() if recipient else {}
 
     context = {
@@ -346,8 +348,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             {
                 "id": cat.id,
                 "name": cat.name,
-                "description": cat.description,
-                "opted_in": preferences.get(cat.id) == PreferenceStatus.OPTED_IN,
+                "description": cat.public_description,
+                "status": preferences.get(cat.id),
             }
             for cat in categories
         ],

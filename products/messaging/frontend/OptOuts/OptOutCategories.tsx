@@ -98,7 +98,13 @@ export function OptOutCategories(): JSX.Element {
                         </div>
                         <div>
                             <h4 className="font-medium mb-2">Opt-out list</h4>
-                            <OptOutList category={category} />
+                            {category.category_type === 'marketing' ? (
+                                <OptOutList category={category} />
+                            ) : (
+                                <div className="text-sm text-muted mb-1">
+                                    Transactional messages are not eligible for opt-outs
+                                </div>
+                            )}
                         </div>
                     </div>
                 ),

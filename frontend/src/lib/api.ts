@@ -3574,11 +3574,11 @@ const api = {
             const response = await new ApiRequest().messagingPreferencesLink().create()
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryId?: string): Promise<OptOutEntry[]> {
+        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
             return await new ApiRequest()
                 .messsagingPreferencesOptOuts()
                 .withQueryString({
-                    category_id: categoryId,
+                    category_key: categoryKey,
                 })
                 .get()
         },

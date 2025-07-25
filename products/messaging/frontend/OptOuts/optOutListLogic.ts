@@ -1,4 +1,4 @@
-import { kea, path, actions, props, afterMount, reducers } from 'kea'
+import { kea, path, actions, props, reducers, key } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -9,7 +9,7 @@ import { MessageCategory } from './optOutCategoriesLogic'
 export type OptOutEntry = {
     identifier: string
     source: string
-    updatedAt: string
+    updated_at: string
 }
 
 export type OptOutListLogicProps = {
@@ -17,6 +17,7 @@ export type OptOutListLogicProps = {
 }
 
 export const optOutListLogic = kea<optOutListLogicType>([
+    key((props) => props.category?.id || '$all'),
     path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutListLogic']),
     props({} as OptOutListLogicProps),
     actions({
@@ -44,8 +45,4 @@ export const optOutListLogic = kea<optOutListLogicType>([
             },
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadOptOutPersons()
-    }),
 ])
