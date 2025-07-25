@@ -1,30 +1,5 @@
-"""
-TESTS FOR EXPERIMENT DAGSTER ASSETS
-
-This module contains comprehensive tests for the experiment assets functionality.
-Tests ensure that our Dagster assets work correctly and handle edge cases gracefully.
-
-Testing strategy:
-- Unit tests: Test individual functions in isolation
-- Integration tests: Test that all components work together
-- Mock objects: Use fake data to test without depending on real database
-
-What we test:
-1. Experiment discovery and filtering logic
-2. Asset creation and configuration
-3. Asset execution and result structure
-4. Module-level asset generation
-5. Integration with Dagster framework
-
-Testing tools:
-- pytest: Testing framework for running and organizing tests
-- unittest.mock: Tools for creating fake objects and patching dependencies
-- Mock/patch: Replace real dependencies with controllable fake ones
-"""
-
 import pytest
 from unittest.mock import Mock, patch
-from typing import Dict, Any, List
 
 import dagster
 from posthog.models import Experiment
@@ -33,7 +8,7 @@ from posthog.models import Experiment
 class TestExperimentAssets:
     """
     Test suite for core experiment asset functionality.
-    
+
     These tests focus on the main functions that discover experiments,
     create assets, and handle the asset execution logic.
     """
@@ -42,10 +17,10 @@ class TestExperimentAssets:
     def test_get_experiment_metrics_empty(self):
         """
         Test behavior when no experiments exist in the database.
-        
+
         This test ensures our code handles the empty database case gracefully
         without throwing exceptions or unexpected behavior.
-        
+
         Test approach:
         1. Mock the database to return no experiments
         2. Call the discovery function
@@ -68,10 +43,10 @@ class TestExperimentAssets:
     def test_get_experiment_metrics_with_data(self):
         """
         Test experiment discovery with valid experiment data.
-        
+
         This test verifies that our function correctly processes experiments
         that have metrics defined and meet our filtering criteria.
-        
+
         Test approach:
         1. Create a mock experiment with multiple metrics and timeseries enabled
         2. Call the discovery function
@@ -106,10 +81,10 @@ class TestExperimentAssets:
     def test_get_experiment_metrics_filters_non_timeseries(self):
         """
         Test that experiments without timeseries are correctly filtered out.
-        
+
         This test ensures our filtering logic properly excludes experiments
         that don't have timeseries analysis enabled.
-        
+
         Test approach:
         1. Create a mock experiment without timeseries enabled
         2. Mock the database filter to exclude it (as Django would)
@@ -131,10 +106,10 @@ class TestExperimentAssets:
     def test_create_experiment_asset(self):
         """
         Test asset creation for a single experiment-metric combination.
-        
+
         This test verifies that our asset creation function produces a valid
         Dagster asset with correct properties and metadata.
-        
+
         Test approach:
         1. Call the asset creation function with test data
         2. Verify the returned object is a valid Dagster asset
@@ -166,10 +141,10 @@ class TestExperimentAssets:
     def test_asset_execution(self):
         """
         Test that generated assets can be executed successfully.
-        
+
         This test verifies that when Dagster tries to materialize an asset,
         it executes without errors and returns the expected data structure.
-        
+
         Test approach:
         1. Create an asset using our creation function  
         2. Test the asset's internal logic by calling it directly
@@ -206,10 +181,10 @@ class TestExperimentAssets:
     def test_experiment_assets_generation(self):
         """
         Test that the module can generate assets from database experiments.
-        
+
         This is a simpler integration test that verifies the module can import
         successfully and that our asset generation logic works properly.
-        
+
         Test approach:
         1. Test that our asset creation function works correctly
         2. Verify that assets have the expected properties
@@ -252,12 +227,12 @@ class TestExperimentAssets:
     def test_experiment_name_helper(self):
         """
         Test the helper function that retrieves experiment names.
-        
+
         This test covers multiple scenarios for the name lookup function:
         - Normal case: experiment exists with a name
         - Error case: experiment doesn't exist in database  
         - Edge case: experiment exists but has no name set
-        
+
         Test approach:
         1. Test each scenario with appropriate mocks
         2. Verify correct return values for each case
@@ -298,19 +273,19 @@ class TestExperimentAssets:
 class TestIntegration:
     """
     Integration tests for the complete experiment assets system.
-    
+
     These tests verify that all components work together correctly
     and that the module integrates properly with Dagster.
     """
-    
+
     @pytest.mark.django_db
     def test_locations_file_imports(self):
         """
         Test that the locations file can be imported successfully.
-        
+
         This test ensures our locations/experiments.py file can be imported
         without errors and creates valid Dagster definitions.
-        
+
         Test approach:
         1. Attempt to import the locations module
         2. Verify it has the required 'defs' attribute
@@ -329,10 +304,10 @@ class TestIntegration:
     def test_workspace_configuration(self):
         """
         Test that the module structure follows Dagster conventions.
-        
+
         This test performs a basic check that our module can be loaded
         in a Dagster workspace configuration.
-        
+
         Test approach:
         1. Import the locations module
         2. Verify it has the required structure
@@ -345,21 +320,3 @@ class TestIntegration:
             
         except Exception as e:
             pytest.fail(f"Experiments location is not properly configured: {e}")
-
-
-# =============================================================================
-# Test execution information
-# =============================================================================
-#
-# To run these tests:
-#   python -m pytest dags/tests/test_experiments.py -v
-#
-# To run a specific test:
-#   python -m pytest dags/tests/test_experiments.py::TestExperimentAssets::test_get_experiment_metrics_empty -v
-#
-# Test coverage:
-# - Function-level testing: Individual functions work correctly
-# - Integration testing: Components work together
-# - Edge case handling: Empty data, missing experiments, etc.
-# - Error conditions: Database errors, missing data
-# - Module structure: Proper Dagster integration
