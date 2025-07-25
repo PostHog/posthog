@@ -76,6 +76,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -299,7 +300,7 @@ export function DataTable({
                                     onClick={() => {
                                         let orderBy: MarketingAnalyticsOrderBy[] | string[] = []
                                         if (query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
-                                            orderBy = [[key, 'ASC']]
+                                            orderBy = createMarketingAnalyticsOrderBy(key, 'ASC')
                                         } else {
                                             orderBy = [key]
                                         }
@@ -320,7 +321,7 @@ export function DataTable({
                                     onClick={() => {
                                         let orderBy: MarketingAnalyticsOrderBy[] | string[] = []
                                         if (query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
-                                            orderBy = [[key, 'DESC']]
+                                            orderBy = createMarketingAnalyticsOrderBy(key, 'DESC')
                                         } else {
                                             orderBy = [`${key} DESC`]
                                         }

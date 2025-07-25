@@ -124,19 +124,34 @@ export function orderArrayByPreference(array: string[], preference: string[]): s
  * getSortedColumnsByArray(['a', 'b', 'c', 'c'], ['c', 'b', 'c']) -> ['c', 'c', 'b', 'a']
  */
 export function getSortedColumnsByArray(array: string[], sortedArray: string[]): string[] {
-    const amountPerItem: Record<string, number> = {}
+    const amountPerItem = new Map<string, number>()
     for (const column of array) {
-        amountPerItem[column] = (amountPerItem[column] || 0) + 1
+        amountPerItem.set(column, (amountPerItem.get(column) ?? 0) + 1)
     }
 
     const newArray: string[] = []
+    const added = new Set<string>()
+
     for (const column of sortedArray) {
-        if (array.includes(column) && !newArray.includes(column)) {
-            for (let i = 0; i < amountPerItem[column]; i++) {
-                newArray.push(column)
-            }
+        if (amountPerItem.has(column) && !added.has(column)) {
+            const count = amountPerItem.get(column)!
+            newArray.push(...Array(count).fill(column))
+            added.add(column)
         }
     }
 
-    return [...newArray, ...array.filter((column) => !sortedArray.includes(column))]
+    for (const column of array) {
+        if (!sortedArray.includes(column)) {
+            newArray.push(column)
+        }
+    }
+
+    return newArray
+}
+
+export function createMarketingAnalyticsOrderBy(
+    column: string,
+    direction: 'ASC' | 'DESC'
+): MarketingAnalyticsOrderBy[] {
+    return [[column, direction]]
 }

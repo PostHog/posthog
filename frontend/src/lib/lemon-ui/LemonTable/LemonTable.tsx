@@ -15,7 +15,7 @@ import { LemonTableLoader } from './LemonTableLoader'
 import { getNextSorting, Sorting, SortingIndicator } from './sorting'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumnGroup, LemonTableColumns } from './types'
-import { determineColumnKey, getPinnedColumnInfo } from './columnUtils'
+import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 
 export interface LemonTableProps<T extends Record<string, any>> {
@@ -291,13 +291,13 @@ export function LemonTable<T extends Record<string, any>>({
                                             .filter((column) => !column.isHidden)
                                             .map((column, columnIndex) => {
                                                 const columnKey = determineColumnKey(column) ?? `${columnIndex}`
-                                                const pinnedInfo = getPinnedColumnInfo(
+                                                const stickyInfo = getStickyColumnInfo(
                                                     columnKey,
                                                     pinnedColumns,
                                                     pinnedColumnWidths,
                                                     columns
                                                 )
-                                                const { isPinned, isLastPinned, leftPosition } = pinnedInfo
+                                                const { isSticky, isLastSticky, leftPosition } = stickyInfo
 
                                                 return (
                                                     <th
@@ -310,18 +310,14 @@ export function LemonTable<T extends Record<string, any>>({
                                                                 columnGroupIndex === 0 &&
                                                                 columnIndex === 0 &&
                                                                 'LemonTable__header--sticky',
-                                                            isPinned && 'LemonTable__header--pinned',
-                                                            isLastPinned && 'LemonTable__header--pinned-last',
+                                                            isSticky && 'LemonTable__header--pinned',
+                                                            isLastSticky && 'LemonTable__header--pinned-last',
                                                             column.className
                                                         )}
                                                         /* eslint-disable-next-line react/forbid-dom-props */
                                                         style={{
                                                             textAlign: column.align,
-                                                            ...(isPinned &&
-                                                            pinnedColumnWidths &&
-                                                            pinnedColumnWidths.length > 0
-                                                                ? { left: `${leftPosition}px` }
-                                                                : {}),
+                                                            ...(isSticky ? { left: `${leftPosition}px` } : {}),
                                                         }}
                                                         onClick={
                                                             column.sorter && !column.more

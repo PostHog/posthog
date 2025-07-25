@@ -312,7 +312,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 in self.query.select
             )
             if should_create:
-                logger.info(f"Creating conversion goal processor for {conversion_goal.conversion_goal_name}")
                 processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
                 processors.append(processor)
         return processors

@@ -9,13 +9,14 @@ import {
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsOrderBy,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
 import type { marketingAnalyticsTableLogicType } from './marketingAnalyticsTableLogicType'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
-import { isDraftConversionGoalColumn } from './utils'
+import { createMarketingAnalyticsOrderBy, isDraftConversionGoalColumn } from './utils'
 
 export type ExternalTable = {
     name: string
@@ -89,13 +90,14 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         setQuery: () => {
             const marketingQuery = values.query?.source as MarketingAnalyticsTableQuery | undefined
             const searchParams = new URLSearchParams(window.location.search)
-            const selectArray = marketingQuery?.select?.filter(
-                (column: string) => !isDraftConversionGoalColumn(column, values.draftConversionGoal)
-            )
+            const selectArray =
+                marketingQuery?.select?.filter(
+                    (column: string) => !isDraftConversionGoalColumn(column, values.draftConversionGoal)
+                ) || []
 
             if (marketingQuery?.orderBy && marketingQuery?.orderBy.length > 0) {
                 const [column, direction] = marketingQuery.orderBy[0]
-                if (selectArray && selectArray.includes(column)) {
+                if (selectArray.includes(column)) {
                     searchParams.set('order_column', column)
                     searchParams.set('order_direction', direction)
                 }
@@ -104,7 +106,7 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 searchParams.delete('order_direction')
             }
 
-            if (selectArray && selectArray.length > 0) {
+            if (selectArray.length > 0) {
                 searchParams.set('select', selectArray.join(','))
             } else {
                 searchParams.delete('select')
@@ -140,12 +142,12 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 } as DataTableNode)
             }
 
-            let newOrderBy: [string, 'ASC' | 'DESC'][] = []
+            let newOrderBy: MarketingAnalyticsOrderBy[] = []
             const orderColumn = searchParams.order_column
             const orderDirection = searchParams.order_direction as 'ASC' | 'DESC' | undefined
 
             if (orderColumn && orderDirection && newSelect.includes(orderColumn)) {
-                newOrderBy = [[orderColumn, orderDirection]]
+                newOrderBy = createMarketingAnalyticsOrderBy(orderColumn, orderDirection)
                 actions.setQuery({
                     ...values.query,
                     source: {
@@ -183,10 +185,12 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
         setQuery: ({ query }: { query: DataTableNode }) => {
             // If we remove one column from the draft conversion goal, we clear the draft conversion goal completely
             const marketingQuery = query.source as MarketingAnalyticsTableQuery | undefined
-            const selectArray = marketingQuery?.select?.filter((column: string) =>
-                isDraftConversionGoalColumn(column, values.draftConversionGoal)
-            )
-            if (selectArray && selectArray.length === 1) {
+            const selectArray =
+                marketingQuery?.select?.filter((column: string) =>
+                    isDraftConversionGoalColumn(column, values.draftConversionGoal)
+                ) || []
+
+            if (selectArray.length === 1) {
                 actions.setDraftConversionGoal(null)
             }
         },

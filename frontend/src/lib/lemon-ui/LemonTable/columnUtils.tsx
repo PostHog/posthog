@@ -74,16 +74,16 @@ export function statusColumn<T extends { enabled: boolean }>(): LemonTableColumn
 export const DEFAULT_COLUMN_WIDTH = 120
 
 interface PinnedColumnInfo {
-    isPinned: boolean
-    isLastPinned: boolean
+    isSticky: boolean
+    isLastSticky: boolean
     leftPosition: number
 }
 
 /**
  * Get the pinned column info
  * @param columnKey - The key of the column
- * @param pinnedColumns - The pinned columns
- * @param pinnedColumnWidths - The widths of the pinned columns
+ * @param stickyColumns - The pinned columns
+ * @param stickyColumnWidths - The widths of the pinned columns
  * @param allColumns - The all columns
  * @returns The pinned column info
  * example:
@@ -96,57 +96,61 @@ interface PinnedColumnInfo {
  *         { key: 'source', dataIndex: 'source' },
  *     ]
  * ) -> {
- *     isPinned: true,
- *     isLastPinned: false,
+ *     isSticky: true,
+ *     isLastSticky: false,
  *     leftPosition: 100
  * }
  */
-export function getPinnedColumnInfo<T extends Record<string, any>>(
+export function getStickyColumnInfo<T extends Record<string, any>>(
     columnKey: string,
-    pinnedColumns: string[] | undefined,
-    pinnedColumnWidths: number[] | undefined,
+    stickyColumns: string[] | undefined,
+    stickyColumnWidths: number[] | undefined,
     allColumns: LemonTableColumn<T, any>[] | undefined
 ): PinnedColumnInfo {
-    if (!pinnedColumns?.length) {
-        return { isPinned: false, isLastPinned: false, leftPosition: 0 }
+    if (!stickyColumns?.length) {
+        return { isSticky: false, isLastSticky: false, leftPosition: 0 }
     }
 
-    const isPinned = pinnedColumns.includes(columnKey)
+    const isSticky = stickyColumns.includes(columnKey)
 
-    // Find the last pinned column based on actual table positions
-    let isLastPinned = false
-    if (isPinned && allColumns) {
-        const pinnedColumnPositions = pinnedColumns
-            .map((pinnedKey) => {
-                const colIndex = allColumns.findIndex((col) => (col.key || col.dataIndex) === pinnedKey)
-                return { key: pinnedKey, position: colIndex }
-            })
-            .sort((a, b) => b.position - a.position) // Sort by position descending
-
-        const lastPinnedColumn = pinnedColumnPositions[0] // Highest position
-        isLastPinned = columnKey === lastPinnedColumn?.key
+    if (!isSticky || !allColumns) {
+        return { isSticky, isLastSticky: false, leftPosition: 0 }
     }
 
-    // Calculate left position (for css) based on actual column positions
+    const columnPositionMap = new Map<string, number>()
+    allColumns.forEach((col, index) => {
+        const key = col.key ?? col.dataIndex
+        if (key) {
+            columnPositionMap.set(key, index)
+        }
+    })
+
+    const columnIndex = columnPositionMap.get(columnKey) ?? -1
+
+    // Determine if this is the last pinned column in visual order
+    const pinnedColumnPositions = stickyColumns
+        .map((key) => ({
+            key,
+            position: columnPositionMap.get(key) ?? -1,
+        }))
+        .sort((a, b) => b.position - a.position)
+
+    const isLastSticky = columnKey === pinnedColumnPositions[0]?.key
+
+    // Calculate left position for pinned column
     let leftPosition = 0
-    if (isPinned && pinnedColumnWidths && allColumns) {
-        // Find all pinned columns that come before this one in the table
-        const pinnedColumnsBeforeThis = pinnedColumns.filter((pinnedKey) => {
-            const pinnedKeyIndex = allColumns.findIndex((col) => (col.key || col.dataIndex) === pinnedKey)
-            const thisColumnIndex = allColumns.findIndex((col) => (col.key || col.dataIndex) === columnKey)
-            return pinnedKeyIndex < thisColumnIndex
-        })
-
-        // Sum up widths of pinned columns that come before this one
-        for (const beforeKey of pinnedColumnsBeforeThis) {
-            const beforePinnedIndex = pinnedColumns.indexOf(beforeKey)
-            if (beforePinnedIndex >= 0) {
-                leftPosition += pinnedColumnWidths[beforePinnedIndex] || DEFAULT_COLUMN_WIDTH
+    if (stickyColumnWidths) {
+        for (let i = 0; i < stickyColumns.length; i++) {
+            const key = stickyColumns[i]
+            const keyIndex = columnPositionMap.get(key) ?? -1
+            if (keyIndex >= 0 && keyIndex < columnIndex) {
+                const width = stickyColumnWidths[i]
+                leftPosition += width && width > 0 ? width : DEFAULT_COLUMN_WIDTH
             }
         }
     }
 
-    return { isPinned, isLastPinned, leftPosition }
+    return { isSticky, isLastSticky, leftPosition }
 }
 
 /**

@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React, { HTMLProps, useState } from 'react'
 
 import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation, LemonTableColumn } from './types'
-import { getPinnedColumnInfo } from './columnUtils'
+import { getStickyColumnInfo } from './columnUtils'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -110,12 +110,11 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             // Check if this column is pinned
                             const columnKey = columnKeyRaw ? String(columnKeyRaw) : columnIndex.toString()
-                            const { isPinned, isLastPinned, leftPosition } = getPinnedColumnInfo(
-                                columnKey,
-                                pinnedColumns,
-                                pinnedColumnWidths,
-                                allColumns
-                            )
+                            const {
+                                isSticky: isColumnSticky,
+                                isLastSticky,
+                                leftPosition,
+                            } = getStickyColumnInfo(columnKey, pinnedColumns, pinnedColumnWidths, allColumns)
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
@@ -125,8 +124,8 @@ function TableRowRaw<T extends Record<string, any>>({
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
                                         isSticky && 'LemonTable__cell--sticky',
-                                        isPinned && 'LemonTable__cell--pinned',
-                                        isLastPinned && 'LemonTable__cell--pinned-last',
+                                        isColumnSticky && 'LemonTable__cell--pinned',
+                                        isLastSticky && 'LemonTable__cell--pinned-last',
                                         column.align && `text-${column.align}`,
                                         typeof column.className === 'function'
                                             ? column.className(value as T[keyof T], record, recordIndex)
@@ -137,9 +136,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                         ...(typeof column.style === 'function'
                                             ? column.style(value as T[keyof T], record, recordIndex)
                                             : column.style),
-                                        ...(isPinned && pinnedColumnWidths && pinnedColumnWidths.length > 0
-                                            ? { left: `${leftPosition}px` }
-                                            : {}),
+                                        ...(isColumnSticky ? { left: `${leftPosition}px` } : {}),
                                     }}
                                     {...extraCellProps}
                                 >

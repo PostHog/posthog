@@ -4,10 +4,11 @@ import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/le
 import { useActions, useValues } from 'kea'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { MarketingAnalyticsOrderBy, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { useCallback, useMemo, useRef } from 'react'
+import { createMarketingAnalyticsOrderBy } from '../../logic/utils'
 
 const directionOptions = [
     { label: 'No direction', value: null },
@@ -32,15 +33,17 @@ export function MarketingAnalyticsColumnConfigModal(): JSX.Element {
     // hidden columns are the difference between default columns and the query columns
     const hiddenColumns = useMemo(
         () =>
-            marketingQuery?.select ? sortedColumns.filter((column) => !marketingQuery?.select?.includes(column)) : [],
+            marketingQuery?.select
+                ? sortedColumns.filter((column: string) => !marketingQuery?.select?.includes(column))
+                : [],
         [marketingQuery?.select, sortedColumns]
     )
     const sortOptions = useMemo(
         () => [
             { label: 'No sorting', value: null },
             ...sortedColumns
-                .filter((column) => !hiddenColumns.includes(column))
-                .map((column) => ({
+                .filter((column: string) => !hiddenColumns.includes(column))
+                .map((column: string) => ({
                     label: column,
                     value: column,
                 })),
@@ -75,15 +78,15 @@ export function MarketingAnalyticsColumnConfigModal(): JSX.Element {
                 newSelect = marketingQuery?.select || []
             }
 
-            if (rawQuery) {
+            if (rawQuery && marketingQuery) {
                 setQuery({
                     ...rawQuery,
                     source: {
                         ...marketingQuery,
                         select: newSelect,
-                        orderBy: [[columnName, direction]] as MarketingAnalyticsOrderBy[],
+                        orderBy: createMarketingAnalyticsOrderBy(columnName, direction),
                     },
-                } as DataTableNode)
+                })
             }
         },
         [hiddenColumns, marketingQuery, rawQuery, setQuery, sortedColumns]
@@ -209,7 +212,11 @@ export function MarketingAnalyticsColumnConfigModal(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         onClick={resetColumnConfigToDefaults}
-                        disabled={pinnedColumns.length === 0 && !marketingQuery?.orderBy}
+                        disabledReason={
+                            pinnedColumns.length === 0 && !marketingQuery?.orderBy && hiddenColumns.length === 0
+                                ? 'No changes to revert'
+                                : undefined
+                        }
                     >
                         Reset to defaults
                     </LemonButton>
