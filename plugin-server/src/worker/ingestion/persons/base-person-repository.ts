@@ -191,7 +191,7 @@ export class BasePersonRepository implements PersonRepository, RawPersonReposito
         } catch (error) {
             if (error.code === '40P01') {
                 // Deadlock detected — assume someone else is deleting and skip.
-                console.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
                     team_id: person.team_id,
                     person_id: person.id,
                 })
