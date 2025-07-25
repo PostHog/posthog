@@ -318,7 +318,7 @@ class SnowflakeClient:
         self._connection = connection
 
         # Call this again in case level was reset.
-        self.ensure_snowflake_logger_level("DEBUG")
+        self.ensure_snowflake_logger_level("INFO")
 
         await self.use_namespace()
         await self.execute_async_query("SET ABORT_DETACHED_QUERY = FALSE", fetch_results=False)
