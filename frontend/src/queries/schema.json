@@ -10570,6 +10570,9 @@
                     },
                     "type": "array"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10776,6 +10779,9 @@
                 "upper_bound_percentile": {
                     "type": "number"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10832,6 +10838,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
