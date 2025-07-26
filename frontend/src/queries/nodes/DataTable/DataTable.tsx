@@ -520,6 +520,7 @@ export function DataTable({
                 | HogQLQuery
                 | SessionAttributionExplorerQuery
                 | TracesQuery
+                | MarketingAnalyticsTableQuery
         ) => setQuery?.({ ...query, source }),
         [setQuery, query]
     )
