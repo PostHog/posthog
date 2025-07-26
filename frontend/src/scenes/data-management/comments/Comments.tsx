@@ -1,4 +1,4 @@
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
@@ -97,14 +97,6 @@ export function Comments(): JSX.Element {
                     <div className="flex">
                         {canEdit && (
                             <>
-                                <LemonButton
-                                    icon={<IconPencil />}
-                                    size="small"
-                                    onClick={() => {
-                                        // TODO: Implement edit modal
-                                    }}
-                                    disabledReason={canEdit ? undefined : 'You can only edit your own comments'}
-                                />
                                 <LemonButton
                                     icon={<IconTrash />}
                                     size="small"
