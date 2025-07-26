@@ -53,7 +53,7 @@ export function HogFunctionFilters({
     logicProps = {},
 }: {
     embedded?: boolean
-    logicProps: { id?: string }
+    logicProps?: { id?: string }
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, featureFlags } =
