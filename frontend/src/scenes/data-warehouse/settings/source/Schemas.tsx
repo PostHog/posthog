@@ -534,9 +534,11 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         }
-                        // Close modal immediately for optimistic UI
-                        closeSyncMethodModal()
-                        resetSchemaIncrementalFields()
+                        // add a small delay so it doesn't feel jerky
+                        setTimeout(() => {
+                            closeSyncMethodModal()
+                            resetSchemaIncrementalFields()
+                        }, 150)
                     }}
                 />
             )}
