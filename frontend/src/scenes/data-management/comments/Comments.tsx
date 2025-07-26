@@ -103,6 +103,7 @@ export function Comments(): JSX.Element {
                                     status="danger"
                                     onClick={() => deleteComment(comment.id)}
                                     disabledReason={canEdit ? undefined : 'You can only delete your own comments'}
+                                    data-attr="comment-management-scene-delete"
                                 />
                                 <LemonButton
                                     icon={<IconOpenInApp />}
@@ -113,6 +114,7 @@ export function Comments(): JSX.Element {
                                             ? undefined
                                             : 'Not able to link to this comment type 🙈- tell us you want to be able to!'
                                     }
+                                    data-attr="comment-management-scene-open"
                                 />
                             </>
                         )}
@@ -123,7 +125,7 @@ export function Comments(): JSX.Element {
     ]
 
     return (
-        <>
+        <div data-attr="comments-management-scene">
             <div className="flex flex-row gap-4 justify-between">
                 <div className="flex flex-row items-center gap-2">
                     <LemonInput
@@ -182,6 +184,6 @@ export function Comments(): JSX.Element {
                     />
                 )}
             </div>
-        </>
+        </div>
     )
 }
