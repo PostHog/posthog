@@ -93,7 +93,7 @@ const tabs: Record<
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),
         content: <Annotations />,
-        label: 'Comments',
+        label: 'Annotations',
         buttons: <NewAnnotationButton />,
         tooltipDocLink: 'https://posthog.com/docs/data/annotations',
     },
