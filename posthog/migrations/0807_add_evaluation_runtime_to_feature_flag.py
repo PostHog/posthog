@@ -3,35 +3,29 @@
 from django.db import migrations, models
 
 
-def backfill_evaluation_environment(apps, schema_editor):
-    """Backfill evaluation_environment field in batches to avoid locking"""
+def backfill_evaluation_runtime(apps, schema_editor):
+    """Backfill evaluation_runtime field in batches to avoid locking"""
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
 
     batch_size = 1000
     total_updated = 0
 
     while True:
-        # Get batch of records where evaluation_environment is NULL
+        # Get batch of records where evaluation_runtime is NULL
         batch_ids = list(
-            FeatureFlag.objects.filter(evaluation_environment__isnull=True).values_list("id", flat=True)[:batch_size]
+            FeatureFlag.objects.filter(evaluation_runtime__isnull=True).values_list("id", flat=True)[:batch_size]
         )
 
         if not batch_ids:
             break
 
         # Update this batch
-        updated_count = FeatureFlag.objects.filter(id__in=batch_ids).update(evaluation_environment="all")
+        updated_count = FeatureFlag.objects.filter(id__in=batch_ids).update(evaluation_runtime="all")
         total_updated += updated_count
 
         # If we updated fewer than batch_size, we're done
         if updated_count < batch_size:
             break
-
-
-def reverse_backfill_evaluation_environment(apps, schema_editor):
-    """Reverse migration - set all values back to NULL"""
-    FeatureFlag = apps.get_model("posthog", "FeatureFlag")
-    FeatureFlag.objects.all().update(evaluation_environment=None)
 
 
 class Migration(migrations.Migration):
@@ -43,7 +37,7 @@ class Migration(migrations.Migration):
         # Step 1: Add nullable column
         migrations.AddField(
             model_name="featureflag",
-            name="evaluation_environment",
+            name="evaluation_runtime",
             field=models.CharField(
                 choices=[("server", "Server"), ("client", "Client"), ("all", "All")],
                 null=True,
@@ -54,13 +48,13 @@ class Migration(migrations.Migration):
         ),
         # Step 2: Backfill data in batches
         migrations.RunPython(
-            backfill_evaluation_environment,
-            reverse_backfill_evaluation_environment,
+            backfill_evaluation_runtime,
+            migrations.RunPython.noop,  # don't need to reverse the backfill, since we'll just drop the column
         ),
         # Step 3: Add default (keep nullable to avoid table locks)
         migrations.AlterField(
             model_name="featureflag",
-            name="evaluation_environment",
+            name="evaluation_runtime",
             field=models.CharField(
                 choices=[("server", "Server"), ("client", "Client"), ("all", "All")],
                 default="all",

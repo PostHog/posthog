@@ -74,14 +74,14 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
     has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
 
-    EVALUATION_ENVIRONMENT_CHOICES = [
+    evaluation_runtime_CHOICES = [
         ("server", "Server"),
         ("client", "Client"),
         ("all", "All"),
     ]
-    evaluation_environment = models.CharField(
+    evaluation_runtime = models.CharField(
         max_length=10,
-        choices=EVALUATION_ENVIRONMENT_CHOICES,
+        choices=evaluation_runtime_CHOICES,
         default="all",
         null=True,
         blank=True,

@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react'
-import { useValues } from 'kea'
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
 import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
-import { PathCleanFiltersTable } from './PathCleanFiltersTable'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { restrictToParentElement } from '@dnd-kit/modifiers'
 import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface PathCleanFiltersProps {
     filters?: PathCleaningFilter[]
@@ -23,8 +19,6 @@ export const keyFromFilter = (filter: PathCleaningFilter): string => {
 
 export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState(filters)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
 
     useEffect(() => {
         setLocalFilters(ensureFilterOrder(filters))
@@ -64,18 +58,6 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
 
-    if (useTableUI) {
-        return (
-            <div className="flex flex-col gap-4">
-                <PathCleanFiltersTable filters={localFilters} setFilters={updateFilters} />
-                <div>
-                    <PathCleanFilterAddItemButton onAdd={onAddFilter} />
-                </div>
-            </div>
-        )
-    }
-
-    // Original pills UI
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 flex-wrap">

@@ -127,10 +127,15 @@ fi
 
 
 # Write .env file
-envsubst > .env <<EOF
+cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 DOMAIN=$DOMAIN
+TLS_BLOCK=$TLS_BLOCK
+REGISTRY_URL=$REGISTRY_URL
+CADDY_TLS_BLOCK=$TLS_BLOCK
+CADDY_HOST=$DOMAIN, http://, https://
+POSTHOG_APP_TAG=$POSTHOG_APP_TAG
 EOF
 
 # Download GeoLite2-City.mmdb if it doesn't exist
@@ -217,9 +222,7 @@ sudo usermod -aG docker "${USER}" || true
 echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
-cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
-envsubst < docker-compose.yml.tmpl > docker-compose.yml
-rm docker-compose.yml.tmpl
+cp posthog/docker-compose.hobby.yml docker-compose.yml
 echo "Starting the stack!"
 sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always
 

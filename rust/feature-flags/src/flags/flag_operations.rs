@@ -172,7 +172,7 @@ mod tests {
             "deleted": false,
             "active": true,
             "ensure_experience_continuity": false,
-            "evaluation_environment": "all"
+            "evaluation_runtime": "all"
         }"#;
 
         let flag: FeatureFlag = serde_json::from_str(json_str).expect("Failed to deserialize");
@@ -192,7 +192,7 @@ mod tests {
         assert!(flag.filters.payloads.is_some());
         assert!(!flag.deleted);
         assert!(flag.active);
-        assert_eq!(flag.evaluation_environment, Some("all".to_string()));
+        assert_eq!(flag.evaluation_runtime, Some("all".to_string()));
         assert!(!flag.ensure_experience_continuity.unwrap_or(false));
     }
 
@@ -226,7 +226,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("all".to_string()),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_no_deps.extract_dependencies().unwrap();
@@ -261,7 +261,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("all".to_string()),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_with_dep.extract_dependencies().unwrap();
@@ -310,7 +310,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("all".to_string()),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
@@ -355,7 +355,7 @@ mod tests {
             active: true,
             ensure_experience_continuity: Some(false),
             version: None,
-            evaluation_environment: Some("all".to_string()),
+            evaluation_runtime: Some("all".to_string()),
         };
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
@@ -440,7 +440,7 @@ mod tests {
             },
             "active": true,
             "deleted": false,
-            "evaluation_environment": "all"
+            "evaluation_runtime": "all"
         });
 
         // Insert into Redis
@@ -467,7 +467,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -567,7 +567,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -701,7 +701,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -772,7 +772,7 @@ mod tests {
             },
             "active": true,
             "deleted": false,
-            "evaluation_environment": "all"
+            "evaluation_runtime": "all"
         });
 
         // Insert into Redis
@@ -799,7 +799,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -886,7 +886,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -905,7 +905,7 @@ mod tests {
                 active: false,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -1001,7 +1001,7 @@ mod tests {
                 active: true,
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
-                evaluation_environment: Some("all".to_string()),
+                evaluation_runtime: Some("all".to_string()),
             }),
         )
         .await
@@ -1082,7 +1082,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("all".to_string()),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1174,7 +1174,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("all".to_string()),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1260,7 +1260,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("all".to_string()),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1330,7 +1330,7 @@ mod tests {
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
                 "active": true,
                 "deleted": false,
-                "evaluation_environment": "all"
+                "evaluation_runtime": "all"
             },
             {
                 "id": 2,
@@ -1340,7 +1340,7 @@ mod tests {
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "active": true,
                 "deleted": false,
-                "evaluation_environment": "all"
+                "evaluation_runtime": "all"
             },
             {
                 "id": 3,
@@ -1350,7 +1350,7 @@ mod tests {
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 33.33}]},
                 "active": true,
                 "deleted": false,
-                "evaluation_environment": "all"
+                "evaluation_runtime": "all"
             }
         ]);
 
@@ -1378,7 +1378,7 @@ mod tests {
                     active: true,
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
-                    evaluation_environment: Some("all".to_string()),
+                    evaluation_runtime: Some("all".to_string()),
                 }),
             )
             .await
@@ -1417,7 +1417,7 @@ mod tests {
             "filters": {},
             "deleted": false,
             "active": true,
-            "evaluation_environment": "all"
+            "evaluation_runtime": "all"
         }"#;
 
         let flag: FeatureFlag =
