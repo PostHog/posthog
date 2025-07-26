@@ -6,7 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Comments',
+    title: 'Scenes-App/Data Management/Comments',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -16,7 +16,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/comments/': {},
+                '/api/projects/:team_id/comments/': { results: [] },
                 '/api/projects/:team_id/comments/:commentId/': () => [200, []],
             },
         }),

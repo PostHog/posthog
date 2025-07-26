@@ -4468,6 +4468,8 @@ export type CommentType = {
     scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
+    /** only on the type to support patching for soft delete */
+    deleted?: boolean
 }
 
 export type NotebookListItemType = {

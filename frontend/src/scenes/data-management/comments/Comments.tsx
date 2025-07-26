@@ -1,145 +1,183 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { shortTimeZone } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+import { useEffect } from 'react'
 
-import { ProductKey } from '~/types'
+import { CommentType, ProductKey } from '~/types'
+import { dayjs } from 'lib/dayjs'
+
+import { commentsLogic, SCOPE_OPTIONS } from './commentsLogic'
+import { MemberSelect } from 'lib/components/MemberSelect'
 
 export function Comments(): JSX.Element {
-    // const { currentTeam, timezone } = useValues(teamLogic)
-    //
-    // const { currentOrganization } = useValues(organizationLogic)
+    const { timezone } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
 
-    // const columns: LemonTableColumns<CommentType> = [
-    //     {
-    //         title: 'Comment',
-    //         key: 'comment',
-    //         width: '30%',
-    //         render: function RenderComment(_, comment: CommentType): JSX.Element {
-    //             let renderedContent = <>{comment.content ?? ''}</>
-    //             if ((comment.content || '').trim().length > 30) {
-    //                 renderedContent = (
-    //                     <Tooltip
-    //                         title={
-    //                             <TextContent
-    //                                 text={comment.content ?? ''}
-    //                                 data-attr="comment-scene-comment-title-rendered-content"
-    //                             />
-    //                         }
-    //                     >
-    //                         {(comment.content ?? '').slice(0, 27) + '...'}
-    //                     </Tooltip>
-    //                 )
-    //             }
-    //             return (
-    //                 <div className="font-semibold">
-    //                     <Link subtle to={urls.comment(comment.id)}>
-    //                         {renderedContent}
-    //                     </Link>
-    //                 </div>
-    //             )
-    //         },
-    //     },
-    //     {
-    //         title: `Date and time (${shortTimeZone(timezone)})`,
-    //         dataIndex: 'created_at',
-    //         render: function RenderDateMarker(_, comment: CommentType): string {
-    //             return comment.created_at
-    //         },
-    //         sorter: (a, b) => dayjs(a.created_at)?.diff(dayjs(b.created_at)) || 1,
-    //     },
-    //     {
-    //         title: 'Scope',
-    //         key: 'scope',
-    //         render: function RenderType(_, comment: CommentType): JSX.Element {
-    //             return <>{comment.scope}</>
-    //         },
-    //     },
-    //     {
-    //         title: 'Created by',
-    //         dataIndex: 'created_by',
-    //         render: function Render(_: any, item) {
-    //             const { created_by } = item
-    //             return (
-    //                 <div className="flex flex-row items-center">
-    //                     <ProfilePicture
-    //                         user={created_by}
-    //                         showName
-    //                         size="md"
-    //                         type='person'
-    //                     />
-    //                 </div>
-    //             )
-    //         },
-    //         sorter: (a, b) =>
-    //             (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
-    //                 b.created_by?.first_name || b.created_by?.email || ''
-    //             ),
-    //     },
-    //     createdAtColumn() as LemonTableColumn<CommentType, keyof CommentType | undefined>,
-    //     {
-    //         key: 'actions',
-    //         width: 0,
-    //         render: function RenderActions(_, comment): JSX.Element {
-    //             return <LemonButton icon={<IconPencil />} size="small" to={urls.comment(comment.id)} />
-    //         },
-    //     },
-    // ]
+    const { comments, shouldShowEmptyState, commentsLoading, scope, filterCreatedBy, searchText } =
+        useValues(commentsLogic)
+
+    const { setScope, setFilterCreatedBy, setSearchText, deleteComment, loadComments } = useActions(commentsLogic)
+
+    useEffect(() => {
+        loadComments()
+    }, [loadComments])
+
+    const columns: LemonTableColumns<CommentType> = [
+        {
+            title: 'Comment',
+            key: 'content',
+            width: '30%',
+            render: function RenderComment(_, comment: CommentType): JSX.Element {
+                let renderedContent = <>{comment.content ?? ''}</>
+                if ((comment.content || '').trim().length > 50) {
+                    renderedContent = (
+                        <Tooltip
+                            title={
+                                <div
+                                    className="whitespace-pre-wrap break-words"
+                                    data-attr="comment-scene-comment-title-rendered-content"
+                                >
+                                    {comment.content ?? ''}
+                                </div>
+                            }
+                        >
+                            {(comment.content ?? '').slice(0, 47) + '...'}
+                        </Tooltip>
+                    )
+                }
+                return <div className="font-semibold">{renderedContent}</div>
+            },
+        },
+        {
+            title: `Date and time (${shortTimeZone(timezone)})`,
+            dataIndex: 'created_at',
+            render: function RenderCreatedAt(_, comment: CommentType): string {
+                return dayjs(comment.created_at).format('MMM DD, YYYY h:mm A')
+            },
+            sorter: (a, b) => dayjs(a.created_at).diff(dayjs(b.created_at)),
+        },
+        {
+            title: 'Scope',
+            key: 'scope',
+            render: function RenderScope(_, comment: CommentType): JSX.Element {
+                return <LemonTag className="uppercase">{comment.scope}</LemonTag>
+            },
+        },
+        {
+            title: 'Created by',
+            dataIndex: 'created_by',
+            render: function RenderCreatedBy(_: any, comment: CommentType) {
+                return (
+                    <div className="flex flex-row items-center">
+                        <ProfilePicture user={comment.created_by} showName size="md" type="person" />
+                    </div>
+                )
+            },
+            sorter: (a, b) =>
+                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                    b.created_by?.first_name || b.created_by?.email || ''
+                ),
+        },
+        {
+            key: 'actions',
+            width: 0,
+            render: function RenderActions(_, comment: CommentType): JSX.Element {
+                const canEdit = user?.uuid === comment.created_by?.uuid
+                return (
+                    <div className="flex">
+                        {canEdit && (
+                            <>
+                                <LemonButton
+                                    icon={<IconPencil />}
+                                    size="small"
+                                    onClick={() => {
+                                        // TODO: Implement edit modal
+                                    }}
+                                    disabledReason={canEdit ? undefined : 'You can only edit your own comments'}
+                                />
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="small"
+                                    status="danger"
+                                    onClick={() => deleteComment(comment.id)}
+                                    disabledReason={canEdit ? undefined : 'You can only delete your own comments'}
+                                />
+                            </>
+                        )}
+                    </div>
+                )
+            },
+        },
+    ]
 
     return (
         <>
-            <div className="flex flex-row items-center gap-2 justify-between">
-                <div>
-                    Annotations allow you to mark when certain changes happened so you can easily see how they impacted
-                    your metrics.
-                </div>
+            <div className="flex flex-row gap-4 justify-between">
                 <div className="flex flex-row items-center gap-2">
-                    <div>Scope: </div>
-                    <LemonSelect options={[]} value={undefined} onSelect={() => {}} />
+                    <LemonInput
+                        type="search"
+                        placeholder="Search comments..."
+                        value={searchText}
+                        onChange={setSearchText}
+                        size="small"
+                    />
+                </div>
+
+                <div>
+                    <div className="flex flex-row items-center gap-4 flex-wrap">
+                        <div className="flex flex-row items-center gap-2">
+                            <div>Scope:</div>
+                            <LemonSelect options={SCOPE_OPTIONS} value={scope} onSelect={setScope} size="small" />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <span>Created by:</span>
+                            <MemberSelect
+                                value={filterCreatedBy}
+                                onChange={(user) => {
+                                    setFilterCreatedBy(user?.uuid ?? null)
+                                }}
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div data-attr="annotations-content">
+
+            <div data-attr="comments-content">
                 <div className="mt-4">
                     <ProductIntroduction
-                        productName="Annotations"
+                        productName="Comments"
                         productKey={ProductKey.COMMENTS}
-                        thingName="annotation"
-                        description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
-                        docsURL="https://posthog.com/docs/data/comments"
-                        action={() => {}}
-                        isEmpty={false}
+                        thingName="comment"
+                        description="Comments allow you to provide context and discussions on various elements in PostHog."
+                        isEmpty={shouldShowEmptyState}
                         customHog={MicrophoneHog}
                     />
                 </div>
-                {/*{!shouldShowEmptyState && (*/}
-                {/*    <>*/}
-                {/*        <LemonTable*/}
-                {/*            data-attr="annotations-table"*/}
-                {/*            rowKey="id"*/}
-                {/*            dataSource={filteredAnnotations}*/}
-                {/*            columns={columns}*/}
-                {/*            defaultSorting={{*/}
-                {/*                columnKey: 'date_marker',*/}
-                {/*                order: -1,*/}
-                {/*            }}*/}
-                {/*            noSortingCancellation*/}
-                {/*            loading={annotationsLoading}*/}
-                {/*            emptyState="No annotations yet"*/}
-                {/*        />*/}
-                {/*        {next && (*/}
-                {/*            <div className="flex justify-center mt-6">*/}
-                {/*                <LemonButton*/}
-                {/*                    type="primary"*/}
-                {/*                    loading={loadingNext}*/}
-                {/*                    onClick={(): void => {*/}
-                {/*                        loadAnnotationsNext()*/}
-                {/*                    }}*/}
-                {/*                >*/}
-                {/*                    Load more annotations*/}
-                {/*                </LemonButton>*/}
-                {/*            </div>*/}
-                {/*        )}*/}
-                {/*    </>*/}
-                {/*)}*/}
+                {!shouldShowEmptyState && (
+                    <LemonTable
+                        data-attr="comments-table"
+                        rowKey="id"
+                        dataSource={comments}
+                        columns={columns}
+                        defaultSorting={{
+                            columnKey: 'created_at',
+                            order: -1,
+                        }}
+                        noSortingCancellation
+                        loading={commentsLoading}
+                        emptyState="No comments found"
+                    />
+                )}
             </div>
         </>
     )
