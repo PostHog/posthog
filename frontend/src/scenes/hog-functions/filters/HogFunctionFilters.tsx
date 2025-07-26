@@ -48,10 +48,16 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
     return sanitized
 }
 
-export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
+export function HogFunctionFilters({
+    embedded = false,
+    logicProps = {},
+}: {
+    embedded?: boolean
+    logicProps: { id?: string }
+}): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, featureFlags } =
-        useValues(hogFunctionConfigurationLogic)
+        useValues(hogFunctionConfigurationLogic(logicProps))
     const {
         setOldFilters,
         setNewFilters,

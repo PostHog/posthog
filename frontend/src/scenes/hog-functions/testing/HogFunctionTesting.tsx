@@ -316,7 +316,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         formKey="configuration"
                         className="deprecated-space-y-3"
                     >
-                        <HogFunctionFilters embedded={true} />
+                        <HogFunctionFilters embedded={true} logicProps={{ id }} />
                         <div className="flex justify-end mt-2">
                             <LemonButton size="small" type="primary" onClick={() => setDropdownOpen(false)}>
                                 Done
