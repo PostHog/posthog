@@ -3,7 +3,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import commentsJson from '~/__mocks__/comments.json'
+
+import commentsJson from './__mocks__/comments.json'
 
 const meta: Meta = {
     component: App,
