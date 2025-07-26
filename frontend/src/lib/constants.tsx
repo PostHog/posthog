@@ -285,7 +285,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     EXPERIMENTS_NEW_METRICS_TABLE: 'experiments-new-metrics-table', // owner: @andehen #team-experiments
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
-    FLAG_EVALUATION_ENVIRONMENTS: 'flag-evaluation-environments', // owner: @dylan #team-feature-flags
+    FLAG_evaluation_runtimeS: 'flag-evaluation-environments', // owner: @dylan #team-feature-flags
     PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

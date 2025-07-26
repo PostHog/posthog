@@ -37,7 +37,7 @@ import {
     CohortType,
     DashboardBasicType,
     EarlyAccessFeatureType,
-    FeatureFlagEvaluationEnvironment,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagStatusResponse,
@@ -114,7 +114,7 @@ export const NEW_FLAG: FeatureFlagType = {
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
-    evaluation_environment: FeatureFlagEvaluationEnvironment.ALL,
+    evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
 }
 const NEW_VARIANT = {
     key: '',

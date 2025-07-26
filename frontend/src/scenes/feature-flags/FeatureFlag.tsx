@@ -69,7 +69,7 @@ import {
     DashboardPlacement,
     DashboardType,
     EarlyAccessFeatureStage,
-    FeatureFlagEvaluationEnvironment,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -947,12 +947,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             across authentication events.
                         </span>
 
-                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_ENVIRONMENTS] && (
+                        {featureFlags[FEATURE_FLAGS.FLAG_evaluation_runtimeS] && (
                             <>
-                                <span className="card-secondary mt-4">Evaluation environment</span>
+                                <span className="card-secondary mt-4">Evaluation runtime</span>
                                 <div className="mt-2">
                                     <div className="flex items-center gap-2">
-                                        {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.ALL ? (
+                                        {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
                                             <>
                                                 <IconGlobe className="text-lg text-muted" />
                                                 <span className="font-medium">Both client and server</span>
@@ -960,8 +960,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     Single + multi-user
                                                 </LemonTag>
                                             </>
-                                        ) : featureFlag.evaluation_environment ===
-                                          FeatureFlagEvaluationEnvironment.CLIENT ? (
+                                        ) : featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.CLIENT ? (
                                             <>
                                                 <IconLaptop className="text-lg text-muted" />
                                                 <span className="font-medium">Client-side only</span>
@@ -1067,34 +1066,34 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 </>
             ) : (
                 <>
-                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_ENVIRONMENTS] && (
+                    {featureFlags[FEATURE_FLAGS.FLAG_evaluation_runtimeS] && (
                         <>
                             <div className="mb-8">
                                 <div className="inline-flex items-center gap-2 mb-3">
-                                    <h3 className="l3 mb-0">Evaluation environment</h3>
-                                    <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in an environment where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
+                                    <h3 className="l3 mb-0">Evaluation runtime</h3>
+                                    <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in an runtime where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
                                         <IconInfo className="text-secondary text-lg" />
                                     </Tooltip>
                                 </div>
                                 <div className="mb-3">
-                                    <LemonField name="evaluation_environment">
+                                    <LemonField name="evaluation_runtime">
                                         {({ value, onChange }) => (
                                             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                                                 {[
                                                     {
-                                                        value: FeatureFlagEvaluationEnvironment.ALL,
+                                                        value: FeatureFlagEvaluationRuntime.ALL,
                                                         icon: <IconGlobe />,
                                                         title: 'Both client and server',
                                                         description: 'Single-user apps + multi-user systems',
                                                     },
                                                     {
-                                                        value: FeatureFlagEvaluationEnvironment.CLIENT,
+                                                        value: FeatureFlagEvaluationRuntime.CLIENT,
                                                         icon: <IconLaptop />,
                                                         title: 'Client-side only',
                                                         description: 'Single-user apps (mobile, desktop, embedded)',
                                                     },
                                                     {
-                                                        value: FeatureFlagEvaluationEnvironment.SERVER,
+                                                        value: FeatureFlagEvaluationRuntime.SERVER,
                                                         icon: <IconServer />,
                                                         title: 'Server-side only',
                                                         description: 'Multi-user systems in trusted environments',

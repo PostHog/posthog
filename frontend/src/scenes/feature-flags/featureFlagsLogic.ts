@@ -39,7 +39,7 @@ export interface FeatureFlagsFilters {
     search?: string
     order?: string
     page?: number
-    evaluation_environment?: string
+    evaluation_runtime?: string
 }
 
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
@@ -49,7 +49,7 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     search: undefined,
     order: undefined,
     page: 1,
-    evaluation_environment: undefined,
+    evaluation_runtime: undefined,
 }
 
 export interface FlagLogicProps {
@@ -232,13 +232,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(tabInURL)
             }
 
-            const { page, created_by_id, active, type, search, order, evaluation_environment } = searchParams
+            const { page, created_by_id, active, type, search, order, evaluation_runtime } = searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id,
                 type,
                 search,
                 order,
-                evaluation_environment,
+                evaluation_runtime,
             }
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined

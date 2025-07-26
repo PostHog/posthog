@@ -36,7 +36,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
-    FeatureFlagEvaluationEnvironment,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
@@ -197,15 +197,15 @@ export function OverViewTab({
             },
         },
         {
-            title: 'Environment',
-            dataIndex: 'evaluation_environment',
+            title: 'Runtime',
+            dataIndex: 'evaluation_runtime',
             width: 120,
             render: function RenderEnvironment(_, featureFlag: FeatureFlagType) {
                 return (
                     <LemonTag type="default" className="uppercase">
-                        {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.ALL
+                        {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL
                             ? 'All'
-                            : featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.CLIENT
+                            : featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.CLIENT
                             ? 'Client'
                             : 'Server'}
                     </LemonTag>
@@ -431,30 +431,27 @@ export function OverViewTab({
                     data-attr="feature-flag-select-created-by"
                 />
                 <span className="ml-1">
-                    <b>Environment</b>
+                    <b>Runtime</b>
                 </span>
                 <LemonSelect
                     dropdownMatchSelectWidth={false}
                     size="small"
-                    onChange={(environment) => {
-                        const { evaluation_environment, ...restFilters } = filters || {}
-                        if (environment === 'any') {
+                    onChange={(runtime) => {
+                        const { evaluation_runtime, ...restFilters } = filters || {}
+                        if (runtime === 'any') {
                             setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                         } else {
-                            setFeatureFlagsFilters(
-                                { ...restFilters, evaluation_environment: environment, page: 1 },
-                                true
-                            )
+                            setFeatureFlagsFilters({ ...restFilters, evaluation_runtime: runtime, page: 1 }, true)
                         }
                     }}
                     options={[
-                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-environment-any' },
+                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
                         { label: 'All', value: 'all' },
                         { label: 'Client', value: 'client' },
                         { label: 'Server', value: 'server' },
                     ]}
-                    value={filters.evaluation_environment ?? 'any'}
-                    data-attr="feature-flag-select-environment"
+                    value={filters.evaluation_runtime ?? 'any'}
+                    data-attr="feature-flag-select-runtime"
                 />
             </div>
         </div>
