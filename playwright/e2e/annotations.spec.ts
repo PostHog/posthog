@@ -1,6 +1,6 @@
 import { expect, test } from '../utils/playwright-test-base'
 
-test.describe('Comments', () => {
+test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
         await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('annotations')
