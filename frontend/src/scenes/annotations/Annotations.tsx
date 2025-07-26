@@ -68,8 +68,8 @@ export function Annotations(): JSX.Element {
         {
             title: `Timestamp`,
             dataIndex: 'date_marker',
-            render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element {
-                return <TZLabel time={annotation.date_marker} />
+            render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element | null {
+                return annotation.date_marker ? <TZLabel time={annotation.date_marker} /> : null
             },
             sorter: (a, b) => a.date_marker?.diff(b.date_marker) || 1,
         },
