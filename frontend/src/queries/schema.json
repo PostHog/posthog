@@ -15632,7 +15632,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [

@@ -978,7 +978,7 @@ export interface FlagPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Flag
     /** Only flag_evaluates_to operator is allowed for flag dependencies */
     operator: PropertyOperator.FlagEvaluatesTo
-    /** The key should be a flag ID or key */
+    /** The key should be the flag ID */
     key: string
     /** The value can be true, false, or a variant name */
     value: boolean | string
