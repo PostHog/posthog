@@ -1,5 +1,1 @@
-<<<<<<< Updated upstream
-0806_scheduledchange_failure_count_and_more
-=======
-0805_create_person_properties_size_violation
->>>>>>> Stashed changes
+0807_personpropertiessizeviolation
