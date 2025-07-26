@@ -3,6 +3,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import commentsJson from '~/__mocks__/comments.json'
 
 const meta: Meta = {
     component: App,
@@ -16,8 +17,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/comments/': { results: [] },
-                '/api/projects/:team_id/comments/:commentId/': () => [200, []],
+                '/api/projects/:team_id/comments/': commentsJson,
             },
         }),
     ],
