@@ -42,7 +42,7 @@ export function determineAnnotationsDateGroup(
 }
 
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
-    path((key) => ['lib', 'components', 'Comments', 'annotationsOverlayLogic', key]),
+    path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({ dashboardId: undefined } as AnnotationsOverlayLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect(() => ({
