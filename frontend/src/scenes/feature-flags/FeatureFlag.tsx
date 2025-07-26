@@ -947,7 +947,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             across authentication events.
                         </span>
 
-                        {featureFlags[FEATURE_FLAGS.FLAG_evaluation_runtimeS] && (
+                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                             <>
                                 <span className="card-secondary mt-4">Evaluation runtime</span>
                                 <div className="mt-2">
@@ -1066,7 +1066,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 </>
             ) : (
                 <>
-                    {featureFlags[FEATURE_FLAGS.FLAG_evaluation_runtimeS] && (
+                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                         <>
                             <div className="mb-8">
                                 <div className="inline-flex items-center gap-2 mb-3">
