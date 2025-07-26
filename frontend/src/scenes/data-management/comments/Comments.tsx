@@ -7,8 +7,6 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { shortTimeZone } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { useEffect } from 'react'
 
@@ -18,9 +16,9 @@ import { dayjs } from 'lib/dayjs'
 import { commentsLogic, openURLFor, SCOPE_OPTIONS } from './commentsLogic'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { TZLabel } from 'lib/components/TZLabel'
 
 export function Comments(): JSX.Element {
-    const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
 
     const { comments, shouldShowEmptyState, commentsLoading, scope, filterCreatedBy, searchText } =
@@ -59,10 +57,10 @@ export function Comments(): JSX.Element {
             },
         },
         {
-            title: `Date and time (${shortTimeZone(timezone)})`,
+            title: `Timestamp`,
             dataIndex: 'created_at',
-            render: function RenderCreatedAt(_, comment: CommentType): string {
-                return dayjs(comment.created_at).format('MMM DD, YYYY h:mm A')
+            render: function RenderCreatedAt(_, comment: CommentType): JSX.Element {
+                return <TZLabel time={dayjs(comment.created_at)} />
             },
             sorter: (a, b) => dayjs(a.created_at).diff(dayjs(b.created_at)),
         },
