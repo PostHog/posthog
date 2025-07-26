@@ -7,6 +7,8 @@ from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.contrib.sessions.models import Session
+from django.utils import timezone
 
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
@@ -60,6 +62,7 @@ class UserAdmin(DjangoUserAdmin):
                     "email_verification_status",
                     "pending_email",
                     "strapi_id",
+                    "revoke_sessions_link",
                 )
             },
         ),
@@ -82,7 +85,13 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["id", "current_team", "current_organization", "email_verification_status"]
+    readonly_fields = [
+        "id",
+        "current_team",
+        "current_organization",
+        "email_verification_status",
+        "revoke_sessions_link",
+    ]
     ordering = ("email",)
 
     @admin.display(description="Current Team")
@@ -106,6 +115,10 @@ class UserAdmin(DjangoUserAdmin):
             reverse("admin:posthog_organization_change", args=[user.organization.pk]),
             user.organization.name,
         )
+
+    @admin.display(description="Web sessions")
+    def revoke_sessions_link(self, user: User):
+        return format_html('<a href="{}" class="button" id="revoke_sessions_button">{}</a>', "#", "Revoke all")
 
     @admin.display(description="Email Verification")
     def email_verification_status(self, user: User):
@@ -133,4 +146,30 @@ class UserAdmin(DjangoUserAdmin):
             # Redirect back to the change form
             return HttpResponseRedirect(request.path)
 
+        if request.POST.get("revoke_sessions") == "1":
+            try:
+                user = self.get_object(request, object_id)
+                if user:
+                    num_revoked = self.delete_user_sessions(user)
+                    messages.success(request, f"Revoked {num_revoked} session(s)")
+                else:
+                    messages.warning(request, "User not found.")
+            except Exception as e:
+                messages.error(request, f"Failed to revoke sessions: {str(e)}")
+
+            # Redirect back to the change form
+            return HttpResponseRedirect(request.path)
+
         return super().change_view(request, object_id, form_url, extra_context)
+
+    def _user_sessions(self, user):
+        """Fetch user's active sessions. Uses an iterator due to large table size and lack of effective indexing."""
+        user_pk = str(user.pk)
+        sessions = Session.objects.filter(expire_date__gt=timezone.now()).only("session_data")
+        for s in sessions.iterator():
+            data = s.get_decoded()
+            if data.get("_auth_user_id") == user_pk:
+                yield s
+
+    def delete_user_sessions(self, user):
+        return sum(1 for s in self._user_sessions(user) if s.delete())
