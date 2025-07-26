@@ -793,6 +793,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         hasExperiment,
         isDraftExperiment,
     } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
         distributeVariantsEqually,
         addVariant,
@@ -946,36 +947,42 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             across authentication events.
                         </span>
 
-                        <span className="card-secondary mt-4">Evaluation environment</span>
-                        <div className="mt-2">
-                            <div className="flex items-center gap-2">
-                                {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.BOTH ? (
-                                    <>
-                                        <IconGlobe className="text-lg text-muted" />
-                                        <span className="font-medium">Both client and server</span>
-                                        <LemonTag type="primary" size="small">
-                                            Single + multi-user
-                                        </LemonTag>
-                                    </>
-                                ) : featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.CLIENT ? (
-                                    <>
-                                        <IconLaptop className="text-lg text-muted" />
-                                        <span className="font-medium">Client-side only</span>
-                                        <LemonTag type="completion" size="small">
-                                            Single-user apps
-                                        </LemonTag>
-                                    </>
-                                ) : (
-                                    <>
-                                        <IconServer className="text-lg text-muted" />
-                                        <span className="font-medium">Server-side only</span>
-                                        <LemonTag type="caution" size="small">
-                                            Multi-user systems
-                                        </LemonTag>
-                                    </>
-                                )}
-                            </div>
-                        </div>
+                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_ENVIRONMENTS] && (
+                            <>
+                                <span className="card-secondary mt-4">Evaluation environment</span>
+                                <div className="mt-2">
+                                    <div className="flex items-center gap-2">
+                                        {featureFlag.evaluation_environment ===
+                                        FeatureFlagEvaluationEnvironment.BOTH ? (
+                                            <>
+                                                <IconGlobe className="text-lg text-muted" />
+                                                <span className="font-medium">Both client and server</span>
+                                                <LemonTag type="primary" size="small">
+                                                    Single + multi-user
+                                                </LemonTag>
+                                            </>
+                                        ) : featureFlag.evaluation_environment ===
+                                          FeatureFlagEvaluationEnvironment.CLIENT ? (
+                                            <>
+                                                <IconLaptop className="text-lg text-muted" />
+                                                <span className="font-medium">Client-side only</span>
+                                                <LemonTag type="completion" size="small">
+                                                    Single-user apps
+                                                </LemonTag>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <IconServer className="text-lg text-muted" />
+                                                <span className="font-medium">Server-side only</span>
+                                                <LemonTag type="caution" size="small">
+                                                    Multi-user systems
+                                                </LemonTag>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                     <LemonDivider className="my-3" />
                     {featureFlag.filters.multivariate && (
@@ -1061,69 +1068,78 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 </>
             ) : (
                 <>
-                    <div className="mb-8">
-                        <div className="inline-flex items-center gap-2 mb-3">
-                            <h3 className="l3 mb-0">Evaluation environment</h3>
-                            <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in an environment where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
-                                <IconInfo className="text-secondary text-lg" />
-                            </Tooltip>
-                        </div>
-                        <div className="mb-3">
-                            <LemonField name="evaluation_environment">
-                                {({ value, onChange }) => (
-                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                        {[
-                                            {
-                                                value: FeatureFlagEvaluationEnvironment.BOTH,
-                                                icon: <IconGlobe />,
-                                                title: 'Both client and server',
-                                                description: 'Single-user apps + multi-user systems',
-                                            },
-                                            {
-                                                value: FeatureFlagEvaluationEnvironment.CLIENT,
-                                                icon: <IconLaptop />,
-                                                title: 'Client-side only',
-                                                description: 'Single-user apps (mobile, desktop, embedded)',
-                                            },
-                                            {
-                                                value: FeatureFlagEvaluationEnvironment.SERVER,
-                                                icon: <IconServer />,
-                                                title: 'Server-side only',
-                                                description: 'Multi-user systems in trusted environments',
-                                            },
-                                        ].map((option) => (
-                                            <div
-                                                key={option.value}
-                                                className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
-                                                    value === option.value
-                                                        ? 'border-primary bg-primary-highlight'
-                                                        : 'border-border'
-                                                }`}
-                                                onClick={() => onChange(option.value)}
-                                            >
-                                                <div className="flex items-start gap-3">
-                                                    <div className="text-lg text-muted">{option.icon}</div>
-                                                    <div className="flex-1">
-                                                        <div className="font-medium text-sm">{option.title}</div>
-                                                        <div className="text-xs text-muted mt-1">
-                                                            {option.description}
+                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_ENVIRONMENTS] && (
+                        <>
+                            <div className="mb-8">
+                                <div className="inline-flex items-center gap-2 mb-3">
+                                    <h3 className="l3 mb-0">Evaluation environment</h3>
+                                    <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in an environment where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
+                                        <IconInfo className="text-secondary text-lg" />
+                                    </Tooltip>
+                                </div>
+                                <div className="mb-3">
+                                    <LemonField name="evaluation_environment">
+                                        {({ value, onChange }) => (
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                                {[
+                                                    {
+                                                        value: FeatureFlagEvaluationEnvironment.BOTH,
+                                                        icon: <IconGlobe />,
+                                                        title: 'Both client and server',
+                                                        description: 'Single-user apps + multi-user systems',
+                                                    },
+                                                    {
+                                                        value: FeatureFlagEvaluationEnvironment.CLIENT,
+                                                        icon: <IconLaptop />,
+                                                        title: 'Client-side only',
+                                                        description: 'Single-user apps (mobile, desktop, embedded)',
+                                                    },
+                                                    {
+                                                        value: FeatureFlagEvaluationEnvironment.SERVER,
+                                                        icon: <IconServer />,
+                                                        title: 'Server-side only',
+                                                        description: 'Multi-user systems in trusted environments',
+                                                    },
+                                                ].map((option) => (
+                                                    <div
+                                                        key={option.value}
+                                                        className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                            value === option.value
+                                                                ? 'border-primary bg-primary-highlight'
+                                                                : 'border-border'
+                                                        }`}
+                                                        onClick={() => onChange(option.value)}
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="text-lg text-muted">{option.icon}</div>
+                                                            <div className="flex-1">
+                                                                <div className="font-medium text-sm">
+                                                                    {option.title}
+                                                                </div>
+                                                                <div className="text-xs text-muted mt-1">
+                                                                    {option.description}
+                                                                </div>
+                                                            </div>
+                                                            <input
+                                                                type="radio"
+                                                                name="evaluation-environment"
+                                                                checked={value === option.value}
+                                                                onChange={() => onChange(option.value)}
+                                                                className="cursor-pointer"
+                                                            />
                                                         </div>
                                                     </div>
-                                                    <input
-                                                        type="radio"
-                                                        name="evaluation-environment"
-                                                        checked={value === option.value}
-                                                        onChange={() => onChange(option.value)}
-                                                        className="cursor-pointer"
-                                                    />
-                                                </div>
+                                                ))}
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </LemonField>
-                        </div>
-                    </div>
+                                        )}
+                                    </LemonField>
+                                </div>
+                            </div>
+
+                            <LemonDivider className="my-6" />
+                        </>
+                    )}
+
                     <div className="mb-8">
                         <h3 className="l3">Served value</h3>
                         <div className="mb-2" data-attr="feature-flag-served-value-segmented-button">
@@ -1205,13 +1221,26 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <div className="w-1/2">
                                         <div className="text-secondary mb-4">
                                             {featureFlag.is_remote_configuration ? (
-                                                <>Specify a valid JSON payload to be returned for the config flag</>
+                                                <>
+                                                    Specify a valid JSON payload to be returned for the config flag.
+                                                    Read more in the{' '}
+                                                    <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads">
+                                                        payload documentation
+                                                    </Link>
+                                                    .
+                                                </>
                                             ) : (
                                                 <>
-                                                    Specify a valid JSON payload to be returned when the served value is{' '}
+                                                    Optionally specify a valid JSON payload to be returned when the
+                                                    served value is{' '}
                                                     <strong>
                                                         <code>true</code>
                                                     </strong>
+                                                    . Read more in the{' '}
+                                                    <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads">
+                                                        payload documentation
+                                                    </Link>
+                                                    .
                                                 </>
                                             )}
                                         </div>
