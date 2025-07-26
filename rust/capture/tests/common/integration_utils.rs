@@ -87,6 +87,46 @@ impl TestCase {
 }
 
 //
+// Test Runner
+//
+
+pub async fn execute_test(unit: &TestCase) {
+    let payload = (unit.generate_payload)(unit);
+
+    let (router, sink) = setup_capture_router(unit);
+    let client = TestClient::new(router);
+
+    let resp = match unit.method {
+        Method::POST => post_request(unit, &client, payload).await,
+        Method::GET => unimplemented!("GET test suite not implemented yet!"),
+        _ => panic!(
+            "unexpected method {} in TestCase: {}",
+            unit.method, unit.title,
+        ),
+    };
+
+    match unit.expected_status {
+        StatusCode::OK => validate_response_success(unit.title, resp).await,
+        _ => {
+            expect_response_fail(unit.title, resp).await;
+            return; // no need to check the payload if the request failed!
+        }
+    };
+
+    let got = sink.events();
+    match unit.fixture {
+        SINGLE_EVENT_JSON => validate_single_event_payload(unit.title, got),
+        SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(unit.title, got),
+        SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(unit.title, got),
+        BATCH_EVENTS_JSON => validate_batch_events_payload(unit.title, got),
+        _ => panic!(
+            "unsupported fixture type {} in TestCase: {}",
+            unit.fixture, unit.title
+        ),
+    }
+}
+
+//
 // Payload and request generators
 //
 
@@ -195,46 +235,6 @@ fn generate_post_path(unit: &TestCase) -> String {
         "{}/?_={}{}{}",
         unit.base_path, unix_millis_sent_at, compression, ver,
     )
-}
-
-//
-// Test Runner
-//
-
-pub async fn execute_test(unit: &TestCase) {
-    let payload = (unit.generate_payload)(unit);
-
-    let (router, sink) = setup_capture_router(unit);
-    let client = TestClient::new(router);
-
-    let resp = match unit.method {
-        Method::POST => post_request(unit, &client, payload).await,
-        Method::GET => unimplemented!("GET test suite not implemented yet!"),
-        _ => panic!(
-            "unexpected method {} in TestCase: {}",
-            unit.method, unit.title,
-        ),
-    };
-
-    match unit.expected_status {
-        StatusCode::OK => validate_response_success(unit.title, resp).await,
-        _ => {
-            expect_response_fail(unit.title, resp).await;
-            return; // no need to check the payload if the request failed!
-        }
-    };
-
-    let got = sink.events();
-    match unit.fixture {
-        SINGLE_EVENT_JSON => validate_single_event_payload(unit.title, got),
-        SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(unit.title, got),
-        SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(unit.title, got),
-        BATCH_EVENTS_JSON => validate_batch_events_payload(unit.title, got),
-        _ => panic!(
-            "unsupported fixture type {} in TestCase: {}",
-            unit.fixture, unit.title
-        ),
-    }
 }
 
 //
