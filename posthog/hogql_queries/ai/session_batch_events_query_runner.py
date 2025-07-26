@@ -15,7 +15,7 @@ from posthog.session_recordings.constants import (
     EXTRA_SUMMARY_EVENT_FIELDS,
     MAX_TOTAL_EVENTS_PER_QUERY,
 )
-from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
+from posthog.session_recordings.queries_to_replace.session_replay_events import DEFAULT_EVENT_FIELDS
 
 # Type alias for convenience
 SessionEventsResults = dict[str, list[list[Any]]]  # session_id -> events mapping
