@@ -15,7 +15,7 @@ cd "$SCRIPT_DIR/.."
 
 # Wait for Cassandra to be ready
 echo "Waiting for Cassandra to be ready..."
-max_attempts=30
+max_attempts=5
 attempt=0
 
 while [ $attempt -lt $max_attempts ]; do
