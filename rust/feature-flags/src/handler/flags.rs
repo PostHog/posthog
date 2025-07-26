@@ -42,9 +42,12 @@ impl From<&str> for EvaluationRuntime {
     }
 }
 
-// TODO: Implement logic to determine current evaluation runtime
-// For now, this is a placeholder that will need to be replaced with actual runtime detection
-fn get_current_evaluation_runtime(
+/// Determines the evaluation runtime based on request characteristics.
+/// Uses explicit runtime if provided, otherwise analyzes user-agent, headers, and lib_version
+/// to detect if the request is from a client-side (browser/mobile) or server-side SDK.
+fn detect_evaluation_runtime_from_request(
+    headers: &axum::http::HeaderMap,
+    lib_version: Option<&str>,
     explicit_runtime: Option<EvaluationRuntime>,
 ) -> Option<EvaluationRuntime> {
     // Use explicitly passed runtime if available
@@ -52,11 +55,61 @@ fn get_current_evaluation_runtime(
         return Some(runtime);
     }
 
-    // Placeholder for automatic runtime detection - this could come from:
-    // - Request headers
-    // - Environment variables
-    // - Team/project configuration
-    // - Client SDK version/type
+    // Analyze User-Agent header
+    if let Some(user_agent) = headers.get("user-agent").and_then(|v| v.to_str().ok()) {
+        // Browser patterns - these typically indicate client-side execution
+        if user_agent.contains("Mozilla/")
+            || user_agent.contains("Chrome/")
+            || user_agent.contains("Safari/")
+            || user_agent.contains("Firefox/")
+            || user_agent.contains("Edge/")
+        {
+            return Some(EvaluationRuntime::Client);
+        }
+
+        // Server SDK patterns - these indicate server-side execution
+        if user_agent.starts_with("posthog-python/")
+            || user_agent.starts_with("posthog-ruby/")
+            || user_agent.starts_with("posthog-php/")
+            || user_agent.starts_with("posthog-java/")
+            || user_agent.starts_with("posthog-go/")
+            || user_agent.starts_with("posthog-node/") // Note: server-side Node.js
+            || user_agent.contains("python-requests/")
+            || user_agent.contains("curl/")
+        {
+            return Some(EvaluationRuntime::Server);
+        }
+    }
+
+    // Analyze lib_version for additional clues
+    if let Some(lib_version) = lib_version {
+        // JavaScript SDK versions often indicate client-side
+        if lib_version.contains("posthog-js") || lib_version.contains("javascript") {
+            return Some(EvaluationRuntime::Client);
+        }
+
+        // Server SDK patterns in lib_version
+        if lib_version.contains("python")
+            || lib_version.contains("ruby")
+            || lib_version.contains("php")
+            || lib_version.contains("java")
+            || lib_version.contains("golang")
+            || lib_version.contains("server")
+        {
+            return Some(EvaluationRuntime::Server);
+        }
+    }
+
+    // Check for browser-specific headers that indicate client-side
+    if headers.contains_key("origin")
+        || headers.contains_key("referer")
+        || headers.get("sec-fetch-mode").is_some()
+        || headers.get("sec-fetch-site").is_some()
+    {
+        return Some(EvaluationRuntime::Client);
+    }
+
+    // If we can't determine, default to None (which will include flags with no runtime requirement + "all")
     None
 }
 
@@ -114,7 +167,8 @@ pub async fn fetch_and_filter(
     flag_service: &FlagService,
     project_id: i64,
     query_params: &FlagsQueryParams,
-    evaluation_runtime: Option<EvaluationRuntime>,
+    headers: &axum::http::HeaderMap,
+    explicit_runtime: Option<EvaluationRuntime>,
 ) -> Result<(FeatureFlagList, bool), FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
@@ -126,13 +180,17 @@ pub async fn fetch_and_filter(
             .unwrap_or(false),
     );
 
-    // Then filter by evaluation runtime
-    let current_runtime = get_current_evaluation_runtime(evaluation_runtime);
+    // Then filter by evaluation runtime using request analysis
+    let current_runtime = detect_evaluation_runtime_from_request(
+        headers,
+        query_params.lib_version.as_deref(),
+        explicit_runtime,
+    );
     let flags_after_runtime_filter =
-        filter_flags_by_runtime(flags_after_survey_filter, current_runtime.clone());
+        filter_flags_by_runtime(flags_after_survey_filter, current_runtime);
 
     tracing::debug!(
-        "Runtime filtering: current_runtime={:?}, flags_count={}",
+        "Runtime filtering: detected_runtime={:?}, flags_count={}",
         current_runtime,
         flags_after_runtime_filter.len()
     );
@@ -322,15 +380,66 @@ mod tests {
     }
 
     #[test]
-    fn test_get_current_evaluation_runtime_with_explicit() {
-        let result = get_current_evaluation_runtime(Some(EvaluationRuntime::Client));
+    fn test_detect_evaluation_runtime_browser_user_agent() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            "user-agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                .parse()
+                .unwrap(),
+        );
+
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
         assert_eq!(result, Some(EvaluationRuntime::Client));
     }
 
     #[test]
-    fn test_get_current_evaluation_runtime_without_explicit() {
-        let result = get_current_evaluation_runtime(None);
-        // Should return None since we don't have automatic detection yet
+    fn test_detect_evaluation_runtime_server_user_agent() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("user-agent", "posthog-python/1.2.3".parse().unwrap());
+
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Server));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_browser_headers() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("origin", "https://example.com".parse().unwrap());
+        headers.insert("sec-fetch-mode", "cors".parse().unwrap());
+
+        let result = detect_evaluation_runtime_from_request(&headers, None, None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_lib_version() {
+        let headers = axum::http::HeaderMap::new();
+
+        let result =
+            detect_evaluation_runtime_from_request(&headers, Some("posthog-js/1.2.3"), None);
+        assert_eq!(result, Some(EvaluationRuntime::Client));
+
+        let result = detect_evaluation_runtime_from_request(&headers, Some("python/3.9"), None);
+        assert_eq!(result, Some(EvaluationRuntime::Server));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_explicit_override() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("user-agent", "Mozilla/5.0 (Browser)".parse().unwrap());
+
+        // Explicit runtime should override detection
+        let result =
+            detect_evaluation_runtime_from_request(&headers, None, Some(EvaluationRuntime::Server));
+        assert_eq!(result, Some(EvaluationRuntime::Server));
+    }
+
+    #[test]
+    fn test_detect_evaluation_runtime_unknown() {
+        let headers = axum::http::HeaderMap::new();
+
+        let result = detect_evaluation_runtime_from_request(&headers, Some("unknown-sdk"), None);
         assert_eq!(result, None);
     }
 }

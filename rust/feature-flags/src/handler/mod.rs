@@ -70,9 +70,14 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let (filtered_flags, had_flag_errors) =
-                flags::fetch_and_filter(&flag_service, team.project_id, &context.meta, None)
-                    .await?;
+            let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
+                &flag_service,
+                team.project_id,
+                &context.meta,
+                &context.headers,
+                None,
+            )
+            .await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
