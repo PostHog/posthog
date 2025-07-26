@@ -2032,7 +2032,7 @@ class RecordingPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RefreshType(StrEnum):
@@ -2137,7 +2137,7 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RevenueAnalyticsRevenueQueryResult(BaseModel):
@@ -2229,7 +2229,7 @@ class SessionPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class SnapshotSource(StrEnum):
@@ -3256,7 +3256,7 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -3267,7 +3267,7 @@ class DataWarehousePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -3318,7 +3318,7 @@ class ElementPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -3346,7 +3346,7 @@ class ErrorTrackingIssueFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -3357,7 +3357,7 @@ class EventMetadataPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["event_metadata"] = "event_metadata"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -3379,7 +3379,7 @@ class EventPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventTaxonomyItem(BaseModel):
@@ -3528,7 +3528,7 @@ class FeaturePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -3576,7 +3576,7 @@ class GroupPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["group"] = "group"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -3607,7 +3607,7 @@ class HogQLPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     type: Literal["hogql"] = "hogql"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLQueryModifiers(BaseModel):
@@ -3711,7 +3711,7 @@ class LogEntryPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log_entry"] = "log_entry"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class LogMessage(BaseModel):
@@ -3741,7 +3741,7 @@ class LogPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log"] = "log"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class MarketingAnalyticsSchemaField(BaseModel):
@@ -3797,7 +3797,7 @@ class PersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class QueryResponseAlternative8(BaseModel):
