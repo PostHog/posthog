@@ -200,7 +200,7 @@ export function OverViewTab({
             title: 'Runtime',
             dataIndex: 'evaluation_runtime',
             width: 120,
-            render: function RenderEnvironment(_, featureFlag: FeatureFlagType) {
+            render: function RenderFlagRuntime(_, featureFlag: FeatureFlagType) {
                 return (
                     <LemonTag type="default" className="uppercase">
                         {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL
@@ -446,9 +446,9 @@ export function OverViewTab({
                     }}
                     options={[
                         { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
-                        { label: 'All', value: 'all' },
-                        { label: 'Client', value: 'client' },
-                        { label: 'Server', value: 'server' },
+                        { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
+                        { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
+                        { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
                     ]}
                     value={filters.evaluation_runtime ?? 'any'}
                     data-attr="feature-flag-select-runtime"
