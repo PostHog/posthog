@@ -1,5 +1,5 @@
 import { LemonSelectOption, lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -75,11 +75,22 @@ export const commentsLogic = kea<commentsLogicType>([
         searchText: ['', { setSearchText: (_, { searchText }) => searchText }],
     })),
     selectors(() => ({
-        shouldShowEmptyState: [
-            (s) => [s.comments, s.commentsLoading],
-            (comments, commentsLoading): boolean => {
-                return comments.length === 0 && !commentsLoading
+        hasAnySearch: [
+            (s) => [s.searchText, s.scope, s.filterCreatedBy],
+            (searchText, scope, filterCreatedBy) => {
+                return !!searchText || !!scope || !!filterCreatedBy
             },
         ],
+        shouldShowEmptyState: [
+            (s) => [s.comments, s.commentsLoading, s.hasAnySearch],
+            (comments, commentsLoading, hasAnySearch): boolean => {
+                return comments.length === 0 && !commentsLoading && !hasAnySearch
+            },
+        ],
+    })),
+    listeners(({ actions }) => ({
+        setScope: actions.loadComments,
+        setFilterCreatedBy: actions.loadComments,
+        setSearchText: actions.loadComments,
     })),
 ])
