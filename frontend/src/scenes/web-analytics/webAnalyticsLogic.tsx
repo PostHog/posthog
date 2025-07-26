@@ -2514,7 +2514,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
                 const columnsWithDraftConversionGoal = [
-                    ...(marketingQuery?.select || defaultColumns).filter(
+                    ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
                         (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
                     ),
                     ...(draftConversionGoal
