@@ -952,8 +952,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 <span className="card-secondary mt-4">Evaluation environment</span>
                                 <div className="mt-2">
                                     <div className="flex items-center gap-2">
-                                        {featureFlag.evaluation_environment ===
-                                        FeatureFlagEvaluationEnvironment.BOTH ? (
+                                        {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.ALL ? (
                                             <>
                                                 <IconGlobe className="text-lg text-muted" />
                                                 <span className="font-medium">Both client and server</span>
@@ -1083,7 +1082,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                                                 {[
                                                     {
-                                                        value: FeatureFlagEvaluationEnvironment.BOTH,
+                                                        value: FeatureFlagEvaluationEnvironment.ALL,
                                                         icon: <IconGlobe />,
                                                         title: 'Both client and server',
                                                         description: 'Single-user apps + multi-user systems',

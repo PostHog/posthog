@@ -114,7 +114,7 @@ export const NEW_FLAG: FeatureFlagType = {
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
-    evaluation_environment: FeatureFlagEvaluationEnvironment.BOTH,
+    evaluation_environment: FeatureFlagEvaluationEnvironment.ALL,
 }
 const NEW_VARIANT = {
     key: '',

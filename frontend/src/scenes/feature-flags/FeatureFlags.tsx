@@ -203,8 +203,8 @@ export function OverViewTab({
             render: function RenderEnvironment(_, featureFlag: FeatureFlagType) {
                 return (
                     <LemonTag type="default" className="uppercase">
-                        {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.BOTH
-                            ? 'Both'
+                        {featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.ALL
+                            ? 'All'
                             : featureFlag.evaluation_environment === FeatureFlagEvaluationEnvironment.CLIENT
                             ? 'Client'
                             : 'Server'}
@@ -438,7 +438,7 @@ export function OverViewTab({
                     size="small"
                     onChange={(environment) => {
                         const { evaluation_environment, ...restFilters } = filters || {}
-                        if (environment === 'all') {
+                        if (environment === 'any') {
                             setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                         } else {
                             setFeatureFlagsFilters(
@@ -448,12 +448,12 @@ export function OverViewTab({
                         }
                     }}
                     options={[
-                        { label: 'All', value: 'all', 'data-attr': 'feature-flag-select-environment-all' },
-                        { label: 'Both', value: 'both' },
+                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-environment-any' },
+                        { label: 'All', value: 'all' },
                         { label: 'Client', value: 'client' },
                         { label: 'Server', value: 'server' },
                     ]}
-                    value={filters.evaluation_environment ?? 'all'}
+                    value={filters.evaluation_environment ?? 'any'}
                     data-attr="feature-flag-select-environment"
                 />
             </div>

@@ -3262,7 +3262,7 @@ export interface MultivariateFlagOptions {
 export enum FeatureFlagEvaluationEnvironment {
     SERVER = 'server',
     CLIENT = 'client',
-    BOTH = 'both',
+    ALL = 'all',
 }
 
 export interface FeatureFlagFilters {
