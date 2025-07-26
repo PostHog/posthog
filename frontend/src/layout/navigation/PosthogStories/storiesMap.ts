@@ -51,6 +51,68 @@ export interface storyGroup {
 // Important: we use the first thumbnail of the first story in each group as the thumbnail of the group.
 export const storiesMap: storyGroup[] = [
     {
+        id: 'deskhog',
+        title: 'DeskHog',
+        stories: [
+            {
+                id: 'deskhog-minidoc',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/deskhog_minidoc_ea362ae944.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'deskhog-infomercial',
+                title: 'DeskHog',
+                description: 'ORDER NOW!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/deskhog_infomercial_a50a1dd4ec.mp4',
+                type: StoryType.Video,
+                aspectRatio: '4:3',
+            },
+            {
+                id: 'deskhog-kit',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_kit_657f1da249.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
+                type: StoryType.Image,
+            },
+            {
+                id: 'deskhog-colors',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_colors_84c91ae075.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
+                type: StoryType.Image,
+            },
+            {
+                id: 'deskhog-cta',
+                title: 'DeskHog',
+                description: 'Open-source, 3D-printed, palm-sized',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_cta_513a9e19f4.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
+                type: StoryType.Image,
+            },
+        ],
+    },
+    {
         id: 'changelog',
         title: 'Changelog',
         stories: [

@@ -55,7 +55,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
             loadPlaylistsForRecording: async (_, breakpoint) => {
                 await breakpoint(300)
                 const response = await api.recordings.listPlaylists(
-                    toParams({ session_recording_id: props.sessionRecordingId })
+                    toParams({ session_recording_id: props.sessionRecordingId, type: 'collection' })
                 )
                 breakpoint()
                 return response.results

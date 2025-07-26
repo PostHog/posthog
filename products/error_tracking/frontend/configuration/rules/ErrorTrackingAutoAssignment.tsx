@@ -9,7 +9,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
         <>
             <p>
                 Automatically assign newly created issues based on properties of the exception event the first time it
-                was seen.
+                was seen. The first rule that matches will be applied.
             </p>
             <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
                 {({ rule, editing, disabled }) => {

@@ -1,33 +1,17 @@
 import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { match } from 'ts-pattern'
 import { ProgressStatus } from '~/types'
-import { getExperimentStatusColor } from './experimentsLogic'
+import { StatusTag } from './ExperimentView/components'
 
 function nameOrLinkToExperiment(id: string | undefined, name: string | null): JSX.Element | string {
     if (id) {
         return <Link to={urls.experiment(id)}>{name}</Link>
     }
     return name || '(unknown)'
-}
-
-/**
- * TODO: refactor the experiment view component to take a status prop so we can remove this component
- */
-const StatusTag = ({
-    status,
-}: {
-    status: ProgressStatus.Draft | ProgressStatus.Running | ProgressStatus.Complete
-}): JSX.Element => {
-    return (
-        <LemonTag type={getExperimentStatusColor(status)}>
-            <b className="uppercase">{status}</b>
-        </LemonTag>
-    )
 }
 
 //exporting so the linter doesn't complain about this not being used
@@ -62,6 +46,13 @@ const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element =
 }
 
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
+    //bail for shared metrics
+    if (logItem.detail.type === 'shared_metric') {
+        return {
+            description: null,
+        }
+    }
+
     return match(logItem.activity)
         .with('created', () => {
             /**

@@ -1,1 +1,1 @@
-0798_alter_integration_kind
+0806_scheduledchange_failure_count_and_more

@@ -8,8 +8,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-01-21 14:40:09'
-    AND (NOT JSONHas(properties, '$survey_completed')
-         OR JSONExtractBool(properties, '$survey_completed') = true)
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-01-21 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
@@ -22,8 +31,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-04-25 14:40:09'
-    AND (NOT JSONHas(properties, '$survey_completed')
-         OR JSONExtractBool(properties, '$survey_completed') = true)
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND timestamp >= '2024-04-25 14:40:09'
+         AND event = 'survey sent'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
@@ -1710,7 +1728,6 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
-         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
