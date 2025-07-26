@@ -13,6 +13,7 @@ import { isEmptyObject } from 'lib/utils'
 export type CommentsLogicProps = {
     scope: CommentType['scope']
     item_id?: CommentType['item_id']
+    item_context?: CommentType['item_context']
     disabled?: boolean
 }
 
@@ -104,7 +105,7 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
-                    c
+
                     let itemContext: Record<string, any> | undefined = {
                         ...values.itemContext?.context,
                         ...props.item_context,
