@@ -1286,6 +1286,10 @@ export class ApiRequest {
         return await api.create(this.assembleFullUrl(), options?.data, options)
     }
 
+    public async delete(): Promise<any> {
+        return await api.delete(this.assembleFullUrl())
+    }
+
     // Data color themes
     public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_color_themes')

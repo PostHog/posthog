@@ -15,8 +15,9 @@ import { useEffect } from 'react'
 import { CommentType, ProductKey } from '~/types'
 import { dayjs } from 'lib/dayjs'
 
-import { commentsLogic, SCOPE_OPTIONS } from './commentsLogic'
+import { commentsLogic, openURLFor, SCOPE_OPTIONS } from './commentsLogic'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
 export function Comments(): JSX.Element {
     const { timezone } = useValues(teamLogic)
@@ -110,6 +111,16 @@ export function Comments(): JSX.Element {
                                     status="danger"
                                     onClick={() => deleteComment(comment.id)}
                                     disabledReason={canEdit ? undefined : 'You can only delete your own comments'}
+                                />
+                                <LemonButton
+                                    icon={<IconOpenInApp />}
+                                    size="small"
+                                    to={openURLFor(comment) || ''}
+                                    disabledReason={
+                                        openURLFor(comment)
+                                            ? undefined
+                                            : 'Not able to link to this comment type 🙈- tell us you want to be able to!'
+                                    }
                                 />
                             </>
                         )}

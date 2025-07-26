@@ -5,11 +5,12 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, CommentType } from '~/types'
+import { ActivityScope, CommentType, InsightShortId } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
 import { capitalizeFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
+import { urls } from 'scenes/urls'
 
 export const SCOPE_OPTIONS: LemonSelectOption<ActivityScope | null>[] = Object.values(ActivityScope).map((scope) => ({
     value: scope,
@@ -19,6 +20,17 @@ SCOPE_OPTIONS.unshift({
     value: null,
     label: 'Any',
 })
+
+const openUrls: Record<ActivityScope.INSIGHT | ActivityScope.REPLAY, (c: CommentType) => string> = {
+    [ActivityScope.INSIGHT]: (c) => `${urls.insightView(c.item_id as InsightShortId)}#panel=discussion`,
+    // TODO we should open the comment or discussion too?
+    [ActivityScope.REPLAY]: (c) => `${urls.replaySingle(c.item_id as string)}`,
+    // TODO more URL linking
+}
+
+export const openURLFor = (c: CommentType): string | null => {
+    return openUrls[c.scope](c) || null
+}
 
 export const commentsLogic = kea<commentsLogicType>([
     path(['scenes', 'data-management', 'comments', 'commentsLogic']),
