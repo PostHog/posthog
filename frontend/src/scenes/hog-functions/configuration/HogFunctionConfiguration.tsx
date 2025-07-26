@@ -378,7 +378,7 @@ export function HogFunctionConfiguration({
 
                                 {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
-                                {showFilters && <HogFunctionFilters />}
+                                {showFilters && <HogFunctionFilters logicProps={{ id: hogFunction?.id }} />}
 
                                 {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                             </div>
