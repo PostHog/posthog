@@ -455,8 +455,8 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         schemaIncrementalFieldsLoading,
         saveButtonIsLoading,
     } = useValues(logic)
-    const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } =
-        useActions(logic)
+    const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields } = useActions(logic)
+    const { updateSchema } = useActions(dataWarehouseSourceSettingsLogic)
 
     useEffect(() => {
         if (currentSyncMethodModalSchema?.id) {
@@ -534,6 +534,9 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         }
+                        // Close modal immediately for optimistic UI
+                        closeSyncMethodModal()
+                        resetSchemaIncrementalFields()
                     }}
                 />
             )}
