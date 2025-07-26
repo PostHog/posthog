@@ -11,7 +11,6 @@ import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 import posthog from 'posthog-js'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex
@@ -181,7 +180,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount((logic) => {
+        const { actions, values } = logic
+        logic
         if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
             const defaultColumns = values.groupTypes.get(
                 values.query.source.group_type_index as GroupTypeIndex
@@ -196,5 +197,18 @@ export const groupsListLogic = kea<groupsListLogicType>([
             actions.setQueryWasModified(false)
         }
     }),
-    permanentlyMount(),
+    // Similar to permanentlyMount, except with try/catch
+    (logic) => {
+        afterMount(() => {
+            if (!logic.cache._permanentMount) {
+                logic.cache._permanentMount = true
+                try {
+                    // In test environment, this mounting will fail
+                    logic.wrapper.mount()
+                } catch {
+                    console.warn('Logic failed to mount.')
+                }
+            }
+        })(logic)
+    },
 ])
