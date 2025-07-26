@@ -44,7 +44,7 @@ class UserAdmin(DjangoUserAdmin):
 
     form = UserChangeForm
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
-    change_form_template = "loginas/change_form.html"
+    change_form_template = "admin/posthog/user/change_form.html"
 
     inlines = [OrganizationMemberInline, TOTPDeviceInline]
     fieldsets = (
@@ -114,12 +114,12 @@ class UserAdmin(DjangoUserAdmin):
         else:
             return format_html(
                 '<p style="color: red;">✗ Not verified</p><br>'
-                '<a href="?send_verification=1" class="button">Send verification email</a>'
+                '<a href="#" class="button" id="send_verification_email_button">Send verification email</a>'
             )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """Override change view to handle email verification button."""
-        if request.GET.get("send_verification") == "1":
+        if request.POST.get("send_verification") == "1":
             try:
                 user = self.get_object(request, object_id)
                 if user and not user.is_email_verified:

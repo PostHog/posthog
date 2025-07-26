@@ -1,0 +1,26 @@
+{% extends "loginas/change_form.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+
+  <script nonce="{{ request.admin_csp_nonce }}">
+    window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("send_verification_email_button").addEventListener("click", (event) => {
+            // prevent anchor tag from navigating
+            event.preventDefault();
+
+            if (window.confirm("Send verification email?"))
+                document.getElementById("send_verification").submit();
+        });
+    });
+  </script>
+{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+
+    <form method="POST" id="send_verification">
+        {% csrf_token %}
+        <input type="hidden" name="send_verification" value="1" />
+    </form>
+{% endblock %}
