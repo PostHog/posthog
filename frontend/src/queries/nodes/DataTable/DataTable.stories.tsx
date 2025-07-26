@@ -22,20 +22,6 @@ const meta: Meta<typeof Query> = {
                 '/api/environments/:team_id/events': events,
                 '/api/environments/:team_id/persons': persons,
             },
-            post: {
-                '/api/environments/:team_id/query/': (req, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({
-                        cache_key: req.params.query,
-                        calculation_trigger: null,
-                        error: '',
-                        hasMore: false,
-                        is_cached: true,
-                        query_status: null,
-                        results: [],
-                    }),
-                ],
-            },
         }),
     ],
 }
@@ -67,5 +53,12 @@ Persons.args = { query: examples['Persons'] }
 export const PersonsTable: Story = QueryTemplate.bind({})
 PersonsTable.args = { query: examples['PersonsTable'] }
 
-export const MarketingAnalyticsTablePinnedColumns: Story = QueryTemplate.bind({})
-MarketingAnalyticsTablePinnedColumns.args = { query: examples['MarketingAnalyticsTablePinnedColumns'] }
+export const MarketingAnalyticsTablePinnedColumnsAtTheBeginning: Story = QueryTemplate.bind({})
+MarketingAnalyticsTablePinnedColumnsAtTheBeginning.args = {
+    query: examples['MarketingAnalyticsTablePinnedColumnsAtTheBeginning'],
+}
+
+export const MarketingAnalyticsTablePinnedColumnsInTheMiddle: Story = QueryTemplate.bind({})
+MarketingAnalyticsTablePinnedColumnsInTheMiddle.args = {
+    query: examples['MarketingAnalyticsTablePinnedColumnsInTheMiddle'],
+}
