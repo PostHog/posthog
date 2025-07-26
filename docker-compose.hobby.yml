@@ -153,8 +153,8 @@ services:
             - caddy-data:/data
             - caddy-config:/config
         environment:
-            CADDY_TLS_BLOCK: ${TLS_BLOCK}
-            CADDY_HOST: '${DOMAIN}, http://, https://'
+            CADDY_TLS_BLOCK: $TLS_BLOCK
+            CADDY_HOST: '$DOMAIN, http://, https://'
         depends_on:
             - web
     objectstorage:
