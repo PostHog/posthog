@@ -2,14 +2,14 @@
 mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
-    form_urlencoded_payload, gzipped_payload, plain_json_payload, TestCase, DEFAULT_TEST_TIME,
-    SINGLE_ENGAGE_EVENT_JSON,
+    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, TestCase,
+    DEFAULT_TEST_TIME, SINGLE_ENGAGE_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
-fn test_cases() -> Vec<TestCase> {
+fn post_cases() -> Vec<TestCase> {
     let units = vec![
         // single event payload tests
 
@@ -142,9 +142,66 @@ fn test_cases() -> Vec<TestCase> {
     units
 }
 
+fn get_cases() -> Vec<TestCase> {
+    let units = vec![
+        // plain base64'd JSON payload in urlencoded "data" GET param
+        TestCase::new(
+            "engage_get-base64-urlencoded-single-event-payload",
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/engage",
+            SINGLE_ENGAGE_EVENT_JSON,
+            Method::GET,
+            Some("base64"),
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(base64_payload),
+        ),
+        // single event JSON payload submitted in urlencoded "data" GET param
+        TestCase::new(
+            "engage_get-urlencoded-event-payload",
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/engage",
+            SINGLE_ENGAGE_EVENT_JSON,
+            Method::GET,
+            None,
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(plain_json_payload),
+        ),
+        // single event JSON payload submitted as LZ64'd value in urlencoded GET "data" param.
+        // NOT SUPPORTED in legacy atm but also not needed
+        TestCase::new(
+            "engage_get-lz64-urlencoded-event-payload",
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/engage",
+            SINGLE_ENGAGE_EVENT_JSON,
+            Method::GET,
+            Some("lz64"),
+            None,
+            "text/plain",
+            StatusCode::BAD_REQUEST,
+            Box::new(lz64_payload),
+        ),
+    ];
+
+    units
+}
+
 #[tokio::test]
-async fn test_engage_endpoint() {
-    for unit in test_cases() {
+async fn test_engage_endpoint_get() {
+    for unit in get_cases() {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_engage_endpoint_post() {
+    for unit in post_cases() {
         execute_test(&unit).await;
     }
 }

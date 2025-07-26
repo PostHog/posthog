@@ -2,14 +2,14 @@
 mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
-    form_urlencoded_payload, gzipped_payload, plain_json_payload, TestCase, BATCH_EVENTS_JSON,
-    DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
+    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, TestCase,
+    BATCH_EVENTS_JSON, DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
 };
 
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
-fn test_cases() -> Vec<TestCase> {
+fn post_cases() -> Vec<TestCase> {
     let units = vec![
         // single event payload tests
 
@@ -255,9 +255,65 @@ fn test_cases() -> Vec<TestCase> {
     units
 }
 
+fn get_cases() -> Vec<TestCase> {
+    let units = vec![
+        // plain base64'd JSON payload in urlencoded "data" GET param
+        TestCase::new(
+            "track_get-base64-urlencoded-single-event-payload",
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/track",
+            SINGLE_EVENT_JSON,
+            Method::GET,
+            Some("base64"),
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(base64_payload),
+        ),
+        // single event JSON payload submitted in urlencoded "data" GET param
+        TestCase::new(
+            "track_get-urlencoded-event-payload",
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/track",
+            SINGLE_EVENT_JSON,
+            Method::GET,
+            None,
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(plain_json_payload),
+        ),
+        // single event JSON payload submitted as LZ64'd value in urlencoded"data" GET param
+        TestCase::new(
+            "track_get-lz64-urlencoded-event-payload",
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "/track",
+            SINGLE_EVENT_JSON,
+            Method::GET,
+            Some("lz64"),
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(lz64_payload),
+        ),
+    ];
+
+    units
+}
+
 #[tokio::test]
-async fn test_track_endpoint() {
-    for unit in test_cases() {
+async fn test_track_endpoint_get() {
+    for unit in get_cases() {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_post() {
+    for unit in post_cases() {
         execute_test(&unit).await;
     }
 }

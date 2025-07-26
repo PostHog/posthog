@@ -98,7 +98,7 @@ pub async fn execute_test(unit: &TestCase) {
 
     let resp = match unit.method {
         Method::POST => post_request(unit, &client, payload).await,
-        Method::GET => unimplemented!("GET test suite not implemented yet!"),
+        Method::GET => get_request(unit, &client, payload).await,
         _ => panic!(
             "unexpected method {} in TestCase: {}",
             unit.method, unit.title,
@@ -143,15 +143,20 @@ pub async fn execute_test(unit: &TestCase) {
 // and let that test case additionally compress/encode the data
 // according to the behavior we're exercising.
 
+pub async fn get_request(unit: &TestCase, client: &TestClient, payload: Vec<u8>) -> TestResponse {
+    let resolved_params = generate_get_path(unit, payload);
+    let resolved_path = format!("{}/?{}", unit.base_path, resolved_params);
+
+    let req = client
+        .get(&resolved_path)
+        .header("Content-Type", unit.content_type)
+        .header("X-Forwarded-For", "127.0.0.1");
+
+    req.send().await
+}
+
 pub async fn post_request(unit: &TestCase, client: &TestClient, payload: Vec<u8>) -> TestResponse {
-    let resolved_path = match unit.method {
-        Method::POST => generate_post_path(unit),
-        Method::GET => unimplemented!("GET integration tests are not supported yet"),
-        _ => panic!(
-            "unexpected HTTP method {} in TestCase: {}",
-            unit.method, unit.title,
-        ),
-    };
+    let resolved_path = generate_post_path(unit);
 
     let req = client
         .post(&resolved_path)
@@ -176,6 +181,11 @@ pub fn base64_payload(unit: &TestCase) -> Vec<u8> {
 pub fn gzipped_payload(unit: &TestCase) -> Vec<u8> {
     let raw_payload = load_request_payload(unit);
     gzip_compress(unit.title, raw_payload)
+}
+
+pub fn lz64_payload(unit: &TestCase) -> Vec<u8> {
+    let raw_payload = load_request_payload(unit);
+    lz64_compress(unit.title, raw_payload).as_bytes().to_owned()
 }
 
 pub fn form_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
@@ -218,6 +228,23 @@ fn load_request_payload(unit: &TestCase) -> Vec<u8> {
     let path = Path::new("tests/fixtures").join(unit.fixture);
     let err_msg = format!("loading req event payload for case: {}", unit.title);
     read(path).expect(&err_msg)
+}
+
+fn generate_get_path(unit: &TestCase, payload: Vec<u8>) -> String {
+    let err_msg = format!("payload is invalid UTF-8 in case: {}", unit.title);
+    let data = std::str::from_utf8(&payload).expect(&err_msg);
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(unit.title, unit.fixed_time).to_string();
+    let mut params = vec![("data", data), ("_", &unix_millis_sent_at)];
+
+    if let Some(c) = unit.compression_hint {
+        params.push(("compression", c));
+    }
+    if let Some(v) = unit.lib_version_hint {
+        params.push(("ver", v));
+    }
+
+    let err_msg = format!("failed to urlencode GET params in case: {}", unit.title);
+    serde_urlencoded::to_string(params).expect(&err_msg)
 }
 
 fn generate_post_path(unit: &TestCase) -> String {
