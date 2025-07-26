@@ -75,7 +75,6 @@ export const DEFAULT_COLUMN_WIDTH = 120
 
 interface PinnedColumnInfo {
     isSticky: boolean
-    isLastSticky: boolean
     leftPosition: number
 }
 
@@ -97,7 +96,6 @@ interface PinnedColumnInfo {
  *     ]
  * ) -> {
  *     isSticky: true,
- *     isLastSticky: false,
  *     leftPosition: 100
  * }
  */
@@ -108,13 +106,13 @@ export function getStickyColumnInfo<T extends Record<string, any>>(
     allColumns: LemonTableColumn<T, any>[] | undefined
 ): PinnedColumnInfo {
     if (!stickyColumns?.length) {
-        return { isSticky: false, isLastSticky: false, leftPosition: 0 }
+        return { isSticky: false, leftPosition: 0 }
     }
 
     const isSticky = stickyColumns.includes(columnKey)
 
     if (!isSticky || !allColumns) {
-        return { isSticky, isLastSticky: false, leftPosition: 0 }
+        return { isSticky, leftPosition: 0 }
     }
 
     const columnPositionMap = new Map<string, number>()
@@ -126,16 +124,6 @@ export function getStickyColumnInfo<T extends Record<string, any>>(
     })
 
     const columnIndex = columnPositionMap.get(columnKey) ?? -1
-
-    // Determine if this is the last pinned column in visual order
-    const pinnedColumnPositions = stickyColumns
-        .map((key) => ({
-            key,
-            position: columnPositionMap.get(key) ?? -1,
-        }))
-        .sort((a, b) => b.position - a.position)
-
-    const isLastSticky = columnKey === pinnedColumnPositions[0]?.key
 
     // Calculate left position for pinned column
     let leftPosition = 0
@@ -150,7 +138,7 @@ export function getStickyColumnInfo<T extends Record<string, any>>(
         }
     }
 
-    return { isSticky, isLastSticky, leftPosition }
+    return { isSticky, leftPosition }
 }
 
 /**

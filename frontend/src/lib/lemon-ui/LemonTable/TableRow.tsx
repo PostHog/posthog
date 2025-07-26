@@ -110,11 +110,12 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             // Check if this column is pinned
                             const columnKey = columnKeyRaw ? String(columnKeyRaw) : columnIndex.toString()
-                            const {
-                                isSticky: isColumnSticky,
-                                isLastSticky,
-                                leftPosition,
-                            } = getStickyColumnInfo(columnKey, pinnedColumns, pinnedColumnWidths, allColumns)
+                            const { isSticky: isColumnSticky, leftPosition } = getStickyColumnInfo(
+                                columnKey,
+                                pinnedColumns,
+                                pinnedColumnWidths,
+                                allColumns
+                            )
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
@@ -125,7 +126,6 @@ function TableRowRaw<T extends Record<string, any>>({
                                         columnIndex === 0 && 'LemonTable__boundary',
                                         isSticky && 'LemonTable__cell--sticky',
                                         isColumnSticky && 'LemonTable__cell--pinned',
-                                        isLastSticky && 'LemonTable__cell--pinned-last',
                                         column.align && `text-${column.align}`,
                                         typeof column.className === 'function'
                                             ? column.className(value as T[keyof T], record, recordIndex)

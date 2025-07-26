@@ -297,7 +297,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                     pinnedColumnWidths,
                                                     columns
                                                 )
-                                                const { isSticky, isLastSticky, leftPosition } = stickyInfo
+                                                const { isSticky, leftPosition } = stickyInfo
 
                                                 return (
                                                     <th
@@ -311,7 +311,6 @@ export function LemonTable<T extends Record<string, any>>({
                                                                 columnIndex === 0 &&
                                                                 'LemonTable__header--sticky',
                                                             isSticky && 'LemonTable__header--pinned',
-                                                            isLastSticky && 'LemonTable__header--pinned-last',
                                                             column.className
                                                         )}
                                                         /* eslint-disable-next-line react/forbid-dom-props */
