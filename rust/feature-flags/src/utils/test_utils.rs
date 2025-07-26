@@ -301,16 +301,16 @@ pub async fn insert_flag_for_team_in_pg(
                 ],
             }),
             version: None,
-            evaluation_environment: Some("all".to_string()),
+            evaluation_runtime: Some("all".to_string()),
         },
     };
 
     let mut conn = client.get_connection().await?;
     let res = sqlx::query(
         r#"INSERT INTO posthog_featureflag
-        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_environment, created_at) VALUES
+        (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
         ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')"#
-    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_environment).execute(&mut *conn).await?;
+    ).bind(payload_flag.id).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).execute(&mut *conn).await?;
 
     assert_eq!(res.rows_affected(), 1);
 
@@ -545,7 +545,7 @@ pub fn create_test_flag(
         active: active.unwrap_or(true),
         ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
-        evaluation_environment: Some("all".to_string()),
+        evaluation_runtime: Some("all".to_string()),
     }
 }
 
