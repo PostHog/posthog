@@ -21,15 +21,43 @@ SCOPE_OPTIONS.unshift({
     label: 'Any',
 })
 
-const openUrls: Record<ActivityScope.INSIGHT | ActivityScope.REPLAY, (c: CommentType) => string> = {
-    [ActivityScope.INSIGHT]: (c) => `${urls.insightView(c.item_id as InsightShortId)}#panel=discussion`,
-    // TODO we should open the comment or discussion too?
-    [ActivityScope.REPLAY]: (c) => `${urls.replaySingle(c.item_id as string)}`,
-    // TODO more URL linking
+const openUrls: Partial<Record<ActivityScope, (c: CommentType) => string | null>> = {
+    [ActivityScope.INSIGHT]: (c) =>
+        c.item_context?.short_id
+            ? `${urls.insightView(c.item_context?.short_id as InsightShortId)}#panel=discussion`
+            : null,
+    [ActivityScope.REPLAY]: (c) => (c.item_id ? urls.replaySingle(c.item_id as string) : null),
+    [ActivityScope.RECORDING]: (c) => (c.item_id ? urls.replaySingle(c.item_id as string) : null),
+    [ActivityScope.DASHBOARD]: (c) => (c.item_id ? urls.dashboard(c.item_id) : null),
+    [ActivityScope.FEATURE_FLAG]: (c) => (c.item_id ? urls.featureFlag(c.item_id) : null),
+    [ActivityScope.EXPERIMENT]: (c) => (c.item_id ? urls.experiment(c.item_id) : null),
+    [ActivityScope.COHORT]: (c) => (c.item_id ? urls.cohort(c.item_id) : null),
+    [ActivityScope.PERSON]: (c) => (c.item_id ? urls.personByUUID(c.item_id) : null),
+    [ActivityScope.ACTION]: (c) => (c.item_id ? urls.action(c.item_id) : null),
+    [ActivityScope.EVENT_DEFINITION]: (c) => (c.item_id ? urls.eventDefinition(c.item_id) : null),
+    [ActivityScope.PROPERTY_DEFINITION]: (c) => (c.item_id ? urls.propertyDefinition(c.item_id) : null),
+    [ActivityScope.NOTEBOOK]: (c) => (c.item_id ? urls.notebook(c.item_id) : null),
+    [ActivityScope.SURVEY]: (c) => (c.item_id ? urls.survey(c.item_id) : null),
+    [ActivityScope.EARLY_ACCESS_FEATURE]: (c) => (c.item_id ? urls.earlyAccessFeature(c.item_id) : null),
+    [ActivityScope.ERROR_TRACKING_ISSUE]: (c) => (c.item_id ? urls.errorTrackingIssue(c.item_id) : null),
+    [ActivityScope.USER_INTERVIEW]: (c) => (c.item_id ? urls.userInterview(c.item_id) : null),
+    // These scopes don't have direct URLs or need special handling:
+    [ActivityScope.GROUP]: (c) =>
+        c.item_context?.group_type_index && c.item_id ? urls.group(c.item_context.group_type_index, c.item_id) : null,
+    [ActivityScope.PLUGIN]: (c) => (c.item_id ? urls.legacyPlugin(c.item_id) : null),
+    [ActivityScope.HOG_FUNCTION]: (c) => (c.item_id ? urls.hogFunction(c.item_id) : null),
+    // These don't have specific item URLs:
+    [ActivityScope.TEAM]: () => urls.settings('project'),
+    [ActivityScope.DATA_MANAGEMENT]: () => urls.eventDefinitions(),
+    [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () => urls.database(),
+    // Not linkable:
+    [ActivityScope.PLUGIN_CONFIG]: () => null,
+    [ActivityScope.COMMENT]: () => null,
 }
 
 export const openURLFor = (c: CommentType): string | null => {
-    return openUrls[c.scope](c) || null
+    const urlFunc = openUrls[c.scope as ActivityScope]
+    return urlFunc ? urlFunc(c) : null
 }
 
 export const commentsLogic = kea<commentsLogicType>([
