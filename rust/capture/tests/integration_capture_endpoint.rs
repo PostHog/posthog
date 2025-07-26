@@ -9,8 +9,7 @@ use integration_utils::{
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
-#[allow(warnings)]
-fn test_cases() -> Vec<Box<TestCase>> {
+fn test_cases() -> Vec<TestCase> {
     let units = vec![
         // single event payload tests
 
@@ -424,6 +423,6 @@ fn test_cases() -> Vec<Box<TestCase>> {
 #[tokio::test]
 async fn test_capture_endpoint() {
     for unit in test_cases() {
-        execute_test(unit).await;
+        execute_test(&unit).await;
     }
 }

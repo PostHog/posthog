@@ -69,8 +69,8 @@ impl TestCase {
         content_type: &'static str,
         expected_status: StatusCode,
         generate_payload: PayloadGen,
-    ) -> Box<Self> {
-        Box::new(TestCase {
+    ) -> Self {
+        TestCase {
             title,
             fixed_time,
             mode,
@@ -82,7 +82,7 @@ impl TestCase {
             content_type,
             expected_status,
             generate_payload,
-        })
+        }
     }
 }
 
@@ -201,14 +201,14 @@ fn generate_post_path(unit: &TestCase) -> String {
 // Test Runner
 //
 
-pub async fn execute_test(unit: Box<TestCase>) {
-    let payload = (unit.generate_payload)(&unit);
+pub async fn execute_test(unit: &TestCase) {
+    let payload = (unit.generate_payload)(unit);
 
-    let (router, sink) = setup_capture_router(&unit);
+    let (router, sink) = setup_capture_router(unit);
     let client = TestClient::new(router);
 
     let resp = match unit.method {
-        Method::POST => post_request(&unit, &client, payload).await,
+        Method::POST => post_request(unit, &client, payload).await,
         Method::GET => unimplemented!("GET test suite not implemented yet!"),
         _ => panic!(
             "unexpected method {} in TestCase: {}",
