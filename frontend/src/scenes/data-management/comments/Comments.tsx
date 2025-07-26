@@ -112,7 +112,7 @@ export function Comments(): JSX.Element {
                                     disabledReason={
                                         openURLFor(comment)
                                             ? undefined
-                                            : 'Not able to link to this comment type 🙈- tell us you want to be able to!'
+                                            : 'We are not able to link to this comment type 🙈tell us you want to be able to!'
                                     }
                                     data-attr="comment-management-scene-open"
                                 />
