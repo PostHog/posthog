@@ -216,10 +216,10 @@ export function DataTable({
             more:
                 !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                     <>
-                        <div className="px-2 py-1">
-                            <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
+                        <div className="px-2 py-1 max-w-md">
+                            <div className="font-mono font-bold truncate">{extractExpressionComment(key)}</div>
                             {extractExpressionComment(key) !== removeExpressionComment(key) && (
-                                <div className="font-mono">{removeExpressionComment(key)}</div>
+                                <div className="font-mono truncate">{removeExpressionComment(key)}</div>
                             )}
                         </div>
                         <LemonDivider />
