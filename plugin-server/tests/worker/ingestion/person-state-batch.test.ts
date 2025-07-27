@@ -27,6 +27,7 @@ import {
 } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
+import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import {
     createOrganization,
@@ -68,11 +69,7 @@ async function createPerson(
     return person
 }
 
-async function flushPersonStoreToKafka(
-    hub: Hub,
-    personStore: BatchWritingPersonsStoreForBatch,
-    kafkaAcks: Promise<void>
-) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -2773,7 +2770,7 @@ describe('PersonState.processEvent()', () => {
             )
             const context = mergeService.getContext()
 
-            const batchStore = context.personStore
+            const batchStore = context.personStore as BatchWritingPersonsStoreForBatch
 
             batchStore.setCachedPersonForUpdate(
                 teamId,

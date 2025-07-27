@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { Team } from '../../../types'
-import { BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
+import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 /**
  * Lightweight data holder containing all the context needed for person processing.
@@ -20,7 +20,7 @@ export class PersonContext {
         public readonly timestamp: DateTime,
         public readonly processPerson: boolean, // $process_person_profile flag from the event
         public readonly kafkaProducer: KafkaProducerWrapper,
-        public readonly personStore: BatchWritingPersonsStoreForBatch,
+        public readonly personStore: PersonsStoreForBatch,
         public readonly measurePersonJsonbSize: number = 0
     ) {
         this.eventProperties = event.properties!

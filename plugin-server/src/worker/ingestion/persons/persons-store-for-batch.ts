@@ -129,6 +129,11 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     reportBatch(): void
 
     /**
+     * Removes a distinct ID from the cache
+     */
+    removeDistinctIdFromCache(teamId: number, distinctId: string): void
+
+    /**
      * Flushes the batch
      */
     flush(): Promise<FlushResult[]>
