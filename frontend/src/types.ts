@@ -200,6 +200,7 @@ export enum ProductKey {
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
+    COMMENTS = 'comments',
     HISTORY = 'history',
     HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
@@ -4446,6 +4447,8 @@ export enum ActivityScope {
     NOTEBOOK = 'Notebook',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
+    // TODO: doh! we don't need replay and recording
+    RECORDING = 'recording',
     EXPERIMENT = 'Experiment',
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
@@ -4467,6 +4470,8 @@ export type CommentType = {
     scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
+    /** only on the type to support patching for soft delete */
+    deleted?: boolean
 }
 
 export type NotebookListItemType = {
