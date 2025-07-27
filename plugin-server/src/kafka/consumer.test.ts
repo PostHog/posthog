@@ -1,5 +1,7 @@
 import { CODES, KafkaConsumer as RdKafkaConsumer, Message } from 'node-rdkafka'
 
+import { defaultConfig } from '~/config/config'
+
 import { delay } from '../utils/utils'
 import { KafkaConsumer } from './consumer'
 
@@ -113,6 +115,7 @@ describe('consumer', () => {
             incrementalAssign: jest.fn(),
             rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
         }
+        defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = true
 
         // Mock the RdKafkaConsumer constructor to return our configured mock
         jest.mocked(require('node-rdkafka').KafkaConsumer).mockImplementation(() => mockRdKafkaConsumerInstance)
@@ -120,7 +123,6 @@ describe('consumer', () => {
         consumer = new KafkaConsumer({
             groupId: 'test-group',
             topic: 'test-topic',
-            waitForBackgroundTasksOnRebalance: true,
         })
 
         mockRdKafkaConsumer = jest.mocked(consumer['rdKafkaConsumer'])
@@ -342,11 +344,11 @@ describe('consumer', () => {
         })
 
         it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
+            defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = false
             // Create a consumer with feature disabled
             const consumerDisabled = new KafkaConsumer({
                 groupId: 'test-group',
                 topic: 'test-topic',
-                waitForBackgroundTasksOnRebalance: false,
             })
 
             const mockConsumerDisabled = jest.mocked(consumerDisabled['rdKafkaConsumer'])
