@@ -336,4 +336,31 @@ export const storiesMap: storyGroup[] = [
             },
         ],
     },
+    {
+        id: 'experiments',
+        title: 'Experiments',
+        stories: [
+            {
+                id: 'experiments-overview',
+                title: 'Experiments',
+                description: 'Find out what performs',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/experiments_overview_07bb5ecdd1.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'experiments-cta',
+                title: 'Experiments',
+                description: 'Try experiments',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_cta_18e8927447.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/experiments',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Create an experiment',
+                },
+            },
+        ],
+    },
 ]
