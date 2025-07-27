@@ -14,7 +14,7 @@ use capture::{
 };
 
 use async_trait::async_trait;
-use axum::http::{Method, StatusCode};
+use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::{TestClient, TestResponse};
 use base64::Engine;
@@ -41,8 +41,14 @@ pub const SINGLE_ENGAGE_EVENT_JSON: &str = "single_engage_event_payload.json";
 
 pub type PayloadGen = Box<dyn Fn(&TestCase) -> Vec<u8>>;
 
+#[derive(Debug)]
+pub enum Method {
+    Get,
+    GetWithBody,
+    Post,
+}
 pub struct TestCase {
-    pub title: &'static str,
+    pub title: String,
     pub fixed_time: &'static str,
     pub mode: CaptureMode,
     pub base_path: &'static str,
@@ -58,7 +64,7 @@ pub struct TestCase {
 impl TestCase {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        title: &'static str,
+        title: String,
         fixed_time: &'static str,
         mode: CaptureMode,
         base_path: &'static str,
@@ -97,28 +103,25 @@ pub async fn execute_test(unit: &TestCase) {
     let client = TestClient::new(router);
 
     let resp = match unit.method {
-        Method::POST => post_request(unit, &client, payload).await,
-        Method::GET => get_request(unit, &client, payload).await,
-        _ => panic!(
-            "unexpected method {} in TestCase: {}",
-            unit.method, unit.title,
-        ),
+        Method::Post => post_request(unit, &client, payload).await,
+        Method::Get => get_request(unit, &client, payload).await,
+        Method::GetWithBody => get_with_body_request(unit, &client, payload).await,
     };
 
     match unit.expected_status {
-        StatusCode::OK => validate_response_success(unit.title, resp).await,
+        StatusCode::OK => validate_response_success(&unit.title, resp).await,
         _ => {
-            expect_response_fail(unit.title, resp).await;
+            expect_response_fail(&unit.title, resp).await;
             return; // no need to check the payload if the request failed!
         }
     };
 
     let got = sink.events();
     match unit.fixture {
-        SINGLE_EVENT_JSON => validate_single_event_payload(unit.title, got),
-        SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(unit.title, got),
-        SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(unit.title, got),
-        BATCH_EVENTS_JSON => validate_batch_events_payload(unit.title, got),
+        SINGLE_EVENT_JSON => validate_single_event_payload(&unit.title, got),
+        SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(&unit.title, got),
+        SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(&unit.title, got),
+        BATCH_EVENTS_JSON => validate_batch_events_payload(&unit.title, got),
         _ => panic!(
             "unsupported fixture type {} in TestCase: {}",
             unit.fixture, unit.title
@@ -127,21 +130,8 @@ pub async fn execute_test(unit: &TestCase) {
 }
 
 //
-// Payload and request generators
+// Request generators
 //
-
-// A well-formed payload is UTF-8 JSON:
-// - A single event object
-// - A batch object including a list of events and top-level metadata fields
-//
-// This payload can optionally be base64 or urlencoded. It can
-// be the value of the "data" element of a POST form or the direct
-// content of the request body. This structure can, in turn, be
-// GZIP or LZ64 compressed.
-//
-// in this case, we load a generic JSON event payload for each test,
-// and let that test case additionally compress/encode the data
-// according to the behavior we're exercising.
 
 pub async fn get_request(unit: &TestCase, client: &TestClient, payload: Vec<u8>) -> TestResponse {
     let resolved_params = generate_get_path(unit, payload);
@@ -167,6 +157,39 @@ pub async fn post_request(unit: &TestCase, client: &TestClient, payload: Vec<u8>
     req.send().await
 }
 
+pub async fn get_with_body_request(
+    unit: &TestCase,
+    client: &TestClient,
+    payload: Vec<u8>,
+) -> TestResponse {
+    let resolved_path = generate_post_path(unit);
+
+    let req = client
+        .get(&resolved_path)
+        .body(payload)
+        .header("Content-Type", unit.content_type)
+        .header("X-Forwarded-For", "127.0.0.1");
+
+    req.send().await
+}
+
+//
+// Payload generators
+//
+
+// A well-formed payload is UTF-8 JSON:
+// - A single event object
+// - A batch object including a list of events and top-level metadata fields
+//
+// This payload can optionally be base64 or urlencoded. It can
+// be the value of the "data" element of a POST form or the direct
+// content of the request body. This structure can, in turn, be
+// GZIP or LZ64 compressed.
+//
+// in this case, we load a generic JSON event payload for each test,
+// and let that test case additionally compress/encode the data
+// according to the behavior we're exercising.
+
 pub fn plain_json_payload(unit: &TestCase) -> Vec<u8> {
     load_request_payload(unit)
 }
@@ -180,12 +203,14 @@ pub fn base64_payload(unit: &TestCase) -> Vec<u8> {
 
 pub fn gzipped_payload(unit: &TestCase) -> Vec<u8> {
     let raw_payload = load_request_payload(unit);
-    gzip_compress(unit.title, raw_payload)
+    gzip_compress(&unit.title, raw_payload)
 }
 
 pub fn lz64_payload(unit: &TestCase) -> Vec<u8> {
     let raw_payload = load_request_payload(unit);
-    lz64_compress(unit.title, raw_payload).as_bytes().to_owned()
+    lz64_compress(&unit.title, raw_payload)
+        .as_bytes()
+        .to_owned()
 }
 
 pub fn form_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
@@ -214,7 +239,7 @@ pub fn form_data_base64_payload(unit: &TestCase) -> Vec<u8> {
 
 pub fn form_lz64_urlencoded_payload(unit: &TestCase) -> Vec<u8> {
     let raw_payload = load_request_payload(unit);
-    let lz64_payload = lz64_compress(unit.title, raw_payload);
+    let lz64_payload = lz64_compress(&unit.title, raw_payload);
     let err_msg = format!(
         "failed to serialize LZ64 payload to urlencoded form in case: {}",
         unit.title
@@ -233,7 +258,7 @@ fn load_request_payload(unit: &TestCase) -> Vec<u8> {
 fn generate_get_path(unit: &TestCase, payload: Vec<u8>) -> String {
     let err_msg = format!("payload is invalid UTF-8 in case: {}", unit.title);
     let data = std::str::from_utf8(&payload).expect(&err_msg);
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(unit.title, unit.fixed_time).to_string();
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(&unit.title, unit.fixed_time).to_string();
     let mut params = vec![("data", data), ("_", &unix_millis_sent_at)];
 
     if let Some(c) = unit.compression_hint {
@@ -256,7 +281,7 @@ fn generate_post_path(unit: &TestCase) -> String {
         .lib_version_hint
         .map(|v| format!("&ver={}", v))
         .unwrap_or("".to_string());
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(unit.title, unit.fixed_time);
+    let unix_millis_sent_at = iso8601_str_to_unix_millis(&unit.title, unit.fixed_time);
 
     format!(
         "{}/?_={}{}{}",

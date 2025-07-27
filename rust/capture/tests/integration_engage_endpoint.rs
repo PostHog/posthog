@@ -2,12 +2,46 @@
 mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
-    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, TestCase,
+    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, Method, TestCase,
     DEFAULT_TEST_TIME, SINGLE_ENGAGE_EVENT_JSON,
 };
 
-use axum::http::{Method, StatusCode};
+use axum::http::StatusCode;
 use capture::config::CaptureMode;
+
+//
+// The /engage/ legacy capture endpoint is a special-case; it only accepts (unnamed!) events
+// shaped as "$identify" events which these are converted into on receipt
+//
+
+#[tokio::test]
+async fn test_engage_endpoint_get() {
+    for unit in get_cases() {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_engage_endpoint_post() {
+    for unit in post_cases() {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_engage_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut base_cases = post_cases();
+
+    let get_with_body_cases = base_cases.iter_mut().map(|tc:  &mut TestCase| {
+        tc.method = Method::GetWithBody;
+        tc.title = tc.title.replace("post-", "get_with_body-");
+        tc
+    });
+    for unit in get_with_body_cases {
+        execute_test(unit).await;
+    }
+}
 
 fn post_cases() -> Vec<TestCase> {
     let units = vec![
@@ -16,7 +50,7 @@ fn post_cases() -> Vec<TestCase> {
         // plain JSON POST body
         TestCase::new(
             // test case title
-            "engage_post-simple-single-event-payload",
+            "post-simple-single-event-payload".to_string(),
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
@@ -26,7 +60,7 @@ fn post_cases() -> Vec<TestCase> {
             // JSON payload to use as input
             SINGLE_ENGAGE_EVENT_JSON,
             // request submission type; one of POST or GET only for these integration tests
-            Method::POST,
+            Method::Post,
             // compression "hint" (as supplied by some SDKs)
             None,
             // $lib_version "hint" (as supplied by some SDKs outside of event props)
@@ -40,12 +74,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "engage_post-base64-single-event-payload",
+            "post-base64-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             Some("base64"),
             None,
             "application/json",
@@ -54,12 +88,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "engage_post-base64-no-hint-single-event-payload",
+            "post-base64-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
@@ -68,12 +102,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "engage_post-gzip-single-event-payload",
+            "post-gzip-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             Some("gzip"),
             None,
             "application/json",
@@ -82,12 +116,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "engage_post-gzip-no-hint-single-event-payload",
+            "post-gzip-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
@@ -96,12 +130,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload in POST form with "data" attribute base64 encoded
         TestCase::new(
-            "engage_post-form-data-base64-event-payload",
+            "post-form-data-base64-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/x-www-form-urlencoded",
@@ -110,12 +144,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "engage_post-form-urlencoded-event-payload",
+            "post-form-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/x-www-form-urlencoded",
@@ -124,12 +158,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "engage_post-form-lz64-urlencoded-event-payload",
+            "post-form-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             Some("lz64"),
             None,
             "application/x-www-form-urlencoded",
@@ -146,12 +180,12 @@ fn get_cases() -> Vec<TestCase> {
     let units = vec![
         // plain base64'd JSON payload in urlencoded "data" GET param
         TestCase::new(
-            "engage_get-base64-urlencoded-single-event-payload",
+            "get-base64-urlencoded-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::GET,
+            Method::Get,
             Some("base64"),
             None,
             "text/plain",
@@ -160,12 +194,12 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
         TestCase::new(
-            "engage_get-urlencoded-event-payload",
+            "get-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::GET,
+            Method::Get,
             None,
             None,
             "text/plain",
@@ -175,12 +209,12 @@ fn get_cases() -> Vec<TestCase> {
         // single event JSON payload submitted as LZ64'd value in urlencoded GET "data" param.
         // NOT SUPPORTED in legacy atm but also not needed
         TestCase::new(
-            "engage_get-lz64-urlencoded-event-payload",
+            "get-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "/engage",
             SINGLE_ENGAGE_EVENT_JSON,
-            Method::GET,
+            Method::Get,
             Some("lz64"),
             None,
             "text/plain",
@@ -190,18 +224,4 @@ fn get_cases() -> Vec<TestCase> {
     ];
 
     units
-}
-
-#[tokio::test]
-async fn test_engage_endpoint_get() {
-    for unit in get_cases() {
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_engage_endpoint_post() {
-    for unit in post_cases() {
-        execute_test(&unit).await;
-    }
 }

@@ -2,11 +2,11 @@
 mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
-    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, TestCase,
+    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, Method, TestCase,
     BATCH_EVENTS_JSON, DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
 };
 
-use axum::http::{Method, StatusCode};
+use axum::http::StatusCode;
 use capture::config::CaptureMode;
 
 //
@@ -15,13 +15,21 @@ use capture::config::CaptureMode;
 //
 
 #[tokio::test]
-async fn test_e_endpoint() {
+async fn test_e_endpoint_get() {
     let base_path = "/e";
 
+    // GET requests with payload in URL param "data"
     for mut unit in get_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
     }
+}
+
+#[tokio::test]
+async fn test_e_endpoint_post() {
+    let base_path = "/e";
+
+    // POST requests with payload in body, metadata in POST form or GET params
     for mut unit in post_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
@@ -29,13 +37,37 @@ async fn test_e_endpoint() {
 }
 
 #[tokio::test]
-async fn test_capture_endpoint() {
+async fn test_e_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut base_cases = post_cases();
+
+    let get_with_body_cases = base_cases.iter_mut().map(|tc:  &mut TestCase| {
+        tc.base_path = "/e";
+        tc.method = Method::GetWithBody;
+        tc.title = tc.title.replace("post-", "get_with_body-");
+        tc
+    });
+
+    for unit in get_with_body_cases {
+        execute_test(unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_capture_endpoint_get() {
     let base_path = "/capture";
 
+    // GET requests with payload in URL param "data"
     for mut unit in get_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
     }
+}
+
+#[tokio::test]
+async fn test_capture_endpoint_post() {
+    let base_path = "/capture";
+    // POST requests with payload in body, metadata in POST form or GET params
     for mut unit in post_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
@@ -43,16 +75,56 @@ async fn test_capture_endpoint() {
 }
 
 #[tokio::test]
-async fn test_track_endpoint() {
+async fn test_capture_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut base_cases = post_cases();
+
+    let get_with_body_cases = base_cases.iter_mut().map(|tc:  &mut TestCase| {
+        tc.base_path = "/capture";
+        tc.method = Method::GetWithBody;
+        tc.title = tc.title.replace("post-", "get_with_body-");
+        tc
+    });
+
+    for unit in get_with_body_cases {
+        execute_test(unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_get() {
     let base_path = "/track";
 
     for mut unit in get_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
     }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_post() {
+    let base_path = "/track";
+
     for mut unit in post_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut base_cases = post_cases();
+
+    let get_with_body_cases = base_cases.iter_mut().map(|tc:  &mut TestCase| {
+        tc.base_path = "/track";
+        tc.method = Method::GetWithBody;
+        tc.title = tc.title.replace("post-", "get_with_body-");
+        tc
+    });
+
+    for unit in get_with_body_cases {
+        execute_test(unit).await;
     }
 }
 
@@ -63,7 +135,7 @@ fn post_cases() -> Vec<TestCase> {
         // plain JSON POST body
         TestCase::new(
             // test case title
-            "legacy_post-simple-single-event-payload",
+            "legacy_post-simple-single-event-payload".to_string(),
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
@@ -73,7 +145,7 @@ fn post_cases() -> Vec<TestCase> {
             // JSON payload to use as input
             SINGLE_EVENT_JSON,
             // request submission type; one of POST or GET only for these integration tests
-            Method::POST,
+            Method::Post,
             // compression "hint" (as supplied by some SDKs)
             None,
             // $lib_version "hint" (as supplied by some SDKs outside of event props)
@@ -87,12 +159,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "legacy_post-base64-single-event-payload",
+            "legacy_post-base64-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             Some("base64"),
             None,
             "application/json",
@@ -101,12 +173,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "legacy_post-base64-no-hint-single-event-payload",
+            "legacy_post-base64-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
@@ -115,12 +187,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "legacy_post-gzip-single-event-payload",
+            "legacy_post-gzip-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             Some("gzip"),
             None,
             "application/json",
@@ -129,12 +201,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "legacy_post-gzip-no-hint-single-event-payload",
+            "legacy_post-gzip-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
@@ -143,12 +215,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload in POST form with "data" attribute base64 encoded
         TestCase::new(
-            "legacy_post-form-data-base64-event-payload",
+            "legacy_post-form-data-base64-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/x-www-form-urlencoded",
@@ -157,12 +229,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "legacy_post-form-urlencoded-event-payload",
+            "legacy_post-form-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/x-www-form-urlencoded",
@@ -171,12 +243,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "legacy_post-form-lz64-urlencoded-event-payload",
+            "legacy_post-form-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::POST,
+            Method::Post,
             Some("lz64"),
             None,
             "application/x-www-form-urlencoded",
@@ -187,12 +259,12 @@ fn post_cases() -> Vec<TestCase> {
 
         // plain JSON POST body
         TestCase::new(
-            "legacy_post-simple-batch-payload",
+            "legacy_post-simple-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/json",
@@ -201,12 +273,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "legacy_post-base64-batch-payload",
+            "legacy_post-base64-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             Some("base64"),
             None,
             "application/json",
@@ -215,12 +287,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "legacy_post-base64-no-hint-batch-payload",
+            "legacy_post-base64-no-hint-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
@@ -229,12 +301,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "legacy_post-gzip-batch-payload",
+            "legacy_post-gzip-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             Some("gzip"),
             None,
             "application/json",
@@ -243,12 +315,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "legacy_post-gzip-no-hint-batch-payload",
+            "legacy_post-gzip-no-hint-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
@@ -257,12 +329,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // batched events JSON payload submitted as POST form w/base64'd "data" attribute value
         TestCase::new(
-            "legacy_post-form-data-base64-batch-payload",
+            "legacy_post-form-data-base64-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/x-www-form-urlencoded",
@@ -271,12 +343,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "legacy_post-form-urlencoded-batch-payload",
+            "legacy_post-form-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             None,
             None,
             "application/x-www-form-urlencoded",
@@ -285,12 +357,12 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "legacy_post-form-lz64-urlencoded-batch-payload",
+            "legacy_post-form-lz64-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             BATCH_EVENTS_JSON,
-            Method::POST,
+            Method::Post,
             Some("lz64"),
             None,
             "application/x-www-form-urlencoded",
@@ -306,12 +378,12 @@ fn get_cases() -> Vec<TestCase> {
     let units = vec![
         // plain base64'd JSON payload in urlencoded "data" GET param
         TestCase::new(
-            "legacy_get-base64-urlencoded-single-event-payload",
+            "legacy_get-base64-urlencoded-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::GET,
+            Method::Get,
             Some("base64"),
             None,
             "text/plain",
@@ -320,12 +392,12 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
         TestCase::new(
-            "legacy_get-urlencoded-event-payload",
+            "legacy_get-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::GET,
+            Method::Get,
             None,
             None,
             "text/plain",
@@ -334,12 +406,12 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in urlencoded"data" GET param
         TestCase::new(
-            "legacy_get-lz64-urlencoded-event-payload",
+            "legacy_get-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
             SINGLE_EVENT_JSON,
-            Method::GET,
+            Method::Get,
             Some("lz64"),
             None,
             "text/plain",
