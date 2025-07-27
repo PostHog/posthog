@@ -51,10 +51,38 @@ export interface MaxProductInfo {
     addons: MaxAddonInfo[]
 }
 
+export enum MaxBillingContextSubscriptionLevel {
+    FREE = 'free',
+    PAID = 'paid',
+    CUSTOM = 'custom',
+}
+
+export interface MaxBillingContextTrial {
+    is_active: boolean
+    expires_at?: string
+    target?: string
+}
+
+export enum MaxBillingContextBillingPeriodInterval {
+    MONTH = 'month',
+    YEAR = 'year',
+}
+
+export interface MaxBillingContextBillingPeriod {
+    current_period_start: string
+    current_period_end: string
+    interval: MaxBillingContextBillingPeriodInterval
+}
+
+export interface MaxBillingContextSettings {
+    autocapture_on: boolean
+    active_destinations: number
+}
+
 export interface MaxBillingContext {
     // Overall billing status
     has_active_subscription: boolean
-    subscription_level: 'free' | 'paid' | 'custom'
+    subscription_level: MaxBillingContextSubscriptionLevel
     billing_plan: string | null
     is_deactivated?: boolean
 
@@ -73,18 +101,10 @@ export interface MaxBillingContext {
     startup_program_label_previous?: string
 
     // Trial information
-    trial?: {
-        is_active: boolean
-        expires_at?: string
-        target?: string
-    }
+    trial?: MaxBillingContextTrial
 
     // Billing period
-    billing_period?: {
-        current_period_start: string
-        current_period_end: string
-        interval: 'month' | 'year'
-    }
+    billing_period?: MaxBillingContextBillingPeriod
 
     // Usage history
     usage_history?: BillingUsageResponse['results']
@@ -92,10 +112,7 @@ export interface MaxBillingContext {
     spend_history?: BillingSpendResponse['results']
 
     // Settings
-    settings: {
-        autocapture_on: boolean
-        active_destinations: number
-    }
+    settings: MaxBillingContextSettings
 }
 
 export const billingToMaxContext = (
@@ -191,7 +208,7 @@ export const billingToMaxContext = (
 
     return {
         has_active_subscription: billing.has_active_subscription || false,
-        subscription_level: billing.subscription_level,
+        subscription_level: billing.subscription_level as MaxBillingContextSubscriptionLevel,
         billing_plan: billing.billing_plan || null,
         is_deactivated: billing.deactivated,
         products: maxProducts,
@@ -214,7 +231,7 @@ export const billingToMaxContext = (
             ? {
                   current_period_start: billing.billing_period.current_period_start.format('YYYY-MM-DD'),
                   current_period_end: billing.billing_period.current_period_end.format('YYYY-MM-DD'),
-                  interval: billing.billing_period.interval,
+                  interval: billing.billing_period.interval as MaxBillingContextBillingPeriodInterval,
               }
             : undefined,
         usage_history: usageResponse?.results,
