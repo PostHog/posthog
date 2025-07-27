@@ -69,9 +69,9 @@ class TestConversation(APIBaseTest):
                     percentage_usage=0.5,
                     has_exceeded_limit=False,
                     is_used=True,
+                    addons=[],
                 )
             ],
-            addons=[],
             trial=Trial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
             settings=Settings1(autocapture_on=True, active_destinations=2),
         )
@@ -588,49 +588,48 @@ class TestConversation(APIBaseTest):
 
     def test_billing_context_validation_valid_data(self):
         """Test that valid billing context data is accepted."""
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
 
-        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
-            with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
+        with patch(
+            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
                         "content": "test query",
-                        "trace_id": str(uuid.uuid4()),
+                        "trace_id": trace_id,
+                        "conversation": conversation.id,
                         "billing_context": self.billing_context.model_dump(),
                     },
-                    format="json",
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                mock_init.assert_called_once()
-                self.assertEqual(mock_init.call_args.kwargs["billing_context"], self.billing_context)
+                call_args = mock_start_workflow_and_stream.call_args
+                workflow_inputs = call_args[0][0]
+                self.assertEqual(workflow_inputs.billing_context, self.billing_context)
 
-    def test_billing_context_assistant_initialization_parameters(self):
-        """Test that all expected parameters including billing_context are passed to Assistant."""
+    def test_billing_context_validation_invalid_data(self):
+        """Test that invalid billing context data is rejected."""
         conversation = Conversation.objects.create(user=self.user, team=self.team)
-        billing_context = self.billing_context.model_dump()
-        contextual_tools = {"tool1": {"param": "value"}}
-        trace_id = uuid.uuid4()
 
-        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
-            with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
+        with patch(
+            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {
-                        "conversation": str(conversation.id),
                         "content": "test query",
-                        "trace_id": str(trace_id),
-                        "billing_context": billing_context,
-                        "contextual_tools": contextual_tools,
+                        "trace_id": trace_id,
+                        "conversation": conversation.id,
+                        "billing_context": {"invalid_key": "invalid_value"},
                     },
-                    format="json",
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                mock_init.assert_called_once()
-
-                # Verify all expected parameters were passed
-                kwargs = mock_init.call_args.kwargs
-                self.assertEqual(kwargs["billing_context"], self.billing_context)
-                self.assertEqual(kwargs["contextual_tools"], contextual_tools)
-                self.assertEqual(kwargs["trace_id"], trace_id)
-                self.assertEqual(kwargs["is_new_conversation"], False)
-                self.assertIsNotNone(kwargs["new_message"])
+                call_args = mock_start_workflow_and_stream.call_args
+                workflow_inputs = call_args[0][0]
+                self.assertEqual(workflow_inputs.billing_context, None)

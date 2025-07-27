@@ -173,19 +173,21 @@ class BillingNode(AssistantNode):
         if not usage_history:
             return "No data available"
 
-        # Group history items by team if breakdown_value contains team IDs
+        # Group history items by team based on breakdown_value format
         tables = []
         team_items: dict[str, list] = {}
         other_items = []
 
+        valid_team_ids = {str(team_id) for team_id in self._get_teams_map().keys()}
+
         for item in usage_history:
-            # Check if this item has team breakdown
             team_id_found = None
+
+            # Extract team ID from breakdown_value by finding which value is a team ID
             if item.breakdown_value and isinstance(item.breakdown_value, list):
-                # Search for team ID in any position of breakdown_value
                 for value in item.breakdown_value:
-                    if value in [str(team_id) for team_id in self._get_teams_map().keys()]:
-                        team_id_found = value
+                    if str(value) in valid_team_ids:
+                        team_id_found = str(value)
                         break
 
             if team_id_found:
@@ -195,18 +197,115 @@ class BillingNode(AssistantNode):
             else:
                 other_items.append(item)
 
-        # Create tables for each team
-        for team_id, items in team_items.items():
-            team_name = self._get_teams_map().get(int(team_id), f"Project ID: {team_id}")
-            table = self._format_single_team_table(items, team_name)
-            tables.append(table)
+        # Always create aggregated table first (Overall all projects)
+        aggregated_items = self._create_aggregated_items(team_items, other_items)
+        if aggregated_items:
+            aggregated_table = self._format_single_team_table(aggregated_items, "Overall (all projects)")
+            tables.append(aggregated_table)
 
-        # Add table for non-team items if any
-        if other_items:
-            table = self._format_single_team_table(other_items, "Overall (all projects)")
+        # Create tables for each team if breakdowns are available
+        for team_id, items in team_items.items():
+            team_name = self._get_teams_map().get(int(team_id), None)
+            table = self._format_single_team_table(items, team_name or f"Project ID: {team_id}")
             tables.append(table)
 
         return "\n\n".join(tables)
+
+    def _create_aggregated_items(self, team_items: dict[str, list], other_items: list) -> list:
+        """Create aggregated items by summing values across all teams and non-team breakdowns."""
+        if not team_items and not other_items:
+            return []
+
+        # Collect all items to aggregate
+        all_items = []
+        for items in team_items.values():
+            all_items.extend(items)
+        all_items.extend(other_items)
+
+        if not all_items:
+            return []
+
+        # Group items by product type (extracted from label or breakdown_value)
+        product_to_items: dict[str, list] = {}
+        for item in all_items:
+            product_type = self._extract_product_type(item)
+            if product_type not in product_to_items:
+                product_to_items[product_type] = []
+            product_to_items[product_type].append(item)
+
+        # Create aggregated items for each product type
+        aggregated_items = []
+        for product_type, items in product_to_items.items():
+            # Get all unique dates across all items with this product type
+            all_dates = set()
+            for item in items:
+                all_dates.update(item.dates)
+            sorted_dates = sorted(all_dates)
+
+            # Sum values for each date
+            aggregated_data = []
+            for date in sorted_dates:
+                total_value = 0
+                for item in items:
+                    date_to_value = dict(zip(item.dates, item.data))
+                    total_value += date_to_value.get(date, 0)
+                aggregated_data.append(total_value)
+
+            # Create the aggregated item (using the first item as template)
+            first_item = items[0]
+            # Use a clean label for the aggregated item
+            clean_label = self._get_clean_product_label(product_type)
+
+            if isinstance(first_item, UsageHistoryItem):
+                aggregated_item = UsageHistoryItem(
+                    id=1,  # Use a dummy ID for aggregated items
+                    label=clean_label,
+                    dates=sorted_dates,
+                    data=aggregated_data,
+                    breakdown_type=None,
+                    breakdown_value=None,
+                )
+            elif isinstance(first_item, SpendHistoryItem):
+                aggregated_item = SpendHistoryItem(
+                    id=1,  # Use a dummy ID for aggregated items
+                    label=clean_label,
+                    dates=sorted_dates,
+                    data=aggregated_data,
+                    breakdown_type=None,
+                    breakdown_value=None,
+                )
+            else:
+                raise ValueError(f"Unknown item type: {type(first_item)}")
+            aggregated_items.append(aggregated_item)
+
+        return aggregated_items
+
+    def _extract_product_type(self, item) -> str:
+        """Extract product type from item label or breakdown_value."""
+        valid_usage_types = {usage_type["value"] for usage_type in USAGE_TYPES}
+
+        # First try breakdown_value format: find the value that matches USAGE_TYPES
+        if item.breakdown_value and isinstance(item.breakdown_value, list):
+            for value in item.breakdown_value:
+                if str(value) in valid_usage_types:
+                    return str(value)
+
+        # Then check if the label itself is a known usage type
+        if item.label in valid_usage_types:
+            return item.label
+
+        # Fall back to full label (for custom or unknown types)
+        return item.label
+
+    def _get_clean_product_label(self, product_type: str) -> str:
+        """Convert product type to a clean label for display."""
+        # Try to find matching label from USAGE_TYPES
+        for usage_type in USAGE_TYPES:
+            if usage_type["value"] == product_type:
+                return usage_type["label"]
+
+        # Fall back to formatting the product_type
+        return product_type.replace("_", " ").title()
 
     def _format_single_team_table(self, items: list[UsageHistoryItem] | list[SpendHistoryItem], title: str) -> str:
         """Format a single table for a team or overall data."""
@@ -245,8 +344,10 @@ class BillingNode(AssistantNode):
                     formatted_value = str(value)
                 row_values.append(formatted_value)
 
-            label = next((t["label"] for t in USAGE_TYPES if t["value"] == item.label), item.label)
-            row = f"| {label} | " + " | ".join(row_values) + " |"
+            # For team-specific tables, extract clean product type
+            product_type = self._extract_product_type(item)
+            clean_label = self._get_clean_product_label(product_type)
+            row = f"| {clean_label} | " + " | ".join(row_values) + " |"
             table_lines.append(row)
 
         return "\n".join(table_lines)

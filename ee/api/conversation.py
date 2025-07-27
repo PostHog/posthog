@@ -63,8 +63,10 @@ class MessageSerializer(serializers.Serializer):
             try:
                 billing_context = MaxBillingContext.model_validate(billing_context)
                 data["billing_context"] = billing_context
-            except pydantic.ValidationError:
-                raise serializers.ValidationError("Invalid billing context.")
+            except pydantic.ValidationError as e:
+                logger.exception("Invalid billing context", billing_context=billing_context, error=str(e))
+                # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
+                data["billing_context"] = None
         return data
 
 

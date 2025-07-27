@@ -317,11 +317,14 @@ class RootNode(RootNodeUIContextMixin):
             )
             + history
         )
-        chain = prompt | self._get_model(state, config)
 
         ui_context = self._format_ui_context(self._get_ui_context(state))
+        has_billing_access, billing_context_prompt = self._get_billing_info(config)
 
-        has_billing_access = self._has_billing_access(config)
+        chain = prompt | self._get_model(
+            state, config, extra_tools=["retrieve_billing_information"] if has_billing_access else []
+        )
+
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
@@ -332,9 +335,7 @@ class RootNode(RootNodeUIContextMixin):
                 "user_full_name": self._user.get_full_name(),
                 "user_email": self._user.email,
                 "ui_context": ui_context,
-                "billing_context": ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT
-                if has_billing_access
-                else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+                "billing_context": billing_context_prompt,
             },
             config,
         )
@@ -354,14 +355,27 @@ class RootNode(RootNodeUIContextMixin):
             ],
         )
 
-    def _has_billing_access(self, config: RunnableConfig) -> bool:
-        return (
-            self._user.organization_memberships.get(organization=self._team.organization).level
-            in (OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER)
-            and self._get_billing_context(config) is not None
-        )
+    def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
+        """Get billing information including access, prompt, and whether to include the tool.
+        Returns:
+            Tuple[bool, str]: (has_access, prompt)
+        """
+        has_billing_context = self._get_billing_context(config) is not None
 
-    def _get_model(self, state: AssistantState, config: RunnableConfig):
+        if not has_billing_context:
+            return False, ""
+
+        has_access = self._user.organization_memberships.get(organization=self._team.organization).level in (
+            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
+        )
+        prompt = ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT if has_access else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
+
+        return has_access, prompt
+
+    def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
+        if extra_tools is None:
+            extra_tools = []
         # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
         # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
@@ -385,7 +399,6 @@ class RootNode(RootNodeUIContextMixin):
             get_contextual_tool_class,
             search_documentation,
             search_insights,
-            retrieve_billing_information,
         )
 
         available_tools: list[type[BaseModel]] = [search_insights]
@@ -400,10 +413,11 @@ class RootNode(RootNodeUIContextMixin):
             ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass())  # type: ignore
+            available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
 
-        has_billing_access = self._has_billing_access(config)
-        if has_billing_access:
+        if "retrieve_billing_information" in extra_tools:
+            from ee.hogai.tool import retrieve_billing_information
+
             available_tools.append(retrieve_billing_information)
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)

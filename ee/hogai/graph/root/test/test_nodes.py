@@ -1,3 +1,4 @@
+import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
@@ -12,6 +13,10 @@ from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
+from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+)
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
@@ -26,6 +31,7 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
+    MaxBillingContextTrial,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
@@ -34,8 +40,8 @@ from posthog.schema import (
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
-    Settings1,
-    SubscriptionLevel,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -46,11 +52,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     def _create_billing_context(self):
         """Helper to create test billing context"""
         return MaxBillingContext(
-            subscription_level=SubscriptionLevel.PAID,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             has_active_subscription=True,
             products=[],
-            addons=[],
-            settings=Settings1(autocapture_on=True, active_destinations=0),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
         )
 
     def test_node_handles_plain_chat_response(self):
@@ -563,16 +569,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (membership_level, has_billing_context, expected_access)
-            [OrganizationMembership.Level.ADMIN, True, True],
-            [OrganizationMembership.Level.ADMIN, False, False],
-            [OrganizationMembership.Level.OWNER, True, True],
-            [OrganizationMembership.Level.OWNER, False, False],
-            [OrganizationMembership.Level.MEMBER, True, False],
-            [OrganizationMembership.Level.MEMBER, False, False],
+            # (membership_level, has_billing_context, expected_access, expected_prompt)
+            [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.ADMIN, False, False, ""],
+            [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.OWNER, False, False, ""],
+            [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            [OrganizationMembership.Level.MEMBER, False, False, ""],
         ]
     )
-    def test_has_billing_access(self, membership_level, has_billing_context, expected_access):
+    def test_has_billing_access(self, membership_level, has_billing_context, expected_access, expected_prompt):
         # Set membership level
         membership = self.user.organization_memberships.get(organization=self.team.organization)
         membership.level = membership_level
@@ -587,7 +593,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = {"configurable": {}}
 
-        self.assertEqual(node._has_billing_access(config), expected_access)
+        self.assertEqual(node._get_billing_info(config), (expected_access, expected_prompt))
 
     # Note: More complex mocking tests for billing tool availability were removed
     # as they were difficult to maintain. The core billing access logic is tested above

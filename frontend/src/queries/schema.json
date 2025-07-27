@@ -2368,6 +2368,14 @@
             ],
             "type": "string"
         },
+        "BillingSpendResponseBreakdownType": {
+            "enum": ["type", "team", "multiple"],
+            "type": "string"
+        },
+        "BillingUsageResponseBreakdownType": {
+            "enum": ["type", "team", "multiple"],
+            "type": "string"
+        },
         "BinCountValue": {
             "anyOf": [
                 {
@@ -14873,21 +14881,7 @@
             "additionalProperties": false,
             "properties": {
                 "billing_period": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "current_period_end": {
-                            "type": "string"
-                        },
-                        "current_period_start": {
-                            "type": "string"
-                        },
-                        "interval": {
-                            "enum": ["month", "year"],
-                            "type": "string"
-                        }
-                    },
-                    "required": ["current_period_start", "current_period_end", "interval"],
-                    "type": "object"
+                    "$ref": "#/definitions/MaxBillingContextBillingPeriod"
                 },
                 "billing_plan": {
                     "type": ["string", "null"]
@@ -14917,25 +14911,21 @@
                     "type": "string"
                 },
                 "settings": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "active_destinations": {
-                            "type": "number"
-                        },
-                        "autocapture_on": {
-                            "type": "boolean"
-                        }
-                    },
-                    "required": ["autocapture_on", "active_destinations"],
-                    "type": "object"
+                    "$ref": "#/definitions/MaxBillingContextSettings"
                 },
                 "spend_history": {
                     "items": {
                         "additionalProperties": false,
                         "properties": {
                             "breakdown_type": {
-                                "enum": ["type", "team", "multiple", null],
-                                "type": ["string", "null"]
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/BillingSpendResponseBreakdownType"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
                             },
                             "breakdown_value": {
                                 "anyOf": [
@@ -14984,35 +14974,27 @@
                     "type": "string"
                 },
                 "subscription_level": {
-                    "enum": ["free", "paid", "custom"],
-                    "type": "string"
+                    "$ref": "#/definitions/MaxBillingContextSubscriptionLevel"
                 },
                 "total_current_amount_usd": {
                     "type": "string"
                 },
                 "trial": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "expires_at": {
-                            "type": "string"
-                        },
-                        "is_active": {
-                            "type": "boolean"
-                        },
-                        "target": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["is_active"],
-                    "type": "object"
+                    "$ref": "#/definitions/MaxBillingContextTrial"
                 },
                 "usage_history": {
                     "items": {
                         "additionalProperties": false,
                         "properties": {
                             "breakdown_type": {
-                                "enum": ["type", "team", "multiple", null],
-                                "type": ["string", "null"]
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/BillingUsageResponseBreakdownType"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
                             },
                             "breakdown_value": {
                                 "anyOf": [
@@ -15056,6 +15038,59 @@
                 }
             },
             "required": ["has_active_subscription", "subscription_level", "billing_plan", "products", "settings"],
+            "type": "object"
+        },
+        "MaxBillingContextBillingPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "current_period_end": {
+                    "type": "string"
+                },
+                "current_period_start": {
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/MaxBillingContextBillingPeriodInterval"
+                }
+            },
+            "required": ["current_period_start", "current_period_end", "interval"],
+            "type": "object"
+        },
+        "MaxBillingContextBillingPeriodInterval": {
+            "enum": ["month", "year"],
+            "type": "string"
+        },
+        "MaxBillingContextSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "active_destinations": {
+                    "type": "number"
+                },
+                "autocapture_on": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["autocapture_on", "active_destinations"],
+            "type": "object"
+        },
+        "MaxBillingContextSubscriptionLevel": {
+            "enum": ["free", "paid", "custom"],
+            "type": "string"
+        },
+        "MaxBillingContextTrial": {
+            "additionalProperties": false,
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "target": {
+                    "type": "string"
+                }
+            },
+            "required": ["is_active"],
             "type": "object"
         },
         "MaxDashboardContext": {

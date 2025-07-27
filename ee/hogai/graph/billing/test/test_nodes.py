@@ -7,15 +7,17 @@ from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import (
     AssistantToolCallMessage,
-    BillingPeriod,
-    Interval,
+    MaxBillingContextBillingPeriod,
+    BillingSpendResponseBreakdownType,
+    BillingUsageResponseBreakdownType,
+    MaxBillingContextBillingPeriodInterval,
     MaxAddonInfo,
     MaxBillingContext,
     MaxProductInfo,
-    Settings1,
+    MaxBillingContextSettings,
     SpendHistoryItem,
-    SubscriptionLevel,
-    Trial,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
     UsageHistoryItem,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -38,11 +40,11 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
 
     def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.PAID,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
             is_deactivated=False,
-            settings=Settings1(autocapture_on=True, active_destinations=2),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
             products=[],
         )
         with (
@@ -58,14 +60,14 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
 
     def test_format_billing_context(self):
         billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.PAID,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
             is_deactivated=False,
-            billing_period=BillingPeriod(
+            billing_period=MaxBillingContextBillingPeriod(
                 current_period_start=str(datetime.date(2023, 1, 1)),
                 current_period_end=str(datetime.date(2023, 1, 31)),
-                interval=Interval.MONTH,
+                interval=MaxBillingContextBillingPeriodInterval.MONTH,
             ),
             total_current_amount_usd="100.00",
             products=[
@@ -81,8 +83,8 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                     addons=[],
                 )
             ],
-            trial=Trial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
-            settings=Settings1(autocapture_on=True, active_destinations=2),
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
         with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
@@ -94,23 +96,25 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         usage_history = [
             UsageHistoryItem(
                 id=1,
-                label="recording_count_in_period",
+                label="Recordings",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[100, 200],
-                breakdown_type=None,
+                breakdown_type=BillingUsageResponseBreakdownType.TYPE,
+                breakdown_value=["recording_count_in_period"],
             ),
             UsageHistoryItem(
                 id=2,
-                label="event_count_in_period",
+                label="Events",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[1.5, 2.5],
-                breakdown_type=None,
+                breakdown_type=BillingUsageResponseBreakdownType.TYPE,
+                breakdown_value=["event_count_in_period"],
             ),
         ]
         spend_history = [
             SpendHistoryItem(
                 id=1,
-                label="mobile_recording_count_in_period",
+                label="Mobile Recordings",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[10.50, 20.00],
                 breakdown_type=None,
@@ -153,15 +157,15 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
     def test_format_billing_context_with_addons(self):
         """Test that addons are properly nested within products in the formatted output"""
         billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.PAID,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="startup",
             has_active_subscription=True,
             is_deactivated=False,
             startup_program_label="YC W21",
-            billing_period=BillingPeriod(
+            billing_period=MaxBillingContextBillingPeriod(
                 current_period_start="2023-01-01",
                 current_period_end="2023-01-31",
-                interval=Interval.MONTH,
+                interval=MaxBillingContextBillingPeriodInterval.MONTH,
             ),
             total_current_amount_usd="500.00",
             projected_total_amount_usd="1000.00",
@@ -220,7 +224,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                 ),
             ],
             trial=None,
-            settings=Settings1(autocapture_on=True, active_destinations=3),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=3),
         )
 
         with patch.object(
@@ -271,13 +275,13 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
     def test_format_billing_context_no_subscription(self):
         """Test formatting when user has no active subscription (free plan)"""
         billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.FREE,
+            subscription_level=MaxBillingContextSubscriptionLevel.FREE,
             billing_plan=None,
             has_active_subscription=False,
             is_deactivated=False,
             products=[],
-            settings=Settings1(autocapture_on=False, active_destinations=0),
-            trial=Trial(is_active=True, expires_at="2023-02-01", target="teams"),
+            settings=MaxBillingContextSettings(autocapture_on=False, active_destinations=0),
+            trial=MaxBillingContextTrial(is_active=True, expires_at="2023-02-01", target="teams"),
         )
 
         with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
@@ -302,7 +306,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                 label="event_count_in_period",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[1000, 2000],
-                breakdown_type="team",
+                breakdown_type=BillingUsageResponseBreakdownType.TEAM,
                 breakdown_value=["1"],  # Team ID 1
             ),
             UsageHistoryItem(
@@ -310,7 +314,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                 label="recording_count_in_period",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[100, 200],
-                breakdown_type="team",
+                breakdown_type=BillingUsageResponseBreakdownType.TEAM,
                 breakdown_value=["1"],  # Team ID 1
             ),
             UsageHistoryItem(
@@ -318,7 +322,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                 label="event_count_in_period",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[500, 750],
-                breakdown_type="team",
+                breakdown_type=BillingUsageResponseBreakdownType.TEAM,
                 breakdown_value=["2"],  # Team ID 2
             ),
             UsageHistoryItem(
@@ -326,7 +330,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                 label="billable_feature_flag_requests_count_in_period",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[50, 100],
-                breakdown_type=None,
+                breakdown_type=BillingUsageResponseBreakdownType.TEAM,
                 breakdown_value=None,  # No team breakdown
             ),
         ]
@@ -346,7 +350,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
     def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
         billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.CUSTOM,
+            subscription_level=MaxBillingContextSubscriptionLevel.CUSTOM,
             billing_plan="enterprise",
             has_active_subscription=True,
             is_deactivated=True,  # Deactivated account
@@ -365,7 +369,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                     addons=[],
                 ),
             ],
-            settings=Settings1(autocapture_on=True, active_destinations=0),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
         )
 
         with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
@@ -390,16 +394,16 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
     def test_format_billing_context_complete_template_coverage(self):
         """Test all possible template variables are covered"""
         billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.PAID,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="scale",
             has_active_subscription=True,
             is_deactivated=False,
             startup_program_label="Techstars 2023",
             startup_program_label_previous=None,
-            billing_period=BillingPeriod(
+            billing_period=MaxBillingContextBillingPeriod(
                 current_period_start="2023-01-01",
                 current_period_end="2023-01-31",
-                interval=Interval.YEAR,
+                interval=MaxBillingContextBillingPeriodInterval.YEAR,
             ),
             total_current_amount_usd="5000.00",
             projected_total_amount_usd="10000.00",
@@ -437,19 +441,19 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                     ],
                 ),
             ],
-            trial=Trial(
+            trial=MaxBillingContextTrial(
                 is_active=False,
                 expires_at="2022-12-31",
                 target="enterprise",
             ),
-            settings=Settings1(autocapture_on=True, active_destinations=5),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=5),
             usage_history=[
                 UsageHistoryItem(
                     id=1,
                     label="event_count_in_period",
                     dates=["2023-01-29", "2023-01-30", "2023-01-31"],
                     data=[1000, 1500, 2000],
-                    breakdown_type="team",
+                    breakdown_type=BillingUsageResponseBreakdownType.TEAM,
                     breakdown_value=["1"],
                 ),
             ],
@@ -459,7 +463,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
                     label="event_count_in_period",
                     dates=["2023-01-29", "2023-01-30", "2023-01-31"],
                     data=[50.0, 75.0, 100.0],
-                    breakdown_type="team",
+                    breakdown_type=BillingSpendResponseBreakdownType.TEAM,
                     breakdown_value=["1"],
                 ),
             ],
@@ -501,3 +505,259 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             # Check settings values
             self.assertIn("Autocapture: True", formatted_string)
             self.assertIn("Active destinations: 5", formatted_string)
+
+    def test_format_history_table_real_data_structure(self):
+        """Test with realistic data structure matching production format"""
+        usage_history = [
+            UsageHistoryItem(
+                id=1,
+                label="84444::Data Pipelines",
+                dates=["2025-02-01", "2025-02-02", "2025-02-03"],
+                data=[8036.0, 10286.0, 8174.0],
+                breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                breakdown_value=["data_pipelines", "84444"],
+            ),
+            UsageHistoryItem(
+                id=2,
+                label="12345::Events",
+                dates=["2025-02-01", "2025-02-02", "2025-02-03"],
+                data=[50000.0, 75000.0, 60000.0],
+                breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                breakdown_value=["event_count_in_period", "12345"],
+            ),
+            UsageHistoryItem(
+                id=3,
+                label="84444::Events",
+                dates=["2025-02-01", "2025-02-02", "2025-02-03"],
+                data=[25000.0, 30000.0, 28000.0],
+                breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                breakdown_value=["event_count_in_period", "84444"],
+            ),
+            UsageHistoryItem(
+                id=4,
+                label="global_feature_flags",
+                dates=["2025-02-01", "2025-02-02", "2025-02-03"],
+                data=[1000.0, 1500.0, 1200.0],
+                breakdown_type=BillingUsageResponseBreakdownType.TYPE,
+                breakdown_value=["billable_feature_flag_requests_count_in_period"],
+            ),
+        ]
+
+        self.node._teams_map = {
+            84444: "Project 84444",
+            12345: "Project 12345",
+        }
+
+        table = self.node._format_history_table(usage_history)
+
+        # Should always include aggregated table first
+        self.assertIn("### Overall (all projects)", table)
+
+        # Should include team-specific tables
+        self.assertIn("### Project 84444", table)
+        self.assertIn("### Project 12345", table)
+
+        # Check aggregated data sums correctly
+        # Events: 50000+25000=75000, 75000+30000=105000, 60000+28000=88000
+        self.assertIn("| Events | 75,000.00 | 105,000.00 | 88,000.00 |", table)
+
+        # Feature Flags should appear in aggregated (only non-team data)
+        self.assertIn("| Feature Flags | 1,000.00 | 1,500.00 | 1,200.00 |", table)
+
+        # Data Pipelines should show aggregated total (only from team 84444)
+        self.assertIn("| Data Pipelines | 8,036.00 | 10,286.00 | 8,174.00 |", table)
+
+        # Check that team-specific tables show clean labels
+        # Team 84444 should show "Data Pipelines" and "Events", not raw labels
+        team_84444_section = table.split("### Project 84444")[1].split("### Project 12345")[0]
+        self.assertIn("| Data Pipelines |", team_84444_section)
+        self.assertIn("| Events |", team_84444_section)
+        self.assertNotIn("| 84444::", team_84444_section)  # Should not show raw labels
+
+    def test_format_history_table_mixed_known_unknown_types(self):
+        """Test with mix of known usage types and unknown custom types"""
+        usage_history = [
+            UsageHistoryItem(
+                id=1,
+                label="custom_product_12345",
+                dates=["2025-02-01", "2025-02-02"],
+                data=[100.0, 200.0],
+                breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                breakdown_value=["unknown_type", "12345"],
+            ),
+            UsageHistoryItem(
+                id=2,
+                label="recordings_team_456",
+                dates=["2025-02-01", "2025-02-02"],
+                data=[50.0, 75.0],
+                breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                breakdown_value=["recording_count_in_period", "456"],
+            ),
+        ]
+
+        table = self.node._format_history_table(usage_history)
+
+        # Should include aggregated table
+        self.assertIn("### Overall (all projects)", table)
+
+        # Should handle known types correctly
+        self.assertIn("| Recordings | 50.00 | 75.00 |", table)
+
+        # Should handle unknown types gracefully (formatted from label)
+        self.assertIn("| Custom Product 12345 | 100.00 | 200.00 |", table)
+
+    def test_create_aggregated_items_functionality(self):
+        """Test the aggregation logic specifically"""
+        # Create test data with overlapping dates
+        team_items = {
+            "12345": [
+                UsageHistoryItem(
+                    id=1,
+                    label="events",
+                    dates=["2025-02-01", "2025-02-02"],
+                    data=[1000, 2000],
+                    breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                    breakdown_value=["event_count_in_period", "12345"],
+                )
+            ],
+            "67890": [
+                UsageHistoryItem(
+                    id=2,
+                    label="events",
+                    dates=["2025-02-02", "2025-02-03"],  # Overlapping dates
+                    data=[1500, 2500],
+                    breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                    breakdown_value=["event_count_in_period", "67890"],
+                )
+            ],
+        }
+
+        other_items = [
+            UsageHistoryItem(
+                id=3,
+                label="global_flags",
+                dates=["2025-02-01", "2025-02-03"],
+                data=[100, 300],
+                breakdown_type=BillingUsageResponseBreakdownType.TYPE,
+                breakdown_value=["billable_feature_flag_requests_count_in_period"],
+            )
+        ]
+
+        aggregated = self.node._create_aggregated_items(team_items, other_items)
+
+        # Should have 2 aggregated items: events and feature flags
+        self.assertEqual(len(aggregated), 2)
+
+        # Find the events aggregated item
+        events_item = next((item for item in aggregated if "Events" in item.label), None)
+        self.assertIsNotNone(events_item)
+
+        # Should have all 3 unique dates
+        self.assertEqual(len(events_item.dates), 3)
+        self.assertEqual(events_item.dates, ["2025-02-01", "2025-02-02", "2025-02-03"])
+
+        # Check aggregated values:
+        # 2025-02-01: 1000 (team 12345 only)
+        # 2025-02-02: 2000 + 1500 = 3500 (both teams)
+        # 2025-02-03: 2500 (team 67890 only)
+        expected_data = [1000.0, 3500.0, 2500.0]
+        self.assertEqual(events_item.data, expected_data)
+
+    def test_format_history_table_no_team_breakdowns(self):
+        """Test when no items have team breakdowns (all global/other items)"""
+        usage_history = [
+            UsageHistoryItem(
+                id=1,
+                label="global_events",
+                dates=["2025-02-01", "2025-02-02"],
+                data=[10000.0, 15000.0],
+                breakdown_type=None,
+                breakdown_value=["event_count_in_period"],
+            ),
+            UsageHistoryItem(
+                id=2,
+                label="global_recordings",
+                dates=["2025-02-01", "2025-02-02"],
+                data=[500.0, 750.0],
+                breakdown_type=None,
+                breakdown_value=["recording_count_in_period"],
+            ),
+        ]
+
+        table = self.node._format_history_table(usage_history)
+
+        # Should only have aggregated table, no team-specific tables
+        self.assertIn("### Overall (all projects)", table)
+        self.assertNotIn("### Project", table)  # No project-specific sections
+
+        # Should show aggregated data correctly
+        self.assertIn("| Events | 10,000.00 | 15,000.00 |", table)
+        self.assertIn("| Recordings | 500.00 | 750.00 |", table)
+
+    def test_format_history_table_spend_vs_usage_items(self):
+        """Test that SpendHistoryItem and UsageHistoryItem are handled correctly"""
+        usage_history = [
+            UsageHistoryItem(
+                id=1,
+                label="team_events",
+                dates=["2025-02-01"],
+                data=[1000.0],
+                breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
+                breakdown_value=["event_count_in_period", "123"],
+            )
+        ]
+
+        spend_history = [
+            SpendHistoryItem(
+                id=1,
+                label="team_spend",
+                dates=["2025-02-01"],
+                data=[50.0],
+                breakdown_type=BillingSpendResponseBreakdownType.MULTIPLE,
+                breakdown_value=["event_count_in_period", "123"],
+            )
+        ]
+
+        self.node._teams_map = {
+            123: "Project 123",
+        }
+
+        # Test usage history formatting
+        usage_table = self.node._format_history_table(usage_history)
+        self.assertIn("### Overall (all projects)", usage_table)
+        self.assertIn("### Project 123", usage_table)
+        self.assertIn("| Events | 1,000.00 |", usage_table)
+
+        # Test spend history formatting
+        spend_table = self.node._format_history_table(spend_history)
+        self.assertIn("### Overall (all projects)", spend_table)
+        self.assertIn("### Project 123", spend_table)
+        self.assertIn("| Events | 50.00 |", spend_table)
+
+    def test_format_history_table_edge_case_empty_dates(self):
+        """Test handling of items with empty dates or data arrays"""
+        usage_history = [
+            UsageHistoryItem(
+                id=1,
+                label="empty_dates",
+                dates=[],
+                data=[],
+                breakdown_type=None,
+                breakdown_value=["event_count_in_period"],
+            ),
+            UsageHistoryItem(
+                id=2,
+                label="valid_item",
+                dates=["2025-02-01"],
+                data=[100.0],
+                breakdown_type=None,
+                breakdown_value=["recording_count_in_period"],
+            ),
+        ]
+
+        table = self.node._format_history_table(usage_history)
+
+        # Should handle empty dates gracefully and still show valid data
+        self.assertIn("### Overall (all projects)", table)
+        self.assertIn("| Recordings | 100.00 |", table)
+        # The empty item should be handled without causing errors

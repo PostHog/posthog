@@ -459,6 +459,18 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BillingSpendResponseBreakdownType(StrEnum):
+    TYPE = "type"
+    TEAM = "team"
+    MULTIPLE = "multiple"
+
+
+class BillingUsageResponseBreakdownType(StrEnum):
+    TYPE = "type"
+    TEAM = "team"
+    MULTIPLE = "multiple"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -1698,21 +1710,36 @@ class MaxAddonInfo(BaseModel):
     usage_limit: Optional[float] = None
 
 
-class Interval(StrEnum):
+class SpendHistoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_type: Optional[BillingSpendResponseBreakdownType] = None
+    breakdown_value: Optional[Union[str, list[str]]] = None
+    data: list[float]
+    dates: list[str]
+    id: float
+    label: str
+
+
+class UsageHistoryItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_type: Optional[BillingUsageResponseBreakdownType] = None
+    breakdown_value: Optional[Union[str, list[str]]] = None
+    data: list[float]
+    dates: list[str]
+    id: float
+    label: str
+
+
+class MaxBillingContextBillingPeriodInterval(StrEnum):
     MONTH = "month"
     YEAR = "year"
 
 
-class BillingPeriod(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    current_period_end: str
-    current_period_start: str
-    interval: Interval
-
-
-class Settings1(BaseModel):
+class MaxBillingContextSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1720,50 +1747,19 @@ class Settings1(BaseModel):
     autocapture_on: bool
 
 
-class BreakdownType1(Enum):
-    TYPE = "type"
-    TEAM = "team"
-    MULTIPLE = "multiple"
-    NONE_TYPE_NONE = None
-
-
-class SpendHistoryItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_type: Optional[BreakdownType1]
-    breakdown_value: Optional[Union[str, list[str]]] = None
-    data: list[float]
-    dates: list[str]
-    id: float
-    label: str
-
-
-class SubscriptionLevel(StrEnum):
+class MaxBillingContextSubscriptionLevel(StrEnum):
     FREE = "free"
     PAID = "paid"
     CUSTOM = "custom"
 
 
-class Trial(BaseModel):
+class MaxBillingContextTrial(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     expires_at: Optional[str] = None
     is_active: bool
     target: Optional[str] = None
-
-
-class UsageHistoryItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_type: Optional[BreakdownType1]
-    breakdown_value: Optional[Union[str, list[str]]] = None
-    data: list[float]
-    dates: list[str]
-    id: float
-    label: str
 
 
 class MaxEventContext(BaseModel):
@@ -3852,27 +3848,13 @@ class MatchedRecording(BaseModel):
     session_id: Optional[str] = None
 
 
-class MaxBillingContext(BaseModel):
+class MaxBillingContextBillingPeriod(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    billing_period: Optional[BillingPeriod] = None
-    billing_plan: Optional[str] = None
-    has_active_subscription: bool
-    is_deactivated: Optional[bool] = None
-    products: list[MaxProductInfo]
-    projected_total_amount_usd: Optional[str] = None
-    projected_total_amount_usd_after_discount: Optional[str] = None
-    projected_total_amount_usd_with_limit: Optional[str] = None
-    projected_total_amount_usd_with_limit_after_discount: Optional[str] = None
-    settings: Settings1
-    spend_history: Optional[list[SpendHistoryItem]] = None
-    startup_program_label: Optional[str] = None
-    startup_program_label_previous: Optional[str] = None
-    subscription_level: SubscriptionLevel
-    total_current_amount_usd: Optional[str] = None
-    trial: Optional[Trial] = None
-    usage_history: Optional[list[UsageHistoryItem]] = None
+    current_period_end: str
+    current_period_start: str
+    interval: MaxBillingContextBillingPeriodInterval
 
 
 class NewExperimentQueryResponse(BaseModel):
@@ -8361,6 +8343,29 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+
+
+class MaxBillingContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    billing_period: Optional[MaxBillingContextBillingPeriod] = None
+    billing_plan: Optional[str] = None
+    has_active_subscription: bool
+    is_deactivated: Optional[bool] = None
+    products: list[MaxProductInfo]
+    projected_total_amount_usd: Optional[str] = None
+    projected_total_amount_usd_after_discount: Optional[str] = None
+    projected_total_amount_usd_with_limit: Optional[str] = None
+    projected_total_amount_usd_with_limit_after_discount: Optional[str] = None
+    settings: MaxBillingContextSettings
+    spend_history: Optional[list[SpendHistoryItem]] = None
+    startup_program_label: Optional[str] = None
+    startup_program_label_previous: Optional[str] = None
+    subscription_level: MaxBillingContextSubscriptionLevel
+    total_current_amount_usd: Optional[str] = None
+    trial: Optional[MaxBillingContextTrial] = None
+    usage_history: Optional[list[UsageHistoryItem]] = None
 
 
 class MultipleBreakdownOptions(BaseModel):
