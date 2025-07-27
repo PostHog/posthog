@@ -9,6 +9,53 @@ use integration_utils::{
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
+//
+// Of the 4 current "legacy" capture endpoints, /e/, /capture/, and /track/
+// all behave the same under the hood. These are tested identically together
+//
+
+#[tokio::test]
+async fn test_e_endpoint() {
+    let base_path = "/e";
+
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_capture_endpoint() {
+    let base_path = "/capture";
+
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint() {
+    let base_path = "/track";
+
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
 fn post_cases() -> Vec<TestCase> {
     let units = vec![
         // single event payload tests
@@ -302,18 +349,4 @@ fn get_cases() -> Vec<TestCase> {
     ];
 
     units
-}
-
-#[tokio::test]
-async fn test_e_endpoint_get() {
-    for unit in get_cases() {
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_e_endpoint_post() {
-    for unit in post_cases() {
-        execute_test(&unit).await;
-    }
 }
