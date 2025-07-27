@@ -7,8 +7,8 @@ import { BillingPlan, BillingType, StartupProgramLabel, TeamType } from '~/types
 import { Destination } from 'scenes/pipeline/types'
 
 import { maxBillingContextLogic, billingToMaxContext } from './maxBillingContextLogic'
-import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
-import { BillingSpendResponse } from 'scenes/billing/billingSpendLogic'
+import { BillingUsageResponse, BillingUsageResponseBreakdownType } from 'scenes/billing/billingUsageLogic'
+import { BillingSpendResponse, BillingSpendResponseBreakdownType } from 'scenes/billing/billingSpendLogic'
 import * as billingUtils from 'scenes/billing/billing-utils'
 
 const mockBilling: BillingType = {
@@ -217,7 +217,7 @@ const mockBillingUsageResponse: BillingUsageResponse = {
             label: '2024-01-01',
             data: [100000],
             dates: ['2024-01-01'],
-            breakdown_type: 'type',
+            breakdown_type: BillingUsageResponseBreakdownType.TYPE,
             breakdown_value: 'events',
         },
     ],
@@ -233,7 +233,7 @@ const mockBillingSpendResponse: BillingSpendResponse = {
             label: '2024-01-01',
             data: [100.0],
             dates: ['2024-01-01'],
-            breakdown_type: 'type',
+            breakdown_type: BillingSpendResponseBreakdownType.TYPE,
             breakdown_value: 'events',
         },
     ],
