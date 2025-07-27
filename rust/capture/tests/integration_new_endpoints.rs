@@ -40,17 +40,18 @@ async fn test_i_v0_e_endpoint_post() {
 #[tokio::test]
 async fn test_i_v0_e_endpoint_get_with_body() {
     // GET requests with a body payload are treated identically to POST requests
-    let mut base_cases = post_cases();
+    let mut get_with_body_cases = post_cases();
 
-    let get_with_body_cases = base_cases.iter_mut().map(|tc:  &mut TestCase| {
-        tc.base_path = "/i/v0/e";
-        tc.method = Method::GetWithBody;
-        tc.title = tc.title.replace("post-", "get_with_body-");
-        tc
-    });
+    get_with_body_cases
+        .iter_mut()
+        .for_each(|tc: &mut TestCase| {
+            tc.base_path = "/i/v0/e";
+            tc.method = Method::GetWithBody;
+            tc.title = tc.title.replace("post-", "get_with_body-");
+        });
 
     for unit in get_with_body_cases {
-        execute_test(unit).await;
+        execute_test(&unit).await;
     }
 }
 
@@ -79,17 +80,18 @@ async fn test_batch_endpoint_post() {
 #[tokio::test]
 async fn test_batch_endpoint_get_with_body() {
     // GET requests with a body payload are treated identically to POST requests
-    let mut base_cases = post_cases();
+    let mut get_with_body_cases = post_cases();
 
-    let get_with_body_cases = base_cases.iter_mut().map(|tc:  &mut TestCase| {
-        tc.base_path = "/batch";
-        tc.method = Method::GetWithBody;
-        tc.title = tc.title.replace("post-", "get_with_body-");
-        tc
-    });
+    get_with_body_cases
+        .iter_mut()
+        .for_each(|tc: &mut TestCase| {
+            tc.base_path = "/batch";
+            tc.method = Method::GetWithBody;
+            tc.title = tc.title.replace("post-", "get_with_body-");
+        });
 
     for unit in get_with_body_cases {
-        execute_test(unit).await;
+        execute_test(&unit).await;
     }
 }
 
