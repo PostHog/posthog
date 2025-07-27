@@ -65,7 +65,7 @@ export const openURLFor = (c: CommentType): string | null => {
         // individual recording comments don't use the discussion panel
         return commentURL
     }
-    return `${commentURL}#panel=discussion`
+    return commentURL ? `${commentURL}#panel=discussion` : null
 }
 
 export const commentsLogic = kea<commentsLogicType>([
