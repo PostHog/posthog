@@ -231,7 +231,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
-            "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
             "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,

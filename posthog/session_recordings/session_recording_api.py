@@ -33,11 +33,11 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+
+import posthog
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
-import posthog.session_recordings.queries.session_recording_list_from_query
-import posthog.session_recordings.queries.sub_queries.events_subquery
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -61,13 +61,13 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries.session_recording_list_from_query import (
+from posthog.session_recordings.queries_to_delete.session_recording_list_from_query import (
     SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
 )
 from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
     SessionRecordingListFromQuery as RewrittenSessionRecordingListFromQuery,
 )
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
@@ -406,12 +406,32 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
+class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
+    source: str | None = None
+
+    def get_rate(self):
+        num_requests, duration = self.parse_rate(self.get_rate())
+
+        divisors = {
+            "realtime": 4,
+            "blob": 2,
+            "blob_v2": 1,
+        }
+
+        divisor: int = divisors.get(self.source if self.source else "", 1)
+        return None if num_requests is None else num_requests / divisor, duration
+
+    def allow_request(self, request, view):
+        self.source = request.GET.get("source", None)
+        return super().allow_request(request, view)
+
+
+class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
+class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
@@ -547,11 +567,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        results, _, timings = (
-            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                query=query, team=self.team, hogql_query_modifiers=modifiers
-            ).get_event_ids_for_session()
+        user = cast(User, request.user)
+        use_multiple_sub_queries = (
+            posthoganalytics.feature_enabled(
+                "use-multiple-sub-queries",
+                str(user.distinct_id),
+            )
+            if user
+            else False
         )
+
+        if use_multiple_sub_queries:
+            results, _, timings = (
+                posthog.session_recordings.queries_to_replace.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
+                    query=query, team=self.team, hogql_query_modifiers=modifiers
+                ).get_event_ids_for_session()
+            )
+        else:
+            results, _, timings = (
+                posthog.session_recordings.queries_to_delete.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
+                    query=query, team=self.team, hogql_query_modifiers=modifiers
+                ).get_event_ids_for_session()
+            )
 
         response = JsonResponse(data={"results": results})
 

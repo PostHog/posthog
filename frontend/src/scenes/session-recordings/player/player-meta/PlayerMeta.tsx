@@ -113,7 +113,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
-    const { isZenMode } = useValues(playerSettingsLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -203,11 +203,11 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {!isZenMode && <PlayerMetaLinks size={size} />}
-                    {!isZenMode && <ResolutionView size={size} />}
+                    {!isCinemaMode && <PlayerMetaLinks size={size} />}
+                    {!isCinemaMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isZenMode && <PlayerMetaBottomSettings size={size} />}
+                {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

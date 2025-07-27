@@ -18,8 +18,9 @@ from pydantic import BaseModel
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
+from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.tool import search_documentation
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
@@ -978,12 +979,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(
-            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
-        )
+        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
+            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1039,12 +1038,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(
-            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
-        )
+        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
+            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
             (
                 "message",
                 AssistantMessage(

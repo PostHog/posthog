@@ -12,14 +12,13 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
 
 # Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -37,8 +36,8 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    MaxUIContext,
     MaxInsightContext,
+    MaxUIContext,
     RetentionQuery,
     TrendsQuery,
 )
@@ -65,10 +64,9 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "HogQLQuery": HogQLQuery,
 }
 
+SLASH_COMMAND_INIT = "/init"
 
-RouteName = Literal[
-    "insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search", "billing"
-]
+RouteName = Literal["insights", "root", "end", "search_documentation", "insights_search", "billing"]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -308,7 +306,7 @@ class RootNode(RootNodeUIContextMixin):
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
@@ -554,7 +552,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(state)
+            tool_class = ToolClass(team=self._team, user=self._user, state=state)
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
@@ -601,6 +599,7 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
+
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
@@ -611,8 +610,6 @@ class RootNodeTools(AssistantNode):
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
             if state.root_tool_insight_plan:
-                if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
-                    return "memory_onboarding"
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"
