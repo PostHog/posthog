@@ -141,24 +141,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     loaders(({ values, props, cache }) => ({
-        sessionComments: {
-            loadRecordingComments: async (_, breakpoint) => {
-                const empty: CommentType[] = []
-                if (!props.sessionRecordingId) {
-                    return empty
-                }
+        sessionComments: [
+            [] as CommentType[],
+            {
+                loadRecordingComments: async (_, breakpoint): Promise<CommentType[]> => {
+                    const empty: CommentType[] = []
+                    if (!props.sessionRecordingId) {
+                        return empty
+                    }
 
-                const response = await api.comments.list({ item_id: props.sessionRecordingId })
-                breakpoint()
+                    const response = await api.comments.list({ item_id: props.sessionRecordingId })
+                    breakpoint()
 
-                return response.results || empty
+                    return response.results || empty
+                },
+                deleteComment: async (id, breakpoint): Promise<CommentType[]> => {
+                    await breakpoint(25)
+                    await api.comments.delete(id)
+                    return values.sessionComments.filter((sc) => sc.id !== id)
+                },
             },
-            deleteComment: async (id, breakpoint) => {
-                await breakpoint(25)
-                await api.comments.delete(id)
-                return values.sessionComments.filter((sc) => sc.id !== id)
-            },
-        },
+        ],
         sessionNotebookComments: {
             loadRecordingNotebookComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
