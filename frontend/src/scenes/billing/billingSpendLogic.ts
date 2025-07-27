@@ -24,6 +24,12 @@ import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
 import type { BillingFilters } from './types'
 
+export enum BillingSpendResponseBreakdownType {
+    TYPE = 'type',
+    TEAM = 'team',
+    MULTIPLE = 'multiple',
+}
+
 export interface BillingSpendResponse {
     status: 'ok'
     type: 'timeseries'
@@ -33,7 +39,7 @@ export interface BillingSpendResponse {
         label: string
         data: number[]
         dates: string[]
-        breakdown_type: 'type' | 'team' | 'multiple' | null
+        breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
     team_id_options?: number[]

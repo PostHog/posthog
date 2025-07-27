@@ -26,6 +26,13 @@ import type { BillingFilters } from './types'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
+
+export enum BillingUsageResponseBreakdownType {
+    TYPE = 'type',
+    TEAM = 'team',
+    MULTIPLE = 'multiple',
+}
+
 export interface BillingUsageResponse {
     status: 'ok'
     type: 'timeseries'
@@ -35,7 +42,7 @@ export interface BillingUsageResponse {
         label: string
         data: number[]
         dates: string[]
-        breakdown_type: 'type' | 'team' | 'multiple' | null
+        breakdown_type: BillingUsageResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
     team_id_options?: number[]
