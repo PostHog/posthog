@@ -41,6 +41,7 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
@@ -151,6 +152,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 breakpoint()
 
                 return response.results || empty
+            },
+            deleteComment: async (id, breakpoint) => {
+                await breakpoint(25)
+                await api.comments.delete(id)
+                return values.sessionComments.filter((sc) => sc.id !== id)
             },
         },
         sessionNotebookComments: {
@@ -441,6 +447,13 @@ AND properties.$lib != 'web'`
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
+        deleteCommentSuccess: () => {
+            lemonToast.success('Comment deleted')
+        },
+        deleteCommentFailure: (e) => {
+            posthog.captureException(e, { action: 'session recording data logic delete comment' })
+            lemonToast.error('Could not delete comment, refresh and try again')
+        },
         [playerCommentModel.actionTypes.commentEdited]: ({ recordingId }) => {
             if (props.sessionRecordingId === recordingId) {
                 actions.loadRecordingComments()

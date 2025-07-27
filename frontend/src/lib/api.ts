@@ -1774,7 +1774,7 @@ const api = {
         },
 
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
-            return new ApiRequest().comment(id, teamId).delete()
+            return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
         },
     },
 

@@ -98,13 +98,8 @@ export const commentsLogic = kea<commentsLogicType>([
                     return response.results || []
                 },
                 deleteComment: async ({ id }: { id: CommentType['id'] }, breakpoint) => {
-                    try {
-                        await breakpoint(25)
-                        await api.comments.update(id, { deleted: true })
-                    } catch (e) {
-                        posthog.captureException(e)
-                        lemonToast.error('Could not delete comment')
-                    }
+                    await breakpoint(25)
+                    await api.comments.delete(id)
                     return values.comments.filter((c) => c.id !== id)
                 },
             },
@@ -133,5 +128,12 @@ export const commentsLogic = kea<commentsLogicType>([
         setScope: actions.loadComments,
         setFilterCreatedBy: actions.loadComments,
         setSearchText: actions.loadComments,
+        deleteCommentSuccess: () => {
+            lemonToast.success('Comment deleted')
+        },
+        deleteCommentFailure: (e) => {
+            posthog.captureException(e, { action: 'data management scene deleting comment' })
+            lemonToast.error('Could not delete comment, refresh and try again')
+        },
     })),
 ])
