@@ -93,29 +93,27 @@ export function Comments(): JSX.Element {
                 const canEdit = user?.uuid === comment.created_by?.uuid
                 return (
                     <div className="flex">
-                        {canEdit && (
-                            <>
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    size="small"
-                                    status="danger"
-                                    onClick={() => deleteComment(comment.id)}
-                                    disabledReason={canEdit ? undefined : 'You can only delete your own comments'}
-                                    data-attr="comment-management-scene-delete"
-                                />
-                                <LemonButton
-                                    icon={<IconOpenInApp />}
-                                    size="small"
-                                    to={openURLFor(comment) || ''}
-                                    disabledReason={
-                                        openURLFor(comment)
-                                            ? undefined
-                                            : 'We are not able to link to this comment type 🙈tell us you want to be able to!'
-                                    }
-                                    data-attr="comment-management-scene-open"
-                                />
-                            </>
-                        )}
+                        <>
+                            <LemonButton
+                                icon={<IconTrash />}
+                                size="small"
+                                status="danger"
+                                onClick={() => deleteComment(comment.id)}
+                                disabledReason={canEdit ? undefined : 'You can only delete your own comments'}
+                                data-attr="comment-management-scene-delete"
+                            />
+                            <LemonButton
+                                icon={<IconOpenInApp />}
+                                size="small"
+                                to={openURLFor(comment) || ''}
+                                disabledReason={
+                                    openURLFor(comment)
+                                        ? undefined
+                                        : 'We are not able to link to this comment type 🙈tell us you want to be able to!'
+                                }
+                                data-attr="comment-management-scene-open"
+                            />
+                        </>
                     </div>
                 )
             },
