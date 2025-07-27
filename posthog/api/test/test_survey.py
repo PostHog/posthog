@@ -2309,6 +2309,29 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
         assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
 
+    def test_create_survey_with_white_label(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>This is a thank you message</b>",
+                    "thankYouMessageDescriptionContentType": "html",
+                    "whiteLabel": True,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use white labelling"
+
 
 class TestSurveyWithActions(APIBaseTest):
     def test_cannot_use_actions_with_properties(self):

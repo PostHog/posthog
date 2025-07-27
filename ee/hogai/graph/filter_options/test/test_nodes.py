@@ -292,6 +292,56 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             # Assert that intermediate_steps and tool_progress_messages have the same length
             self.assertEqual(len(result.intermediate_steps), len(result.tool_progress_messages))
 
+    def test_prompt_includes_defined_events_tag(self):
+        """Test that the constructed prompt includes a <defined_events> tag."""
+        node = FilterOptionsNode(self.team, self.user)
+        state = FilterOptionsState(change="test query")
+
+        # Test that the node's run method uses format_events_prompt correctly
+        with patch("ee.hogai.graph.filter_options.nodes.format_events_prompt") as mock_format_events:
+            mock_format_events.return_value = "<defined_events><event><name>test_event</name></event></defined_events>"
+
+            # Create a custom fake model that captures the invoke call
+            class CapturingFakeChatOpenAI(FakeChatOpenAI):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.__dict__["captured_invoke_calls"] = []
+
+                def invoke(self, input, config=None, **kwargs):
+                    self.__dict__["captured_invoke_calls"].append((input, config, kwargs))
+                    return super().invoke(input, config, **kwargs)
+
+            tool_calls = [{"name": "test_tool", "args": {}, "id": "test_id"}]
+            message = LangchainAIMessage(content="", tool_calls=tool_calls)
+            capturing_model = CapturingFakeChatOpenAI(responses=[message])
+
+            with patch.object(node, "_get_model", return_value=capturing_model):
+                node.run(state, {})
+
+                # Verify format_events_prompt was called with correct parameters
+                mock_format_events.assert_called_once()
+                call_args = mock_format_events.call_args
+                self.assertEqual(
+                    call_args[0][0], [], "format_events_prompt should be called with empty events_in_context"
+                )
+                self.assertEqual(call_args[0][1], self.team, "format_events_prompt should be called with team")
+
+                # Verify the chain.invoke was called and the messages contain <defined_events> tag
+                self.assertEqual(
+                    len(capturing_model.__dict__["captured_invoke_calls"]), 1, "chain.invoke should be called once"
+                )
+                invoke_input = capturing_model.__dict__["captured_invoke_calls"][0][0]
+                self.assertIsInstance(invoke_input, list, "chain.invoke should be called with a list of messages")
+
+                # Check that the messages contain the <defined_events> tag
+                messages_content = " ".join(str(msg.content) for msg in invoke_input)
+                self.assertIn("<defined_events>", messages_content, "messages should contain <defined_events> tag")
+                self.assertIn(
+                    "<event><name>test_event</name></event>",
+                    messages_content,
+                    "messages should contain the mocked event",
+                )
+
 
 class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_with_generated_filter_options(self):
