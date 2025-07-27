@@ -305,15 +305,14 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
             },
             {
                 equalityCheck: (prev: any[], next: any[]) => {
-                    // Check each dependency for meaningful changes
                     return (
-                        prev[0] === next[0] && // billing - reference equality is fine
-                        prev[1] === next[1] && // billingUsageResponse - reference equality is fine
-                        prev[2] === next[2] && // billingSpendResponse - reference equality is fine
-                        prev[3] === next[3] && // isAdminOrOwner - boolean comparison
-                        prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out && // currentTeam - only check relevant field
-                        prev[5] === next[5] && // featureFlags - reference equality is fine
-                        prev[6]?.length === next[6]?.length // destinations - only check length
+                        prev[0] === next[0] &&
+                        prev[1] === next[1] &&
+                        prev[2] === next[2] &&
+                        prev[3] === next[3] &&
+                        prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out &&
+                        prev[5] === next[5] &&
+                        prev[6]?.length === next[6]?.length
                     )
                 },
             },
