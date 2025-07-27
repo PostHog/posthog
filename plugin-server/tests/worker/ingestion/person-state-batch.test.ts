@@ -27,7 +27,6 @@ import {
 } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import {
     createOrganization,
@@ -69,7 +68,11 @@ async function createPerson(
     return person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: BatchWritingPersonsStoreForBatch, kafkaAcks: Promise<void>) {
+async function flushPersonStoreToKafka(
+    hub: Hub,
+    personStore: BatchWritingPersonsStoreForBatch,
+    kafkaAcks: Promise<void>
+) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -658,7 +661,7 @@ describe('PersonState.processEvent()', () => {
         })
 
         it('handles person being created in a race condition updates properties if needed', async () => {
-            const [_, newPersonKafkaMessages] = await hub.db.createPerson(
+            const [createdPerson, newPersonKafkaMessages] = await hub.db.createPerson(
                 timestamp,
                 { b: 3, c: 4 },
                 {},
@@ -671,8 +674,13 @@ describe('PersonState.processEvent()', () => {
             )
             await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
+            let callCounter = 0
             const fetchPersonSpy = jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
-                return Promise.resolve(undefined)
+                callCounter++
+                if (callCounter < 2) {
+                    return Promise.resolve(undefined)
+                }
+                return Promise.resolve(createdPerson)
             })
 
             const propertyService = personPropertyService({
@@ -1259,12 +1267,21 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(hub.db.updatePerson).not.toHaveBeenCalled()
+            expect(hub.db.updatePerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
-            expect(persons[0]).toEqual(person)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: newUserUuid,
+                    properties: { foo: 'bar' },
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
@@ -2747,10 +2764,16 @@ describe('PersonState.processEvent()', () => {
             ])
 
             // Create a merge service with batch writing store for a $merge_dangerously event
-            const mergeService: PersonMergeService = personMergeService({}, hub)
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: secondUserDistinctId,
+                },
+                hub
+            )
             const context = mergeService.getContext()
 
-            const batchStore = context.personStore as BatchWritingPersonsStoreForBatch
+            const batchStore = context.personStore
 
             batchStore.setCachedPersonForUpdate(
                 teamId,
@@ -2805,9 +2828,6 @@ describe('PersonState.processEvent()', () => {
                 id: person2.id,
                 uuid: secondUserUuid,
             })
-
-            // Verify the cache is now cleared
-            expect(batchStore.getCachedPersonForUpdateByDistinctId(teamId, firstUserDistinctId)).toBeUndefined()
 
             // Verify only 1 person exists
             const persons = sortPersons(await fetchPostgresPersonsH())

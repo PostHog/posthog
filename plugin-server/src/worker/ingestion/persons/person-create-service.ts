@@ -9,6 +9,9 @@ import { PersonContext } from './person-context'
 export class PersonCreateService {
     constructor(private context: PersonContext) {}
 
+    /**
+     * @returns [Person, boolean that indicates if person was created or not, true if person was created, false if person was created by another process]
+     */
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -19,18 +22,10 @@ export class PersonCreateService {
         creatorEventUuid: string,
         distinctIds: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, boolean]> {
         if (distinctIds.length < 1) {
             throw new Error('at least 1 distinctId is required in `createPerson`')
         }
-
-        // First, check if a person already exists for any of the distinct IDs
-        // for (const distinctIdInfo of distinctIds) {
-        //     const existingPerson = await this.context.personStore.fetchForUpdate(teamId, distinctIdInfo.distinctId)
-        //     if (existingPerson) {
-        //         return existingPerson
-        //     }
-        // }
 
         const uuid = uuidFromDistinctId(teamId, distinctIds[0].distinctId)
 
@@ -61,7 +56,7 @@ export class PersonCreateService {
             )
 
             await this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return person
+            return [person, true]
         } catch (error) {
             // Handle constraint violation - another process created the person concurrently
             if (error instanceof Error && error.message.includes('unique constraint')) {
@@ -72,7 +67,7 @@ export class PersonCreateService {
                         distinctIdInfo.distinctId
                     )
                     if (existingPerson) {
-                        return existingPerson
+                        return [existingPerson, false]
                     }
                 }
 
