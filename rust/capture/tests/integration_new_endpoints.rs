@@ -9,6 +9,40 @@ use integration_utils::{
 use axum::http::{Method, StatusCode};
 use capture::config::CaptureMode;
 
+//
+// New capture endpoints /i/v0/e/ and /batch/ behave the same under the hood.
+// These are tested together identically here. Once unified with legacy handling,
+// These tests can be further consolidated.
+//
+
+#[tokio::test]
+async fn test_i_v0_e_endpoint() {
+    let base_path = "/i/v0/e";
+
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_batch_endpoint() {
+    let base_path = "/batch";
+
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
 fn post_cases() -> Vec<TestCase> {
     let units = vec![
         // single event payload tests
@@ -16,13 +50,13 @@ fn post_cases() -> Vec<TestCase> {
         // plain JSON POST body
         TestCase::new(
             // test case title
-            "batch_post-simple-single-event-payload",
+            "new_post-simple-single-event-payload",
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
             CaptureMode::Events,
-            // capture-rs target endpoint
-            "/batch",
+            // capture-rs target endpoint (overridden for multi-endpoint tests like these)
+            "",
             // JSON payload to use as input
             SINGLE_EVENT_JSON,
             // request submission type; one of POST or GET only for these integration tests
@@ -40,10 +74,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body - NOT SUPPORTED in new capture atm
         TestCase::new(
-            "batch_post-base64-single-event-payload",
+            "new_post-base64-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             Some("base64"),
@@ -54,10 +88,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
         TestCase::new(
-            "batch_post-base64-no-hint-single-event-payload",
+            "new_post-base64-no-hint-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -68,10 +102,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "batch_post-gzip-single-event-payload",
+            "new_post-gzip-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             Some("gzip"),
@@ -82,10 +116,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "batch_post-gzip-no-hint-single-event-payload",
+            "new_post-gzip-no-hint-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -94,12 +128,12 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(gzipped_payload),
         ),
-        // single event JSON payload submitted as POST form w/base64'd "data" attribute value
+        // single event JSON payload in POST form with "data" attribute base64 encoded
         TestCase::new(
-            "batch_post-form-data-base64-event-payload",
+            "new_post-form-data-base64-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None,
@@ -108,12 +142,12 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
-        // single event JSON payload submitted as POST form - NOT SUPPORTED by new capture atm
+        // single event JSON payload submitted as POST form
         TestCase::new(
-            "batch_post-form-urlencoded-event-payload",
+            "new_post-form-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None,
@@ -125,10 +159,10 @@ fn post_cases() -> Vec<TestCase> {
         // single event JSON payload submitted as LZ64'd value in POST form
         // NOT SUPPORTED by new capture atm
         TestCase::new(
-            "batch_post-form-lz64-urlencoded-event-payload",
+            "new_post-form-lz64-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             Some("lz64"),
@@ -141,10 +175,10 @@ fn post_cases() -> Vec<TestCase> {
 
         // plain JSON POST body
         TestCase::new(
-            "batch_post-simple-batch-payload",
+            "new_post-simple-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None,
@@ -155,10 +189,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body - NOT SUPPORTED by new capture atm
         TestCase::new(
-            "batch_post-base64-batch-payload",
+            "new_post-base64-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             Some("base64"),
@@ -169,10 +203,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
         TestCase::new(
-            "batch_post-base64-no-hint-batch-payload",
+            "new_post-base64-no-hint-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -183,10 +217,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "batch_post-gzip-batch-payload",
+            "new_post-gzip-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             Some("gzip"),
@@ -197,10 +231,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "batch_post-gzip-no-hint-batch-payload",
+            "new_post-gzip-no-hint-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -211,10 +245,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // batched events JSON payload submitted as POST form w/base64'd "data" attribute value
         TestCase::new(
-            "batch_post-form-data-base64-batch-payload",
+            "new_post-form-data-base64-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None,
@@ -223,12 +257,12 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
-        // single event JSON payload submitted as POST form - NOT SUPPORTED by new capture atm
+        // single event JSON payload submitted as POST form - NOT SUPPORTED in new capture atm
         TestCase::new(
-            "batch_post-form-urlencoded-batch-payload",
+            "new_post-form-urlencoded-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None,
@@ -240,10 +274,10 @@ fn post_cases() -> Vec<TestCase> {
         // single event JSON payload submitted as LZ64'd value in POST form
         // NOT SUPPORTED by new capture atm
         TestCase::new(
-            "batch_post-form-lz64-urlencoded-batch-payload",
+            "new_post-form-lz64-urlencoded-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             Some("lz64"),
@@ -262,11 +296,11 @@ fn get_cases() -> Vec<TestCase> {
     let units = vec![
         // plain base64'd JSON payload in urlencoded "data" GET param
         TestCase::new(
-            "batch_get-base64-urlencoded-single-event-payload",
+            "new_get-base64-urlencoded-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
-            BATCH_EVENTS_JSON,
+            "",
+            SINGLE_EVENT_JSON,
             Method::GET,
             Some("base64"),
             None,
@@ -276,11 +310,11 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
         TestCase::new(
-            "batch_get-urlencoded-event-payload",
+            "new_get-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
-            BATCH_EVENTS_JSON,
+            "",
+            SINGLE_EVENT_JSON,
             Method::GET,
             None,
             None,
@@ -290,11 +324,11 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in urlencoded "data" GET param
         TestCase::new(
-            "batch_get-lz64-urlencoded-event-payload",
+            "new_get-lz64-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/batch",
-            BATCH_EVENTS_JSON,
+            "",
+            SINGLE_EVENT_JSON,
             Method::GET,
             Some("lz64"),
             None,
@@ -305,18 +339,4 @@ fn get_cases() -> Vec<TestCase> {
     ];
 
     units
-}
-
-#[tokio::test]
-async fn test_batch_endpoint_get() {
-    for unit in get_cases() {
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_batch_endpoint_post() {
-    for unit in post_cases() {
-        execute_test(&unit).await;
-    }
 }

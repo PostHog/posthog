@@ -63,13 +63,13 @@ fn post_cases() -> Vec<TestCase> {
         // plain JSON POST body
         TestCase::new(
             // test case title
-            "e_post-simple-single-event-payload",
+            "legacy_post-simple-single-event-payload",
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
             CaptureMode::Events,
-            // capture-rs target endpoint
-            "/e",
+            // capture-rs target endpoint (overridden for multi-endpoint tests like these)
+            "",
             // JSON payload to use as input
             SINGLE_EVENT_JSON,
             // request submission type; one of POST or GET only for these integration tests
@@ -87,10 +87,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "e_post-base64-single-event-payload",
+            "legacy_post-base64-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             Some("base64"),
@@ -101,10 +101,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "e_post-base64-no-hint-single-event-payload",
+            "legacy_post-base64-no-hint-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -115,10 +115,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "e_post-gzip-single-event-payload",
+            "legacy_post-gzip-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             Some("gzip"),
@@ -129,10 +129,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "e_post-gzip-no-hint-single-event-payload",
+            "legacy_post-gzip-no-hint-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -143,10 +143,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload in POST form with "data" attribute base64 encoded
         TestCase::new(
-            "e_post-form-data-base64-event-payload",
+            "legacy_post-form-data-base64-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None,
@@ -157,10 +157,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "e_post-form-urlencoded-event-payload",
+            "legacy_post-form-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             None,
@@ -171,10 +171,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "e_post-form-lz64-urlencoded-event-payload",
+            "legacy_post-form-lz64-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::POST,
             Some("lz64"),
@@ -187,10 +187,10 @@ fn post_cases() -> Vec<TestCase> {
 
         // plain JSON POST body
         TestCase::new(
-            "e_post-simple-batch-payload",
+            "legacy_post-simple-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None,
@@ -201,10 +201,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "e_post-base64-batch-payload",
+            "legacy_post-base64-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             Some("base64"),
@@ -215,10 +215,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "e_post-base64-no-hint-batch-payload",
+            "legacy_post-base64-no-hint-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -229,10 +229,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "e_post-gzip-batch-payload",
+            "legacy_post-gzip-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             Some("gzip"),
@@ -243,10 +243,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "e_post-gzip-no-hint-batch-payload",
+            "legacy_post-gzip-no-hint-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None, // no compression hint; handling must auto-detect
@@ -257,10 +257,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // batched events JSON payload submitted as POST form w/base64'd "data" attribute value
         TestCase::new(
-            "e_post-form-data-base64-batch-payload",
+            "legacy_post-form-data-base64-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None,
@@ -271,10 +271,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "e_post-form-urlencoded-batch-payload",
+            "legacy_post-form-urlencoded-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             None,
@@ -285,10 +285,10 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "e_post-form-lz64-urlencoded-batch-payload",
+            "legacy_post-form-lz64-urlencoded-batch-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             BATCH_EVENTS_JSON,
             Method::POST,
             Some("lz64"),
@@ -306,10 +306,10 @@ fn get_cases() -> Vec<TestCase> {
     let units = vec![
         // plain base64'd JSON payload in urlencoded "data" GET param
         TestCase::new(
-            "e_get-base64-urlencoded-single-event-payload",
+            "legacy_get-base64-urlencoded-single-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::GET,
             Some("base64"),
@@ -320,10 +320,10 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
         TestCase::new(
-            "e_get-urlencoded-event-payload",
+            "legacy_get-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::GET,
             None,
@@ -334,10 +334,10 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in urlencoded"data" GET param
         TestCase::new(
-            "e_get-lz64-urlencoded-event-payload",
+            "legacy_get-lz64-urlencoded-event-payload",
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
-            "/e",
+            "",
             SINGLE_EVENT_JSON,
             Method::GET,
             Some("lz64"),
