@@ -31,11 +31,11 @@
             "id": "01984694-d35c-0000-a454-c3e96076cefa",
             "created_by": {
                 "id": 1,
-                "uuid": "019838c5-64ac-0000-9f43-17f1bf64f508",
+                "uuid": "019838c5-64ac-0000-9f43-000000000000",
                 "distinct_id": "xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl",
-                "first_name": "fasda",
+                "first_name": "David",
                 "last_name": "",
-                "email": "paul@posthog.com",
+                "email": "david@posthog.com",
                 "is_email_verified": false,
                 "hedgehog_config": null,
                 "role_at_organization": "other"
