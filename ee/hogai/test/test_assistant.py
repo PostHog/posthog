@@ -58,8 +58,8 @@ from posthog.schema import (
     MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
-    Settings1,
-    SubscriptionLevel,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -1796,8 +1796,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_billing_context_in_config(self):
         billing_context = MaxBillingContext(
             has_active_subscription=True,
-            subscription_level=SubscriptionLevel.PAID,
-            settings=Settings1(active_destinations=2.0, autocapture_on=True),
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            settings=MaxBillingContextSettings(active_destinations=2.0, autocapture_on=True),
             products=[
                 MaxProductInfo(
                     name="Product Analytics",
@@ -1807,16 +1807,16 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     is_used=True,
                     percentage_usage=85.0,
                     type="product_analytics",
-                )
-            ],
-            addons=[
-                MaxAddonInfo(
-                    name="Data Pipeline",
-                    description="Advanced data pipeline features",
-                    current_usage=100.0,
-                    has_exceeded_limit=False,
-                    is_used=True,
-                    type="data_pipeline",
+                    addons=[
+                        MaxAddonInfo(
+                            name="Data Pipeline",
+                            description="Advanced data pipeline features",
+                            current_usage=100.0,
+                            has_exceeded_limit=False,
+                            is_used=True,
+                            type="data_pipeline",
+                        )
+                    ],
                 )
             ],
         )

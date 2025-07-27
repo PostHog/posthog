@@ -15,13 +15,13 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import (
     AssistantEventType,
     AssistantMessage,
-    BillingPeriod,
-    Interval,
+    MaxBillingContextBillingPeriod,
+    MaxBillingContextBillingPeriodInterval,
     MaxBillingContext,
     MaxProductInfo,
-    Settings1,
-    SubscriptionLevel,
-    Trial,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
 )
 from posthog.test.base import APIBaseTest
 
@@ -49,14 +49,14 @@ class TestConversation(APIBaseTest):
             first_name="Other",
         )
         self.billing_context = MaxBillingContext(
-            subscription_level=SubscriptionLevel.PAID,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
             is_deactivated=False,
-            billing_period=BillingPeriod(
+            billing_period=MaxBillingContextBillingPeriod(
                 current_period_start=str(datetime.date(2023, 1, 1)),
                 current_period_end=str(datetime.date(2023, 1, 31)),
-                interval=Interval.MONTH,
+                interval=MaxBillingContextBillingPeriodInterval.MONTH,
             ),
             total_current_amount_usd="100.00",
             products=[
@@ -72,8 +72,8 @@ class TestConversation(APIBaseTest):
                     addons=[],
                 )
             ],
-            trial=Trial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
-            settings=Settings1(autocapture_on=True, active_destinations=2),
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
     def _get_streaming_content(self, response):

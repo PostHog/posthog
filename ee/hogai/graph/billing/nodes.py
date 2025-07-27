@@ -48,7 +48,7 @@ class BillingNode(AssistantNode):
     def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
         """Format billing context into a readable prompt section."""
         # Convert billing context to a format suitable for the mustache template
-        template_data = {
+        template_data: dict[str, Any] = {
             "subscription_level": billing_context.subscription_level.value
             if billing_context.subscription_level
             else "free",
@@ -98,7 +98,7 @@ class BillingNode(AssistantNode):
         if billing_context.products:
             template_data["products"] = []
             for product in billing_context.products:
-                product_data = {
+                product_data: dict[str, Any] = {
                     "name": product.name,
                     "type": product.type,
                     "description": product.description,
@@ -257,7 +257,7 @@ class BillingNode(AssistantNode):
             clean_label = self._get_clean_product_label(product_type)
 
             if isinstance(first_item, UsageHistoryItem):
-                aggregated_item = UsageHistoryItem(
+                aggregated_item: UsageHistoryItem | SpendHistoryItem = UsageHistoryItem(
                     id=1,  # Use a dummy ID for aggregated items
                     label=clean_label,
                     dates=sorted_dates,
@@ -337,11 +337,7 @@ class BillingNode(AssistantNode):
             row_values = []
             for date in sorted_dates:
                 value = date_to_value.get(date, 0)
-                # Format the value appropriately
-                if isinstance(value, int | float):
-                    formatted_value = f"{float(value):,.2f}"
-                else:
-                    formatted_value = str(value)
+                formatted_value = f"{float(value):,.2f}"
                 row_values.append(formatted_value)
 
             # For team-specific tables, extract clean product type
