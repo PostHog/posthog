@@ -23,9 +23,7 @@ SCOPE_OPTIONS.unshift({
 
 const openUrls: Partial<Record<ActivityScope, (c: CommentType) => string | null>> = {
     [ActivityScope.INSIGHT]: (c) =>
-        c.item_context?.short_id
-            ? `${urls.insightView(c.item_context?.short_id as InsightShortId)}#panel=discussion`
-            : null,
+        c.item_context?.short_id ? urls.insightView(c.item_context?.short_id as InsightShortId) : null,
     // TODO we only support this in modal apparently, but we should be able to open these at the timestamp of the comment
     [ActivityScope.REPLAY]: (c) => (c.item_id ? urls.replaySingle(c.item_id as string) : null),
     [ActivityScope.RECORDING]: (c) => (c.item_id ? urls.replaySingle(c.item_id as string) : null),
@@ -57,8 +55,17 @@ const openUrls: Partial<Record<ActivityScope, (c: CommentType) => string | null>
 }
 
 export const openURLFor = (c: CommentType): string | null => {
-    const urlFunc = openUrls[c.scope as ActivityScope]
-    return urlFunc ? urlFunc(c) : null
+    const commentURLFn = openUrls[c.scope as ActivityScope]
+    if (!commentURLFn) {
+        return null
+    }
+
+    const commentURL = commentURLFn(c)
+    if (c.scope === ActivityScope.RECORDING) {
+        // individual recording comments don't use the discussion panel
+        return commentURL
+    }
+    return `${commentURL}#panel=discussion`
 }
 
 export const commentsLogic = kea<commentsLogicType>([
