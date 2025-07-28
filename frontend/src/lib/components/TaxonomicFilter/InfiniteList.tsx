@@ -92,13 +92,13 @@ const renderItemContents = ({
     listGroupType,
     itemGroup,
     eventNames,
-    showOptimizedHints = false,
+    enableOptimizedHints = false,
 }: {
     item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
-    showOptimizedHints?: boolean
+    enableOptimizedHints?: boolean
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
@@ -112,7 +112,7 @@ const renderItemContents = ({
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
     const isOptimizedProperty =
-        showOptimizedHints &&
+        enableOptimizedHints &&
         (listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.SessionProperties) &&
         (item as PropertyDefinition).is_optimized
@@ -229,7 +229,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         showPopover,
         items,
         hasRemoteDataSource,
-        showOptimizedHints,
+        enableOptimizedHints,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
@@ -345,7 +345,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         listGroupType,
                         itemGroup,
                         eventNames,
-                        showOptimizedHints,
+                        enableOptimizedHints,
                     })}
                 </div>
             )

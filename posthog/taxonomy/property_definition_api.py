@@ -113,8 +113,8 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
-    show_optimized_hints = serializers.BooleanField(
-        help_text="Whether to show optimized hints for properties that support faster queries",
+    enable_optimized_hints = serializers.BooleanField(
+        help_text="Whether to enable optimized hints and sorting for properties that support faster queries",
         required=False,
         default=False,
     )
@@ -167,6 +167,9 @@ class QueryContext:
     event_name_join_filter: str = ""
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
+
+    # optimized hints parameters
+    enable_optimized_hints: bool = False
 
     params: dict = dataclasses.field(default_factory=dict)
 
@@ -334,12 +337,22 @@ class QueryContext:
             )
         return self
 
+    def with_optimized_hints(self, enable_optimized_hints: bool) -> Self:
+        return dataclasses.replace(
+            self,
+            enable_optimized_hints=enable_optimized_hints,
+        )
+
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
 
-        # Add optimized properties to SQL for sorting
-        optimized_properties_list = list(OPTIMIZED_PROPERTIES)
-        self.params.update({"optimized_properties": optimized_properties_list})
+        optimized_ordering = ""
+        if self.enable_optimized_hints:
+            optimized_properties_list = list(OPTIMIZED_PROPERTIES)
+            self.params.update({"optimized_properties": optimized_properties_list})
+            optimized_ordering = (
+                "CASE WHEN posthog_propertydefinition.name = ANY(%(optimized_properties)s) THEN 0 ELSE 1 END,"
+            )
 
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
@@ -351,7 +364,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY CASE WHEN {self.property_definition_table}.name = ANY(%(optimized_properties)s) THEN 0 ELSE 1 END, is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY {optimized_ordering} is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -660,6 +673,9 @@ class PropertyDefinitionViewSet(
             )
             .with_hidden_filter(
                 query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
+            )
+            .with_optimized_hints(
+                query.validated_data.get("enable_optimized_hints", False),
             )
         )
 
