@@ -31,7 +31,8 @@ impl From<String> for EvaluationRuntime {
         match s.to_lowercase().as_str() {
             "client" => EvaluationRuntime::Client,
             "server" => EvaluationRuntime::Server,
-            "all" | _ => EvaluationRuntime::All,
+            "all" => EvaluationRuntime::All,
+            _ => EvaluationRuntime::All,
         }
     }
 }
