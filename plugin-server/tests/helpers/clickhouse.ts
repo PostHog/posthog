@@ -56,6 +56,7 @@ export class Clickhouse {
     }
 
     async resetTestDatabase(): Promise<void> {
+        await this.waitForHealthy()
         // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
         await Promise.all([
             this.truncate('sharded_events'),
@@ -74,6 +75,27 @@ export class Clickhouse {
         ])
 
         await Promise.all([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
+    }
+
+    async waitForHealthy(delayMs = 100, maxDelayCount = 100): Promise<void> {
+        const timer = performance.now()
+
+        for (let i = 0; i < maxDelayCount; i++) {
+            try {
+                await this.query('SELECT 1')
+                console.log(`ClickHouse healthy after ${Math.round((performance.now() - timer) / 100) / 10}s`)
+                return
+            } catch (error) {
+                console.log(
+                    `ClickHouse not healthy yet. ${
+                        Math.round((performance.now() - timer) / 100) / 10
+                    }s since start. Error: ${error}`
+                )
+                await delay(delayMs)
+            }
+        }
+
+        throw Error(`ClickHouse failed to become healthy after ${maxDelayCount * delayMs}ms`)
     }
 
     async delayUntilEventIngested<T extends any[] | number>(

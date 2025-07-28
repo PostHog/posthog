@@ -113,7 +113,7 @@ describe('processEvent', () => {
             state = { currentDistinctId: 'anonymous_id' }
             console.log('beforeEach', 'done')
         } catch (e) {
-            console.error(e)
+            console.error('beforeEach', 'error', e, e.stack)
             throw e
         }
     })
