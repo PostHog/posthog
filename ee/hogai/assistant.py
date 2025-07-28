@@ -27,6 +27,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
@@ -42,6 +43,7 @@ from ee.hogai.utils.state import (
     validate_value_update,
 )
 from ee.hogai.utils.types import (
+    AssistantMessageOrStatusUnion,
     AssistantMessageUnion,
     AssistantMode,
     AssistantNodeName,
@@ -77,25 +79,28 @@ VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]]
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName] = {
+STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+    FilterOptionsNodeName.FILTER_OPTIONS,
 }
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES = STREAMING_NODES | {
+VERBOSE_NODES: set[AssistantNodeName | FilterOptionsNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
+    FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can send messages to the client."""
 
-THINKING_NODES = {
+THINKING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
+    FilterOptionsNodeName.FILTER_OPTIONS,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -224,7 +229,7 @@ class Assistant:
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
-                            yield AssistantEventType.MESSAGE, cast(AssistantMessageUnion, message)
+                            yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
                 state = await self._graph.aget_state(config)
@@ -328,10 +333,10 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: AssistantNodeName, input: AssistantState
+        self, node_name: AssistantNodeName | FilterOptionsNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER:
+            case AssistantNodeName.QUERY_PLANNER | FilterOptionsNodeName.FILTER_OPTIONS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
@@ -392,7 +397,9 @@ class Assistant:
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
-                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                    content=ToolClass(team=self._team, user=self._user).thinking_message
+                    if ToolClass
+                    else f"Running tool {tool_call.name}"
                 )
             case AssistantNodeName.ROOT:
                 ui_context = find_last_ui_context(input.messages)
@@ -429,7 +436,7 @@ class Assistant:
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
-            node_name = intersected_nodes.pop()
+            node_name: AssistantNodeName | FilterOptionsNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
@@ -453,12 +460,12 @@ class Assistant:
                 # If update involves new state from a thinking node, we reset the thinking headline to be sure
                 self._reasoning_headline_chunk = None
 
-        return None
+        return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
-            node_name = langgraph_state["langgraph_node"]
+            node_name: AssistantNodeName | FilterOptionsNodeName = langgraph_state["langgraph_node"]
             if node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
                 if node_name == AssistantNodeName.MEMORY_INITIALIZER:

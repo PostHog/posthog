@@ -3,13 +3,13 @@ import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect, useRef } from 'react'
+import React, { PropsWithChildren, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { Label } from 'lib/ui/Label/Label'
+import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
@@ -66,6 +66,19 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
     )
 }
 
+export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
+    return (
+        <div>
+            <div className="gap-0">
+                <Label intent="menu" {...props}>
+                    {title}
+                </Label>
+                {children}
+            </div>
+        </div>
+    )
+}
+
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setScenePanelIsOverlay } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelIsOverlay, scenePanelOpen } = useValues(sceneLayoutLogic)
@@ -110,13 +123,15 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto]': scenePanelIsPresent && !scenePanelIsOverlay,
                 })}
             >
-                {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
+                {layoutConfig?.layout !== 'app-raw-no-header' && (
+                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                )}
 
                 {scenePanelIsPresent && (
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen',
+                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen min-w-0',
                                 {
                                     hidden: !scenePanelOpen,
                                     // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
@@ -128,11 +143,11 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         >
                             <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <IconInfo className="size-5 text-tertiary" />
+                                    {scenePanelIsOverlay && <IconInfo className="size-5 text-tertiary" />}
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 
-                                {scenePanelOpen && (
+                                {scenePanelIsOverlay && scenePanelOpen && (
                                     <ButtonPrimitive iconOnly onClick={() => setScenePanelOpen(false)}>
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
@@ -159,7 +174,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 )}
                 <div
                     className={cn(
-                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
+                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
                         {
                             'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
                             'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',

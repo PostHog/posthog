@@ -98,7 +98,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.Fix204Middleware",
+    "posthog.middleware.AdminCSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
@@ -525,6 +525,9 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+# Sharing configuration settings
+SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
 if DEBUG:
     OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

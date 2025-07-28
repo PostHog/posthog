@@ -2322,7 +2322,6 @@ export enum AnnotationScope {
     Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
-    Recording = 'recording',
 }
 
 export interface RawAnnotationType {
@@ -2341,9 +2340,6 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
-    recording_id?: string | null
-    // convenience flag that indicates the content _should_ be a single emoji
-    is_emoji?: boolean
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -2990,7 +2986,7 @@ export enum SurveyPartialResponses {
 }
 
 export interface SurveyDisplayConditions {
-    url: string
+    url?: string
     selector?: string
     seenSurveyWaitPeriodInDays?: number
     urlMatchType?: SurveyMatchType
@@ -3960,6 +3956,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         personUrl?: string
         /** Action/event filter defition */
         action?: ActionFilter | null
+        yAxisID?: string
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4183,6 +4180,12 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
     is_private_without_access?: boolean
+}
+
+export interface TwilioPhoneNumberType {
+    sid: string
+    phone_number: string
+    friendly_name: string
 }
 export interface LinearTeamType {
     id: string
@@ -4545,7 +4548,7 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
-    sync_frequency: string
+    sync_frequency?: string
     status?: string
     latest_error: string | null
     latest_history_id?: string
