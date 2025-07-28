@@ -600,7 +600,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (sessionComments, windowIdForTimestamp, windowNumberForID, start): InspectorListItemComment[] => {
                 const items: InspectorListItemComment[] = []
                 for (const comment of sessionComments || []) {
-                    if (!comment.item_context.time_in_recording) {
+                    if (!comment.item_context?.time_in_recording) {
                         continue
                     }
 

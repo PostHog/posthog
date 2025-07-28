@@ -898,9 +898,20 @@
             api_host: projectConfig.api_host,
             disable_surveys_automatic_display: true,
             debug: searchParams.get('__posthog_debug__') === 'true',
+            // Disable all non-essential features
             advanced_disable_toolbar_metrics: true,
-            capture_pageview: false, // Don't capture pageviews for survey pages
-            capture_pageleave: false
+            capture_pageview: false,
+            capture_pageleave: false,
+            disable_session_recording: true,
+            autocapture: false,
+            rageclick: false,
+            disable_web_experiments: true,
+            enable_recording_console_log: false,
+            capture_performance: false,
+            capture_heatmaps: false,
+            capture_dead_clicks: false,
+            capture_exceptions: false,
+            advanced_disable_flags: true,
         };
 
         const distinctID = searchParams.get('distinct_id');

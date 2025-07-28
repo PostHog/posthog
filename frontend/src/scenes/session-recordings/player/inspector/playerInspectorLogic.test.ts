@@ -97,7 +97,7 @@ describe('playerInspectorLogic', () => {
         it('does not load comments without prompting', async () => {
             await expectLogic(logic).toMatchValues({
                 sessionNotebookComments: null,
-                sessionComments: null,
+                sessionComments: [],
             })
         })
 

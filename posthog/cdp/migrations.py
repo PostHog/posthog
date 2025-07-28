@@ -1,8 +1,8 @@
 import json
 from typing import Any
 from posthog.api.hog_function import HogFunctionSerializer
-from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.constants import AvailableFeature
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginAttachment, PluginConfig
 from posthog.models.team.team import Team
@@ -83,7 +83,7 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "is_create": True,
             }
 
-            template = HogFunctionTemplates.template(f"plugin-{plugin_id}")
+            template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
 
             if not template:
                 raise Exception(f"Template not found for plugin {plugin_id}")
@@ -95,12 +95,12 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 continue
 
             data = {
-                "template_id": template.id,
+                "template_id": template.template_id,
                 "type": kind,
                 "name": plugin_name,
                 "description": template.description,
                 "filters": template.filters,
-                "hog": template.hog,
+                "hog": template.code,
                 "inputs": inputs,
                 "enabled": True,
                 "icon_url": template.icon_url,

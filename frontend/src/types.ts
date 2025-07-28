@@ -200,6 +200,7 @@ export enum ProductKey {
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
+    COMMENTS = 'comments',
     HISTORY = 'history',
     HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
@@ -4453,6 +4454,8 @@ export enum ActivityScope {
     NOTEBOOK = 'Notebook',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
+    // TODO: doh! we don't need replay and recording
+    RECORDING = 'recording',
     EXPERIMENT = 'Experiment',
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
@@ -4474,6 +4477,8 @@ export type CommentType = {
     scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
+    /** only on the type to support patching for soft delete */
+    deleted?: boolean
 }
 
 export type NotebookListItemType = {
@@ -5248,12 +5253,13 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    code: string
     code_language: 'javascript' | 'hog'
 }
 
