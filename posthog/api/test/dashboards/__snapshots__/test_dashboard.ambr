@@ -631,7 +631,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -2995,7 +2996,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -4097,7 +4099,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -5552,7 +5555,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -6132,7 +6136,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -7753,7 +7758,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -7907,7 +7913,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -11309,7 +11316,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -12366,7 +12374,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -12474,7 +12483,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -13164,7 +13174,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -13318,7 +13329,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -13943,7 +13955,8 @@
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
          "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at"
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."state"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
