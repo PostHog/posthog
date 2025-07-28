@@ -8,7 +8,7 @@ import {
     QuerySchema,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, TrendResult } from '~/types'
+import { InsightLogicProps, ItemMode, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -19,6 +19,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    insightMode?: ItemMode
     insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
     emptyStateDetail?: string | JSX.Element

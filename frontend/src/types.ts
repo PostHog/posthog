@@ -3484,6 +3484,7 @@ export interface PreflightStatus {
 export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
+    EditOnly = 'editOnly',
     Subscriptions = 'subscriptions',
     Sharing = 'sharing',
     Alerts = 'alerts',

@@ -46,7 +46,6 @@ export function InsightVizDisplay({
     disableLastComputation,
     disableLastComputationRefresh,
     showingResults,
-    insightMode,
     context,
     embedded,
     inSharedMode,
@@ -57,7 +56,6 @@ export function InsightVizDisplay({
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
     showingResults?: boolean
-    insightMode?: ItemMode
     context?: QueryContext
     embedded: boolean
     inSharedMode?: boolean
@@ -107,7 +105,14 @@ export function InsightVizDisplay({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={!embedded && insightMode === ItemMode.Edit} />
+                return (
+                    <FunnelSingleStepState
+                        actionable={
+                            !embedded &&
+                            (context?.insightMode === ItemMode.Edit || context?.insightMode === ItemMode.EditOnly)
+                        }
+                    />
+                )
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
@@ -230,9 +235,13 @@ export function InsightVizDisplay({
                     <InsightsTable
                         isLegend
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
+                        canEditSeriesNameInline={
+                            !hasFormula &&
+                            (context?.insightMode === ItemMode.EditOnly || context?.insightMode === ItemMode.Edit)
+                        }
                         seriesNameTooltip={
-                            hasFormula && insightMode === ItemMode.Edit
+                            hasFormula &&
+                            (context?.insightMode === ItemMode.EditOnly || context?.insightMode === ItemMode.Edit)
                                 ? 'Formula series names are not editable'
                                 : undefined
                         }

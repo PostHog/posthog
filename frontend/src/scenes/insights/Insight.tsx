@@ -45,7 +45,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
 
-    const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
+    const actuallyShowQueryEditor =
+        (insightMode === ItemMode.Edit || insightMode === ItemMode.EditOnly) && showQueryEditor
 
     const setQuery = (query: Node, isSourceUpdate?: boolean): void => {
         if (!isInsightVizNode(query) || isSourceUpdate) {
@@ -96,12 +97,15 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
                 <Query
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
                     setQuery={setQuery}
-                    readOnly={insightMode !== ItemMode.Edit}
+                    readOnly={insightMode !== ItemMode.Edit && insightMode !== ItemMode.EditOnly}
                     context={{
                         showOpenEditorButton: false,
                         showQueryEditor: actuallyShowQueryEditor,
-                        showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                        showQueryHelp:
+                            (insightMode === ItemMode.Edit || insightMode === ItemMode.EditOnly) &&
+                            !containsHogQLQuery(query),
                         insightProps,
+                        insightMode,
                     }}
                     filtersOverride={filtersOverride}
                     variablesOverride={variablesOverride}

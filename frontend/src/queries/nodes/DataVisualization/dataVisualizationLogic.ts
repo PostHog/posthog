@@ -589,13 +589,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return false
                 }
 
-                return insightMode == ItemMode.Edit
+                return insightMode === ItemMode.Edit || insightMode === ItemMode.EditOnly
             },
         ],
         showResultControls: [
             (state, props) => [props.insightMode, state.dashboardId],
             (insightMode, dashboardId) => {
-                if (insightMode === ItemMode.Edit) {
+                if (insightMode === ItemMode.Edit || insightMode === ItemMode.EditOnly) {
                     return true
                 }
 

@@ -1,11 +1,11 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -83,8 +83,6 @@ export function InsightViz({
         variablesOverride,
     }
 
-    const { insightMode } = useValues(insightSceneLogic)
-
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
     const isRetention = isRetentionQuery(query.source)
@@ -95,13 +93,13 @@ export function InsightViz({
     const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
-    const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
+    const showingFilters =
+        query.showFilters ?? (context?.insightMode === ItemMode.Edit || context?.insightMode === ItemMode.EditOnly)
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)
 
     const display = (
         <InsightVizDisplay
-            insightMode={insightMode}
             context={context}
             disableHeader={disableHeader}
             disableTable={disableTable}
@@ -131,7 +129,11 @@ export function InsightViz({
                             {!readOnly && (
                                 <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
                             )}
-                            {!isEmbedded ? <div className="flex-1 h-full overflow-auto">{display}</div> : display}
+                            {context?.insightMode === ItemMode.EditOnly ? null : !isEmbedded ? (
+                                <div className="flex-1 h-full overflow-auto">{display}</div>
+                            ) : (
+                                display
+                            )}
                         </div>
                     </BindLogic>
                 </BindLogic>

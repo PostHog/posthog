@@ -123,7 +123,7 @@ const setStorageItem = async (key: string, value: string): Promise<void> => {
     await set(key, value)
 }
 
-export type EditorTabLevel = 'new' | 'editor' | 'config' | 'source'
+export type EditorTabLevel = 'new' | 'editor' | 'config' | 'source' | 'program'
 
 export interface QueryTab {
     uri: Uri
@@ -160,9 +160,9 @@ export function getQueryKind(queryInput: string): string | null {
         const json = JSON.parse(queryInput)
         if (json && json.kind) {
             if (json.kind === 'InsightVizNode' || json.kind === 'DataVisualizationNode') {
-                return json.source?.kind || json.kind
+                return json.source?.kind || json.kind || null
             }
-            return json.kind
+            return json.kind || null
         }
     } catch {
         return null

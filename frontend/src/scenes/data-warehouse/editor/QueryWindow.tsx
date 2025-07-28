@@ -2,24 +2,24 @@ import { Monaco } from '@monaco-editor/react'
 import {
     IconBook,
     IconChevronRight,
+    IconCode,
+    IconCode2,
+    IconCodeInsert,
     IconCorrelationAnalysis,
     IconDatabase,
-    IconPullRequest,
     IconDownload,
     IconDrag,
     IconGanttChart,
     IconGear,
     IconHogQL,
-    IconCode,
-    IconCode2,
-    IconCodeInsert,
     IconNotebook,
     IconPencil,
     IconPlayFilled,
+    IconPlus,
+    IconPullRequest,
     IconSearch,
     IconSidebarClose,
     IconSquareRoot,
-    IconPlus,
 } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -28,7 +28,7 @@ import { IconCancel, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo, useState, ReactNode } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -56,7 +56,9 @@ import {
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { stringifiedExamples } from '~/queries/examples'
+import { examples } from '~/queries/examples'
+import { Query } from '~/queries/Query/Query'
+import { ItemMode } from '~/types'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -70,6 +72,14 @@ const levelIcons: Record<EditorTabLevel, JSX.Element> = {
     program: <IconPullRequest />,
 }
 
+const toVizNode = (query: Record<string, any>): Record<string, any> => {
+    return {
+        kind: 'InsightVizNode',
+        source: query,
+        full: true,
+    }
+}
+
 const sampleQueries: Record<string, { input: string; level: EditorTabLevel }> = {
     SQL: {
         input: `SELECT toDate(toStartOfDay(timestamp)) AS date,
@@ -81,31 +91,31 @@ const sampleQueries: Record<string, { input: string; level: EditorTabLevel }> = 
         level: 'source',
     },
     Trends: {
-        input: stringifiedExamples['InsightTrendsQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightTrendsQuery']), null, 4),
         level: 'editor',
     },
     Funnel: {
-        input: stringifiedExamples['InsightFunnelsQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightFunnelsQuery']), null, 4),
         level: 'editor',
     },
     Retention: {
-        input: stringifiedExamples['InsightRetentionQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightRetentionQuery']), null, 4),
         level: 'editor',
     },
     Stickiness: {
-        input: stringifiedExamples['InsightStickinessQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightStickinessQuery']), null, 4),
         level: 'editor',
     },
     Lifecycle: {
-        input: stringifiedExamples['InsightLifecycleQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightLifecycleQuery']), null, 4),
         level: 'editor',
     },
     'User paths': {
-        input: stringifiedExamples['InsightPathsQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightPathsQuery']), null, 4),
         level: 'editor',
     },
     'Calendar heatmap': {
-        input: stringifiedExamples['InsightLifecycleQuery'],
+        input: JSON.stringify(toVizNode(examples['InsightLifecycleQuery']), null, 4),
         level: 'editor',
     },
 }
@@ -194,7 +204,18 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
-    const activeLevel = activeModelUri?.level || 'new'
+    let parsedQuery: Record<string, any> | null = null
+    try {
+        parsedQuery = JSON.parse(queryInput)
+    } catch {
+        parsedQuery = null
+    }
+    const activeLevel =
+        activeModelUri?.level === 'new' || !activeModelUri?.level
+            ? 'new'
+            : !parsedQuery
+            ? 'source'
+            : activeModelUri?.level || 'new'
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -226,70 +247,88 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </span>
                 </div>
             )}
+
             {activeLevel === 'new' || !activeLevel ? (
                 <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                     <NewQuery />
                 </div>
             ) : (
-                <>
-                    <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                        <QueryTypeSelector />
-                        <QueryLevelSelector />
-                        <LemonDivider vertical />
-                        <RunButton />
-                        <LemonDivider vertical />
-                        {editingView && (
-                            <>
-                                <LemonButton
-                                    onClick={() =>
-                                        updateView({
-                                            id: editingView.id,
-                                            query: {
-                                                ...sourceQuery.source,
-                                                query: queryInput,
-                                            },
-                                            types: response && 'types' in response ? response?.types ?? [] : [],
-                                            shouldRematerialize: isMaterializedView,
-                                            edited_history_id: inProgressViewEdits[editingView.id],
-                                        })
-                                    }
-                                    disabledReason={editingViewDisabledReason}
-                                    icon={<EditingViewButtonIcon />}
-                                    type="tertiary"
-                                    size="xsmall"
-                                    id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
-                                >
-                                    {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
-                                </LemonButton>
-                                <LemonButton
-                                    onClick={() => openHistoryModal()}
-                                    icon={<IconBook />}
-                                    type="tertiary"
-                                    size="xsmall"
-                                    id="sql-editor-query-window-history"
-                                >
-                                    History
-                                </LemonButton>
-                            </>
-                        )}
-                        {!editingInsight && !editingView && activeLevel === 'source' && (
-                            <>
-                                <LemonButton
-                                    onClick={() => saveAsView()}
-                                    icon={<IconDownload />}
-                                    type="tertiary"
-                                    size="xsmall"
-                                    data-attr="sql-editor-save-view-button"
-                                    id="sql-editor-query-window-save-as-view"
-                                >
-                                    Save as view
-                                </LemonButton>
-                            </>
-                        )}
-                        <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                    </div>
-                </>
+                <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
+                    <QueryTypeSelector />
+                    <QueryLevelSelector />
+                    <LemonDivider vertical />
+                    <RunButton />
+                    <LemonDivider vertical />
+                    {editingView && (
+                        <>
+                            <LemonButton
+                                onClick={() =>
+                                    updateView({
+                                        id: editingView.id,
+                                        query: {
+                                            ...sourceQuery.source,
+                                            query: queryInput,
+                                        },
+                                        types: response && 'types' in response ? response?.types ?? [] : [],
+                                        shouldRematerialize: isMaterializedView,
+                                        edited_history_id: inProgressViewEdits[editingView.id],
+                                    })
+                                }
+                                disabledReason={editingViewDisabledReason}
+                                icon={<EditingViewButtonIcon />}
+                                type="tertiary"
+                                size="xsmall"
+                                id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
+                            >
+                                {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                            </LemonButton>
+                            <LemonButton
+                                onClick={() => openHistoryModal()}
+                                icon={<IconBook />}
+                                type="tertiary"
+                                size="xsmall"
+                                id="sql-editor-query-window-history"
+                            >
+                                History
+                            </LemonButton>
+                        </>
+                    )}
+                    {!editingInsight && !editingView && activeLevel === 'source' && (
+                        <>
+                            <LemonButton
+                                onClick={() => saveAsView()}
+                                icon={<IconDownload />}
+                                type="tertiary"
+                                size="xsmall"
+                                data-attr="sql-editor-save-view-button"
+                                id="sql-editor-query-window-save-as-view"
+                            >
+                                Save as view
+                            </LemonButton>
+                        </>
+                    )}
+                    <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
+                </div>
             )}
+
+            {activeLevel === 'editor' ? (
+                <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
+                    {parsedQuery ? (
+                        <Query
+                            context={{
+                                showOpenEditorButton: false,
+                                showQueryEditor: false,
+                                insightMode: ItemMode.EditOnly,
+                            }}
+                            query={queryInput}
+                            setQuery={(query: any) =>
+                                setQueryInput(typeof query === 'string' ? query : JSON.stringify(query, null, 4))
+                            }
+                        />
+                    ) : null}
+                </div>
+            ) : null}
+
             <QueryPane
                 // Hide the Monaco editor on the "new" page.
                 // We need it around, as the tab navigation is directly tied to it.

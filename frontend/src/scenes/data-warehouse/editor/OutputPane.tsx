@@ -43,7 +43,7 @@ import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/Table
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
-import { ChartDisplayType, ExporterFormat } from '~/types'
+import { ChartDisplayType, ExporterFormat, ItemMode } from '~/types'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
@@ -52,6 +52,7 @@ import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
 import TabScroller from './TabScroller'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { Query } from '~/queries/Query/Query'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -722,7 +723,9 @@ const Content = ({
     progress,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
-    const { editingView } = useValues(multitabEditorLogic)
+    const { editingView, activeModelUri, queryInput } = useValues(multitabEditorLogic)
+    const { setQueryInput } = useActions(multitabEditorLogic)
+    const activeLevel = activeModelUri?.level || 'source'
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -774,6 +777,24 @@ const Content = ({
                     <QueryVariables />
                 </div>
             </TabScroller>
+        )
+    }
+
+    if (activeLevel === 'editor') {
+        return (
+            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
+                <Query
+                    context={{
+                        showOpenEditorButton: false,
+                        showQueryEditor: false,
+                        insightMode: ItemMode.View,
+                    }}
+                    query={queryInput}
+                    setQuery={(query: any) =>
+                        setQueryInput(typeof query === 'string' ? query : JSON.stringify(query, null, 4))
+                    }
+                />
+            </div>
         )
     }
 
