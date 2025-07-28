@@ -21,6 +21,7 @@ const supportedProviderList = [
     'cohere',
     'mistralai',
     'meta-llama',
+    'qwen',
 ]
 
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')

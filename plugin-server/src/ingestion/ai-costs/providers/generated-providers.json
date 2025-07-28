@@ -7,48 +7,6 @@
         }
     },
     {
-        "model": "claude-2",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "claude-2:beta",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "claude-2.0",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "claude-2.0:beta",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "claude-2.1",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
-        "model": "claude-2.1:beta",
-        "cost": {
-            "prompt_token": 0.000008,
-            "completion_token": 0.000024
-        }
-    },
-    {
         "model": "claude-3-haiku",
         "cost": {
             "prompt_token": 2.5e-7,
@@ -94,15 +52,6 @@
         }
     },
     {
-        "model": "claude-3-sonnet:beta",
-        "cost": {
-            "prompt_token": 0.000003,
-            "completion_token": 0.000015,
-            "cache_read_token": 3e-7,
-            "cache_write_token": 0.00000375
-        }
-    },
-    {
         "model": "claude-3.5-haiku",
         "cost": {
             "prompt_token": 8e-7,
@@ -113,15 +62,6 @@
     },
     {
         "model": "claude-3.5-haiku-20241022",
-        "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 0.000004,
-            "cache_read_token": 8e-8,
-            "cache_write_token": 0.000001
-        }
-    },
-    {
-        "model": "claude-3.5-haiku-20241022:beta",
         "cost": {
             "prompt_token": 8e-7,
             "completion_token": 0.000004,
@@ -244,8 +184,8 @@
     {
         "model": "command-a",
         "cost": {
-            "prompt_token": 0.0000025,
-            "completion_token": 0.00001
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008
         }
     },
     {
@@ -300,26 +240,19 @@
     {
         "model": "deepseek-chat",
         "cost": {
-            "prompt_token": 3.8e-7,
-            "completion_token": 8.9e-7
+            "prompt_token": 2.72e-7,
+            "completion_token": 2.72e-7
         }
     },
     {
         "model": "deepseek-chat-v3-0324",
         "cost": {
-            "prompt_token": 2.8e-7,
-            "completion_token": 8.8e-7
+            "prompt_token": 2.5e-7,
+            "completion_token": 8.5e-7
         }
     },
     {
         "model": "deepseek-chat-v3-0324:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
-        "model": "deepseek-chat:free",
         "cost": {
             "prompt_token": 0,
             "completion_token": 0
@@ -335,15 +268,15 @@
     {
         "model": "deepseek-r1",
         "cost": {
-            "prompt_token": 4.5e-7,
-            "completion_token": 0.00000215
+            "prompt_token": 4e-7,
+            "completion_token": 0.000002
         }
     },
     {
         "model": "deepseek-r1-0528",
         "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.00000215
+            "prompt_token": 2.72e-7,
+            "completion_token": 2.72e-7
         }
     },
     {
@@ -370,8 +303,8 @@
     {
         "model": "deepseek-r1-distill-llama-70b",
         "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 4e-7
+            "prompt_token": 5e-8,
+            "completion_token": 5e-8
         }
     },
     {
@@ -431,21 +364,35 @@
         }
     },
     {
-        "model": "deepseek-v3-base:free",
+        "model": "deepseek-v3-base",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 3.02e-7,
+            "completion_token": 3.02e-7
+        }
+    },
+    {
+        "model": "devstral-medium",
+        "cost": {
+            "prompt_token": 4e-7,
+            "completion_token": 0.000002
         }
     },
     {
         "model": "devstral-small",
         "cost": {
-            "prompt_token": 6e-8,
-            "completion_token": 1.2e-7
+            "prompt_token": 7e-8,
+            "completion_token": 2.8e-7
         }
     },
     {
-        "model": "devstral-small:free",
+        "model": "devstral-small-2505",
+        "cost": {
+            "prompt_token": 3e-8,
+            "completion_token": 3e-8
+        }
+    },
+    {
+        "model": "devstral-small-2505:free",
         "cost": {
             "prompt_token": 0,
             "completion_token": 0
@@ -484,46 +431,21 @@
         }
     },
     {
+        "model": "gemini-2.5-flash-lite",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7,
+            "cache_read_token": 2.5e-8,
+            "cache_write_token": 1.833e-7
+        }
+    },
+    {
         "model": "gemini-2.5-flash-lite-preview-06-17",
         "cost": {
             "prompt_token": 1e-7,
-            "completion_token": 4e-7
-        }
-    },
-    {
-        "model": "gemini-2.5-flash-preview",
-        "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 6e-7,
-            "cache_read_token": 3.75e-8,
-            "cache_write_token": 2.333e-7
-        }
-    },
-    {
-        "model": "gemini-2.5-flash-preview-05-20",
-        "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 6e-7,
-            "cache_read_token": 3.75e-8,
-            "cache_write_token": 2.333e-7
-        }
-    },
-    {
-        "model": "gemini-2.5-flash-preview-05-20:thinking",
-        "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 0.0000035,
-            "cache_read_token": 3.75e-8,
-            "cache_write_token": 2.333e-7
-        }
-    },
-    {
-        "model": "gemini-2.5-flash-preview:thinking",
-        "cost": {
-            "prompt_token": 1.5e-7,
-            "completion_token": 0.0000035,
-            "cache_read_token": 3.75e-8,
-            "cache_write_token": 2.333e-7
+            "completion_token": 4e-7,
+            "cache_read_token": 2.5e-8,
+            "cache_write_token": 1.833e-7
         }
     },
     {
@@ -588,15 +510,15 @@
     {
         "model": "gemma-2-27b-it",
         "cost": {
-            "prompt_token": 8e-7,
-            "completion_token": 8e-7
+            "prompt_token": 6.5e-7,
+            "completion_token": 6.5e-7
         }
     },
     {
         "model": "gemma-2-9b-it",
         "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
+            "prompt_token": 4e-9,
+            "completion_token": 4e-9
         }
     },
     {
@@ -609,8 +531,8 @@
     {
         "model": "gemma-3-12b-it",
         "cost": {
-            "prompt_token": 5e-8,
-            "completion_token": 1e-7
+            "prompt_token": 3e-8,
+            "completion_token": 3e-8
         }
     },
     {
@@ -649,6 +571,13 @@
         }
     },
     {
+        "model": "gemma-3n-e2b-it:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "gemma-3n-e4b-it",
         "cost": {
             "prompt_token": 2e-8,
@@ -660,6 +589,13 @@
         "cost": {
             "prompt_token": 0,
             "completion_token": 0
+        }
+    },
+    {
+        "model": "gpt-3.5-turbo",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.0000015
         }
     },
     {
@@ -740,14 +676,6 @@
             "prompt_token": 1e-7,
             "completion_token": 4e-7,
             "cache_read_token": 2.5e-8
-        }
-    },
-    {
-        "model": "gpt-4.5-preview",
-        "cost": {
-            "prompt_token": 0.000075,
-            "completion_token": 0.00015,
-            "cache_read_token": 0.0000375
         }
     },
     {
@@ -847,6 +775,13 @@
         }
     },
     {
+        "model": "llama-3.1-405b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "llama-3.1-70b-instruct",
         "cost": {
             "prompt_token": 1e-7,
@@ -856,22 +791,8 @@
     {
         "model": "llama-3.1-8b-instruct",
         "cost": {
-            "prompt_token": 1.6e-8,
+            "prompt_token": 1.5e-8,
             "completion_token": 2e-8
-        }
-    },
-    {
-        "model": "llama-3.1-sonar-large-128k-online",
-        "cost": {
-            "prompt_token": 0.000001,
-            "completion_token": 0.000001
-        }
-    },
-    {
-        "model": "llama-3.1-sonar-small-128k-online",
-        "cost": {
-            "prompt_token": 2e-7,
-            "completion_token": 2e-7
         }
     },
     {
@@ -903,6 +824,13 @@
         }
     },
     {
+        "model": "llama-3.2-3b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "llama-3.2-90b-vision-instruct",
         "cost": {
             "prompt_token": 0.0000012,
@@ -912,7 +840,7 @@
     {
         "model": "llama-3.3-70b-instruct",
         "cost": {
-            "prompt_token": 3.9e-8,
+            "prompt_token": 3.8e-8,
             "completion_token": 1.2e-7
         }
     },
@@ -931,24 +859,10 @@
         }
     },
     {
-        "model": "llama-4-maverick:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
-        }
-    },
-    {
         "model": "llama-4-scout",
         "cost": {
             "prompt_token": 8e-8,
             "completion_token": 3e-7
-        }
-    },
-    {
-        "model": "llama-4-scout:free",
-        "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
         }
     },
     {
@@ -1073,8 +987,8 @@
     {
         "model": "mistral-nemo",
         "cost": {
-            "prompt_token": 9e-9,
-            "completion_token": 1e-9
+            "prompt_token": 7.5e-9,
+            "completion_token": 5e-8
         }
     },
     {
@@ -1101,8 +1015,8 @@
     {
         "model": "mistral-small-24b-instruct-2501",
         "cost": {
-            "prompt_token": 5e-8,
-            "completion_token": 9e-8
+            "prompt_token": 3e-8,
+            "completion_token": 3e-8
         }
     },
     {
@@ -1115,8 +1029,8 @@
     {
         "model": "mistral-small-3.1-24b-instruct",
         "cost": {
-            "prompt_token": 5e-8,
-            "completion_token": 1e-7
+            "prompt_token": 2.7e-8,
+            "completion_token": 2.7e-8
         }
     },
     {
@@ -1267,6 +1181,247 @@
         "cost": {
             "prompt_token": 0.000002,
             "completion_token": 0.000006
+        }
+    },
+    {
+        "model": "qwen-2-72b-instruct",
+        "cost": {
+            "prompt_token": 9e-7,
+            "completion_token": 9e-7
+        }
+    },
+    {
+        "model": "qwen-2.5-72b-instruct",
+        "cost": {
+            "prompt_token": 1.01e-7,
+            "completion_token": 1.01e-7
+        }
+    },
+    {
+        "model": "qwen-2.5-72b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen-2.5-7b-instruct",
+        "cost": {
+            "prompt_token": 4e-8,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "qwen-2.5-coder-32b-instruct",
+        "cost": {
+            "prompt_token": 6e-8,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "qwen-2.5-coder-32b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen-2.5-vl-7b-instruct",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "qwen-max",
+        "cost": {
+            "prompt_token": 0.0000016,
+            "completion_token": 0.0000064,
+            "cache_read_token": 6.4e-7
+        }
+    },
+    {
+        "model": "qwen-plus",
+        "cost": {
+            "prompt_token": 4e-7,
+            "completion_token": 0.0000012,
+            "cache_read_token": 1.6e-7
+        }
+    },
+    {
+        "model": "qwen-turbo",
+        "cost": {
+            "prompt_token": 5e-8,
+            "completion_token": 2e-7,
+            "cache_read_token": 2e-8
+        }
+    },
+    {
+        "model": "qwen-vl-max",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000032
+        }
+    },
+    {
+        "model": "qwen-vl-plus",
+        "cost": {
+            "prompt_token": 2.1e-7,
+            "completion_token": 6.3e-7
+        }
+    },
+    {
+        "model": "qwen2.5-vl-32b-instruct",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 6e-7
+        }
+    },
+    {
+        "model": "qwen2.5-vl-32b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen2.5-vl-72b-instruct",
+        "cost": {
+            "prompt_token": 2.5e-7,
+            "completion_token": 7.5e-7
+        }
+    },
+    {
+        "model": "qwen2.5-vl-72b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-14b",
+        "cost": {
+            "prompt_token": 6e-8,
+            "completion_token": 2.4e-7
+        }
+    },
+    {
+        "model": "qwen3-14b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-235b-a22b",
+        "cost": {
+            "prompt_token": 1.3e-7,
+            "completion_token": 6e-7
+        }
+    },
+    {
+        "model": "qwen3-235b-a22b-2507",
+        "cost": {
+            "prompt_token": 1.2e-7,
+            "completion_token": 5.9e-7
+        }
+    },
+    {
+        "model": "qwen3-235b-a22b-2507:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-235b-a22b-thinking-2507",
+        "cost": {
+            "prompt_token": 1.179e-7,
+            "completion_token": 1.179e-7
+        }
+    },
+    {
+        "model": "qwen3-235b-a22b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-30b-a3b",
+        "cost": {
+            "prompt_token": 8e-8,
+            "completion_token": 2.9e-7
+        }
+    },
+    {
+        "model": "qwen3-30b-a3b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-32b",
+        "cost": {
+            "prompt_token": 2.7e-8,
+            "completion_token": 2.7e-8
+        }
+    },
+    {
+        "model": "qwen3-4b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-8b",
+        "cost": {
+            "prompt_token": 3.5e-8,
+            "completion_token": 1.38e-7
+        }
+    },
+    {
+        "model": "qwen3-8b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwen3-coder",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "qwen3-coder:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "qwq-32b",
+        "cost": {
+            "prompt_token": 7.5e-8,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "qwq-32b-preview",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "qwq-32b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
