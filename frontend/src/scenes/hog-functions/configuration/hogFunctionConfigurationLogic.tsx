@@ -85,7 +85,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     description: '',
     inputs_schema: [],
     code_language: 'hog',
-    hog: "print('Hello, world!');",
+    code: "print('Hello, world!');",
     status: 'stable',
 }
 
@@ -154,16 +154,18 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         return inputs
     }
 
-    function getMappingInputs(
-        inputs_schema?: CyclotronJobInputSchemaType[] | null
-    ): Record<string, CyclotronJobInputType> {
-        const inputs: Record<string, CyclotronJobInputType> = {}
-        inputs_schema?.forEach((schema) => {
-            if (schema.default !== undefined) {
-                inputs[schema.key] = { value: schema.default }
-            }
-        })
-        return inputs
+    let mappings: HogFunctionMappingType[] | undefined
+
+    if (template?.mapping_templates) {
+        mappings = template.mapping_templates
+            .filter((t) => t.include_by_default)
+            .map((template) => ({
+                ...template,
+                inputs: template.inputs_schema?.reduce((acc, input) => {
+                    acc[input.key] = { value: input.default }
+                    return acc
+                }, {} as Record<string, CyclotronJobInputType>),
+            }))
     }
 
     return {
@@ -172,13 +174,8 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
-        mappings: template.mappings?.map(
-            (mapping): HogFunctionMappingType => ({
-                ...mapping,
-                inputs: getMappingInputs(mapping.inputs_schema),
-            })
-        ),
-        hog: template.hog,
+        mappings: mappings,
+        hog: template.code,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
         enabled: true,
@@ -1126,7 +1123,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
             (hogFunction, configuration) => {
-                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+                return hogFunction?.template?.code && hogFunction.template.code !== configuration.hog
             },
         ],
         mappingTemplates: [
@@ -1268,20 +1265,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 ...cache.configFromUrl,
             }
 
-            if (values.template?.mapping_templates) {
-                config.mappings = [
-                    ...(config.mappings ?? []),
-                    ...values.template.mapping_templates
-                        .filter((t) => t.include_by_default)
-                        .map((template) => ({
-                            ...template,
-                            inputs: template.inputs_schema?.reduce((acc, input) => {
-                                acc[input.key] = { value: input.default }
-                                return acc
-                            }, {} as Record<string, CyclotronJobInputType>),
-                        })),
-                ]
-            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
@@ -1345,7 +1328,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                 actions.setConfigurationValues({
                     ...config,
+                    enabled: values.configuration.enabled,
                     filters: config.filters ?? values.configuration.filters,
+                    // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
+                    mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template
                     name: values.configuration.name,
                     description: values.configuration.description,

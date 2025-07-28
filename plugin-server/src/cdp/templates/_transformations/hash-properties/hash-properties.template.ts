@@ -11,7 +11,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/police-hog.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 // Function to hash a value with SHA256
 fun hashValue(value, salt) {
     if (empty(value) or typeof(value) != 'string') {
