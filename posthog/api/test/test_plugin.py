@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 from typing import Optional, cast
 from unittest import mock
-from unittest.mock import patch
 
 from zoneinfo import ZoneInfo
 from freezegun import freeze_time
