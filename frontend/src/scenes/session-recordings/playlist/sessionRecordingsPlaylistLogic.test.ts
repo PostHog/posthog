@@ -406,6 +406,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toMatchValues({
                         sessionRecordingsResponse: {
                             order: 'start_time',
+                            order_direction: 'DESC',
                             has_next: undefined,
                             results: listOfSessionRecordings,
                         },
@@ -503,6 +504,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                         filter_test_accounts: false,
                         order: 'start_time',
+                        order_direction: 'DESC',
                     },
                 })
         })
@@ -540,6 +542,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                         filter_test_accounts: false,
                         order: 'start_time',
+                        order_direction: 'DESC',
                     },
                 })
         })
