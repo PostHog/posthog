@@ -6,7 +6,7 @@ import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { ClickHousePerson, Hub, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
 
@@ -16,6 +16,10 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
 
     constructor(hub: Hub) {
         super(hub, KAFKA_PERSON, 'cdp-person-updates-consumer')
+    }
+
+    protected filterHogFunction(hogFunction: HogFunctionType): boolean {
+        return hogFunction.filters?.type === 'person-updates'
     }
 
     // This consumer always parses from kafka
@@ -33,9 +37,9 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
                                 this.hub.teamManager.getTeam(data.team_id),
                             ])
 
-                            // TODO: Filter hog functions for matches on persons only
+                            const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
 
-                            if (!teamHogFunctions.length || !team) {
+                            if (!filteredHogFunctions.length || !team) {
                                 return
                             }
 

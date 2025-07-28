@@ -15,6 +15,7 @@ import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
+    HogFunctionType,
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
@@ -69,6 +70,11 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         }
     }
 
+    protected filterHogFunction(hogFunction: HogFunctionType): boolean {
+        // By default we filter for those with no filters or filters specifically for events
+        return (hogFunction.filters?.type ?? 'events') === 'events'
+    }
+
     /**
      * Finds all matching hog functions for the given globals.
      * Filters them for their disabled state as well as masking configs
@@ -82,7 +88,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
             const [hogFunctionsByTeam, teamsById] = await Promise.all([
-                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes),
+                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
                 this.hub.teamManager.getTeams(teamsToLoad),
             ])
 
