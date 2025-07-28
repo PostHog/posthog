@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 
 if(inputs.debug) {
   print('Incoming request:', request.body)
