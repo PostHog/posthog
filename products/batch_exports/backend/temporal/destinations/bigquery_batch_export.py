@@ -30,7 +30,6 @@ from posthog.temporal.common.logger import (
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -42,6 +41,7 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
@@ -56,10 +56,11 @@ from products.batch_exports.backend.temporal.temporary_file import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_non_retryable_errors,
     set_status_to_running_task,
 )
 
-NON_RETRYABLE_ERROR_TYPES = [
+NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.
     "Forbidden",
     # Invalid token.
@@ -74,7 +75,7 @@ NON_RETRYABLE_ERROR_TYPES = [
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
-]
+)
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
@@ -651,7 +652,8 @@ class BigQueryConsumer(Consumer):
 
 
 @activity.defn
-async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> RecordsCompleted:
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to BigQuery."""
     bind_contextvars(
         team_id=inputs.team_id,
@@ -717,7 +719,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 inputs.data_interval_end or "END",
             )
 
-            return details.records_completed
+            return BatchExportResult(records_completed=details.records_completed)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -856,7 +858,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                                 stage_fields_cast_to_json=json_columns,
                             )
 
-        return details.records_completed
+        return BatchExportResult(records_completed=details.records_completed)
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
@@ -938,7 +940,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             insert_into_bigquery_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
             maximum_retry_interval_seconds=240,
         )

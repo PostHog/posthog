@@ -38,12 +38,12 @@ export function SceneName({
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue])
+    }, [localValue, defaultValue, optional])
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">
             <div className="flex flex-col gap-0">
-                <Label intent="menu" htmlFor="page-name-input">
+                <Label intent="menu" htmlFor="page-name-input" className="mx-2">
                     Name
                 </Label>
                 <TextareaPrimitive
@@ -56,7 +56,6 @@ export function SceneName({
                     data-attr={`${dataAttrKey}-name-input`}
                     autoFocus
                     error={!!error}
-                    className="-ml-1.5"
                 />
             </div>
             <div className="flex gap-1">
@@ -84,24 +83,24 @@ export function SceneName({
         </form>
     ) : (
         <div className="flex flex-col gap-0">
-            <Label intent="menu">Name</Label>
-            <div className="-ml-1.5">
-                <ButtonPrimitive
-                    className="hyphens-auto flex gap-1 items-center"
-                    lang="en"
-                    onClick={() => setLocalIsEditing(true)}
-                    tooltip={canEdit ? 'Edit name' : 'Name is read-only'}
-                    autoHeight
-                    menuItem
-                    inert={!canEdit}
-                >
-                    {value !== '' ? (
-                        value
-                    ) : (
-                        <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
-                    )}
-                </ButtonPrimitive>
-            </div>
+            <Label intent="menu" className="mx-2">
+                Name
+            </Label>
+            <ButtonPrimitive
+                className="hyphens-auto flex gap-1 items-center"
+                lang="en"
+                onClick={() => setLocalIsEditing(true)}
+                tooltip={canEdit ? 'Edit name' : 'Name is read-only'}
+                autoHeight
+                menuItem
+                inert={!canEdit}
+            >
+                {value !== '' ? (
+                    value
+                ) : (
+                    <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
+                )}
+            </ButtonPrimitive>
         </div>
     )
 }

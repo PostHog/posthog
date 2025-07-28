@@ -183,6 +183,8 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
+        "posthog-js": "1.258.2",
+        "posthog-js-lite": "4.1.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
@@ -208,6 +210,7 @@
         "react-virtualized": "^9.22.5",
         "resize-observer-polyfill": "^1.5.1",
         "sass": "^1.26.2",
+        "simple-statistics": "^7.8.8",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",
@@ -296,10 +299,6 @@
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
         "whatwg-fetch": "^3.6.2"
-    },
-    "peerDependencies": {
-        "posthog-js": "*",
-        "posthog-js-lite": "*"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"
