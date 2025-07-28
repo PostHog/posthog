@@ -3279,6 +3279,21 @@ export interface RevenueAnalyticsEventItem {
     revenueProperty: string
 
     /**
+     * Property used to identify what product the revenue event refers to
+     * Useful when trying to break revenue down by a specific product
+     */
+    productProperty?: string
+
+    /**
+     * Property used to identify whether the revenue event is connected to a coupon
+     * Useful when trying to break revenue down by a specific coupon
+     */
+    couponProperty?: string
+
+    /**
+     * TODO: In the future, this should probably be renamed to
+     * `currencyProperty` to follow the pattern above
+     *
      * @default {"static": "USD"}
      */
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
