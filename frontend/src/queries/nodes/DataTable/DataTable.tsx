@@ -509,11 +509,12 @@ export function DataTable({
                 />
                 {hasCrmIterationOneEnabled && (
                     <LemonButton
-                        data-attr="save-group-filters"
+                        data-attr="save-group-view"
                         type="primary"
+                        size="small"
                         onClick={() => setSaveGroupViewModalOpen(true)}
                     >
-                        Save filters
+                        Save view
                     </LemonButton>
                 )}
             </div>

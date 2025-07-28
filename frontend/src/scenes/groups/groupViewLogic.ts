@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import type { groupViewLogicType } from './groupViewLogicType'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { GroupTypeIndex } from '~/types'
 
 export const groupViewLogic = kea<groupViewLogicType>([
@@ -44,19 +45,18 @@ export const groupViewLogic = kea<groupViewLogicType>([
             try {
                 const currentUrl = new URL(href)
                 actions.addShortcutItem({
-                    id: '',
                     path: values.groupViewName,
                     type: `group_${groupTypeIndex}_view`,
                     href: currentUrl.pathname + currentUrl.search,
                     ref: `groups/${groupTypeIndex}`,
                     created_at: new Date().toISOString(),
-                })
+                } as FileSystemEntry)
                 actions.reportGroupViewSaved(groupTypeIndex, values.groupViewName)
                 actions.setSaveGroupViewModalOpen(false)
-                lemonToast.success('Filter view saved')
+                lemonToast.success('Group view saved')
             } catch (error) {
                 posthog.captureException(error)
-                lemonToast.error('Failed to save filter shortcut')
+                lemonToast.error('Failed to save group view')
             }
         },
     })),
