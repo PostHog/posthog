@@ -774,6 +774,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 order: 'console_error_count',
+                order_direction: 'DESC',
             })
 
             expect(result).toEqual({
