@@ -440,13 +440,13 @@ export interface AssistantFunnelsFilter {
     /**
      * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query.
      * If needed, this can be practically unlimited by setting a large value, though it's rare to need that.
-     * Use in combination with `funnelWindowIntervalUnit`.
+     * Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.
      * @default 14
      */
     funnelWindowInterval?: integer
     /**
      * Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query.
-     * Use in combination with `funnelWindowInterval`.
+     * Use in combination with `funnelWindowInterval`. The default value is 14 days.
      * @default day
      */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']

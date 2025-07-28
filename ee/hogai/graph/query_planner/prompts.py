@@ -75,7 +75,7 @@ Sources:
 - repeat for each event/action/data warehouse table...
 
 Query kind:
-- reasons for choosing the query kind
+- reasons for choosing the query kind over alternatives
 
 Tradeoffs:
 - tradeoffs made while making this plan

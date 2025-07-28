@@ -21,10 +21,17 @@ UNCLEAR_PREFIX = "UNCLEAR:"
 
 IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 
-Notes:
-- ClickHouse DOES NOT support LAG/LEAD
-- count() does not take * as an argument, it's just count()
-- A WHERE clause must be after all the JOIN clauses
+Important HogQL differences versus other SQL dialects:
+- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
+- JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
+- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- LAG/LEAD are not supported at all.
+- count() does not take * as an argument, it's just count().
+- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
+  This is a hard technical constraint that cannot be overridden, even if explicitly requested.
+  Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`
+  If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
+- A WHERE clause must be after all the JOIN clauses.
 """
 HOGQL_EXAMPLE_MESSAGE = """Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":
 
@@ -42,15 +49,7 @@ FROM (
 GROUP BY week_of
 ORDER BY week_of DESC
 
-Important HogQL differences versus other SQL dialects:
-- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar`
-- JSON properties can also be accessed using `properties.foo['bar']` (note the single quotes)
-- toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
-- CRITICAL: Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause a CHQueryErrorInvalidJoinOnExpression error!
-  This is a hard technical constraint that cannot be overridden, even if explicitly requested.
-  ALWAYS use CROSS JOIN with WHERE instead: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`
-  If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
-  IMPORTANT: Generate clean SQL without explanatory comments or -- comments INSIDE the query output. The SQL should be executable without any comment lines.
+Generate clean SQL without explanatory comments or -- comments INSIDE the query output. The SQL should be executable without any comment lines.
 """
 
 SCHEMA_MESSAGE = """
