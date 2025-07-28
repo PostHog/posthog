@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageRecipientPreference, MessageCategory
-from posthog.models.message_preferences import PreferenceStatus
+from posthog.models.message_preferences import RESERVED_CATEGORY_KEY_ALL, PreferenceStatus
 
 
 class MessageCategoryPreferenceSerializer(serializers.Serializer):
@@ -53,61 +53,14 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             except MessageCategory.DoesNotExist:
                 return Response({"error": "Category not found"}, status=404)
 
-            # Find recipients who have opted out of this specific category
-            opt_outs = []
-            recipients = MessageRecipientPreference.objects.filter(team_id=self.team_id)
-
-            for recipient in recipients:
-                preference_status = recipient.get_preference(category.id)
-                if preference_status == PreferenceStatus.OPTED_OUT:
-                    opt_outs.append(
-                        {
-                            "id": str(recipient.id),
-                            "identifier": recipient.identifier,
-                            "updated_at": recipient.updated_at,
-                            "category_id": str(category.id),
-                            "category_key": category.key,
-                            "category_name": category.name,
-                        }
-                    )
-
-            serializer = MessagePreferencesSerializer(opt_outs, many=True)
-            return Response(serializer.data)
-
-        # Get users who have opted out of all marketing emails
-        marketing_categories = MessageCategory.objects.filter(
-            team_id=self.team_id, category_type="marketing", deleted=False
+        # Find recipients who have opted out of this specific category
+        opt_outs = MessageRecipientPreference.objects.filter(
+            team_id=self.team_id,
+            preferences__category_id=category.id if category_key else RESERVED_CATEGORY_KEY_ALL,
+            preferences__preference_status=PreferenceStatus.OPTED_OUT,
         )
 
-        if not marketing_categories.exists():
-            return Response([])
-
-        overall_opt_outs = []
-        recipients = MessageRecipientPreference.objects.filter(team_id=self.team_id)
-
-        for recipient in recipients:
-            # Check if user has at least one OPTED_OUT and no OPTED_IN values
-            has_opted_out = False
-            has_opted_in = False
-
-            for category in marketing_categories:
-                preference_status = recipient.get_preference(category.id)
-                if preference_status == PreferenceStatus.OPTED_OUT:
-                    has_opted_out = True
-                elif preference_status == PreferenceStatus.OPTED_IN:
-                    has_opted_in = True
-                    break  # If we find any OPTED_IN, we can stop checking
-
-            if has_opted_out and not has_opted_in:
-                overall_opt_outs.append(
-                    {
-                        "id": str(recipient.id),
-                        "identifier": recipient.identifier,
-                        "updated_at": recipient.updated_at,
-                    }
-                )
-
-        serializer = MessagePreferencesSerializer(overall_opt_outs, many=True)
+        serializer = MessagePreferencesSerializer(opt_outs, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"])
