@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import collections
+from contextlib import _GeneratorContextManager
 import math
 import re
 from collections.abc import Iterator
 from typing import Any
+from collections.abc import Callable
 
 import pyarrow as pa
 import pymysql
@@ -470,8 +472,7 @@ def _get_table_chunk_size(
 
 
 def mysql_source(
-    host: str,
-    port: int,
+    tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
     password: str,
     database: str,
@@ -493,53 +494,7 @@ def mysql_source(
     if using_ssl:
         ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
 
-    with pymysql.connect(
-        host=host,
-        port=port,
-        database=database,
-        user=user,
-        password=password,
-        connect_timeout=5,
-        ssl_ca=ssl_ca,
-    ) as connection:
-        with connection.cursor() as cursor:
-            inner_query, inner_query_args = _build_query(
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-            )
-
-            primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table = _get_table(cursor, schema, table_name)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
-            # define chunk_size
-            chunk_size = _get_table_chunk_size(
-                cursor,
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-                logger,
-            )
-            partition_settings = (
-                _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
-            )
-
-            # Fallback on checking for an `id` field on the table
-            if primary_keys is None and "id" in table:
-                primary_keys = ["id"]
-
-    def get_rows() -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
-
-        # PlanetScale needs this to be set
-        init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
-
+    with tunnel() as (host, port):
         with pymysql.connect(
             host=host,
             port=port,
@@ -548,10 +503,9 @@ def mysql_source(
             password=password,
             connect_timeout=5,
             ssl_ca=ssl_ca,
-            init_command=init_command,
         ) as connection:
-            with connection.cursor(SSCursor) as cursor:
-                query, args = _build_query(
+            with connection.cursor() as cursor:
+                inner_query, inner_query_args = _build_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
@@ -559,19 +513,68 @@ def mysql_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                 )
-                logger.debug(f"MySQL query: {query.format(args)}")
 
-                cursor.execute(query, args)
+                primary_keys = _get_primary_keys(cursor, schema, table_name)
+                table = _get_table(cursor, schema, table_name)
+                rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
+                # define chunk_size
+                chunk_size = _get_table_chunk_size(
+                    cursor,
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    logger,
+                )
+                partition_settings = (
+                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                )
 
-                column_names = [column[0] for column in cursor.description or []]
+                # Fallback on checking for an `id` field on the table
+                if primary_keys is None and "id" in table:
+                    primary_keys = ["id"]
 
-                while True:
-                    # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                    rows = cursor.fetchmany(chunk_size)
-                    if not rows:
-                        break
+    def get_rows() -> Iterator[Any]:
+        arrow_schema = table.to_arrow_schema()
 
-                    yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+        with tunnel() as (host, port):
+            # PlanetScale needs this to be set
+            init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None
+
+            with pymysql.connect(
+                host=host,
+                port=port,
+                database=database,
+                user=user,
+                password=password,
+                connect_timeout=5,
+                ssl_ca=ssl_ca,
+                init_command=init_command,
+            ) as connection:
+                with connection.cursor(SSCursor) as cursor:
+                    query, args = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+                    logger.debug(f"MySQL query: {query.format(args)}")
+
+                    cursor.execute(query, args)
+
+                    column_names = [column[0] for column in cursor.description or []]
+
+                    while True:
+                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
+                        rows = cursor.fetchmany(chunk_size)
+                        if not rows:
+                            break
+
+                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
     name = NamingConvention().normalize_identifier(table_name)
 
