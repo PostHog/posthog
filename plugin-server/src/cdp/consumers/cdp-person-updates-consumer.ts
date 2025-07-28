@@ -19,7 +19,7 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     }
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
-        return hogFunction.filters?.type === 'person-updates'
+        return hogFunction.filters?.source === 'person-updates'
     }
 
     // This consumer always parses from kafka
