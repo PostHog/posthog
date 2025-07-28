@@ -72,11 +72,19 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             last_timestamp=timestamp,
         )
 
+    @parameterized.expand(
+        [
+            # originally for this table all order by was DESCENDING
+            ["descending (original)", "start_time"],
+            ["descending", "start_time DESC"],
+            ["ascending", "start_time ASC"],
+        ]
+    )
     @snapshot_postgres_queries
     # we can't take snapshots of the CH queries
     # because we use `now()` in the CH queries which don't know about any frozen time
     # @snapshot_clickhouse_queries
-    def test_get_session_recordings(self):
+    def test_get_session_recordings(self, _name: str, sort_key: str):
         twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
         user = Person.objects.create(
@@ -98,9 +106,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id_two = f"test_get_session_recordings-2"
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
 
-        # include `as_query` since we don't want to break while deploying the code that no longer needs it
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?as_query=true")
-        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
         results_ = response_data["results"]

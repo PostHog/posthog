@@ -430,12 +430,13 @@ export type RecordingOrder =
     | 'inactive_seconds'
     | 'active_seconds'
     | 'start_time'
-    | '-start_time'
     | 'console_error_count'
     | 'click_count'
     | 'keypress_count'
     | 'mouse_activity_count'
     | 'activity_score'
+
+export type RecordingOrderDirection = 'ASC' | 'DESC'
 
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
@@ -461,6 +462,10 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "start_time"
      * */
     order?: RecordingOrder
+    /**
+     * @default "DESC"
+     */
+    order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>

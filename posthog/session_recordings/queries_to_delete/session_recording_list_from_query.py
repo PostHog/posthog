@@ -12,6 +12,7 @@ from posthog.schema import (
     RecordingsQuery,
     PropertyGroupFilterValue,
     FilterLogicalOperator,
+    RecordingOrder,
 )
 
 import structlog
@@ -65,9 +66,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         WHERE {where_predicates}
         GROUP BY session_id
         HAVING {having_predicates}
-            -- order by start
-        ORDER BY {order_by}
-            -- order by end
         """
 
     @staticmethod
@@ -138,7 +136,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         )
 
     def get_query(self):
-        return parse_select(
+        parsed_query = parse_select(
             self.BASE_QUERY,
             {
                 # Check if the most recent _timestamp is within five minutes of the current time
@@ -154,20 +152,22 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         op=ast.CompareOperationOp.GtEq,
                     ),
                 ),
-                "order_by": self._order_by_clause(),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
             },
         )
+        if isinstance(parsed_query, ast.SelectSetQuery):
+            raise Exception("replay does not support SelectSetQuery")
+
+        parsed_query.order_by = [self._order_by_clause()]
+        return parsed_query
 
     def _order_by_clause(self) -> ast.OrderExpr:
-        order = self._query.order or "start_time"
-        is_desc = not order.startswith("-")
-        field = order.lstrip("-")
+        # KLUDGE: we only need a default here because mypy is silly
+        order_by = self._query.order.value if self._query.order else RecordingOrder.START_TIME
+        direction = cast(Literal["ASC", "DESC"], self._query.order_direction or "DESC")
 
-        direction: Literal["ASC", "DESC"] = "DESC" if is_desc else "ASC"
-
-        return ast.OrderExpr(expr=ast.Field(chain=[field]), order=direction)
+        return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [

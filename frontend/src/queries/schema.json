@@ -19413,13 +19413,16 @@
                 "inactive_seconds",
                 "active_seconds",
                 "start_time",
-                "-start_time",
                 "console_error_count",
                 "click_count",
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score"
             ],
+            "type": "string"
+        },
+        "RecordingOrderDirection": {
+            "enum": ["ASC", "DESC"],
             "type": "string"
         },
         "RecordingPropertyFilter": {
@@ -19521,6 +19524,10 @@
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "default": "DESC"
                 },
                 "person_uuid": {
                     "type": "string"

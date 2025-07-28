@@ -2004,12 +2004,16 @@ class RecordingOrder(StrEnum):
     INACTIVE_SECONDS = "inactive_seconds"
     ACTIVE_SECONDS = "active_seconds"
     START_TIME = "start_time"
-    FIELD_START_TIME = "-start_time"
     CONSOLE_ERROR_COUNT = "console_error_count"
     CLICK_COUNT = "click_count"
     KEYPRESS_COUNT = "keypress_count"
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
+
+
+class RecordingOrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
 
 
 class RecordingPropertyFilter(BaseModel):
@@ -10907,6 +10911,7 @@ class RecordingsQuery(BaseModel):
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    order_direction: Optional[RecordingOrderDirection] = RecordingOrderDirection.DESC
     person_uuid: Optional[str] = None
     properties: Optional[
         list[
