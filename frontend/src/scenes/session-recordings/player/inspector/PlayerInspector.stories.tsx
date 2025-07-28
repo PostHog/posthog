@@ -107,7 +107,7 @@ const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
     // 🫠
     useEffect(() => {
         loadEvents()
-    }, [sessionPlayerMetaData, loadEvents])
+    }, [sessionPlayerMetaData])
 
     return (
         <div className="flex flex-col gap-2 min-w-96 min-h-120">

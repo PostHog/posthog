@@ -35,7 +35,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         ])
 
         loadExperiment()
-    }, [id, setActions, insertAfter, loadExperiment, experiment.feature_flag.id])
+    }, [id])
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
