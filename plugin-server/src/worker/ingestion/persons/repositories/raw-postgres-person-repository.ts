@@ -1,13 +1,13 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
-import { TransactionClient } from '../../../utils/db/postgres'
-import { PersonUpdate } from './person-update-batch'
+import { TopicMessage } from '../../../../kafka/producer'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { TransactionClient } from '../../../../utils/db/postgres'
+import { PersonUpdate } from '../person-update-batch'
 
-export interface RawPersonRepository {
+export interface RawPostgresPersonRepository {
     fetchPerson(
         teamId: Team['id'],
         distinctId: string,

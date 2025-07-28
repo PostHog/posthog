@@ -13,7 +13,7 @@ import {
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { BasePersonRepository } from '../../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
@@ -29,7 +29,7 @@ describe('postgres parity', () => {
     jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
     let hub: Hub
     let server: PluginServer
-    let personRepository: BasePersonRepository
+    let personRepository: PostgresPersonRepository
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
@@ -64,7 +64,7 @@ describe('postgres parity', () => {
             new UUIDT().toString(),
             new UUIDT().toString()
         )
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         console.log('[TEST] BeforeEach complete')
     })
 

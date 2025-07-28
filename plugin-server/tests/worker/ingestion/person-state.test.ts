@@ -25,7 +25,7 @@ import {
 } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { BasePersonRepository } from '../../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
 
@@ -48,7 +48,7 @@ async function createPerson(
     distinctIds?: { distinctId: string; version?: number }[],
     tx?: TransactionClient
 ): Promise<InternalPerson> {
-    const personRepository = new BasePersonRepository(hub.db.postgres)
+    const personRepository = new PostgresPersonRepository(hub.db.postgres)
     const [person, kafkaMessages] = await personRepository.createPerson(
         createdAt,
         properties,
@@ -67,7 +67,7 @@ async function createPerson(
 
 describe('PersonState.processEvent()', () => {
     let hub: Hub
-    let personRepository: BasePersonRepository
+    let personRepository: PostgresPersonRepository
 
     let teamId: number
     let mainTeam: Team
@@ -88,7 +88,7 @@ describe('PersonState.processEvent()', () => {
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
 
         organizationId = await createOrganization(hub.db.postgres)
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
     })
 
     beforeEach(async () => {
@@ -132,7 +132,7 @@ describe('PersonState.processEvent()', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForBatch(
-            customHub ? new BasePersonRepository(customHub.db.postgres) : personRepository
+            customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository
         )
 
         const context = new PersonContext(
@@ -168,7 +168,7 @@ describe('PersonState.processEvent()', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForBatch(
-            customHub ? new BasePersonRepository(customHub.db.postgres) : personRepository
+            customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository
         )
 
         const context = new PersonContext(
@@ -188,7 +188,7 @@ describe('PersonState.processEvent()', () => {
     function personMergeService(
         event: Partial<PluginEvent>,
         customHub?: Hub,
-        customPersonRepository?: BasePersonRepository,
+        customPersonRepository?: PostgresPersonRepository,
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam
@@ -200,7 +200,8 @@ describe('PersonState.processEvent()', () => {
         }
 
         const personsStore = new MeasuringPersonsStoreForBatch(
-            customPersonRepository ?? (customHub ? new BasePersonRepository(customHub.db.postgres) : personRepository)
+            customPersonRepository ??
+                (customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository)
         )
 
         const context = new PersonContext(
@@ -2110,7 +2111,7 @@ describe('PersonState.processEvent()', () => {
 
         beforeEach(async () => {
             hub = await createHub({})
-            personRepository = new BasePersonRepository(hub.db.postgres)
+            personRepository = new PostgresPersonRepository(hub.db.postgres)
 
             jest.spyOn(personRepository, 'fetchPerson')
             jest.spyOn(personRepository, 'updatePerson')

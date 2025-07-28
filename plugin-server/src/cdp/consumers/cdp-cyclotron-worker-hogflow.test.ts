@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlow } from '~/schema/hogflow'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
-import { BasePersonRepository } from '~/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -22,7 +22,7 @@ jest.setTimeout(1000)
 describe('CdpCyclotronWorkerHogFlow', () => {
     let processor: CdpCyclotronWorkerHogFlow
     let hub: Hub
-    let personRepository: BasePersonRepository
+    let personRepository: PostgresPersonRepository
     let team: Team
     let team2: Team
     let hogFlows: HogFlow[]
@@ -63,7 +63,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!

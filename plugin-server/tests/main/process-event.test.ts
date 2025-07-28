@@ -30,7 +30,7 @@ import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { BasePersonRepository } from '../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -49,7 +49,7 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    const personRepository = new BasePersonRepository(server.db.postgres)
+    const personRepository = new PostgresPersonRepository(server.db.postgres)
     const [person, kafkaMessages] = await personRepository.createPerson(
         DateTime.utc(),
         properties,
@@ -98,7 +98,7 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
-let personRepository: BasePersonRepository
+let personRepository: PostgresPersonRepository
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
@@ -123,7 +123,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new BasePersonRepository(hub.db.postgres))
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres))
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
@@ -157,7 +157,7 @@ beforeEach(async () => {
 
     hub = await createHub({ ...TEST_CONFIG })
     redis = await hub.redisPool.acquire()
-    personRepository = new BasePersonRepository(hub.db.postgres)
+    personRepository = new PostgresPersonRepository(hub.db.postgres)
 
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
@@ -178,7 +178,12 @@ afterEach(async () => {
     await closeHub(hub)
 })
 
-const capture = async (hub: Hub, eventName: string, properties: any = {}, personRepository?: BasePersonRepository) => {
+const capture = async (
+    hub: Hub,
+    eventName: string,
+    properties: any = {},
+    personRepository?: PostgresPersonRepository
+) => {
     const event = {
         event: eventName,
         distinct_id: properties.distinct_id ?? state.currentDistinctId,
@@ -191,7 +196,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}, person
         uuid: new UUIDT().toString(),
     }
     const personsStoreForBatch = new MeasuringPersonsStoreForBatch(
-        personRepository || new BasePersonRepository(hub.db.postgres)
+        personRepository || new PostgresPersonRepository(hub.db.postgres)
     )
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
@@ -199,7 +204,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}, person
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
-const identify = async (hub: Hub, distinctId: string, personRepository?: BasePersonRepository) => {
+const identify = async (hub: Hub, distinctId: string, personRepository?: PostgresPersonRepository) => {
     // Update currentDistinctId state immediately, as the event will be
     // dispatch asynchronously
     const currentDistinctId = state.currentDistinctId

@@ -19,12 +19,14 @@ import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPart
 import { logger } from '../../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
 import { PersonUpdate } from '../person-update-batch'
-import { RawPersonRepository } from '../raw-person-repository'
-import { BasePersonRepositoryTransaction } from './base-person-repository-transaction'
 import { PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
+import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
+import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
-export class BasePersonRepository implements PersonRepository, RawPersonRepository, PersonRepositoryTransaction {
+export class PostgresPersonRepository
+    implements PersonRepository, RawPostgresPersonRepository, PersonRepositoryTransaction
+{
     constructor(private postgres: PostgresRouter) {}
 
     private toPerson(row: RawPerson): InternalPerson {
@@ -544,7 +546,7 @@ export class BasePersonRepository implements PersonRepository, RawPersonReposito
         transaction: (tx: PersonRepositoryTransaction) => Promise<T>
     ): Promise<T> {
         return await this.inRawTransaction(description, async (tx: TransactionClient) => {
-            const transactionClient = new BasePersonRepositoryTransaction(tx, this)
+            const transactionClient = new PostgresPersonRepositoryTransaction(tx, this)
             return await transaction(transactionClient)
         })
     }

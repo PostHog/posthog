@@ -31,7 +31,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { BasePersonRepository } from '../worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -152,7 +152,7 @@ export class IngestionConsumer {
         this.hogTransformer = new HogTransformerService(hub)
 
         this.personStore = new BatchWritingPersonsStore(
-            new BasePersonRepository(this.hub.db.postgres),
+            new PostgresPersonRepository(this.hub.db.postgres),
             this.hub.db.kafkaProducer,
             {
                 dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,

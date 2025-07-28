@@ -4,8 +4,8 @@ import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
-import { BasePersonRepository } from '~/worker/ingestion/persons/repositories/base-person-repository'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -74,7 +74,7 @@ describe('Event Pipeline integration test', () => {
         await resetTestDatabaseClickhouse()
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()

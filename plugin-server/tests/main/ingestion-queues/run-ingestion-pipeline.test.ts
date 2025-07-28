@@ -9,18 +9,18 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
-import { BasePersonRepository } from '../../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
-    let personRepository: BasePersonRepository
+    let personRepository: PostgresPersonRepository
     let redis: Redis.Redis
     const OLD_ENV = process.env
 
     beforeAll(async () => {
         hub = await createHub()
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         redis = await hub.redisPool.acquire()
         await resetTestDatabase()
         process.env = { ...OLD_ENV } // Make a copy

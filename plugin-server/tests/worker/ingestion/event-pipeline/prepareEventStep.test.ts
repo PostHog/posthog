@@ -6,7 +6,7 @@ import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { BasePersonRepository } from '../../../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 
@@ -61,7 +61,7 @@ describe('prepareEventStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        const personRepository = new BasePersonRepository(hub.db.postgres)
+        const personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
         await personRepository.createPerson(

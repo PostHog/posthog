@@ -4,7 +4,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
-import { BasePersonRepository } from '../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -68,7 +68,7 @@ describe('events dead letter queue', () => {
         const teamId = await createTeam(hub.postgres, orgId)
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new BasePersonRepository(hub.db.postgres), {
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
         })

@@ -4,13 +4,13 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Person, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
-import { BasePersonRepository } from '~/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { PersonsManagerService } from './persons-manager.service'
 
 describe('PersonsManager', () => {
     let hub: Hub
-    let personRepository: BasePersonRepository
+    let personRepository: PostgresPersonRepository
     let manager: PersonsManagerService
     let team: Team
     let team2: Team
@@ -18,7 +18,7 @@ describe('PersonsManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         await resetTestDatabase()
         manager = new PersonsManagerService(hub)
         team = await getFirstTeam(hub)

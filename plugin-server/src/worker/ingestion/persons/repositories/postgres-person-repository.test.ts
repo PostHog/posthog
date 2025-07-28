@@ -6,20 +6,20 @@ import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
-import { BasePersonRepository } from './base-person-repository'
+import { PostgresPersonRepository } from './postgres-person-repository'
 
 jest.mock('../../../../utils/logger')
 
-describe('BasePersonRepository', () => {
+describe('PostgresPersonRepository', () => {
     let hub: Hub
     let postgres: PostgresRouter
-    let repository: BasePersonRepository
+    let repository: PostgresPersonRepository
 
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         postgres = hub.db.postgres
-        repository = new BasePersonRepository(postgres)
+        repository = new PostgresPersonRepository(postgres)
 
         const redis = await hub.redisPool.acquire()
         await redis.flushdb()

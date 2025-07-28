@@ -28,7 +28,7 @@ import {
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
-import { BasePersonRepository } from '../../../src/worker/ingestion/persons/repositories/base-person-repository'
+import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import {
     createOrganization,
@@ -53,7 +53,7 @@ async function createPerson(
     uuid: string,
     distinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
-    const personRepository = new BasePersonRepository(hub.db.postgres)
+    const personRepository = new PostgresPersonRepository(hub.db.postgres)
     const [person, kafkaMessages] = await personRepository.createPerson(
         createdAt,
         properties,
@@ -79,7 +79,7 @@ async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBat
 
 describe('PersonState.processEvent()', () => {
     let hub: Hub
-    let personRepository: BasePersonRepository
+    let personRepository: PostgresPersonRepository
 
     let teamId: number
     let mainTeam: Team
@@ -118,7 +118,7 @@ describe('PersonState.processEvent()', () => {
         firstUserUuid = uuidFromDistinctId(teamId, firstUserDistinctId)
         secondUserUuid = uuidFromDistinctId(teamId, secondUserDistinctId)
 
-        personRepository = new BasePersonRepository(hub.db.postgres)
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         jest.spyOn(personRepository, 'fetchPerson')
         jest.spyOn(personRepository, 'updatePerson')
 
@@ -210,7 +210,7 @@ describe('PersonState.processEvent()', () => {
     function personMergeService(
         event: Partial<PluginEvent>,
         customHub?: Hub,
-        customPersonRepository?: BasePersonRepository,
+        customPersonRepository?: PostgresPersonRepository,
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam
@@ -222,7 +222,8 @@ describe('PersonState.processEvent()', () => {
         }
 
         const personsStore = new BatchWritingPersonsStoreForBatch(
-            customPersonRepository ?? (customHub ? new BasePersonRepository(customHub.db.postgres) : personRepository),
+            customPersonRepository ??
+                (customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository),
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
 
@@ -353,7 +354,7 @@ describe('PersonState.processEvent()', () => {
                 { distinctId: newUserDistinctId },
             ])
 
-            const personRepository = new BasePersonRepository(hub.db.postgres)
+            const personRepository = new PostgresPersonRepository(hub.db.postgres)
             await personRepository.addPersonlessDistinctId(teamId, 'new2')
 
             const hubParam = undefined
@@ -2240,7 +2241,7 @@ describe('PersonState.processEvent()', () => {
 
         beforeEach(async () => {
             hub = await createHub({})
-            personRepository = new BasePersonRepository(hub.db.postgres)
+            personRepository = new PostgresPersonRepository(hub.db.postgres)
 
             jest.spyOn(personRepository, 'fetchPerson')
             jest.spyOn(personRepository, 'updatePerson')
