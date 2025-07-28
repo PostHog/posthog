@@ -39,8 +39,7 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from posthog.models.message_preferences import MessageRecipientPreference
-from products.messaging.backend.api.message_preferences import PreferenceStatus
+from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
 from posthog.models.message_category import MessageCategory
 from posthog.models.personal_api_key import (
     PersonalAPIKey,
