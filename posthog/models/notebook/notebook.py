@@ -20,6 +20,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
     title = models.CharField(max_length=256, blank=True, null=True)
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
+    notebook_bool = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)

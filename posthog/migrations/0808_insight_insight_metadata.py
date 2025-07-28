@@ -10,8 +10,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="insight",
-            name="insight_bool",
+            model_name="notebook",
+            name="notebook_bool",
             field=models.BooleanField(default=False),
         ),
     ]
