@@ -123,6 +123,7 @@ class TestMessagePreferences(BaseTest):
 
         # Test that only PreferenceStatus enum values are accepted
         with self.assertRaises(ValueError):
+            # type: ignore
             recipient.set_preference(self.category.id, "INVALID_STATUS")
 
     def test_token_generation_and_validation(self):
