@@ -1,6 +1,7 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by):
@@ -202,9 +203,9 @@ def get_team_filters(team_ids):
         }
     else:
         return {
-            "raw_sessions": "dictHas('web_preaggregated_teams_dict', raw_sessions.team_id)",
-            "person_distinct_id_overrides": "dictHas('web_preaggregated_teams_dict', person_distinct_id_overrides.team_id)",
-            "events": "dictHas('web_preaggregated_teams_dict', e.team_id)",
+            "raw_sessions": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', raw_sessions.team_id)",
+            "person_distinct_id_overrides": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', person_distinct_id_overrides.team_id)",
+            "events": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', e.team_id)",
         }
 
 

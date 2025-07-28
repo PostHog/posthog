@@ -64,6 +64,12 @@ def get_postgres_row_count(
     try:
         with connection.cursor() as cursor:
             cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 30)  # 30 secs
+                )
+            )
+
+            cursor.execute(
                 """
                 SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
                 UNION ALL
@@ -88,6 +94,8 @@ def get_postgres_row_count(
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: row[1] for row in row_count_result}
         return row_counts
+    except:
+        return {}
     finally:
         connection.close()
 
