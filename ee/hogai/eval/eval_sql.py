@@ -93,8 +93,9 @@ class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
 
 
 @pytest.mark.django_db
-async def eval_sql(call_root_for_insight_generation):
+async def eval_sql(call_root_for_insight_generation, pytestconfig):
     all_cases: list[EvalCase] = [
+        ### Straightforward breakdowns
         EvalCase(
             input="Count pageviews by browser, using SQL",
             expected=PlanAndQueryOutput(
@@ -142,6 +143,7 @@ LIMIT 10
                 ),
             ),
         ),
+        ### Session duration
         EvalCase(
             input="Show me the average session duration by day of week, using SQL",
             expected=PlanAndQueryOutput(
@@ -197,6 +199,7 @@ LEFT JOIN purchasers p ON pv.person_id = p.person_id
                 ),
             ),
         ),
+        ### Conversion
         EvalCase(
             input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence? Use SQL",
             expected=PlanAndQueryOutput(
@@ -264,6 +267,7 @@ WHERE event_count = 3
                 ),
             ),
         ),
+        ### Property math
         EvalCase(
             # As of May 2025, trends insights don't support "number of distinct values of property" math, so we MUST use SQL here
             input="The number of distinct values of property $browser seen in each of the last 14 days",
@@ -299,6 +303,7 @@ WHERE event = 'paid_bill'
                 ),
             ),
         ),
+        ### Open questions to list persons
         EvalCase(
             input="Who are the 5 users I should interview around file download usage?",
             expected=PlanAndQueryOutput(
@@ -388,16 +393,38 @@ LIMIT 10
                 ),
             ),
         ),
-        # Funnel trends currently not supported by Max, should fall back to SQL
+        ### Funnel trends (currently not an insight type supported by Max, should fall back to SQL)
         EvalCase(
             input="What's the conversion rate from trial signup to paid subscription by cohort month?",
             expected=PlanAndQueryOutput(
                 plan="""
-Query to calculate conversion rate from trial signup to paid subscription by cohort month:
-- Define cohort month as the month when users first signed up for trial
-- For each cohort month, count trial signups and paid conversions
-- Calculate conversion rate as (paid conversions / trial signups) * 100
-- Use window functions and conditional aggregation
+Logic:
+- **Layer 1 (Feature Usage Calculation)**: For each user, count occurrences of each event type (uploads, downloads, shares, invites, upgrades, downgrades) within their first 30 days of activity using `countIf()` aggregation. Also calculate total event count with `count()` and find first activity date with `MIN(timestamp)`.
+- **Layer 2 (Churn Status Determination)**: For each user, determine if they had any activity between days 31-90 after their first activity using window function `MIN(timestamp) OVER (PARTITION BY person_id)` to establish baseline, then `MAX(activity_31_90)` aggregation to check for any activity in the churn observation period.
+- **Layer 3 (User Metrics Join)**: Join feature usage data with churn status on person_id to create complete user profiles with both feature usage and churn outcome.
+- **Layer 4 (Feature Analysis)**: For each feature type, calculate correlation metrics using `AVG()` for churn rates, `CASE WHEN` conditional aggregation for segmented averages, and `corr()` for correlation coefficients between feature usage and churn.
+- **Layer 5 (Results Union)**: Combine results for all features using `UNION ALL` and sort by absolute correlation coefficient using `ORDER BY ABS(correlation_coefficient) DESC`.
+
+Sources:
+- events table (primary analysis)
+    - Used to count feature usage events in first 30 days per user
+    - Filtered with `WHERE timestamp >= now() - INTERVAL 120 DAY` for performance
+    - Grouped by person_id with `HAVING first_activity_date <= now() - INTERVAL 90 DAY` to ensure complete observation window
+- events table (churn determination)
+    - Used to detect activity patterns in days 31-90 after first activity
+    - Same timestamp filter applied for consistency
+    - Window function applied to establish per-user activity timeline
+    - Grouped by person_id to determine final churn status
+
+Query kind:
+- **Cohort Analysis with Feature Correlation**: Chosen over simple churn analysis because it provides predictive insights by correlating specific feature usage patterns with retention outcomes. UNION ALL structure allows systematic comparison across multiple features while maintaining identical time windows and churn definitions. CTE approach chosen over subqueries for performance optimization since the same complex user metrics calculation is needed for all features.
+
+Tradeoffs:
+- **Time Window Rigidity**: Fixed 30-day feature observation and 60-day churn observation periods may miss users with different engagement patterns, but provides consistent comparison framework.
+- **Binary Churn Definition**: Treats any activity in days 31-90 as "retained" regardless of engagement depth, which may miss nuanced retention patterns but simplifies correlation analysis.
+- **Historical Data Limitation**: Requires 90+ days of historical data per user, limiting analysis to older cohorts and excluding recent signups from correlation insights.
+- **Feature Usage Counting**: Simple event counting doesn't account for usage intensity or quality (e.g., file size for uploads), but enables straightforward correlation calculation across diverse feature types.
+- **Memory vs Computation**: CTE approach trades memory usage for computational efficiency by materializing user metrics once rather than recalculating for each feature analysis.
 """,
                 query=AssistantHogQLQuery(
                     query="""
@@ -464,20 +491,76 @@ user_pageview_counts AS (
     GROUP BY person_id
     HAVING pageview_count > 1
 )
+
 SELECT
-    td.browser_type,
-    quantile(0.5)(td.seconds_between_views) as median_seconds_between_views
-FROM time_diffs td
-INNER JOIN user_pageview_counts upc ON td.person_id = upc.person_id
-WHERE td.browser_type IS NOT NULL
-GROUP BY td.browser_type
-ORDER BY median_seconds_between_views
+    'uploads' AS feature,
+    AVG(CASE WHEN churned = 1 THEN uploads_30d ELSE 0 END) AS avg_usage_churned,
+    AVG(CASE WHEN churned = 0 THEN uploads_30d ELSE 0 END) AS avg_usage_retained,
+    AVG(churned) AS overall_churn_rate,
+    AVG(CASE WHEN uploads_30d > 0 THEN churned ELSE NULL END) AS churn_rate_with_feature,
+    AVG(CASE WHEN uploads_30d = 0 THEN churned ELSE NULL END) AS churn_rate_without_feature,
+    corr(toFloat(uploads_30d), toFloat(churned)) AS correlation_coefficient
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'downloads' AS feature,
+    AVG(CASE WHEN churned = 1 THEN downloads_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN downloads_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN downloads_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN downloads_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(downloads_30d), toFloat(churned))
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'shares' AS feature,
+    AVG(CASE WHEN churned = 1 THEN shares_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN shares_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN shares_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN shares_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(shares_30d), toFloat(churned))
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'invites' AS feature,
+    AVG(CASE WHEN churned = 1 THEN invites_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN invites_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN invites_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN invites_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(invites_30d), toFloat(churned))
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'upgrades' AS feature,
+    AVG(CASE WHEN churned = 1 THEN upgrades_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN upgrades_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN upgrades_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN upgrades_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(upgrades_30d), toFloat(churned))
+FROM user_metrics
+
+ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
 """
                 ),
             ),
         ),
+        ### Correlation
         EvalCase(
-            input="Which features are most predictive of churn? Show correlation between feature usage in first 30 days and churn in next 60 days",
+            input=(
+                "Which features are most predictive of churn? Show correlation between feature usage in first 30 days and churn in next 60 days",
+                "Use events uploaded_file, downloaded_file, shared_file_link, invited_team_member, upgraded_plan, downgraded_plan. Use lack of activity as the churn signal. Analyze the last 120 days of data.",
+            ),
             expected=PlanAndQueryOutput(
                 plan="""
 Query to analyze feature usage correlation with churn:
@@ -489,102 +572,121 @@ Query to analyze feature usage correlation with churn:
 """,
                 query=AssistantHogQLQuery(
                     query="""
-WITH user_signups AS (
+WITH user_metrics AS (
     SELECT
-        person_id,
-        min(timestamp) as signup_date
-    FROM events
-    WHERE event = 'user_signup'
-    GROUP BY person_id
-),
-feature_usage AS (
-    SELECT
-        us.person_id,
-        us.signup_date,
-        properties.feature_name as feature,
-        count(*) as usage_count
-    FROM events e
-    INNER JOIN user_signups us ON e.person_id = us.person_id
-    WHERE event = 'feature_used'
-      AND e.timestamp BETWEEN us.signup_date AND us.signup_date + INTERVAL 30 DAY
-    GROUP BY us.person_id, us.signup_date, properties.feature_name
-),
-churn_status AS (
-    SELECT
-        us.person_id,
-        us.signup_date,
-        CASE WHEN max(e.timestamp) < us.signup_date + INTERVAL 90 DAY THEN 1 ELSE 0 END as is_churned
-    FROM user_signups us
-    LEFT JOIN events e ON us.person_id = e.person_id AND e.timestamp > us.signup_date + INTERVAL 30 DAY
-    GROUP BY us.person_id, us.signup_date
+        fu.person_id,
+        fu.uploads_30d,
+        fu.downloads_30d,
+        fu.shares_30d,
+        fu.invites_30d,
+        fu.upgrades_30d,
+        fu.downgrades_30d,
+        fu.total_events_30d,
+        cs.churned
+    FROM (
+        -- Feature usage in first 30 days
+        SELECT
+            e.person_id,
+            countIf(e.event = 'uploaded_file') AS uploads_30d,
+            countIf(e.event = 'downloaded_file') AS downloads_30d,
+            countIf(e.event = 'shared_file_link') AS shares_30d,
+            countIf(e.event = 'invited_team_member') AS invites_30d,
+            countIf(e.event = 'upgraded_plan') AS upgrades_30d,
+            countIf(e.event = 'downgraded_plan') AS downgrades_30d,
+            count() AS total_events_30d,
+            MIN(e.timestamp) AS first_activity_date
+        FROM events e
+        WHERE e.timestamp >= now() - INTERVAL 120 DAY
+        GROUP BY e.person_id
+        HAVING first_activity_date <= now() - INTERVAL 90 DAY
+    ) fu
+    INNER JOIN (
+        -- Churn status (no activity in days 31-90)
+        SELECT
+            person_id,
+            MIN(timestamp) AS first_activity_date,
+            CASE
+                WHEN MAX(activity_31_90) = 1 THEN 0 ELSE 1
+            END AS churned
+        FROM (
+            SELECT
+                person_id,
+                timestamp,
+                CASE WHEN timestamp >= min_timestamp + INTERVAL 30 DAY AND timestamp < min_timestamp + INTERVAL 90 DAY THEN 1 ELSE 0 END AS activity_31_90,
+                min_timestamp
+            FROM (
+                SELECT
+                    person_id,
+                    timestamp,
+                    MIN(timestamp) OVER (PARTITION BY person_id) AS min_timestamp
+                FROM events
+                WHERE timestamp >= now() - INTERVAL 120 DAY
+            )
+        )
+        GROUP BY person_id, min_timestamp
+        HAVING min_timestamp <= now() - INTERVAL 90 DAY
+    ) cs ON fu.person_id = cs.person_id
 )
+
 SELECT
-    fu.feature,
-    avg(fu.usage_count) as avg_usage,
-    avg(CASE WHEN cs.is_churned = 1 THEN fu.usage_count ELSE 0 END) as avg_usage_churned,
-    avg(CASE WHEN cs.is_churned = 0 THEN fu.usage_count ELSE 0 END) as avg_usage_retained,
-    corr(fu.usage_count, cs.is_churned) as churn_correlation
-FROM feature_usage fu
-INNER JOIN churn_status cs ON fu.person_id = cs.person_id
-GROUP BY fu.feature
-ORDER BY abs(churn_correlation) DESC
-"""
-                ),
-            ),
-        ),
-        # Cases that may still fail (very challenging)
-        EvalCase(
-            input="Create a customer health score combining recency, frequency, and monetary value with weighted percentiles",
-            expected=PlanAndQueryOutput(
-                plan="""
-Query to create RFM-based customer health score:
-- Calculate Recency: days since last purchase
-- Calculate Frequency: number of purchases in period
-- Calculate Monetary: total purchase value
-- Convert each to percentile ranks
-- Apply weights and combine into health score
-- Use advanced window functions and statistical calculations
-""",
-                query=AssistantHogQLQuery(
-                    query="""
-WITH customer_rfm AS (
-    SELECT
-        person_id,
-        max(timestamp) as last_purchase,
-        count(*) as purchase_frequency,
-        sum(toFloat(properties.amount_usd)) as total_monetary_value,
-        dateDiff('day', max(timestamp), now()) as recency_days
-    FROM events
-    WHERE event = 'purchase'
-      AND timestamp >= now() - INTERVAL 365 DAY
-    GROUP BY person_id
-),
-rfm_percentiles AS (
-    SELECT
-        person_id,
-        recency_days,
-        purchase_frequency,
-        total_monetary_value,
-        percent_rank() OVER (ORDER BY recency_days ASC) as recency_percentile,
-        percent_rank() OVER (ORDER BY purchase_frequency DESC) as frequency_percentile,
-        percent_rank() OVER (ORDER BY total_monetary_value DESC) as monetary_percentile
-    FROM customer_rfm
-)
+    'uploads' AS feature,
+    AVG(CASE WHEN churned = 1 THEN uploads_30d ELSE 0 END) AS avg_usage_churned,
+    AVG(CASE WHEN churned = 0 THEN uploads_30d ELSE 0 END) AS avg_usage_retained,
+    AVG(churned) AS overall_churn_rate,
+    AVG(CASE WHEN uploads_30d > 0 THEN churned ELSE NULL END) AS churn_rate_with_feature,
+    AVG(CASE WHEN uploads_30d = 0 THEN churned ELSE NULL END) AS churn_rate_without_feature,
+    corr(toFloat(uploads_30d), toFloat(churned)) AS correlation_coefficient
+FROM user_metrics
+
+UNION ALL
+
 SELECT
-    person_id,
-    recency_days,
-    purchase_frequency,
-    total_monetary_value,
-    (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) as health_score,
-    CASE
-        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.8 THEN 'Champion'
-        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.6 THEN 'Loyal'
-        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.4 THEN 'Potential'
-        WHEN (recency_percentile * 0.3 + frequency_percentile * 0.4 + monetary_percentile * 0.3) >= 0.2 THEN 'At Risk'
-        ELSE 'Lost'
-    END as customer_segment
-FROM rfm_percentiles
-ORDER BY health_score DESC
+    'downloads' AS feature,
+    AVG(CASE WHEN churned = 1 THEN downloads_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN downloads_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN downloads_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN downloads_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(downloads_30d), toFloat(churned))
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'shares' AS feature,
+    AVG(CASE WHEN churned = 1 THEN shares_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN shares_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN shares_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN shares_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(shares_30d), toFloat(churned))
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'invites' AS feature,
+    AVG(CASE WHEN churned = 1 THEN invites_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN invites_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN invites_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN invites_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(invites_30d), toFloat(churned))
+FROM user_metrics
+
+UNION ALL
+
+SELECT
+    'upgrades' AS feature,
+    AVG(CASE WHEN churned = 1 THEN upgrades_30d ELSE 0 END),
+    AVG(CASE WHEN churned = 0 THEN upgrades_30d ELSE 0 END),
+    AVG(churned),
+    AVG(CASE WHEN upgrades_30d > 0 THEN churned ELSE NULL END),
+    AVG(CASE WHEN upgrades_30d = 0 THEN churned ELSE NULL END),
+    corr(toFloat(upgrades_30d), toFloat(churned))
+FROM user_metrics
+
+ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
 """
                 ),
             ),
@@ -628,4 +730,5 @@ Important points:
             RetryEfficiency(),
         ],
         data=all_cases,
+        pytestconfig=pytestconfig,
     )

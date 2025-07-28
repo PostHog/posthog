@@ -15,6 +15,7 @@ Important HogQL differences versus other SQL dialects:
   Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.
   If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
 - A WHERE clause must be after all the JOIN clauses.
+- For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 
 Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
 Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.

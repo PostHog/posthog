@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import os
 from collections import namedtuple
@@ -21,7 +22,7 @@ from ee.models.assistant import Conversation, CoreMemory
 from posthog.conftest import django_db_setup  # noqa: F401
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
-from posthog.schema import HumanMessage, VisualizationMessage
+from posthog.schema import HumanMessage, VisualizationMessage, FailureMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
@@ -31,17 +32,30 @@ if os.environ.get("BRAINTRUST_API_KEY"):
 EVAL_USER_FULL_NAME = "Karen Smith"
 
 
+def pytest_addoption(parser):
+    parser.addoption("--case", action="store")
+
+
 async def MaxEval(
     experiment_name: str,
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
     metadata: Metadata | None = None,
+    pytestconfig: pytest.Config | None = None,
 ):
     # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
     project_name = f"max-ai-{experiment_name}"
     init_logger(project_name)
+
+    # Filter by --case <eval_case_name_part> pytest flag
+    case_filter = pytestconfig.option.case if pytestconfig else None
+    if case_filter:
+        if asyncio.iscoroutine(data):
+            data = await data
+        data = [case for case in data if case_filter in str(case.input)]  # type: ignore
+
     result = await EvalAsync(
         project_name,
         data=data,
@@ -86,20 +100,30 @@ def call_root_for_insight_generation(demo_org_team_user):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(query: str) -> PlanAndQueryOutput:
-        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
+    async def callable(query_with_extra_context: str | tuple[str, str]) -> PlanAndQueryOutput:
+        # If query_with_extra_context is a tuple, the first element is the query, the second is the extra context
+        # in case there's an ask_user tool call.
+        query = query_with_extra_context[0] if isinstance(query_with_extra_context, tuple) else query_with_extra_context
         # Initial state for the graph
         initial_state = AssistantState(
             messages=[HumanMessage(content=f"Answer this question: {query}")],
         )
+        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
         # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = await graph.ainvoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
-        )
+        final_state_raw = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
 
         final_state = AssistantState.model_validate(final_state_raw)
+
+        # If we have extra context for the potential ask_user tool, and there's no message of type ai/failure
+        # or ai/visualization, we should answer with that extra context. We only do this once at most in an eval case.
+        if isinstance(query_with_extra_context, tuple) and not any(
+            isinstance(m, VisualizationMessage | FailureMessage) for m in final_state.messages
+        ):
+            final_state.messages = [*final_state.messages, HumanMessage(content=query_with_extra_context[1])]
+            final_state.graph_status = "resumed"
+            final_state_raw = await graph.ainvoke(final_state, {"configurable": {"thread_id": conversation.id}})
+            final_state = AssistantState.model_validate(final_state_raw)
 
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
             return {

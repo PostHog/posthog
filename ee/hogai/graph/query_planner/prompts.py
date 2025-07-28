@@ -151,6 +151,7 @@ Use the tool `ask_user_for_help` to ask the user.
 EVENT_DEFINITIONS_PROMPT = """
 Here is a non-exhaustive list of known event names:
 {{{events}}}
+If a user specifies a raw event name that's not in the list above, that probably is a real event too.
 {{#actions}}
 Here are the actions relevant to the user's question.
 {{{actions}}}
