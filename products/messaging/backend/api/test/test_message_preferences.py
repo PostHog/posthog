@@ -55,7 +55,7 @@ class TestMessagePreferencesViews(BaseTest):
 
         # Verify preferences were updated
         self.recipient.refresh_from_db()
-        prefs = self.recipient.get_all_preference()
+        prefs = self.recipient.get_all_preferences()
         self.assertEqual(prefs[self.category.id], PreferenceStatus.OPTED_IN)
         self.assertEqual(prefs[self.category2.id], PreferenceStatus.OPTED_OUT)
 
