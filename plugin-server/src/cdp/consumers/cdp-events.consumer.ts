@@ -72,7 +72,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
         // By default we filter for those with no filters or filters specifically for events
-        return (hogFunction.filters?.type ?? 'events') === 'events'
+        return (hogFunction.filters?.source ?? 'events') === 'events'
     }
 
     /**

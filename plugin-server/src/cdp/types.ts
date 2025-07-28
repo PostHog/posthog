@@ -44,7 +44,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
-    type?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
