@@ -385,9 +385,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
-        await waitForKafkaMessages(hub)
-
         await waitForExpect(async () => {
+            await waitForKafkaMessages(hub)
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(3)
             expect(events[0].event).toEqual('$groupidentify')
