@@ -12,12 +12,30 @@ class MessageCategoryPreferenceSerializer(serializers.Serializer):
     push = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
 
 
-class MessagePreferencesSerializer(serializers.Serializer):
+class MessagePreferencesSerializer(serializers.ModelSerializer):
     identifier = serializers.CharField()
     updated_at = serializers.DateTimeField()
     category_id = serializers.UUIDField(required=False)
     category_key = serializers.CharField(required=False)
     category_name = serializers.CharField(required=False)
+
+    class Meta:
+        model = MessageRecipientPreference
+        fields = [
+            "id",
+            "identifier",
+            "updated_at",
+            "category_id",
+            "category_key",
+            "category_name",
+        ]
+        read_only_fields = [
+            "id",
+            "identifier",
+            "created_at",
+            "updated_at",
+            "created_by",
+        ]
 
 
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

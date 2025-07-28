@@ -23,14 +23,6 @@ class MessageRecipientPreference(UUIDModel):
     identifier = models.CharField(max_length=512)
     preferences = models.JSONField(default=dict)
 
-    read_only_fields = [
-        "id",
-        "identifier",
-        "created_at",
-        "updated_at",
-        "created_by",
-    ]
-
     class Meta:
         unique_together = (
             "team",
