@@ -1,6 +1,5 @@
 import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
