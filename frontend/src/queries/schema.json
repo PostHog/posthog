@@ -7276,6 +7276,13 @@
                     "const": "DataTableNode",
                     "type": "string"
                 },
+                "pinnedColumns": {
+                    "description": "Columns that are sticky when scrolling horizontally",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "propertiesViaUrl": {
                     "description": "Link properties via the URL (default: false)",
                     "type": "boolean"
@@ -14567,7 +14574,7 @@
         "MarketingAnalyticsOrderBy": {
             "items": [
                 {
-                    "type": "number"
+                    "type": "string"
                 },
                 {
                     "enum": ["ASC", "DESC"],
