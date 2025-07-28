@@ -159,6 +159,9 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             resultCustomizationBy: undefined,
             goalLines: undefined,
             dashboardDisplay: undefined,
+            showConfidenceIntervals: undefined,
+            confidenceLevel: undefined,
+            showTrendLines: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
