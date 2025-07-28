@@ -9,7 +9,7 @@ import { insightAlertsLogic } from '../Alerts/insightAlertsLogic'
 import { SceneDataAttrKeyProps } from './utils'
 import { urls } from 'scenes/urls'
 
-interface SceneSubscribeButtonProps extends SceneDataAttrKeyProps {
+interface SceneAlertsButtonProps extends SceneDataAttrKeyProps {
     insightId: number
     insightShortId: InsightShortId
     insightLogicProps: InsightLogicProps
@@ -20,7 +20,7 @@ export function SceneAlertsButton({
     insightId,
     insightShortId,
     insightLogicProps,
-}: SceneSubscribeButtonProps): JSX.Element {
+}: SceneAlertsButtonProps): JSX.Element {
     const { push } = useActions(router)
 
     const logic = insightAlertsLogic({ insightId, insightLogicProps })
