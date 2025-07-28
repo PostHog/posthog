@@ -43,16 +43,17 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             except MessageCategory.DoesNotExist:
                 return Response({"error": "Category not found"}, status=404)
 
-        # Find recipients who have opted out of this specific category
+        # Find recipients who have opted out of this specific category, or all categories if no specific category is provided
         categories_to_check = (
-            [category] if category_key else MessageCategory.objects.filter(team_id=self.team_id, deleted=False)
+            [category]
+            if category_key
+            else MessageCategory.objects.filter(team_id=self.team_id, category_type="marketing", deleted=False)
         )
         query_filters = {}
         for category in categories_to_check:
-            category_preference_lookup = f"preferences__{category.id}"
-            query_filters = {
-                **{category_preference_lookup: PreferenceStatus.OPTED_OUT},
-            }
+            category_preference_lookup = f"preferences__{str(category.id)}"
+            query_filters[category_preference_lookup] = PreferenceStatus.OPTED_OUT
+
         opt_outs = MessageRecipientPreference.objects.filter(
             team_id=self.team_id,
             **query_filters,
