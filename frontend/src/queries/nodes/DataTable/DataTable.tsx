@@ -736,6 +736,7 @@ export function DataTable({
                                 ) : null
                             }
                             onRow={context?.rowProps}
+                            pinnedColumns={query.pinnedColumns}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
