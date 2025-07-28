@@ -3,7 +3,7 @@ import structlog
 import time
 from django.conf import settings
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.models.hog_functions.hog_function import HogFunctionType
@@ -131,7 +131,7 @@ class Command(BaseCommand):
         """Process a single template and return the result status"""
 
         # Create or update the template
-        _, created = DBHogFunctionTemplate.create_from_dataclass(template)
+        _, created = HogFunctionTemplate.create_from_dataclass(template)
 
         if created:
             self.stdout.write(f"Created template: {template.id}")

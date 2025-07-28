@@ -71,7 +71,7 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as mock_postgres_source,
+        mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
@@ -108,7 +108,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as mock_postgres_source,
+        mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
@@ -140,15 +140,24 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
         "password": "password",
         "database": "database",
         "schema": "schema",
-        "ssh_tunnel_enabled": "False",
-        "ssh_tunnel_host": "",
-        "ssh_tunnel_port": "",
+        "ssh_tunnel": {
+            "enabled": False,
+            "host": "",
+            "port": "",
+            "auth_type": {
+                "selection": "",
+                "username": "",
+                "password": "",
+                "private_key": "",
+                "passphrase": "",
+            },
+        },
     }
 
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as mock_postgres_source,
+        mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
@@ -182,12 +191,18 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         "password": "password",
         "database": "database",
         "schema": "schema",
-        "ssh_tunnel_enabled": "True",
-        "ssh_tunnel_host": "other-host.com",
-        "ssh_tunnel_port": "55550",
-        "ssh_tunnel_auth_type": "password",
-        "ssh_tunnel_auth_type_username": "username",
-        "ssh_tunnel_auth_type_password": "password",
+        "ssh_tunnel": {
+            "enabled": True,
+            "host": "other-host.com",
+            "port": "55550",
+            "auth_type": {
+                "selection": "password",
+                "username": "username",
+                "password": "password",
+                "private_key": "",
+                "passphrase": "",
+            },
+        },
     }
 
     activity_inputs = _setup(team, job_inputs)
@@ -206,7 +221,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         return MockedTunnel()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres_source") as mock_postgres_source,
+        mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
     ):

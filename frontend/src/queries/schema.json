@@ -21969,6 +21969,9 @@
                 },
                 {
                     "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSSHTunnelConfig"
                 }
             ]
         },
@@ -21976,7 +21979,7 @@
             "additionalProperties": false,
             "properties": {
                 "fileFormat": {
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldFileUploadJsonFormatConfig"
                 },
                 "label": {
                     "type": "string"
@@ -21993,6 +21996,31 @@
                 }
             },
             "required": ["type", "name", "label", "fileFormat", "required"],
+            "type": "object"
+        },
+        "SourceFieldFileUploadJsonFormatConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "format": {
+                    "const": ".json",
+                    "type": "string"
+                },
+                "keys": {
+                    "anyOf": [
+                        {
+                            "const": "*",
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["format", "keys"],
             "type": "object"
         },
         "SourceFieldInputConfig": {
@@ -22041,9 +22069,30 @@
             "required": ["type", "name", "label", "required", "kind"],
             "type": "object"
         },
+        "SourceFieldSSHTunnelConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ssh-tunnel",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "label", "name"],
+            "type": "object"
+        },
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "converter": {
+                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+                    "type": "string"
+                },
                 "defaultValue": {
                     "type": "string"
                 },

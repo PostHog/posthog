@@ -96,9 +96,6 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           "updateCacheMisses": 0,
         },
         "databaseOperationCountsPerDistinctId": {},
-        "db": {
-          "kafkaProducer": {},
-        },
         "fetchPromisesForChecking": {},
         "fetchPromisesForUpdate": {},
         "methodCountsPerDistinctId": {},
@@ -108,6 +105,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         },
         "personCache": {},
         "personCheckCache": {},
+        "personRepository": {
+          "kafkaProducer": {},
+        },
         "updateLatencyPerDistinctIdSeconds": {},
       },
     ],

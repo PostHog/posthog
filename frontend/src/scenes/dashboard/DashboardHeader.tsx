@@ -40,14 +40,15 @@ import {
 import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
-import { SceneNotificationDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneNotificationDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { useEffect, useState } from 'react'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -65,7 +66,6 @@ import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -449,37 +449,6 @@ export function DashboardHeader(): JSX.Element | null {
             />
 
             <ScenePanel>
-                <ScenePanelMetaInfo>
-                    <SceneName
-                        defaultValue={dashboard?.name || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        canEdit={canEditDashboard}
-                    />
-
-                    <SceneDescription
-                        defaultValue={dashboard?.description || ''}
-                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        canEdit={canEditDashboard}
-                    />
-
-                    <SceneTags
-                        onSave={(tags) => {
-                            triggerDashboardUpdate({ tags })
-                        }}
-                        canEdit={canEditDashboard}
-                        tags={dashboard?.tags}
-                        tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
-                        dataAttrKey={RESOURCE_TYPE}
-                    />
-
-                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
-
-                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                </ScenePanelMetaInfo>
-                <ScenePanelDivider />
                 <ScenePanelCommonActions>
                     <SceneCommonButtons
                         dataAttrKey={RESOURCE_TYPE}
@@ -522,6 +491,37 @@ export function DashboardHeader(): JSX.Element | null {
                         }
                     />
                 </ScenePanelCommonActions>
+                <ScenePanelMetaInfo>
+                    <SceneName
+                        defaultValue={dashboard?.name || ''}
+                        onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                        dataAttrKey={RESOURCE_TYPE}
+                        canEdit={canEditDashboard}
+                    />
+
+                    <SceneDescription
+                        defaultValue={dashboard?.description || ''}
+                        onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
+                        dataAttrKey={RESOURCE_TYPE}
+                        optional
+                        canEdit={canEditDashboard}
+                    />
+
+                    <SceneTags
+                        onSave={(tags) => {
+                            triggerDashboardUpdate({ tags })
+                        }}
+                        canEdit={canEditDashboard}
+                        tags={dashboard?.tags}
+                        tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+
+                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
+
+                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
+                </ScenePanelMetaInfo>
+                <ScenePanelDivider />
 
                 <ScenePanelActions>
                     {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
@@ -562,7 +562,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
 
                     {dashboard && canEditDashboard && (
-                        <SceneNotificationDropdownMenu dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                        <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
                     )}
 
                     {dashboard && canEditDashboard && (

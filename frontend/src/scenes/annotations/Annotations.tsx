@@ -9,7 +9,6 @@ import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { shortTimeZone } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -18,17 +17,13 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
-import {
-    ANNOTATION_DAYJS_FORMAT,
-    annotationModalLogic,
-    annotationScopeToLevel,
-    annotationScopeToName,
-} from './annotationModalLogic'
+import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TZLabel } from 'lib/components/TZLabel'
 
 export function Annotations(): JSX.Element {
-    const { currentTeam, timezone } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -71,11 +66,10 @@ export function Annotations(): JSX.Element {
             },
         },
         {
-            title: `Date and time (${shortTimeZone(timezone)})`,
+            title: `Timestamp`,
             dataIndex: 'date_marker',
-            render: function RenderDateMarker(_, annotation: AnnotationType): string {
-                // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return annotation.date_marker?.format(ANNOTATION_DAYJS_FORMAT) || ''
+            render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element | null {
+                return annotation.date_marker ? <TZLabel time={annotation.date_marker} /> : null
             },
             sorter: (a, b) => a.date_marker?.diff(b.date_marker) || 1,
         },
