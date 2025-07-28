@@ -1048,7 +1048,7 @@ class TestMemoryCollectorToolsNode(BaseTest):
         # Verify core memory was created
         self.assertTrue(CoreMemory.objects.filter(team=self.team).exists())
         created_memory = CoreMemory.objects.get(team=self.team)
-        self.assertEqual(created_memory.text, "\nNew memory")
+        self.assertEqual(created_memory.text, "New memory")
 
         # Verify response messages
         self.assertEqual(len(new_state.memory_collection_messages), 2)
@@ -1093,5 +1093,43 @@ class TestMemoryCollectorToolsNode(BaseTest):
         # Verify response messages (replace should fail but not crash)
         self.assertEqual(len(new_state.memory_collection_messages), 2)
         self.assertIn("not found", new_state.memory_collection_messages[1].content)
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+
+    def test_append_when_onboarding_memory_exists(self):
+        # Set up existing core memory with data from /init command
+        self.core_memory.append_question_to_initial_text("What does PostHog do?")
+        self.core_memory.append_answer_to_initial_text("PostHog is an analytics platform")
+        initial_text = self.core_memory.text
+
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Memory operation",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "New insight about user behavior"},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+
+        # Verify memory was appended to existing content
+        self.core_memory.refresh_from_db()
+        expected_text = initial_text + "\nNew insight about user behavior"
+        self.assertEqual(self.core_memory.text, expected_text)
+
+        # Verify no new core memory was created (still same record)
+        self.assertEqual(CoreMemory.objects.filter(team=self.team).count(), 1)
+
+        # Verify response messages
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
         self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
         self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
