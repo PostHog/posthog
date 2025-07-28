@@ -58,6 +58,8 @@ export interface TaxonomicFilterProps {
     initialSearchQuery?: string
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
+    /** Show optimized hints for properties that support faster queries (default: false) */
+    showOptimizedHints?: boolean
 }
 
 export interface DataWarehousePopoverField {

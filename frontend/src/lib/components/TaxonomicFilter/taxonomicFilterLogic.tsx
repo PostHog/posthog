@@ -209,6 +209,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        showOptimizedHints: [
+            () => [(_, props) => props.showOptimizedHints],
+            (showOptimizedHints: boolean | undefined) => showOptimizedHints ?? false,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
