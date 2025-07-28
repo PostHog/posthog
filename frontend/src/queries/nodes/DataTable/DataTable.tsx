@@ -50,7 +50,6 @@ import {
     EventsQuery,
     GroupsQuery,
     HogQLQuery,
-    MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     NodeKind,
     PersonsNode,
@@ -299,12 +298,10 @@ export function DataTable({
                                     fullWidth
                                     data-attr="datatable-sort-asc"
                                     onClick={() => {
-                                        let orderBy: MarketingAnalyticsOrderBy[] | string[] = []
-                                        if (query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
-                                            orderBy = createMarketingAnalyticsOrderBy(key, 'ASC')
-                                        } else {
-                                            orderBy = [key]
-                                        }
+                                        const orderBy =
+                                            query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                ? createMarketingAnalyticsOrderBy(key, 'ASC')
+                                                : [key]
                                         setQuery?.({
                                             ...query,
                                             source: {
@@ -320,12 +317,10 @@ export function DataTable({
                                     fullWidth
                                     data-attr="datatable-sort-desc"
                                     onClick={() => {
-                                        let orderBy: MarketingAnalyticsOrderBy[] | string[] = []
-                                        if (query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
-                                            orderBy = createMarketingAnalyticsOrderBy(key, 'DESC')
-                                        } else {
-                                            orderBy = [`${key} DESC`]
-                                        }
+                                        const orderBy =
+                                            query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                ? createMarketingAnalyticsOrderBy(key, 'DESC')
+                                                : [`${key} DESC`]
                                         setQuery?.({
                                             ...query,
                                             source: {
