@@ -86,7 +86,10 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = current_time
 
-    if not is_reauthentication:
+    # Treat as signup if user was created in the last 10s
+    is_signup = (timezone.now() - user.date_joined) < datetime.timedelta(seconds=10)
+
+    if not is_reauthentication and not is_signup:
         ip_address = get_ip_address(request)
         geoip_data = get_geoip_properties(ip_address)
         browser_info = get_browser_info(request)
