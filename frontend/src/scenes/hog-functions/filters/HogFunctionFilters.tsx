@@ -18,6 +18,7 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
@@ -50,7 +51,7 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
 
 export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, featureFlags } =
+    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters } =
         useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
@@ -64,7 +65,8 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
 
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
     const isTransformation = type === 'transformation'
-    const aiFiltersCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
+    const aiFiltersCreation = useFeatureFlag('AI_HOG_FUNCTION_CREATION')
+    const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
     const taxonomicGroupTypes = useMemo(() => {
         const types = [
@@ -92,8 +94,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     }
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
-    const showSourcePicker = type === 'destination' && !useMapping
-
+    const showSourcePicker = cdpPersonUpdatesEnabled && type === 'destination' && !useMapping
     const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
 
     const mainContent = (

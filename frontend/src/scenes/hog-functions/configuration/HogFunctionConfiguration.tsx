@@ -89,7 +89,6 @@ export function HogFunctionConfiguration({
         newHogCode,
         oldInputs,
         newInputs,
-        featureFlags,
         sourceUsesEvents,
     } = useValues(logic)
 
@@ -118,7 +117,7 @@ export function HogFunctionConfiguration({
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
-    const aiHogFunctionCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
+    const aiHogFunctionCreation = !!useFeatureFlag('AI_HOG_FUNCTION_CREATION')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     if (loading && !loaded) {
