@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useState } from 'react'
 
-import { isCurrentNodeEmpty } from '../Notebook/utils'
+import { isCurrentNodeEmpty } from '../utils'
 import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
 

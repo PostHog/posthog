@@ -5,7 +5,7 @@ import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../utils'
 import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -69,7 +69,7 @@ const Component = ({
         }
 
         setTitlePlaceholder(title)
-    }, [query, insightName])
+    }, [query, insightName, setTitlePlaceholder, summarizeInsight])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }

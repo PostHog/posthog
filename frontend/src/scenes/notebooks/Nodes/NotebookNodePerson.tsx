@@ -9,7 +9,7 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
@@ -59,7 +59,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                 },
             },
         ])
-    }, [person])
+    }, [person, setActions, insertAfter, setExpanded, setTitlePlaceholder])
 
     const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
     const iconProperties = person?.properties || {}

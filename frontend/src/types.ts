@@ -4,7 +4,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 import { LogicWrapper } from 'kea'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
-import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
+import {} from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -4473,63 +4473,6 @@ export type CommentType = {
     /** only on the type to support patching for soft delete */
     deleted?: boolean
 }
-
-export type NotebookListItemType = {
-    id: string
-    short_id: string
-    title?: string
-    is_template?: boolean
-    created_at: string
-    created_by: UserBasicType | null
-    last_modified_at?: string
-    last_modified_by?: UserBasicType | null
-    _create_in_folder?: string
-}
-
-export type NotebookType = NotebookListItemType &
-    WithAccessControl & {
-        content: JSONContent | null
-        version: number
-        // used to power text-based search
-        text_content?: string | null
-    }
-
-export enum NotebookNodeType {
-    Mention = RichContentNodeType.Mention,
-    Query = 'ph-query',
-    Recording = 'ph-recording',
-    RecordingPlaylist = 'ph-recording-playlist',
-    FeatureFlag = 'ph-feature-flag',
-    FeatureFlagCodeExample = 'ph-feature-flag-code-example',
-    Experiment = 'ph-experiment',
-    EarlyAccessFeature = 'ph-early-access-feature',
-    Survey = 'ph-survey',
-    Person = 'ph-person',
-    Group = 'ph-group',
-    Cohort = 'ph-cohort',
-    Backlink = 'ph-backlink',
-    ReplayTimestamp = 'ph-replay-timestamp',
-    Image = 'ph-image',
-    PersonFeed = 'ph-person-feed',
-    Properties = 'ph-properties',
-    Map = 'ph-map',
-    Embed = 'ph-embed',
-    Latex = 'ph-latex',
-}
-
-export type NotebookNodeResource = {
-    attrs: Record<string, any>
-    type: NotebookNodeType
-}
-
-export enum NotebookTarget {
-    Popover = 'popover',
-    Scene = 'scene',
-}
-
-export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
-
-export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export interface DataWarehouseCredential {
     access_key: string

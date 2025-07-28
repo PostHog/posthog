@@ -1,82 +1,10 @@
 // Helpers for Kea issue with double importing
-import { LemonButtonProps } from '@posthog/lemon-ui'
-import { Attribute, ExtendedRegExpMatchArray, getText, TextSerializer } from '@tiptap/core'
+import { getText, TextSerializer } from '@tiptap/core'
 
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
-
-import type { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
-import { JSONContent, RichContentEditorType, RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+import { JSONContent, RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+import { CreatePostHogWidgetNodeOptions, NotebookNodeType } from './types'
 
 export const KNOWN_NODES: Partial<Record<NotebookNodeType, CreatePostHogWidgetNodeOptions<any>>> = {}
-
-export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
-    NodeWrapperProps<T>,
-    'updateAttributes'
-> & {
-    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
-    pasteOptions?: {
-        find: string | RegExp
-        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
-    }
-    attributes: Record<keyof T, Partial<Attribute>>
-    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
-}
-
-export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &
-    NotebookNodeProps<T> & {
-        Component: (props: NotebookNodeProps<T>) => JSX.Element | null
-
-        // View only props
-        href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
-        expandable?: boolean
-        selected?: boolean
-        heightEstimate?: number | string
-        minHeight?: number | string
-        /** If true the metadata area will only show when hovered if in editing mode */
-        autoHideMetadata?: boolean
-        /** Expand the node if the component is clicked */
-        expandOnClick?: boolean
-        settingsIcon?: JSX.Element | 'filter' | 'gear'
-    }
-
-export type CustomNotebookNodeAttributes = Record<string, any>
-
-export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
-    nodeId: string
-    height?: string | number
-    title?: string
-    __init?: {
-        expanded?: boolean
-        showSettings?: boolean
-    }
-    // TODO: Type this more specifically to be our supported nodes only
-    children?: NotebookNodeResource[]
-}
-
-// NOTE: Pushes users to use the parsed "attributes" instead
-export type NotebookNode = Omit<RichContentNode, 'attrs'>
-
-export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttributes> = {
-    attributes: NotebookNodeAttributes<T>
-    updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
-}
-
-export type NotebookNodeProps<T extends CustomNotebookNodeAttributes> = NotebookNodeAttributeProperties<T>
-
-export type NotebookNodeSettings =
-    // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
-    (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
-
-export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
-    text: string
-    onClick: () => void
-}
-
-export interface NotebookEditor extends RichContentEditorType {
-    findCommentPosition: (markId: string) => number | null
-    removeComment: (pos: number) => void
-    getText: () => string
-}
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
 export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {

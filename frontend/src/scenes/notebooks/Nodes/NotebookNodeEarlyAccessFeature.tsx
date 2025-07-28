@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../utils'
 
 import {
     EarlyAccessFeatureLogicProps,

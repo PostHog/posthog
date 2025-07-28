@@ -30,13 +30,14 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeType } from '../types'
 
 type SlashCommandConditionalProps =
     | {

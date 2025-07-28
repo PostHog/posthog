@@ -17,9 +17,10 @@ import {
     NotebookSelectButtonLogicProps,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, NotebookListItemType, NotebookTarget } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { AccessControlAction } from '../../AccessControlAction'
 import { SceneDataAttrKeyProps } from '../utils'
+import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
 
 type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps & {
     notebookSelectButtonProps?: NotebookSelectButtonLogicProps
@@ -75,7 +76,7 @@ export function SceneNotebookMenuItems({
             }
             loadAllNotebooks()
         }
-    }, [nodeLogic, resource])
+    }, [nodeLogic, resource, loadAllNotebooks, loadNotebooksContainingResource])
 
     return (
         <>

@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../utils'
 import { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import { NotFound } from 'lib/components/NotFound'
@@ -119,7 +119,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                   ]
                 : []
         )
-    }, [cohort, cohortMissing])
+    }, [cohort, cohortMissing, setExpanded, id, setTitlePlaceholder, setActions, insertAfter])
 
     if (cohortMissing) {
         return <NotFound object="cohort" />

@@ -1,6 +1,6 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeAttributeProperties, NotebookNodeProps } from '../utils'
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useEffect, useMemo, useState } from 'react'
 import { useActions } from 'kea'

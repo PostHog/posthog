@@ -5,7 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { useValues } from 'kea'
 import { personLogic } from 'scenes/persons/personLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../utils'
 import { NotFound } from 'lib/components/NotFound'
 import { notebookNodeLogic } from './notebookNodeLogic'
 

@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../utils'
 import { useEffect } from 'react'
 import clsx from 'clsx'
 import { NotFound } from 'lib/components/NotFound'
@@ -56,7 +56,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                 },
             },
         ])
-    }, [groupData])
+    }, [groupData, setTitlePlaceholder, id, groupTypeIndex, groupTypeName, setActions, insertAfter, groupDisplay])
 
     if (!groupData && !groupDataLoading) {
         return <NotFound object="group" />

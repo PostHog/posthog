@@ -13,7 +13,7 @@ import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTa
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType } from '~/types'
+import { NotebookListItemType } from '../types'
 
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
@@ -46,7 +46,7 @@ export function NotebooksTable(): JSX.Element {
 
     useEffect(() => {
         loadNotebooks()
-    }, [])
+    }, [loadNotebooks])
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,

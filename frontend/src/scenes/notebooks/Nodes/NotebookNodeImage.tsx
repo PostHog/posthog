@@ -4,7 +4,7 @@ import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
-import { NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../utils'
 
 const MAX_DEFAULT_HEIGHT = 1000
 
@@ -36,7 +36,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                     setUploading(false)
                 })
         }
-    }, [file])
+    }, [file, updateAttributes])
 
     const imageSource = useMemo(
         () => (src ? src : file && file.type ? URL.createObjectURL(file) : undefined),

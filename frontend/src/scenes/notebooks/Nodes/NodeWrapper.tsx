@@ -25,7 +25,7 @@ import {
     CustomNotebookNodeAttributes,
     CreatePostHogWidgetNodeOptions,
     NodeWrapperProps,
-} from '../Notebook/utils'
+} from '../utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
