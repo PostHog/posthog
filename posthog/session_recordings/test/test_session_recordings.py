@@ -72,19 +72,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             last_timestamp=timestamp,
         )
 
-    @parameterized.expand(
-        [
-            # originally for this table all order by was DESCENDING
-            ["descending (original)", "start_time", ["at_base_time_plus_20", "at_base_time_plus"]],
-            ["descending", "start_time DESC", ["at_base_time_plus_20", "at_base_time_plus"]],
-            ["ascending", "start_time ASC", ["at_base_time_plus", "at_base_time_plus_20"]],
-        ]
-    )
     @snapshot_postgres_queries
     # we can't take snapshots of the CH queries
     # because we use `now()` in the CH queries which don't know about any frozen time
     # @snapshot_clickhouse_queries
-    def test_get_session_recordings(self, _name: str, sort_key: str):
+    def test_get_session_recordings(self) -> None:
         twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
         user = Person.objects.create(
@@ -117,6 +109,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         results_ = response_data["results"]
         assert results_ is not None
+
         assert [
             (
                 r["id"],
@@ -152,6 +145,48 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # user distinct id varies because we're adding more than one
         assert results_[0]["distinct_id"] == "user2"
         assert results_[1]["distinct_id"] in twelve_distinct_ids
+
+    @parameterized.expand(
+        [
+            # originally for this table all order by was DESCENDING
+            ["descending (original)", "start_time", None, ["at_base_time_plus_20", "at_base_time_plus"]],
+            ["descending", "start_time", "DESC", ["at_base_time_plus_20", "at_base_time_plus"]],
+            ["ascending", "start_time", "ASC", ["at_base_time_plus", "at_base_time_plus_20"]],
+        ]
+    )
+    @snapshot_postgres_queries
+    # we can't take snapshots of the CH queries
+    # because we use `now()` in the CH queries which don't know about any frozen time
+    # @snapshot_clickhouse_queries
+    def test_get_session_recordings_sorted(
+        self, _name: str, order_field: str, order_direction: str | None, expected_id_order: list[str]
+    ) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # first session runs from base time to base time + 30
+        session_id_one = "at_base_time"
+        self.produce_replay_summary("user_one_0", session_id_one, base_time)
+        self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
+        self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
+
+        # second session runs from base time + 20 to bae time + 30
+        session_id_two = "at_base_time_plus_20"
+        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
+        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
+
+        params_string = urlencode(
+            {
+                "order": order_field,
+                "order_direction": order_direction,
+            }
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response_data = response.json()
+
+        results_ = response_data["results"]
+        assert results_ is not None
+        assert [r["id"] for r in results_] == expected_id_order
 
     def test_can_list_recordings_even_when_the_person_has_multiple_distinct_ids(self):
         # almost duplicate of test_get_session_recordings above
