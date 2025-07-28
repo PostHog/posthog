@@ -1,29 +1,29 @@
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointConfig {
     /// How often to trigger a checkpoint
     pub checkpoint_interval: Duration,
-    
+
     /// Base directory for local checkpoints
     pub local_checkpoint_dir: String,
-    
+
     /// S3 bucket for checkpoint uploads
     pub s3_bucket: String,
-    
+
     /// S3 key prefix for checkpoints
     pub s3_key_prefix: String,
-    
+
     /// How many incremental checkpoints before doing a full upload
     pub full_upload_interval: u32,
-    
+
     /// AWS region for S3
     pub aws_region: String,
-    
+
     /// Maximum number of local checkpoints to keep
     pub max_local_checkpoints: usize,
-    
+
     /// Timeout for S3 operations
     pub s3_timeout: Duration,
 }

@@ -2451,7 +2451,7 @@ dependencies = [
  "redis",
  "regex",
  "reqwest 0.12.3",
- "rstest 0.25.0",
+ "rstest",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -3725,63 +3725,20 @@ dependencies = [
 name = "kafka-deduplicator"
 version = "0.1.0"
 dependencies = [
- "ahash 0.8.11",
  "anyhow",
- "assert-json-diff",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
- "axum 0.7.5",
- "base64 0.22.1",
  "bincode",
- "bytes",
- "chrono",
- "common-alloc",
- "common-database",
- "common-dns",
- "common-kafka",
- "common-metrics",
- "common-redis",
- "common-types",
- "envconfig",
- "flate2",
- "futures",
- "governor",
- "health",
- "httpmock",
- "limiters",
  "metrics",
- "metrics-exporter-prometheus",
- "mockall",
- "moka",
  "num_cpus",
- "once_cell",
- "opentelemetry 0.22.0",
- "opentelemetry-otlp",
- "opentelemetry_sdk 0.22.1",
- "quick_cache",
- "rdkafka",
- "regex",
  "rocksdb",
- "rstest 0.26.1",
  "serde",
- "serde_json",
- "siphasher 1.0.1",
- "sqlx",
  "tempfile",
- "test-case",
- "thiserror 1.0.69",
  "time",
  "tokio",
- "tokio-test",
- "tower",
- "tower-http",
  "tracing",
- "tracing-opentelemetry",
  "tracing-subscriber",
- "url",
- "uuid",
- "zstd",
 ]
 
 [[package]]
@@ -5727,19 +5684,8 @@ checksum = "6fc39292f8613e913f7df8fa892b8944ceb47c247b78e1b1ae2f09e019be789d"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros 0.25.0",
+ "rstest_macros",
  "rustc_version 0.4.1",
-]
-
-[[package]]
-name = "rstest"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
-dependencies = [
- "futures-timer",
- "futures-util",
- "rstest_macros 0.26.1",
 ]
 
 [[package]]
@@ -5747,24 +5693,6 @@ name = "rstest_macros"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f168d99749d307be9de54d23fd226628d99768225ef08f6ffb52e0182a27746"
-dependencies = [
- "cfg-if",
- "glob",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "regex",
- "relative-path",
- "rustc_version 0.4.1",
- "syn 2.0.89",
- "unicode-ident",
-]
-
-[[package]]
-name = "rstest_macros"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
 dependencies = [
  "cfg-if",
  "glob",
@@ -7340,19 +7268,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
-dependencies = [
- "async-stream",
- "bytes",
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]

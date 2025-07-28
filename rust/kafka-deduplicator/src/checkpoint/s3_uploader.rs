@@ -65,10 +65,7 @@ impl S3Uploader {
         Ok(files_to_upload)
     }
 
-    async fn upload_files(
-        &self,
-        files_to_upload: Vec<(PathBuf, String)>,
-    ) -> Result<Vec<String>> {
+    async fn upload_files(&self, files_to_upload: Vec<(PathBuf, String)>) -> Result<Vec<String>> {
         let mut uploaded_keys = Vec::new();
 
         for (local_path, s3_key) in files_to_upload {
@@ -77,7 +74,10 @@ impl S3Uploader {
                     uploaded_keys.push(s3_key);
                 }
                 Err(e) => {
-                    error!("Failed to upload file {:?} to {}: {}", local_path, s3_key, e);
+                    error!(
+                        "Failed to upload file {:?} to {}: {}",
+                        local_path, s3_key, e
+                    );
                     return Err(e);
                 }
             }
@@ -133,7 +133,6 @@ impl CheckpointUploader for S3Uploader {
         local_path: &Path,
         s3_key_prefix: &str,
     ) -> Result<Vec<String>> {
-
         if !local_path.exists() {
             return Err(anyhow::anyhow!(
                 "Local checkpoint path does not exist: {:?}",

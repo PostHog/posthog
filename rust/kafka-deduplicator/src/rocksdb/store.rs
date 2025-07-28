@@ -6,11 +6,11 @@ use std::{
 use anyhow::{Context, Result};
 use metrics;
 use num_cpus;
-use std::time::Instant;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, ColumnFamilyDescriptor,
     DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteOptions,
 };
+use std::time::Instant;
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
@@ -84,23 +84,26 @@ impl RocksDbStore {
         })
     }
 
-
     pub fn multi_get(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
         let start_time = Instant::now();
-        self.metrics.counter(ROCKSDB_READ_OPERATIONS_COUNTER).increment(1);
-        
+        self.metrics
+            .counter(ROCKSDB_READ_OPERATIONS_COUNTER)
+            .increment(1);
+
         let result = self.multi_get_internal(cf_name, keys);
-        
+
         let duration = start_time.elapsed();
-        self.metrics.histogram(ROCKSDB_MULTI_GET_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        
+        self.metrics
+            .histogram(ROCKSDB_MULTI_GET_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+
         if result.is_err() {
             self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
-        
+
         result
     }
-    
+
     fn multi_get_internal(&self, cf_name: &str, keys: Vec<&[u8]>) -> Result<Vec<Option<Vec<u8>>>> {
         let cf = self.get_cf_handle(cf_name)?;
 
@@ -115,20 +118,24 @@ impl RocksDbStore {
 
     pub fn put(&self, cf_name: &str, key: &[u8], value: &[u8]) -> Result<()> {
         let start_time = Instant::now();
-        self.metrics.counter(ROCKSDB_WRITE_OPERATIONS_COUNTER).increment(1);
-        
+        self.metrics
+            .counter(ROCKSDB_WRITE_OPERATIONS_COUNTER)
+            .increment(1);
+
         let result = self.put_internal(cf_name, key, value);
-        
+
         let duration = start_time.elapsed();
-        self.metrics.histogram(ROCKSDB_WRITE_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        
+        self.metrics
+            .histogram(ROCKSDB_WRITE_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+
         if result.is_err() {
             self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
-        
+
         result
     }
-    
+
     fn put_internal(&self, cf_name: &str, key: &[u8], value: &[u8]) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
         self.db.put_cf(&cf, key, value).context("Failed to put key")
@@ -138,22 +145,22 @@ impl RocksDbStore {
         let start_time = Instant::now();
         let batch_size = entries.len();
         metrics::counter!(ROCKSDB_BATCH_WRITE_OPERATIONS_COUNTER).increment(1);
-        
+
         let result = self.put_batch_internal(cf_name, entries);
-        
+
         let duration = start_time.elapsed();
         metrics::histogram!(ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        
+
         if result.is_ok() {
             // Track successful batch size
             metrics::histogram!("rocksdb_batch_size").record(batch_size as f64);
         } else {
             metrics::counter!(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
-        
+
         result
     }
-    
+
     fn put_batch_internal(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
         let mut batch = WriteBatch::default();
@@ -206,19 +213,19 @@ impl RocksDbStore {
 
     pub fn flush_cf(&self, cf_name: &str) -> Result<()> {
         let start_time = Instant::now();
-        
+
         let result = self.flush_cf_internal(cf_name);
-        
+
         let duration = start_time.elapsed();
         metrics::histogram!(ROCKSDB_FLUSH_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        
+
         if result.is_err() {
             metrics::counter!(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
-        
+
         result
     }
-    
+
     fn flush_cf_internal(&self, cf_name: &str) -> Result<()> {
         let mut flush_opts = rocksdb::FlushOptions::default();
         flush_opts.set_wait(true);
@@ -230,15 +237,15 @@ impl RocksDbStore {
 
     pub fn compact_cf(&self, cf_name: &str) -> Result<()> {
         let start_time = Instant::now();
-        
+
         let result = self.compact_cf_internal(cf_name);
-        
+
         let duration = start_time.elapsed();
         metrics::histogram!(ROCKSDB_COMPACTION_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        
+
         result
     }
-    
+
     fn compact_cf_internal(&self, cf_name: &str) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
         self.db.compact_range_cf(&cf, None::<&[u8]>, None::<&[u8]>);
@@ -250,19 +257,19 @@ impl RocksDbStore {
     pub fn create_checkpoint<P: AsRef<Path>>(&self, checkpoint_path: P) -> Result<()> {
         let start_time = Instant::now();
         metrics::counter!(ROCKSDB_CHECKPOINT_OPERATIONS_COUNTER).increment(1);
-        
+
         let result = self.create_checkpoint_internal(checkpoint_path);
-        
+
         let duration = start_time.elapsed();
         metrics::histogram!(ROCKSDB_CHECKPOINT_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        
+
         if result.is_err() {
             metrics::counter!(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
-        
+
         result
     }
-    
+
     fn create_checkpoint_internal<P: AsRef<Path>>(&self, checkpoint_path: P) -> Result<()> {
         let checkpoint = Checkpoint::new(&self.db).context("Failed to create checkpoint object")?;
 
@@ -496,7 +503,9 @@ mod tests {
         // Create original store and add data
         {
             let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-            let original_store = RocksDbStore::new(&original_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
+            let original_store =
+                RocksDbStore::new(&original_path, vec![cf_descriptor], MetricsHelper::new())
+                    .unwrap();
 
             original_store.put(TEST_CF, b"key1", b"value1").unwrap();
             original_store.put(TEST_CF, b"key2", b"value2").unwrap();
@@ -507,7 +516,8 @@ mod tests {
 
         // Open new store from checkpoint
         let cf_descriptor = ColumnFamilyDescriptor::new(TEST_CF, Options::default());
-        let recovered_store = RocksDbStore::new(&checkpoint_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
+        let recovered_store =
+            RocksDbStore::new(&checkpoint_path, vec![cf_descriptor], MetricsHelper::new()).unwrap();
 
         // Verify data is recovered
         let keys = vec![b"key1".as_slice(), b"key2".as_slice()];

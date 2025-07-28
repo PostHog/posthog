@@ -125,7 +125,7 @@ impl DeduplicationStore {
     pub fn new(config: DeduplicationStoreConfig, topic: String, partition: i32) -> Result<Self> {
         let metrics = MetricsHelper::with_partition(&topic, partition)
             .with_label("service", "kafka-deduplicator");
-        
+
         let store = RocksDbStore::new(
             &config.path,
             vec![ColumnFamilyDescriptor::new(
@@ -134,9 +134,9 @@ impl DeduplicationStore {
             )],
             metrics.clone(),
         )?;
-        
-        Ok(Self { 
-            store, 
+
+        Ok(Self {
+            store,
             topic,
             partition,
             config,
@@ -176,7 +176,9 @@ impl DeduplicationStore {
 
         // Emit metrics for duplicate events found
         if duplicate_count > 0 {
-            self.metrics.counter(DUPLICATE_EVENTS_TOTAL_COUNTER).increment(duplicate_count);
+            self.metrics
+                .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
+                .increment(duplicate_count);
         }
 
         Ok(non_duplicated)
@@ -185,13 +187,15 @@ impl DeduplicationStore {
     pub fn handle_event_batch(&self, events: Vec<EventData>) -> Result<()> {
         let start_time = Instant::now();
         let batch_size = events.len();
-        
+
         if events.is_empty() {
             return Ok(());
         }
 
         // Emit batch size metric
-        self.metrics.histogram(BATCH_SIZE_HISTOGRAM).record(batch_size as f64);
+        self.metrics
+            .histogram(BATCH_SIZE_HISTOGRAM)
+            .record(batch_size as f64);
 
         // Create map of DeduplicationKey -> serialized metadata
         let key_metadata_map: HashMap<DeduplicationKey, Vec<u8>> = events
@@ -232,10 +236,14 @@ impl DeduplicationStore {
 
         // Emit metrics
         let duration = start_time.elapsed();
-        
-        self.metrics.histogram(BATCH_PROCESSING_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        self.metrics.counter(UNIQUE_EVENTS_TOTAL_COUNTER).increment(unique_count as u64);
-        
+
+        self.metrics
+            .histogram(BATCH_PROCESSING_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+        self.metrics
+            .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
+            .increment(unique_count as u64);
+
         // Calculate and emit duplicate rate percentage
         if batch_size > 0 {
             let duplicate_rate = (duplicate_count as f64 / batch_size as f64) * 100.0;
@@ -250,9 +258,11 @@ impl DeduplicationStore {
 
     pub fn cleanup_old_entries(&self) -> Result<u64> {
         let start_time = Instant::now();
-        
-        self.metrics.counter(CLEANUP_OPERATIONS_COUNTER).increment(1);
-        
+
+        self.metrics
+            .counter(CLEANUP_OPERATIONS_COUNTER)
+            .increment(1);
+
         if self.config.max_capacity == 0 {
             return Ok(0); // No cleanup needed if max_capacity is 0 (unlimited)
         }
@@ -293,12 +303,16 @@ impl DeduplicationStore {
 
         let new_size = self.store.get_db_size()?;
         let bytes_freed = current_size.saturating_sub(new_size);
-        
+
         // Emit cleanup metrics
         let duration = start_time.elapsed();
-        self.metrics.histogram(CLEANUP_DURATION_HISTOGRAM).record(duration.as_secs_f64());
-        self.metrics.histogram(CLEANUP_BYTES_FREED_HISTOGRAM).record(bytes_freed as f64);
-        
+        self.metrics
+            .histogram(CLEANUP_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+        self.metrics
+            .histogram(CLEANUP_BYTES_FREED_HISTOGRAM)
+            .record(bytes_freed as f64);
+
         Ok(bytes_freed)
     }
 
@@ -356,7 +370,6 @@ mod tests {
     use std::time::SystemTime;
     use tempfile::TempDir;
     use tracing::info;
-
 
     fn create_test_store(max_capacity: Option<u64>) -> (DeduplicationStore, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -769,7 +782,8 @@ mod tests {
                 path: original_path.clone(),
                 max_capacity: 1_000_000,
             };
-            let original_store = DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
+            let original_store =
+                DeduplicationStore::new(config, "test_topic".to_string(), 0).unwrap();
 
             original_store
                 .handle_event_batch(original_events.clone())
@@ -840,7 +854,8 @@ mod tests {
                 path: checkpoint1_path,
                 max_capacity: 1_000_000,
             };
-            let recovered_store1 = DeduplicationStore::new(config1, "test_topic".to_string(), 0).unwrap();
+            let recovered_store1 =
+                DeduplicationStore::new(config1, "test_topic".to_string(), 0).unwrap();
 
             // Initial events should be duplicates (exist in checkpoint1)
             let initial_keys: Vec<DeduplicationKey> =
@@ -877,7 +892,8 @@ mod tests {
                 path: checkpoint2_path,
                 max_capacity: 1_000_000,
             };
-            let recovered_store2 = DeduplicationStore::new(config2, "test_topic".to_string(), 0).unwrap();
+            let recovered_store2 =
+                DeduplicationStore::new(config2, "test_topic".to_string(), 0).unwrap();
 
             // All events should be duplicates (exist in checkpoint2)
             let all_events: Vec<_> = initial_events

@@ -1,14 +1,14 @@
+use anyhow::{Context, Result};
+use metrics;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use anyhow::{Context, Result};
-use metrics;
 use tokio::sync::Mutex;
 use tokio::time;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, error, info, warn};
 
-use crate::rocksdb::deduplication_store::DeduplicationStore;
 use super::{CheckpointConfig, CheckpointUploader};
+use crate::rocksdb::deduplication_store::DeduplicationStore;
 
 const CHECKPOINT_LAST_TIMESTAMP_GAUGE: &str = "checkpoint_last_timestamp";
 const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
@@ -39,12 +39,15 @@ impl CheckpointExporter {
     /// Start the checkpoint loop that triggers checkpoints based on the configured interval
     pub async fn start_checkpoint_loop(&self, store: Arc<DeduplicationStore>) {
         let mut interval = time::interval(self.config.checkpoint_interval);
-        
-        info!("Starting checkpoint loop with interval: {:?}", self.config.checkpoint_interval);
-        
+
+        info!(
+            "Starting checkpoint loop with interval: {:?}",
+            self.config.checkpoint_interval
+        );
+
         loop {
             interval.tick().await;
-            
+
             if let Err(e) = self.maybe_checkpoint(&store).await {
                 error!("Checkpoint failed: {}", e);
                 metrics::counter!(CHECKPOINT_ERRORS_COUNTER).increment(1);
@@ -82,7 +85,7 @@ impl CheckpointExporter {
 
     async fn perform_checkpoint(&self, store: &DeduplicationStore) -> Result<()> {
         let start_time = Instant::now();
-        
+
         info!("Starting checkpoint creation");
 
         // Create checkpoint directory with timestamp (microseconds for uniqueness)
@@ -90,28 +93,36 @@ impl CheckpointExporter {
             .duration_since(UNIX_EPOCH)
             .context("Failed to get current timestamp")?
             .as_micros();
-        
+
         let checkpoint_name = format!("checkpoint_{}", timestamp);
-        let local_checkpoint_path = PathBuf::from(&self.config.local_checkpoint_dir)
-            .join(&checkpoint_name);
+        let local_checkpoint_path =
+            PathBuf::from(&self.config.local_checkpoint_dir).join(&checkpoint_name);
 
         // Ensure local checkpoint directory exists
-        tokio::fs::create_dir_all(&self.config.local_checkpoint_dir).await
+        tokio::fs::create_dir_all(&self.config.local_checkpoint_dir)
+            .await
             .context("Failed to create local checkpoint directory")?;
 
         // Create checkpoint with SST file tracking
-        let sst_files = store.create_checkpoint_with_metadata(&local_checkpoint_path)
+        let sst_files = store
+            .create_checkpoint_with_metadata(&local_checkpoint_path)
             .context("Failed to create checkpoint")?;
 
         let checkpoint_duration = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM).record(checkpoint_duration.as_secs_f64());
+        metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
+            .record(checkpoint_duration.as_secs_f64());
 
         // Get checkpoint size
         let checkpoint_size = self.get_directory_size(&local_checkpoint_path).await?;
         metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
 
-        info!("Created checkpoint {} with {} SST files, size: {} bytes, duration: {:?}", 
-              checkpoint_name, sst_files.len(), checkpoint_size, checkpoint_duration);
+        info!(
+            "Created checkpoint {} with {} SST files, size: {} bytes, duration: {:?}",
+            checkpoint_name,
+            sst_files.len(),
+            checkpoint_size,
+            checkpoint_duration
+        );
 
         // Update last checkpoint timestamp
         {
@@ -128,23 +139,37 @@ impl CheckpointExporter {
         // Upload to remote storage in background
         if self.uploader.is_available().await {
             let upload_start = Instant::now();
-            
+
             let s3_key_prefix = if is_full_upload {
                 format!("{}/full/{}", self.config.s3_key_prefix, checkpoint_name)
             } else {
-                format!("{}/incremental/{}", self.config.s3_key_prefix, checkpoint_name)
+                format!(
+                    "{}/incremental/{}",
+                    self.config.s3_key_prefix, checkpoint_name
+                )
             };
 
-            match self.uploader.upload_checkpoint_dir(&local_checkpoint_path, &s3_key_prefix).await {
+            match self
+                .uploader
+                .upload_checkpoint_dir(&local_checkpoint_path, &s3_key_prefix)
+                .await
+            {
                 Ok(uploaded_files) => {
                     let upload_duration = upload_start.elapsed();
-                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM).record(upload_duration.as_secs_f64());
-                    
-                    info!("Uploaded checkpoint {} ({} type) with {} files in {:?}", 
-                          checkpoint_name, 
-                          if is_full_upload { "full" } else { "incremental" },
-                          uploaded_files.len(), 
-                          upload_duration);
+                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM)
+                        .record(upload_duration.as_secs_f64());
+
+                    info!(
+                        "Uploaded checkpoint {} ({} type) with {} files in {:?}",
+                        checkpoint_name,
+                        if is_full_upload {
+                            "full"
+                        } else {
+                            "incremental"
+                        },
+                        uploaded_files.len(),
+                        upload_duration
+                    );
                 }
                 Err(e) => {
                     error!("Failed to upload checkpoint {}: {}", checkpoint_name, e);
@@ -160,7 +185,11 @@ impl CheckpointExporter {
 
         // Cleanup old remote checkpoints if this was a full upload
         if is_full_upload && self.uploader.is_available().await {
-            if let Err(e) = self.uploader.cleanup_old_checkpoints(self.config.max_local_checkpoints).await {
+            if let Err(e) = self
+                .uploader
+                .cleanup_old_checkpoints(self.config.max_local_checkpoints)
+                .await
+            {
                 error!("Failed to cleanup old remote checkpoints: {}", e);
                 // Don't fail the checkpoint for cleanup errors
             }
@@ -175,7 +204,8 @@ impl CheckpointExporter {
         let mut stack = vec![path.to_path_buf()];
 
         while let Some(current_path) = stack.pop() {
-            let mut entries = tokio::fs::read_dir(&current_path).await
+            let mut entries = tokio::fs::read_dir(&current_path)
+                .await
                 .with_context(|| format!("Failed to read directory: {:?}", current_path))?;
 
             while let Some(entry) = entries.next_entry().await? {
@@ -195,16 +225,17 @@ impl CheckpointExporter {
 
     async fn cleanup_local_checkpoints(&self) -> Result<()> {
         let checkpoint_dir = PathBuf::from(&self.config.local_checkpoint_dir);
-        
+
         if !checkpoint_dir.exists() {
             return Ok(());
         }
 
-        let mut entries = tokio::fs::read_dir(&checkpoint_dir).await
+        let mut entries = tokio::fs::read_dir(&checkpoint_dir)
+            .await
             .context("Failed to read checkpoint directory")?;
 
         let mut checkpoint_dirs = Vec::new();
-        
+
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
             if path.is_dir() {
@@ -224,7 +255,7 @@ impl CheckpointExporter {
         }
 
         let dirs_to_remove = checkpoint_dirs.len() - self.config.max_local_checkpoints;
-        
+
         for dir in checkpoint_dirs.into_iter().take(dirs_to_remove) {
             if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
                 error!("Failed to remove old checkpoint directory {:?}: {}", dir, e);
