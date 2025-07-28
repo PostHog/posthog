@@ -1,5 +1,6 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.settings.data_stores import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 
 WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME = "web_pre_aggregated_teams"
 WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME = "web_pre_aggregated_teams_dict"
@@ -51,12 +52,14 @@ CREATE DICTIONARY IF NOT EXISTS {dictionary_name} {on_cluster_clause} (
     team_id UInt64
 )
 PRIMARY KEY team_id
-SOURCE(CLICKHOUSE(QUERY '{query}'))
+SOURCE(CLICKHOUSE(QUERY '{query}' USER '{clickhouse_user}' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(HASHED())""".format(
         dictionary_name=f"`{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         query=WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY(),
+        clickhouse_user=CLICKHOUSE_USER,
+        clickhouse_password=CLICKHOUSE_PASSWORD,
     )
 
 
