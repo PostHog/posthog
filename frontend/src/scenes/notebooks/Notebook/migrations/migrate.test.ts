@@ -1,10 +1,10 @@
 import { AccessControlLevel, NotebookType } from '~/types'
 
 import mockNotebook from '../__mocks__/notebook-12345.json'
-import { JSONContent } from '../utils'
 import { migrate } from './migrate'
 import { initKeaTests } from '~/test/init'
 import { useMocks } from '~/mocks/jest'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 describe('migrate()', () => {
     beforeEach(() => {

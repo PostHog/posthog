@@ -72,7 +72,6 @@ const Editor = ({ placeholder }: { placeholder: string }): JSX.Element => {
                 RichContentNodeMention,
                 MentionsExtension,
             ]}
-            onUpdate={(content) => {}}
         />
     )
 }

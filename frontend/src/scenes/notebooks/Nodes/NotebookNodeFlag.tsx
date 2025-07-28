@@ -8,7 +8,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -19,6 +19,7 @@ import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconRocket } from '@posthog/icons'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -95,7 +96,23 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                   }
                 : undefined,
         ])
-    }, [featureFlag])
+    }, [
+        featureFlag,
+        shouldDisableInsertEarlyAccessFeature,
+        setActions,
+        createSurvey,
+        id,
+        shouldDisableInsertSurvey,
+        hasEarlyAccessFeatures,
+        nextNode.type.name,
+        setTitlePlaceholder,
+        insertAfter,
+        canCreateEarlyAccessFeature,
+        createEarlyAccessFeature,
+        hasSurveys,
+        recordingFilterForFlag,
+        nextNode,
+    ])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />

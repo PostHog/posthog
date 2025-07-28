@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 
 import {
     EarlyAccessFeatureLogicProps,
@@ -17,6 +17,7 @@ import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconRocket } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
@@ -40,13 +41,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                   ]
                 : []
         )
-    }, [earlyAccessFeature])
+    }, [earlyAccessFeature, insertAfter, setActions])
 
     useEffect(() => {
         setTitlePlaceholder(
             earlyAccessFeature.name ? `Early Access Management: ${earlyAccessFeature.name}` : 'Early Access Management'
         )
-    }, [earlyAccessFeature?.name])
+    }, [earlyAccessFeature?.name, setTitlePlaceholder])
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />

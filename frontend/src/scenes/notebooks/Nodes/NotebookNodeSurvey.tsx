@@ -6,7 +6,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { StatusTag } from 'scenes/surveys/Surveys'
@@ -16,6 +16,7 @@ import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -36,11 +37,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                   }
                 : undefined,
         ])
-    }, [survey])
+    }, [survey, insertAfter, setActions, nextNode.type.name])
 
     useEffect(() => {
         setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
-    }, [survey.name])
+    }, [survey.name, setTitlePlaceholder])
 
     if (surveyMissing) {
         return <NotFound object="survey" />

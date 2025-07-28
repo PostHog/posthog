@@ -1,5 +1,5 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { AccessControlLevel, NotebookType } from '~/types'
 

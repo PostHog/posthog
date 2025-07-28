@@ -1,14 +1,13 @@
 // Helpers for Kea issue with double importing
 import { LemonButtonProps } from '@posthog/lemon-ui'
-import { Attribute, Editor as TTEditor, ExtendedRegExpMatchArray, getText, TextSerializer } from '@tiptap/core'
+import { Attribute, ExtendedRegExpMatchArray, getText, TextSerializer } from '@tiptap/core'
 
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
 import type { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
-import { JSONContent, RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
+import { JSONContent, RichContentEditorType, RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 
-// TODO: fix the typing of string to NotebookNodeType
-export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
+export const KNOWN_NODES: Partial<Record<NotebookNodeType, CreatePostHogWidgetNodeOptions<any>>> = {}
 
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
     NodeWrapperProps<T>,
@@ -96,7 +95,7 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     return false
 }
 
-export const textContent = (node: any): string => {
+export const textContent = (node: RichContentNode): string => {
     // we've extended the node schema to support a custom serializedText function
     // each custom node type needs to implement this function, or have an alternative in the map below
     const customOrTitleSerializer: TextSerializer = (props): string => {

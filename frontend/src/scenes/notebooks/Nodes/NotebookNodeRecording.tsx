@@ -19,11 +19,12 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { NotFound } from 'lib/components/NotFound'
 import { IconComment, IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -57,7 +58,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
 
     useEffect(() => {
         loadRecordingMeta()
-    }, [])
+    }, [loadRecordingMeta])
     // TODO Only load data when in view...
 
     useEffect(() => {
@@ -87,7 +88,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-    }, [sessionPlayerMetaData?.person?.id])
+    }, [
+        sessionPlayerMetaData?.person?.id,
+        recordingLogicProps,
+        id,
+        insertReplayCommentByTimestamp,
+        sessionPlayerMetaData.person,
+        setActions,
+        insertAfter,
+    ])
 
     useEffect(() => {
         setMessageListeners({
@@ -101,7 +110,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
-    }, [])
+    }, [scrollIntoView, setExpanded, expanded, setMessageListeners, setPlay, seekToTime])
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />

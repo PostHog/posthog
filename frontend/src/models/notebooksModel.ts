@@ -6,7 +6,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
-import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { defaultNotebookContent } from 'scenes/notebooks/Notebook/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
 import { projectLogic } from 'scenes/projectLogic'
@@ -17,6 +17,7 @@ import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
+import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     id: 'scratchpad',

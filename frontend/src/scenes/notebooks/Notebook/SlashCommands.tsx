@@ -36,7 +36,7 @@ import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
-import { EditorCommands, EditorRange } from './utils'
+import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 
 type SlashCommandConditionalProps =
     | {
@@ -397,7 +397,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
-    }, [query, fuse])
+    }, [query, fuse, allCommmands])
 
     const filteredSlashCommands = useMemo(
         () => filteredCommands.filter((item) => slashCommands.includes(item)),
@@ -466,7 +466,16 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             return false
         },
-        [selectedIndex, selectedHorizontalIndex, filteredCommands]
+        [
+            selectedIndex,
+            selectedHorizontalIndex,
+            filteredCommands,
+            onPressLeft,
+            onPressUp,
+            onPressEnter,
+            onPressRight,
+            onPressDown,
+        ]
     )
 
     // Expose the keydown handler to the tiptap extension

@@ -10,13 +10,14 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { PostHogErrorBoundary } from 'posthog-js/react'
 import { IconComment } from '@posthog/icons'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 const Component = ({
     attributes,
@@ -41,7 +42,7 @@ const Component = ({
                 })
             },
         }),
-        [playerKey, universalFilters, pinned]
+        [playerKey, universalFilters, pinned, updateAttributes]
     )
 
     const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
@@ -89,7 +90,7 @@ const Component = ({
                   ]
                 : []
         )
-    }, [activeSessionRecording])
+    }, [activeSessionRecording, getReplayLogic, setActions, insertAfter, insertReplayCommentByTimestamp])
 
     useEffect(() => {
         setMessageListeners({
@@ -104,7 +105,7 @@ const Component = ({
                 }, 100)
             },
         })
-    }, [])
+    }, [setMessageListeners, getReplayLogic, setSelectedRecordingId, scrollIntoView])
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }
