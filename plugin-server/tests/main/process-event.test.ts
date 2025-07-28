@@ -119,21 +119,21 @@ describe('processEvent', () => {
                 }
             `
         await resetTestDatabase(testCode, TEST_CONFIG)
-        // await resetTestDatabaseClickhouse(TEST_CONFIG)
 
         hub = await createHub({ ...TEST_CONFIG })
         mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
         mockProducerObserver.resetKafkaProducer()
 
-        const redis = await createRedis(hub, 'ingestion')
-            const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-            await redis.del(hooksCacheKey)
-            await redis.quit()
         personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         eventsProcessor = new EventsProcessor(hub)
         team = await getFirstTeam(hub)
         now = DateTime.utc()
+
+        const redis = await createRedis(hub, 'ingestion')
+        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+        await redis.del(hooksCacheKey)
+        await redis.quit()
 
         // Always start with an anonymous state
         state = { currentDistinctId: 'anonymous_id' }
@@ -878,7 +878,6 @@ describe('processEvent', () => {
             'testTag'
         )
 
-    test('long htext', async () => {
         await processEvent(
             '2',
             '',
