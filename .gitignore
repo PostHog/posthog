@@ -1,5 +1,3 @@
-!.vscode/launch.json
-!.vscode/settings.example.json
 __emails__
 __pycache__/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
@@ -19,6 +17,8 @@ __pycache__/
 .turbo
 .venv
 .vscode/*
+!.vscode/launch.json
+!.vscode/settings.example.json
 .wokeignore
 .yalc
 *-esbuild-bundle-visualization.html
