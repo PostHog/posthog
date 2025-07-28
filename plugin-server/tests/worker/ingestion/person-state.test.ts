@@ -114,6 +114,7 @@ describe('PersonState.processEvent()', () => {
     afterAll(async () => {
         await closeHub(hub)
         await clickhouse.exec('SYSTEM START MERGES')
+        clickhouse.close()
     })
 
     function personProcessor(

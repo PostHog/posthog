@@ -63,6 +63,7 @@ describe('postgres parity', () => {
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await server.stop()
     })
 

@@ -16,6 +16,7 @@ describe('captureIngestionWarning()', () => {
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await closeHub(hub)
     })
 

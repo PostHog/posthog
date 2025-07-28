@@ -434,6 +434,7 @@ describe('DB', () => {
 
             afterEach(async () => {
                 await clickhouse.exec('SYSTEM START MERGES')
+                clickhouse.close()
             })
 
             async function fetchPersonsRows(options: { final?: boolean } = {}) {

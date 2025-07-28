@@ -90,6 +90,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await closeHub(hub)
     })
 
