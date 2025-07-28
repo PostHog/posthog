@@ -485,6 +485,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test 5: Test notification settings - user with plugin_disabled: False should not receive email
+        self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        send_hog_functions_daily_digest()
+        # Should only be sent to user2 (user1 has notifications disabled)
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
+        # Test 6: Test notification settings - user with plugin_disabled: True should receive email
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+
+        send_hog_functions_daily_digest()
+        # Should now be sent to both users
+        assert len(mocked_email_messages[1].to) == 2
+
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2
 
