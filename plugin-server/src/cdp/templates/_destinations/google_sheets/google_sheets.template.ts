@@ -10,34 +10,21 @@ export const template: NativeTemplate = {
     icon_url: '/static/services/google-sheets.svg',
     category: ['Custom'],
     perform: async (request, { payload }) => {
-        try {
-            const { spreadsheet_id, spreadsheet_name, data_format, fields } = payload
+        const { spreadsheet_id, spreadsheet_name, data_format, fields } = payload
+        const rowData = Object.values(fields)
 
-            const rowData = Object.values(fields)
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${spreadsheet_name}:append?valueInputOption=${data_format}`
 
-            const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${spreadsheet_name}:append?valueInputOption=${
-                data_format || 'RAW'
-            }`
-
-            const response = await request(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${payload.oauth.access_token}`,
-                },
-                json: {
-                    values: [rowData],
-                },
-            })
-
-            if (response.status >= 400) {
-                throw new Error(`Google Sheets API error: ${response.status} - ${response.content}`)
-            }
-
-            return response
-        } catch (error) {
-            throw new Error(`Failed to write to Google Sheets: ${error.message}`)
-        }
+        return await request(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${payload.oauth.access_token}`,
+            },
+            json: {
+                values: [rowData],
+            },
+        })
     },
     inputs_schema: [
         {
