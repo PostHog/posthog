@@ -47,8 +47,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
-        self.date_from = self.parse_relative_date(self.query.dateRange.date_from)
-        self.date_to = self.parse_relative_date(self.query.dateRange.date_to)
+        self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from)
+        self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to)
 
         if self.query.withAggregations is None:
             self.query.withAggregations = True
@@ -59,7 +59,17 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
 
-    def parse_relative_date(self, date: str | None) -> datetime.datetime:
+    def parse_relative_date_from(self, date: str | None) -> datetime.datetime:
+        """
+        Parses a relative date string into a datetime object.
+        This is used to convert the date range from the query into a datetime object.
+        """
+        if date == "all" or date is None:
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52 * 5)  # 5 years ago
+
+        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+
+    def parse_relative_date_to(self, date: str | None) -> datetime.datetime:
         """
         Parses a relative date string into a datetime object.
         This is used to convert the date range from the query into a datetime object.
@@ -67,7 +77,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if not date:
             return datetime.datetime.now(tz=ZoneInfo("UTC")) + datetime.timedelta(minutes=5)
         if date == "all":
-            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52)  # 1 year ago
+            raise ValueError("Invalid date range")
 
         return relative_date_parse(date, ZoneInfo("UTC"))
 
