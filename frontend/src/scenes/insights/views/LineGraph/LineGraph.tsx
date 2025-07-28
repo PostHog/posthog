@@ -328,7 +328,7 @@ export function LineGraph_({
     const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
@@ -1036,26 +1036,30 @@ export function LineGraph_({
 
         return () => chart.destroy()
     }, [
+        datasets,
+        hiddenLegendIndexes,
+        isDarkModeOn,
         trendsFilter,
+        formula,
+        showValuesOnSeries,
+        showPercentStackView,
+        showMultipleYAxes,
+        _goalLines,
+        theme,
         labelGroupType,
         colors.axisLabel,
         breakdownFilter,
         showPersonsModal,
-        _goalLines,
         hideYAxis,
         tooltipConfig.filter,
         generateYaxesForLineGraph,
         legend,
         inSurveyView,
-        showValuesOnSeries,
         showPercentView,
         aggregationLabel,
-        showMultipleYAxes,
         isStacked,
         interval,
-        datasets,
         isBar,
-        formula,
         colors.crosshair,
         incompletenessOffsetFromEnd,
         colors.axisLine,
@@ -1065,16 +1069,13 @@ export function LineGraph_({
         tooltipConfig.renderCount,
         onClick,
         processDataset,
-        hiddenLegendIndexes.length,
         originalDatasets,
         tooltipConfig,
         insightData.resolved_date_range,
         insightProps.dashboardId,
-        hiddenLegendIndexes,
         labels,
         isPercentStackView,
         _datasets.length,
-        datasets.length,
         hideXAxis,
     ])
 
