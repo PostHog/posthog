@@ -16,10 +16,10 @@ const directionOptions = [
     { label: 'Descending', value: 'DESC' as const, icon: <IconArrowDown /> },
 ]
 
-export function MarketingAnalyticsColumnConfigModal(): JSX.Element {
+export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query: DataTableNode }): JSX.Element {
     const { columnConfigModalVisible } = useValues(marketingAnalyticsLogic)
     const { hideColumnConfigModal } = useActions(marketingAnalyticsLogic)
-    const { query: rawQuery, sortedColumns } = useValues(marketingAnalyticsTableLogic)
+    const { sortedColumns } = useValues(marketingAnalyticsTableLogic)
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     // useRef to avoid re-rendering the component when we pin columns but after we rerender the component we need to keep the sorted columns
     const staticSortedColumns = useRef(sortedColumns)

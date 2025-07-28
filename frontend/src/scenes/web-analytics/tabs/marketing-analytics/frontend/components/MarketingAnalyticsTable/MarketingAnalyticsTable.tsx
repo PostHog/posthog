@@ -47,7 +47,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             <div className="relative marketing-analytics-table-container">
                 <Query query={query} readOnly={false} context={marketingAnalyticsContext} setQuery={setQuery} />
             </div>
-            <MarketingAnalyticsColumnConfigModal />
+            <MarketingAnalyticsColumnConfigModal query={query} />
         </div>
     )
 }
