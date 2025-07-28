@@ -19,6 +19,7 @@ import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -37,7 +38,8 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    const [person, kafkaMessages] = await server.db.createPerson(
+    const personRepository = new PostgresPersonRepository(server.db.postgres)
+    const [person, kafkaMessages] = await personRepository.createPerson(
         DateTime.utc(),
         properties,
         {},
@@ -85,6 +87,7 @@ let processEventCounter = 0
 let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
+let personRepository: PostgresPersonRepository
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
@@ -109,7 +112,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     const result = await runner.runEventPipeline(pluginEvent, team)
@@ -147,6 +150,7 @@ beforeEach(async () => {
 
     hub = await createHub({ ...TEST_CONFIG })
     redis = await hub.redisPool.acquire()
+    personRepository = new PostgresPersonRepository(hub.db.postgres)
 
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
@@ -167,7 +171,12 @@ afterEach(async () => {
     await closeHub(hub)
 })
 
-const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
+const capture = async (
+    hub: Hub,
+    eventName: string,
+    properties: any = {},
+    personRepository?: PostgresPersonRepository
+) => {
     const event = {
         event: eventName,
         distinct_id: properties.distinct_id ?? state.currentDistinctId,
@@ -179,7 +188,10 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        personRepository || new PostgresPersonRepository(hub.db.postgres),
+        hub.kafkaProducer
+    )
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
     const result = await runner.runEventPipeline(event, team)
@@ -191,17 +203,22 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
-const identify = async (hub: Hub, distinctId: string) => {
+const identify = async (hub: Hub, distinctId: string, personRepository?: PostgresPersonRepository) => {
     // Update currentDistinctId state immediately, as the event will be
     // dispatch asynchronously
     const currentDistinctId = state.currentDistinctId
     state.currentDistinctId = distinctId
-    await capture(hub, '$identify', {
-        // posthog-js will send the previous distinct id as
-        // $anon_distinct_id
-        $anon_distinct_id: currentDistinctId,
-        distinct_id: distinctId,
-    })
+    await capture(
+        hub,
+        '$identify',
+        {
+            // posthog-js will send the previous distinct id as
+            // $anon_distinct_id
+            $anon_distinct_id: currentDistinctId,
+            distinct_id: distinctId,
+        },
+        personRepository
+    )
 }
 
 const alias = async (hub: Hub, alias: string, distinctId: string) => {
@@ -944,7 +961,7 @@ describe('when handling $identify', () => {
         // Hook into createPerson, which is as of writing called from
         // alias. Here we simply call identify again and wait on it
         // completing before continuing with the first identify.
-        const originalCreatePerson = hub.db.createPerson.bind(hub.db)
+        const originalCreatePerson = personRepository.createPerson.bind(personRepository)
         const createPersonMock = jest.fn(async (...args) => {
             // We need to slice off the txn arg, or else we conflict with the `identify` below.
             // @ts-expect-error because TS is crazy, this is valid
@@ -952,19 +969,19 @@ describe('when handling $identify', () => {
 
             if (createPersonMock.mock.calls.length === 1) {
                 // On second invocation, make another identify call
-                await identify(hub, newDistinctId)
+                await identify(hub, newDistinctId, personRepository)
             }
 
             return result
         })
-        hub.db.createPerson = createPersonMock
+        personRepository.createPerson = createPersonMock
 
         // set the first identify going
-        await identify(hub, initialDistinctId)
+        await identify(hub, initialDistinctId, personRepository)
 
         // Let's first just make sure `updatePerson` was called, as a way of
         // checking that our mocking was actually invoked
-        expect(hub.db.createPerson).toHaveBeenCalled()
+        expect(personRepository.createPerson).toHaveBeenCalled()
 
         // Now make sure that we have one person in the db that has been
         // identified

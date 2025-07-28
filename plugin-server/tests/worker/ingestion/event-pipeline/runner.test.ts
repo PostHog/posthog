@@ -26,6 +26,7 @@ import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metric
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
@@ -162,7 +163,7 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         runner = new TestEventPipelineRunner(
             hub,
@@ -347,7 +348,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStoreForBatch(hub.db)
+                const personsStore = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
                 runner = new TestEventPipelineRunner(
                     hub,
@@ -393,7 +394,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStoreForBatch(hub.db)
+                const personsStore = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
 
                 runner = new TestEventPipelineRunner(

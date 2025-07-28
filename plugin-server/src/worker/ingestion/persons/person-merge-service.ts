@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { InternalPerson } from '../../../types'
-import { TransactionClient } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
@@ -12,6 +11,7 @@ import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export class SourcePersonNotFoundError extends Error {
     constructor(message: string) {
@@ -257,19 +257,13 @@ export class PersonMergeService {
 
             return await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await this.context.personStore.addPersonlessDistinctIdForMerge(
+                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
                     this.context.team.id,
-                    distinctIdToAdd,
-                    tx
+                    distinctIdToAdd
                 )
                 const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                const kafkaMessages = await this.context.personStore.addDistinctId(
-                    existingPerson,
-                    distinctIdToAdd,
-                    distinctIdVersion,
-                    tx
-                )
+                const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.kafkaProducer.queueMessages(kafkaMessages)
                 return [existingPerson, Promise.resolve()]
             })
@@ -295,18 +289,10 @@ export class PersonMergeService {
 
             return await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await this.context.personStore.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctId1,
-                    tx
-                )
+                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
 
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await this.context.personStore.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctId2,
-                    tx
-                )
+                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
 
                 // `createPerson` uses the first Distinct ID provided to generate the Person
                 // UUID. That means the first Distinct ID definitely doesn't need an override,
@@ -470,7 +456,7 @@ export class PersonMergeService {
                 const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                     'mergePeople',
                     async (tx) => {
-                        const [person, updatePersonMessages] = await this.context.personStore.updatePersonForMerge(
+                        const [person, updatePersonMessages] = await tx.updatePersonForMerge(
                             currentTargetPerson,
                             {
                                 created_at: createdAt,
@@ -494,25 +480,22 @@ export class PersonMergeService {
                                 //    Person_1(version:7) will "lose" to this new Person_1.
                                 version: Math.max(currentTargetPerson.version, currentSourcePerson.version) + 1,
                             },
-                            this.context.distinctId,
-                            tx
+                            this.context.distinctId
                         )
 
                         // Merge the distinct IDs
                         // TODO: Doesn't this table need to add updates to CH too?
-                        await this.context.personStore.updateCohortsAndFeatureFlagsForMerge(
+                        await tx.updateCohortsAndFeatureFlagsForMerge(
                             currentSourcePerson.team_id,
                             currentSourcePerson.id,
                             currentTargetPerson.id,
-                            this.context.distinctId,
-                            tx
+                            this.context.distinctId
                         )
 
-                        const distinctIdResult = await this.context.personStore.moveDistinctIds(
+                        const distinctIdResult = await tx.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,
-                            this.context.distinctId,
-                            tx
+                            this.context.distinctId
                         )
 
                         if (!distinctIdResult.success) {
@@ -523,11 +506,7 @@ export class PersonMergeService {
                             }
                         }
 
-                        const deletePersonMessages = await this.context.personStore.deletePerson(
-                            currentSourcePerson,
-                            this.context.distinctId,
-                            tx
-                        )
+                        const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)
 
                         const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
                         return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
@@ -592,9 +571,9 @@ export class PersonMergeService {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx?: PersonsStoreTransaction
     ): Promise<void> {
-        const kafkaMessages = await this.context.personStore.addDistinctId(person, distinctId, version, tx)
+        const kafkaMessages = await (tx || this.context.personStore).addDistinctId(person, distinctId, version)
         await this.context.kafkaProducer.queueMessages(kafkaMessages)
     }
 

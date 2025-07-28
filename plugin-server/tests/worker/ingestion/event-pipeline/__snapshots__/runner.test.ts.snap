@@ -111,6 +111,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         },
         "personCheckCache": {},
         "personUpdateCache": {},
+        "personRepository": {
+          "kafkaProducer": {},
+        },
         "updateLatencyPerDistinctIdSeconds": {},
       },
     ],

@@ -2,12 +2,12 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
-import { TransactionClient } from '../../../utils/db/postgres'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
+import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export class PersonCreateService {
-    constructor(private context: PersonContext) {}
+    constructor(private context: PersonContext) { }
 
     /**
      * @returns [Person, boolean that indicates if person was created or not, true if person was created by this call, false if found existing person from concurrent creation]
@@ -21,7 +21,7 @@ export class PersonCreateService {
         isIdentified: boolean,
         creatorEventUuid: string,
         distinctIds: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: PersonsStoreTransaction
     ): Promise<[InternalPerson, boolean]> {
         if (distinctIds.length < 1) {
             throw new Error('at least 1 distinctId is required in `createPerson`')
@@ -42,7 +42,7 @@ export class PersonCreateService {
         })
 
         try {
-            const [person, kafkaMessages] = await this.context.personStore.createPerson(
+            const [person, kafkaMessages] = await (tx || this.context.personStore).createPerson(
                 createdAt,
                 props,
                 propertiesLastUpdatedAt,
@@ -51,8 +51,7 @@ export class PersonCreateService {
                 isUserId,
                 isIdentified,
                 uuid,
-                distinctIds,
-                tx
+                distinctIds
             )
 
             await this.context.kafkaProducer.queueMessages(kafkaMessages)
