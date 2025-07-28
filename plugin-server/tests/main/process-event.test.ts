@@ -124,15 +124,16 @@ describe('processEvent', () => {
         mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
         mockProducerObserver.resetKafkaProducer()
 
-        const redis = await createRedis(hub, 'ingestion')
-        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-        await redis.del(hooksCacheKey)
-        await redis.quit()
         personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         eventsProcessor = new EventsProcessor(hub)
         team = await getFirstTeam(hub)
         now = DateTime.utc()
+
+        const redis = await createRedis(hub, 'ingestion')
+        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+        await redis.del(hooksCacheKey)
+        await redis.quit()
 
         // Always start with an anonymous state
         state = { currentDistinctId: 'anonymous_id' }
