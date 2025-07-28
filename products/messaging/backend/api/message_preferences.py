@@ -3,21 +3,13 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageRecipientPreference, MessageCategory
-from posthog.models.message_preferences import RESERVED_CATEGORY_KEY_ALL, PreferenceStatus
-
-
-class MessageCategoryPreferenceSerializer(serializers.Serializer):
-    email = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
-    sms = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
-    push = serializers.ChoiceField(choices=PreferenceStatus.choices, default=PreferenceStatus.NO_PREFERENCE)
+from posthog.models.message_preferences import PreferenceStatus
 
 
 class MessagePreferencesSerializer(serializers.ModelSerializer):
     identifier = serializers.CharField()
     updated_at = serializers.DateTimeField()
-    category_id = serializers.UUIDField(required=False)
-    category_key = serializers.CharField(required=False)
-    category_name = serializers.CharField(required=False)
+    preferences = serializers.JSONField()
 
     class Meta:
         model = MessageRecipientPreference
@@ -25,9 +17,7 @@ class MessagePreferencesSerializer(serializers.ModelSerializer):
             "id",
             "identifier",
             "updated_at",
-            "category_id",
-            "category_key",
-            "category_name",
+            "preferences",
         ]
         read_only_fields = [
             "id",
@@ -54,10 +44,18 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 return Response({"error": "Category not found"}, status=404)
 
         # Find recipients who have opted out of this specific category
+        categories_to_check = (
+            [category] if category_key else MessageCategory.objects.filter(team_id=self.team_id, deleted=False)
+        )
+        query_filters = {}
+        for category in categories_to_check:
+            category_preference_lookup = f"preferences__{category.id}"
+            query_filters = {
+                **{category_preference_lookup: PreferenceStatus.OPTED_OUT},
+            }
         opt_outs = MessageRecipientPreference.objects.filter(
             team_id=self.team_id,
-            preferences__category_id=category.id if category_key else RESERVED_CATEGORY_KEY_ALL,
-            preferences__preference_status=PreferenceStatus.OPTED_OUT,
+            **query_filters,
         )
 
         serializer = MessagePreferencesSerializer(opt_outs, many=True)

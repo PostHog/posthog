@@ -4,9 +4,6 @@ from typing import Optional
 from posthog.models.utils import UUIDModel
 import uuid
 
-RESERVED_CATEGORY_KEY_ALL = "$all"
-RESERVED_CATEGORY_KEYS = [RESERVED_CATEGORY_KEY_ALL]
-
 
 class PreferenceStatus(models.TextChoices):
     OPTED_IN = "OPTED_IN"
