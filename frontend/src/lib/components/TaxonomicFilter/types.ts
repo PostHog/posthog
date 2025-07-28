@@ -111,6 +111,7 @@ export interface TaxonomicFilterGroup {
     propertyAllowList?: string[]
     /** Passed to the component specified via the `render` key */
     componentProps?: Record<string, any>
+    isOptimized?: boolean
 }
 
 export enum TaxonomicFilterGroupType {
