@@ -86,7 +86,6 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     }, [isTransformation, groupsTaxonomicTypes])
 
     const showMasking = type === 'destination' && !isLegacyPlugin
-    const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
@@ -212,38 +211,6 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         }}
                                         buttonCopy="Add event matcher"
                                     />
-
-                                    {showDropEvents && (
-                                        <>
-                                            <LemonLabel>
-                                                <span className="flex flex-1 gap-2 justify-between items-center">
-                                                    Drop events that don't match
-                                                    <LemonSwitch
-                                                        checked={currentFilters?.drop_events ?? false}
-                                                        onChange={(drop_events) => {
-                                                            onChange({
-                                                                ...currentFilters,
-                                                                drop_events,
-                                                            })
-                                                        }}
-                                                    />
-                                                </span>
-                                            </LemonLabel>
-
-                                            {!currentFilters?.drop_events ? (
-                                                <p>
-                                                    Currently, this will run for all events that match the above
-                                                    conditions. Any that do not match will be unmodified and ingested as
-                                                    they are.
-                                                </p>
-                                            ) : (
-                                                <LemonBanner type="error">
-                                                    This will drop all events that don't match the above conditions.
-                                                    Please ensure this is definitely intended.
-                                                </LemonBanner>
-                                            )}
-                                        </>
-                                    )}
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (

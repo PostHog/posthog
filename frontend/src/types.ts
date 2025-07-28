@@ -5164,7 +5164,6 @@ export interface CyclotronJobFiltersType {
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
-    drop_events?: boolean
     bytecode?: any[]
     bytecode_error?: string
 }

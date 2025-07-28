@@ -90,6 +90,7 @@ export function HogFunctionConfiguration({
         oldInputs,
         newInputs,
         featureFlags,
+        sourceUsesEvents,
     } = useValues(logic)
 
     const {
@@ -200,7 +201,8 @@ export function HogFunctionConfiguration({
         displayOptions.showFilters ??
         ['destination', 'internal_destination', 'site_destination', 'email', 'transformation'].includes(type)
     const showExpectedVolume =
-        displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
+        sourceUsesEvents &&
+        (displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type))
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
