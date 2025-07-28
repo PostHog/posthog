@@ -40,7 +40,7 @@ export const QueryDatabase = (): JSX.Element => {
     const multitabLogic = multitabEditorLogic({
         key: `hogQLQueryEditor/${router.values.location.pathname}`,
     })
-    const { allTabs, viewDrafts } = useValues(multitabLogic)
+    const { allTabs } = useValues(multitabLogic)
     const { createTab, selectTab, setTabDraftId } = useActions(multitabLogic)
     const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const { deleteDraft } = useActions(draftsLogic)
@@ -68,8 +68,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                     // Look for existing tab with this draft
                     const existingTab = allTabs.find((tab) => {
-                        const tabUri = tab.uri.toString()
-                        return viewDrafts[tabUri] === draft.id
+                        return tab.draftId === draft.id
                     })
 
                     if (existingTab) {

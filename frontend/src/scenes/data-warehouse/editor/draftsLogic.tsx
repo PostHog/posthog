@@ -51,6 +51,9 @@ export const draftsLogic = kea<draftsLogicType>([
             })
             lemonToast.success('Draft saved')
             successCallback && successCallback(draft.id)
+
+            const newDrafts = [...values.drafts, draft]
+            actions.setDrafts(newDrafts)
         },
         updateDraft: async ({ draft }) => {
             await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)

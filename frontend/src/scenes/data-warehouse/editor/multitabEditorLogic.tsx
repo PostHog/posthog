@@ -115,6 +115,7 @@ export interface QueryTab {
     sourceQuery?: DataVisualizationNode
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
+    draftId?: string
 }
 
 export interface SuggestionPayload {
@@ -429,22 +430,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as string | null,
             {
                 setHoveredNode: (_, { nodeId }) => nodeId,
-            },
-        ],
-        // Track which tabs have drafts created (mapped by tab URI)
-        viewDrafts: [
-            {} as Record<string, string>, // Map tab URI to draft ID
-            { persist: true },
-            {
-                setTabDraftId: (state, { tabUri, draftId }) => ({
-                    ...state,
-                    [tabUri]: draftId,
-                }),
-                deleteTabDraft: (state, { tabUri }) => {
-                    const newViewDrafts = { ...state }
-                    delete newViewDrafts[tabUri]
-                    return newViewDrafts
-                },
             },
         ],
     })),
@@ -872,19 +857,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         values.activeModelUri.view.id,
                         values.activeModelUri.view.latest_history_id
                     )
-                    actions.updateDrafts(
-                        values.activeModelUri.uri.toString(),
-                        values.activeModelUri.view.id,
-                        queryInput
-                    )
                 }
+
+                actions.updateDrafts(values.activeModelUri.uri.toString(), values.activeModelUri.view.id, queryInput)
             }
             actions.updateState()
         },
         updateDrafts: async ({ activeTabUri, viewId, queryInput }) => {
             if (values.activeModelUri?.view) {
+                const currentTab = values.allTabs.find((tab) => tab.uri.toString() === activeTabUri)
+
                 // Create draft if this is the first edit for this tab
-                if (!values.viewDrafts[activeTabUri]) {
+                if (!currentTab?.draftId) {
                     actions.saveAsDraft(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -892,12 +876,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         },
                         viewId,
                         (draftId: string) => {
-                            actions.setTabDraftId(activeTabUri, draftId)
+                            const newTabs = values.allTabs.map((tab) => {
+                                if (tab.uri.toString() === activeTabUri) {
+                                    return { ...tab, draftId }
+                                }
+                                return tab
+                            })
+                            actions.setTabs(newTabs)
                         }
                     )
                 }
             }
         },
+
         updateState: async ({ skipBreakpoint }, breakpoint) => {
             if (skipBreakpoint !== true) {
                 await breakpoint(100)
@@ -1379,15 +1370,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         isDraft: [
-            (s) => [s.activeModelUri, s.viewDrafts],
-            (activeModelUri, viewDrafts) => {
-                return activeModelUri ? !!viewDrafts[activeModelUri.uri.toString()] : false
+            (s) => [s.activeModelUri, s.allTabs],
+            (activeModelUri, allTabs) => {
+                const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
+                return currentTab ? !!currentTab.draftId : false
             },
         ],
         currentDraftId: [
-            (s) => [s.activeModelUri, s.viewDrafts],
-            (activeModelUri, viewDrafts) => {
-                return activeModelUri ? viewDrafts[activeModelUri.uri.toString()] : null
+            (s) => [s.activeModelUri, s.allTabs],
+            (activeModelUri, allTabs) => {
+                const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
+                return currentTab ? currentTab.draftId : null
             },
         ],
     }),
