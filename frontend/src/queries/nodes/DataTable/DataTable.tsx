@@ -26,7 +26,7 @@ import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nod
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
@@ -203,9 +203,53 @@ export function DataTable({
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
-    const columnsInLemonTable = sourceFeatures.has(QueryFeature.columnsInResponse)
+    const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
+    const columnsInLemonTable = allColumns.filter((colName) => {
+        const columns = context?.columns
+        if (!columns) {
+            throw new Error()
+        }
+        const col = getContextColumn(colName, columns)
+
+        return !col?.queryContextColumn?.hidden
+    })
+    let rowFillFractionIndex = allColumns.findIndex((colName) => {
+        const columns = context?.columns
+        if (!columns) {
+            throw new Error()
+        }
+        const col = getContextColumn(colName, columns)
+
+        return col?.queryContextColumn?.isRowFillFraction
+    })
+
+    const onRow = useCallback(
+        (record) => {
+            const rowProps = context?.rowProps?.(record)
+            const rowFillFraction =
+                rowFillFractionIndex >= 0 && Array.isArray(record.result)
+                    ? record.result[rowFillFractionIndex]
+                    : undefined
+            if (
+                typeof rowFillFraction === 'number' &&
+                !Number.isNaN(rowFillFraction) &&
+                rowFillFraction >= 0 &&
+                rowFillFraction <= 1
+            ) {
+                return {
+                    ...rowProps,
+                    style: {
+                        ...rowProps?.style,
+                        '--data-table-fraction-fill': `${Math.round(rowFillFraction * 100)}%`,
+                    },
+                }
+            }
+            return rowProps ?? {}
+        },
+        [context?.rowProps, rowFillFractionIndex]
+    )
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
 
@@ -737,8 +781,20 @@ export function DataTable({
                                       }
                                     : undefined
                             }
-                            rowClassName={({ result, label }) =>
-                                clsx('DataTable__row', {
+                            rowClassName={({ result, label }) => {
+                                let rowPercentIndex = allColumns.findIndex(
+                                    (colName) => context?.columns?.[colName]?.hidden
+                                )
+                                let rowPercent: number | undefined
+                                if (
+                                    rowPercentIndex >= 0 &&
+                                    Array.isArray(result) &&
+                                    typeof result[rowPercentIndex] === 'number'
+                                ) {
+                                    rowPercent = result[rowPercentIndex]
+                                }
+
+                                return clsx('DataTable__row', {
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
                                     'border border-x-danger-dark bg-danger-highlight':
@@ -747,14 +803,14 @@ export function DataTable({
                                         result[0] &&
                                         result[0]['event'] === '$exception',
                                 })
-                            }
+                            }}
                             footer={
                                 (dataTableRows ?? []).length > 0 &&
                                 !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
                                     <LoadNext query={query.source} />
                                 ) : null
                             }
-                            onRow={context?.rowProps}
+                            onRow={onRow}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
