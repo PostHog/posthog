@@ -20,7 +20,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -92,16 +92,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
-        # first session runs from base time to base time + 30
-        session_id_one = "at_base_time"
+        session_id_one = str(uuid7())
         self.produce_replay_summary("user_one_0", session_id_one, base_time)
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
 
-        # second session runs from base time + 20 to bae time + 30
-        session_id_two = "at_base_time_plus_20"
+        session_id_two = str(uuid7())
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
-        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -169,7 +166,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
 
-        # second session runs from base time + 20 to bae time + 30
+        # second session runs from base time + 20 to base time + 30
         session_id_two = "at_base_time_plus_20"
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
