@@ -824,10 +824,17 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         if self.current_file_index not in self._pending_multipart_uploads:
             queue = BytesQueue(self.max_concurrent_uploads * self.part_size)
             task = asyncio.create_task(self.run_multipart_upload(queue))
-            task.add_done_callback(self._on_multipart_upload_done)
             self._pending_multipart_uploads[self.current_file_index] = ActiveS3MultipartUpload(task=task, queue=queue)
 
         task, queue = self._pending_multipart_uploads[self.current_file_index]
+
+        if task.done():
+            # Task failed or we called finalize out of order.
+            exc = task.exception()
+            if exc is None:
+                # TODO: Avoid landing here when calling finalize out of order.
+                raise RuntimeError("Multipart upload finished too soon")
+            raise exc
 
         await queue.put(data)
 
@@ -878,13 +885,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         """Callback to release global semaphore and signal upload's queue."""
         self.upload_semaphore.release()
         queue.bytes_done(part_body_size)
-
-    def _on_multipart_upload_done(self, task: asyncio.Task[None]) -> None:
-        """Callback to raise early in case multipart upload fails."""
-        exc = task.exception()
-        if exc is None:
-            return
-        raise exc
 
     async def finalize_file(self) -> None:
         """Call to mark the end of the current file.
