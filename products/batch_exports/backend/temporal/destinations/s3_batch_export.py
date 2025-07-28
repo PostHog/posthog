@@ -1,5 +1,7 @@
 import asyncio
 import collections
+import collections.abc
+import contextlib
 import dataclasses
 import datetime as dt
 import functools
@@ -702,37 +704,26 @@ class S3MultiPartUpload:
             )
             raise
 
-    async def __aenter__(self) -> typing.Self:
-        """Start the multipart upload when entering the context.
+    @contextlib.asynccontextmanager
+    async def run(self) -> collections.abc.AsyncIterator[typing.Self]:
+        """Run a multipart upload within this context.
 
-        This initializes an `asyncio.TaskGroup` which will keep track of all
-        uploads.
+        The multipart upload is started on entering. Together with initializing
+        an `asyncio.TaskGroup` which will keep track of all uploads. This
+        ensures any pending uploads are canceled when one fails, as a multipart
+        upload cannot be considered successful if even one part fails.
+
+        In the event anything is raised within the context, this attempts to
+        abort the multipart upload before re-raising the exception.
         """
+
         await self.start()
-        self._task_group = await asyncio.TaskGroup().__aenter__()
-
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
-        """Exit multipart upload context.
-
-        Any exception raised within the context will be passed to
-        `asyncio.TaskGroup.__aexit__` which means it will trigger cancellation
-        of any pending uploads, and be raised as part of an `ExceptionGroup`.
-
-        In the event anything is raised, this does a best effort attempt to
-        abort the multipart upload.
-
-        Otherwise, after awaiting `asyncio.TaskGroup.__aexit__`, all pending
-        uploads will be done, and the multipart upload will be completed.
-        """
-        if exc_value is not None:
-            self.logger.exception("An error happened within the S3MultiPartUpload context", exc_info=exc_value)
 
         try:
-            await self.task_group.__aexit__(exc_type, exc_value, traceback)
-        except NoUploadInProgressError:
-            raise
+            async with asyncio.TaskGroup() as tg:
+                self._task_group = tg
+
+                yield self
         except Exception:
             await self.abort()
             raise
@@ -740,6 +731,7 @@ class S3MultiPartUpload:
             await self.complete()
         finally:
             self._upload_id = None
+            self._task_group = None
 
 
 class BytesQueue(asyncio.Queue):
@@ -811,7 +803,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.current_file_index = 0
         self.files_uploaded: list[str] = []
 
-        self._task_group: asyncio.TaskGroup | None = None
         self._pending_multipart_uploads: dict[int, ActiveS3MultipartUpload] = {}
 
         # Internal S3 client management
@@ -831,16 +822,12 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             raise RuntimeError("Consumer already finalized")
 
         if self.current_file_index not in self._pending_multipart_uploads:
-            if not self._task_group:
-                self._task_group = await asyncio.TaskGroup().__aenter__()
-            task_group = self._task_group
-
             queue = BytesQueue(self.max_concurrent_uploads * self.part_size)
-            self._pending_multipart_uploads[self.current_file_index] = ActiveS3MultipartUpload(
-                task=task_group.create_task(self.run_multipart_upload(queue)), queue=queue
-            )
+            task = asyncio.create_task(self.run_multipart_upload(queue))
+            task.add_done_callback(self._on_multipart_upload_done)
+            self._pending_multipart_uploads[self.current_file_index] = ActiveS3MultipartUpload(task=task, queue=queue)
 
-        _, queue = self._pending_multipart_uploads[self.current_file_index]
+        task, queue = self._pending_multipart_uploads[self.current_file_index]
 
         await queue.put(data)
 
@@ -853,7 +840,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             self.s3_inputs, s3_client=s3_client, file_index=self.current_file_index
         )
 
-        async with multipart_upload as multipart_upload:
+        async with multipart_upload.run() as multipart_upload:
             self.external_logger.info(
                 "Starting multipart upload to '%s' for file number %d", multipart_upload.key, file_index
             )
@@ -892,6 +879,13 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_semaphore.release()
         queue.bytes_done(part_body_size)
 
+    def _on_multipart_upload_done(self, task: asyncio.Task[None]) -> None:
+        """Callback to raise early in case multipart upload fails."""
+        exc = task.exception()
+        if exc is None:
+            return
+        raise exc
+
     async def finalize_file(self) -> None:
         """Call to mark the end of the current file.
 
@@ -917,17 +911,16 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         2. Closing the S3 client.
         3. Uploading a manifest file (if required).
         """
-        if self._finalized or not self._task_group:
+        if self._finalized:
             return
 
         if self.current_file_index in self._pending_multipart_uploads:
             await self._finalize_current_file()
 
         try:
-            await self._task_group.__aexit__(None, None, None)
+            await asyncio.wait([active.task for active in self._pending_multipart_uploads.values()])
         finally:
             self._finalized = True
-            self._task_group = None
 
             if self._s3_client is not None and self._s3_client_ctx is not None:
                 await self._s3_client_ctx.__aexit__(None, None, None)
