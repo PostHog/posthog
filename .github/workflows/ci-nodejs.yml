@@ -250,6 +250,11 @@ jobs:
                   CASSANDRA_KEYSPACE: 'test_posthog'
               run: bin/turbo run test --filter=@posthog/plugin-server
 
+            - name: Output logs on failure
+              if: failure()
+              run: |
+                  docker compose -f docker-compose.dev.yml logs clickhouse
+
     node_tests:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
