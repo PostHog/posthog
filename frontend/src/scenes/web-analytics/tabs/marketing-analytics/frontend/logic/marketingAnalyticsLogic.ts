@@ -1,5 +1,4 @@
 import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,7 +10,6 @@ import {
     DataWarehouseNode,
     SourceMap,
     ConversionGoalFilter,
-    MarketingAnalyticsOrderBy,
     MarketingAnalyticsColumnsSchemaNames,
     CompareFilter,
 } from '~/queries/schema/schema-general'
@@ -72,8 +70,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     })),
     actions({
-        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
-        clearMarketingAnalyticsOrderBy: () => true,
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
         resetConversionGoalInput: () => true,
@@ -86,15 +82,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dateTo,
             interval,
         }),
+        showColumnConfigModal: true,
+        hideColumnConfigModal: true,
     }),
     reducers({
-        marketingAnalyticsOrderBy: [
-            null as MarketingAnalyticsOrderBy | null,
-            {
-                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
-                clearMarketingAnalyticsOrderBy: () => null,
-            },
-        ],
         draftConversionGoal: [
             null as ConversionGoalFilter | null,
             {
@@ -173,6 +164,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
+            },
+        ],
+        columnConfigModalVisible: [
+            false,
+            {
+                showColumnConfigModal: () => true,
+                hideColumnConfigModal: () => false,
             },
         ],
     }),
@@ -327,47 +325,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
     }),
-    actionToUrl(() => ({
-        setMarketingAnalyticsOrderBy: ({ orderBy, direction }) => {
-            const searchParams = new URLSearchParams(window.location.search)
-            if (orderBy !== null && direction) {
-                searchParams.set('sort_field', orderBy.toString())
-                searchParams.set('sort_direction', direction)
-            } else {
-                searchParams.delete('sort_field')
-                searchParams.delete('sort_direction')
-            }
-            return [window.location.pathname, searchParams.toString()]
-        },
-        clearMarketingAnalyticsOrderBy: () => {
-            const searchParams = new URLSearchParams(window.location.search)
-            searchParams.delete('sort_field')
-            searchParams.delete('sort_direction')
-            return [window.location.pathname, searchParams.toString()]
-        },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            const sortField = searchParams.sort_field
-            const sortDirection = searchParams.sort_direction
-
-            if (sortField && sortDirection && (sortDirection === 'ASC' || sortDirection === 'DESC')) {
-                const orderBy = parseInt(sortField, 10)
-                if (!isNaN(orderBy) && values.marketingAnalyticsOrderBy?.[0] !== orderBy) {
-                    actions.setMarketingAnalyticsOrderBy(orderBy, sortDirection as 'ASC' | 'DESC')
-                }
-            } else if (!sortField && !sortDirection && values.marketingAnalyticsOrderBy) {
-                actions.clearMarketingAnalyticsOrderBy()
-            }
-        },
-    })),
     listeners(({ actions }) => ({
         saveDraftConversionGoal: () => {
             // Create a new local conversion goal with new id
             actions.resetConversionGoalInput()
         },
         resetConversionGoalInput: () => {
-            // Clear the dynamic goal when resetting local goal
+            // Clear the draft goal when resetting local goal
             actions.setDraftConversionGoal(null)
         },
     })),
