@@ -9,16 +9,8 @@ class TestAssistantNodeMixin(BaseTest):
 
         class TestNode(AssistantContextMixin):
             def __init__(self, team, user):
-                self.__team = team
-                self.__user = user
-
-            @property
-            def _team(self):
-                return self.__team
-
-            @property
-            def _user(self):
-                return self.__user
+                self._team = team
+                self._user = user
 
         self.node = TestNode(self.team, self.user)
 

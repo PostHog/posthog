@@ -201,7 +201,7 @@ export function MetricRowGroup({
                             <svg
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                                 preserveAspectRatio="none"
-                                className="h-full w-full max-w-[1000px]"
+                                className="h-full w-full"
                             >
                                 <GridLines
                                     tickValues={getNiceTickValues(chartRadius)}

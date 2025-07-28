@@ -27,6 +27,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
@@ -50,7 +51,6 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
 from posthog.models import Action, Team, User
@@ -397,7 +397,9 @@ class Assistant:
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
-                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                    content=ToolClass(team=self._team, user=self._user).thinking_message
+                    if ToolClass
+                    else f"Running tool {tool_call.name}"
                 )
             case AssistantNodeName.ROOT:
                 ui_context = find_last_ui_context(input.messages)

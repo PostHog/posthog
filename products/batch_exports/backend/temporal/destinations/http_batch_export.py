@@ -20,7 +20,6 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
-    RecordsCompleted,
     StartBatchExportRunInputs,
     execute_batch_export_insert_activity,
     get_data_interval,
@@ -31,10 +30,14 @@ from products.batch_exports.backend.temporal.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.temporary_file import (
     BatchExportTemporaryFile,
     json_dumps_bytes,
 )
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
+
+NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError",)
 
 
 class RetryableResponseError(Exception):
@@ -153,7 +156,8 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 
 
 @activity.defn
-async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsCompleted:
+@handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to an HTTP Endpoint."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="HTTP")
     logger.info(
@@ -290,7 +294,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
                     last_uploaded_timestamp = str(inserted_at)
                     await flush_batch_to_http_endpoint(last_uploaded_timestamp, session)
 
-            return batch_file.records_total
+            return BatchExportResult(records_completed=batch_file.records_total)
 
 
 @workflow.defn(name="http-export")
@@ -364,9 +368,6 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             insert_into_http_activity,
             insert_inputs,
             interval=inputs.interval,
-            non_retryable_error_types=[
-                "NonRetryableResponseError",
-            ],
             finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,

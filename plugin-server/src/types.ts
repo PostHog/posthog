@@ -20,7 +20,7 @@ import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
-import { CyclotronJobQueueSource } from './cdp/types'
+import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ActionManagerCDP } from './utils/action-manager-cdp'
@@ -75,8 +75,6 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
-    cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
-    cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
     cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
@@ -111,6 +109,7 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
@@ -204,6 +203,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLICKHOUSE_CA: string | null // ClickHouse CA certs
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
+    CASSANDRA_HOST: string
+    CASSANDRA_PORT: number
+    CASSANDRA_KEYSPACE: string
+    CASSANDRA_USER: string | null
+    CASSANDRA_PASSWORD: string | null
+    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     // Redis url pretty much only used locally / self hosted
@@ -228,6 +233,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_MAX_BACKGROUND_TASKS: number
+    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
 
     // Kafka params - identical for client and producer
@@ -412,7 +418,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
-    eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub
@@ -434,10 +439,7 @@ export interface PluginServerCapabilities {
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerPlugins?: boolean
-    cdpCyclotronWorkerSegment?: boolean
     cdpBehaviouralEvents?: boolean
-    cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }

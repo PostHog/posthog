@@ -89,6 +89,51 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
+        assert spied_calls[0]["event_payload"].get("sent_at", None) is not None
+        # note: event payload passed to new capture_internal is mutated. here we inject a source marker
+        assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
+        assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_props)
+        # when process_person_profile is False, new capture_internal explicitly sets this on the event
+        assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is not None
+        assert spied_calls[0]["event_payload"]["properties"]["$process_person_profile"] is False
+
+    @patch("posthog.api.capture.Session")
+    def test_capture_internal_with_sent_at(self, mock_session_class):
+        token = "abc123"
+        distinct_id = "xyz987"
+        event_name = "test_event"
+        timestamp = datetime.now(UTC)
+
+        test_props = {
+            "$current_url": "https://example.com",
+            "$ip": "127.0.0.1",
+            "$lib": "python",
+            "$lib_version": "1.0.0",
+            "$screen_width": 1920,
+            "$screen_height": 1080,
+            "some_custom_property": True,
+        }
+
+        spy = InstallCapturePostSpy(mock_session_class)
+        response = capture_internal(
+            token=token,
+            event_name=event_name,
+            event_source="test_capture_internal",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            sent_at=timestamp,
+            properties=test_props,
+        )
+        assert response.status_code == 200
+
+        spied_calls = spy.get_calls()
+        assert len(spied_calls) == 1
+        assert f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}" in spied_calls[0]["url"]
+        assert spied_calls[0]["event_payload"]["event"] == event_name
+        assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
+        assert spied_calls[0]["event_payload"]["api_key"] == token
+        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
+        assert spied_calls[0]["event_payload"]["sent_at"] == timestamp.isoformat()
         # note: event payload passed to new capture_internal is mutated. here we inject a source marker
         assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_props)
@@ -138,6 +183,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
+        assert spied_calls[0]["event_payload"].get("sent_at", None) is not None
         assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_props)
         # when new capture_internal is called with process_person_profile == True, we don't alter the event payload
@@ -273,6 +319,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp.isoformat()
+        assert spied_calls[0]["event_payload"].get("sent_at", None) is not None
         assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_replay_props)
         assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is not None
@@ -415,6 +462,7 @@ class TestCaptureInternal(BaseTest):
             assert spied_calls[i]["event_payload"]["distinct_id"] == test_events[i]["distinct_id"]
             assert spied_calls[i]["event_payload"]["api_key"] == token
             assert spied_calls[i]["event_payload"]["timestamp"] == timestamp
+            assert spied_calls[i]["event_payload"].get("sent_at", None) is not None
             assert len(spied_calls[i]["event_payload"]["properties"]) == len(test_events[i]["properties"])
             # every event in the batch should be marked asinternally-sourced
             assert spied_calls[i]["event_payload"]["properties"]["capture_internal"] is True
