@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -72,6 +72,7 @@ import { EventType, InsightLogicProps } from '~/types'
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
+import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -136,8 +137,10 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
+    const { setSaveGroupViewModalOpen } = useActions(groupViewLogic)
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
         response &&
@@ -498,7 +501,23 @@ export function DataTable({
             />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.groupPropertyFilters) ? (
-            <GroupPropertyFilters key="group-property" query={query.source as GroupsQuery} setQuery={setQuerySource} />
+            <div className="flex gap-2">
+                <GroupPropertyFilters
+                    key="group-property"
+                    query={query.source as GroupsQuery}
+                    setQuery={setQuerySource}
+                />
+                {hasCrmIterationOneEnabled && (
+                    <LemonButton
+                        data-attr="save-group-view"
+                        type="primary"
+                        size="small"
+                        onClick={() => setSaveGroupViewModalOpen(true)}
+                    >
+                        Save view
+                    </LemonButton>
+                )}
+            </div>
         ) : null,
     ].filter((x) => !!x)
 
