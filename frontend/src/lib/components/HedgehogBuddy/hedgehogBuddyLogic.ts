@@ -171,16 +171,5 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         } else {
             actions.loadRemoteConfig()
         }
-
-        posthog.getEarlyAccessFeatures((features) => {
-            const relatedEAF = features.find((x) => x.flagKey === FEATURE_FLAGS.HEDGEHOG_MODE)
-            if (relatedEAF) {
-                if (posthog.getFeatureFlag(FEATURE_FLAGS.HEDGEHOG_MODE)) {
-                    actions.setHedgehogModeEnabled(true)
-                }
-
-                posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, false)
-            }
-        })
     }),
 ])
