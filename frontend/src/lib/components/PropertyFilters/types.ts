@@ -60,4 +60,5 @@ export interface PropertyFilterInternalProps {
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
+    showOptimizedHints?: boolean
 }

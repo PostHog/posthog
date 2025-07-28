@@ -50,6 +50,7 @@ export interface PropertyFiltersProps {
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
+    showOptimizedHints?: boolean
 }
 
 export function PropertyFilters({
@@ -83,6 +84,7 @@ export function PropertyFilters({
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
     addFilterDocLink,
+    showOptimizedHints = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -151,6 +153,7 @@ export function PropertyFilters({
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
+                                            showOptimizedHints={showOptimizedHints}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

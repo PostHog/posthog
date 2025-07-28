@@ -108,7 +108,13 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     exclude_hidden = serializers.BooleanField(
-        help_text="Whether to exclude properties marked as hidden",
+        help_text="Whether to exclude hidden properties",
+        required=False,
+        default=False,
+    )
+
+    show_optimized_hints = serializers.BooleanField(
+        help_text="Whether to show optimized hints for properties that support faster queries",
         required=False,
         default=False,
     )
