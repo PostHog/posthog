@@ -341,7 +341,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     categories = MessageCategory.objects.filter(deleted=False, team=recipient.team, category_type="marketing").order_by(
         "name"
     )
-    preferences = recipient.get_preferences() if recipient else {}
+    preferences = recipient.get_all_preferences() if recipient else {}
 
     context = {
         "recipient": recipient,

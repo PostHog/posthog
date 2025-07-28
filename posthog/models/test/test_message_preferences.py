@@ -85,8 +85,8 @@ class TestMessagePreferences(BaseTest):
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
         recipient.set_preference(category2.id, PreferenceStatus.OPTED_OUT)
 
-        # Test get_preferences method (returns dict of UUID to PreferenceStatus)
-        preferences = recipient.get_preferences()
+        # Test get_all_preferences method (returns dict of UUID to PreferenceStatus)
+        preferences = recipient.get_all_preferences()
         self.assertEqual(preferences[self.category.id], PreferenceStatus.OPTED_IN)
         self.assertEqual(preferences[category2.id], PreferenceStatus.OPTED_OUT)
 
