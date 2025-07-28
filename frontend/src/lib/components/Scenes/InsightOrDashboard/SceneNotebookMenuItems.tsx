@@ -75,7 +75,7 @@ export function SceneNotebookMenuItems({
             }
             loadAllNotebooks()
         }
-    }, [nodeLogic, resource, loadAllNotebooks, loadNotebooksContainingResource])
+    }, [nodeLogic, resource])
 
     return (
         <>

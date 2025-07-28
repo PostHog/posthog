@@ -254,7 +254,7 @@ function DictionaryField({
 
         const val = Object.fromEntries(filteredEntries)
         onChange?.({ ...input, value: val })
-    }, [entries, onChange, input])
+    }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
         setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])

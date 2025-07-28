@@ -34,7 +34,7 @@ export function SceneDescription({
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue, optional])
+    }, [localValue, defaultValue])
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-1">
