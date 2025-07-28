@@ -1019,9 +1019,13 @@ class TestMemoryCollectorToolsNode(BaseTest):
             self.node.run(state, {})
         self.assertEqual(str(e.exception), "Last message must be an AI message.")
 
-    def test_error_when_no_core_memory(self):
-        # Test error when core memory is not found
+    def test_creates_core_memory_when_missing(self):
+        # Test that core memory is created when it doesn't exist
         self.core_memory.delete()
+
+        # Verify no core memory exists
+        self.assertFalse(CoreMemory.objects.filter(team=self.team).exists())
+
         state = AssistantState(
             messages=[],
             memory_collection_messages=[
@@ -1038,6 +1042,56 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        with self.assertRaises(ValueError) as e:
-            self.node.run(state, {})
-        self.assertEqual(str(e.exception), "No core memory found.")
+        # Should not raise an error and should create core memory
+        new_state = self.node.run(state, {})
+
+        # Verify core memory was created
+        self.assertTrue(CoreMemory.objects.filter(team=self.team).exists())
+        created_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(created_memory.text, "\nNew memory")
+
+        # Verify response messages
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+
+    def test_creates_core_memory_when_missing_for_replace(self):
+        # Test that core memory is created when it doesn't exist, even for replace operations
+        self.core_memory.delete()
+
+        # Verify no core memory exists
+        self.assertFalse(CoreMemory.objects.filter(team=self.team).exists())
+
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Memory operation",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "nonexistent",
+                                "new_fragment": "New content",
+                            },
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        # Should not raise an error and should create core memory
+        new_state = self.node.run(state, {})
+
+        # Verify core memory was created (empty since replace failed)
+        self.assertTrue(CoreMemory.objects.filter(team=self.team).exists())
+        created_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(created_memory.text, "")  # Empty because replace of nonexistent fragment
+
+        # Verify response messages (replace should fail but not crash)
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertIn("not found", new_state.memory_collection_messages[1].content)
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
