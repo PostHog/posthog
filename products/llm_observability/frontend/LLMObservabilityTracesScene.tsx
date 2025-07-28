@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -69,12 +70,14 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
         <strong>
-            <Link
-                className="ph-no-capture"
-                to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
-            >
-                {row.id.slice(0, 4)}...{row.id.slice(-4)}
-            </Link>
+            <Tooltip title={row.id}>
+                <Link
+                    className="ph-no-capture"
+                    to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+                >
+                    {row.id.slice(0, 4)}...{row.id.slice(-4)}
+                </Link>
+            </Tooltip>
         </strong>
     )
 }

@@ -8,7 +8,6 @@ import posthoganalytics
 import pyarrow as pa
 import pyarrow.compute as pc
 from django.db.models import F
-from dlt.sources import DltSource
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -26,8 +25,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
-    _get_column_hints,
-    _get_primary_keys,
     _handle_null_columns_with_definitions,
     normalize_column_name,
     normalize_table_column_names,
@@ -38,7 +35,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
@@ -68,28 +65,14 @@ class PipelineNonDLT:
 
     def __init__(
         self,
-        source: DltSource | SourceResponse,
+        source: SourceResponse,
         logger: FilteringBoundLogger,
         job_id: str,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
     ) -> None:
-        if isinstance(source, DltSource):
-            resources = list(source.resources.items())
-            assert len(resources) == 1
-            resource_name, resource = resources[0]
-
-            self._resource_name = resource_name
-            self._resource = SourceResponse(
-                items=resource,
-                primary_keys=_get_primary_keys(resource),
-                name=resource_name,
-                column_hints=_get_column_hints(resource),
-                partition_count=None,
-            )
-        else:
-            self._resource = source
-            self._resource_name = source.name
+        self._resource = source
+        self._resource_name = source.name
 
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
         self._reset_pipeline = reset_pipeline

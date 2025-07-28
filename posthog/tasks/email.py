@@ -52,7 +52,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
         organization_id=team.organization_id
     )
     for membership in memberships:
-        if not membership.user.notification_settings.get(notification_setting, True):
+        if not should_send_notification(membership.user, notification_setting):
             continue
         team_permissions = UserPermissions(membership.user).team(team)
         # Only send the email to users who have access to the affected project
@@ -97,9 +97,9 @@ def should_send_notification(
 
         return True
 
-    # Default to False (disabled) if not set
+    # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
-        return not settings.get(notification_type, True)
+        return settings.get(notification_type, True)
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
