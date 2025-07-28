@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0807_dwh_source_refactor"),
+        ("posthog", "0808_add_evaluation_environment_to_feature_flag"),
     ]
 
     operations = [
