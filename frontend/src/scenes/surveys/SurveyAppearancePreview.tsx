@@ -61,7 +61,7 @@ export function SurveyAppearancePreview({
                 root: feedbackWidgetPreviewRef.current,
             })
         }
-    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles, sanitizedSurvey])
+    }, [survey, previewPageIndex, onPreviewSubmit, positionStyles])
 
     return <div ref={surveyPreviewRef} />
 }

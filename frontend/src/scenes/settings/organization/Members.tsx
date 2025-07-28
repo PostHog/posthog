@@ -200,7 +200,7 @@ export function Members(): JSX.Element | null {
 
     useEffect(() => {
         ensureAllMembersLoaded()
-    }, [ensureAllMembersLoaded])
+    }, [])
 
     if (!user) {
         return null

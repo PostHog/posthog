@@ -474,7 +474,7 @@ export const WebStatsTrendTile = ({
                 query,
             },
         }
-    }, [onWorldMapClick, insightProps, query])
+    }, [onWorldMapClick, insightProps])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -570,7 +570,7 @@ export const WebStatsTableTile = ({
             insightProps,
             rowProps,
         }
-    }, [onClick, insightProps, key, type, breakdownBy])
+    }, [onClick, insightProps])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
