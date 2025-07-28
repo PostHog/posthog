@@ -12,6 +12,8 @@ export function WrappingLoadingSkeleton({ children, fullWidth = false }: Wrappin
                 'wrapping-loading-skeleton [&>*]:opacity-0 rounded flex flex-col gap-px w-fit',
                 fullWidth && 'w-full'
             )}
+            aria-hidden
+            data-attr="wrapping-loading-skeleton"
         >
             {children}
         </div>

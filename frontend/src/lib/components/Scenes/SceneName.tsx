@@ -4,6 +4,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 import { SceneInputProps } from './utils'
+import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
 
 type SceneNameProps = SceneInputProps
 
@@ -13,6 +14,7 @@ export function SceneName({
     dataAttrKey,
     optional = false,
     canEdit = true,
+    isLoading = false,
 }: SceneNameProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -33,7 +35,11 @@ export function SceneName({
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue])
+    }, [localValue, defaultValue, optional])
+
+    if (isLoading) {
+        return <SceneLoadingSkeleton />
+    }
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">

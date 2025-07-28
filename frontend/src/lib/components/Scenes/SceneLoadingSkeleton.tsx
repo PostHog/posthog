@@ -6,7 +6,9 @@ export function SceneLoadingSkeleton({ fullWidth = true }: Pick<ButtonPrimitiveP
     return (
         <div className="flex flex-col gap-px">
             <WrappingLoadingSkeleton fullWidth={false}>
-                <Label intent="menu">Some label text</Label>
+                <Label intent="menu" aria-hidden>
+                    Some label text
+                </Label>
             </WrappingLoadingSkeleton>
 
             <WrappingLoadingSkeleton fullWidth={fullWidth}>

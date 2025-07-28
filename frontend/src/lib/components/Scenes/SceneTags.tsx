@@ -13,7 +13,13 @@ type SceneTagsProps = SceneCanEditProps &
         tagsAvailable?: string[]
     }
 
-export function SceneTags({ onSave, tags, tagsAvailable, dataAttrKey, canEdit = true }: SceneTagsProps): JSX.Element {
+export const SceneTags = ({
+    onSave,
+    tags,
+    tagsAvailable,
+    dataAttrKey,
+    canEdit = true,
+}: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)

@@ -4,6 +4,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 import { SceneInputProps } from './utils'
+import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
 
 type SceneDescriptionProps = SceneInputProps
 
@@ -13,6 +14,7 @@ export function SceneDescription({
     dataAttrKey,
     optional = false,
     canEdit = true,
+    isLoading = false,
 }: SceneDescriptionProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -33,7 +35,11 @@ export function SceneDescription({
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue])
+    }, [localValue, defaultValue, optional])
+
+    if (isLoading) {
+        return <SceneLoadingSkeleton />
+    }
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-1">
