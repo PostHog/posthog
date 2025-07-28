@@ -460,7 +460,7 @@ export const NotebookNodeChildRenderer = ({
 }: {
     nodeLogic: BuiltLogic<notebookNodeLogicType>
     content: NotebookNodeResource
-}): JSX.Element | null => {
+}): JSX.Element => {
     const options = KNOWN_NODES[content.type]
 
     // eslint-disable-next-line no-console

@@ -89,7 +89,8 @@ export function Notebook({
 
     useEffect(() => {
         setContainerSize(size as 'small' | 'medium')
-    }, [size, setContainerSize])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [size])
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
