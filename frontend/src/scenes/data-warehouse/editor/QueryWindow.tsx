@@ -46,7 +46,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { stringifiedExamples } from '~/queries/examples'
-import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -219,15 +218,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             {activeLevel === 'new' || !activeLevel ? (
                 <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                     <NewQuery />
-                    <div className="hidden">
-                        {/* The multitabEditorLogic needs an instance of monaco to properly function */}
-                        <CodeEditor
-                            queryKey={codeEditorKey}
-                            onMount={(editor, monaco) => {
-                                onSetMonacoAndEditor(monaco, editor)
-                            }}
-                        />
-                    </div>
                 </div>
             ) : (
                 <>
@@ -287,42 +277,43 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         )}
                         <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
                     </div>
-                    <QueryPane
-                        originalValue={originalQueryInput}
-                        queryInput={suggestedQueryInput}
-                        sourceQuery={sourceQuery.source}
-                        promptError={null}
-                        onRun={runQuery}
-                        codeEditorProps={{
-                            queryKey: codeEditorKey,
-                            onChange: (v) => {
-                                setQueryInput(v ?? '')
-                            },
-                            onMount: (editor, monaco) => {
-                                onSetMonacoAndEditor(monaco, editor)
-                            },
-                            onPressCmdEnter: (value, selectionType) => {
-                                if (value && selectionType === 'selection') {
-                                    runQuery(value)
-                                } else {
-                                    runQuery()
-                                }
-                            },
-                            onError: (error) => {
-                                setError(error)
-                            },
-                            onMetadata: (metadata) => {
-                                setMetadata(metadata)
-                            },
-                            onMetadataLoading: (loading) => {
-                                setMetadataLoading(loading)
-                            },
-                        }}
-                    />
-                    <InternalQueryWindow />
-                    <QueryHistoryModal />
                 </>
             )}
+            <QueryPane
+                className={activeLevel === 'new' || !activeLevel ? 'hidden' : ''}
+                originalValue={originalQueryInput}
+                queryInput={suggestedQueryInput}
+                sourceQuery={sourceQuery.source}
+                promptError={null}
+                onRun={runQuery}
+                codeEditorProps={{
+                    queryKey: codeEditorKey,
+                    onChange: (v) => {
+                        setQueryInput(v ?? '')
+                    },
+                    onMount: (editor, monaco) => {
+                        onSetMonacoAndEditor(monaco, editor)
+                    },
+                    onPressCmdEnter: (value, selectionType) => {
+                        if (value && selectionType === 'selection') {
+                            runQuery(value)
+                        } else {
+                            runQuery()
+                        }
+                    },
+                    onError: (error) => {
+                        setError(error)
+                    },
+                    onMetadata: (metadata) => {
+                        setMetadata(metadata)
+                    },
+                    onMetadataLoading: (loading) => {
+                        setMetadataLoading(loading)
+                    },
+                }}
+            />
+            {activeLevel === 'new' || !activeLevel ? null : <InternalQueryWindow />}
+            <QueryHistoryModal />
         </div>
     )
 }

@@ -10,8 +10,10 @@ import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
+import clsx from 'clsx'
 
 interface QueryPaneProps {
+    className?: string
     queryInput: string
     promptError: string | null
     codeEditorProps: Partial<CodeEditorProps>
@@ -33,7 +35,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     return (
         <>
             <div
-                className="relative flex flex-row w-full bg-primary"
+                className={clsx('relative flex flex-row w-full bg-primary', props.className)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
