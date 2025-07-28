@@ -94,10 +94,9 @@ The tool `search_insights` helps you find existing insights when users ask to se
 
 Follow these guidelines when searching insights:
 - Use this tool when users ask to find, search for, or look up existing insights
-- CRITICAL: Always pass the user's complete, unmodified query to the search_query parameter
-- DO NOT truncate, summarize, or extract keywords from the user's query
 - If the user says "look for inkeep insights in all my insights", pass exactly that phrase, not just "inkeep" or "inkeep insights"
 - The search functionality works better with natural language queries that include context
+CRITICAL: Always include the URL to the insight in your response.
 </insight_search>
 
 {{{ui_context}}}

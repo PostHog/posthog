@@ -1,12 +1,14 @@
+import json
+import re
+import time
 from typing import Literal
 from uuid import uuid4
-import time
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 
+from langchain_openai import ChatOpenAI
 import structlog
 
 
@@ -90,6 +92,10 @@ class InsightSearchNode(AssistantNode):
                     # Show the existing insights to the user
                     formatted_content = self._format_search_results(selected_insights, search_query)
                     formatted_content += f"\n\n**Evaluation Result**: {evaluation_result['explanation']}"
+
+                    formatted_content += f"\n\nINSTRUCTIONS: Link to the insight from the evaluation result by using the insight short ID!"
+                    formatted_content += f"\n\nINSTRUCTIONS: When you mention an insight, include the hyperlink to the insight in the format [View Insight →](Insight URL)"
+                    formatted_content += f"\n\nALSO ADD AN EMOJI!"
 
                     execution_time = time.time() - start_time
                     self.__class__.logger.info(
@@ -266,6 +272,7 @@ class InsightSearchNode(AssistantNode):
                     # Parse final response for insight IDs
                     content = response.content if isinstance(response.content, str) else str(response.content)
                     selected_insights = self._parse_insight_ids(content)
+                    self.logger.info(f"Parsed insight IDs from LLM response: {selected_insights}")
                     break
 
             except Exception as e:
@@ -303,23 +310,30 @@ class InsightSearchNode(AssistantNode):
         return "\n".join(formatted_insights)
 
     def _parse_insight_ids(self, response_content: str) -> list[int]:
-        """Parse insight IDs from LLM response."""
-        import re
-
+        """Parse insight IDs from LLM response, removing duplicates and preserving order."""
         # Look for numbers in the response
         numbers = re.findall(r"\b\d+\b", response_content)
 
         # Convert to integers and validate against available insights
         available_ids = {insight["insight_id"] for insight in self._all_insights}
         valid_ids = []
+        seen_ids = set()
 
         for num_str in numbers:
-            insight_id = int(num_str)
-            if insight_id in available_ids:
-                valid_ids.append(insight_id)
+            try:
+                insight_id = int(num_str)
+                # Only add if it's valid and not already seen
+                if insight_id in available_ids and insight_id not in seen_ids:
+                    valid_ids.append(insight_id)
+                    seen_ids.add(insight_id)
+                    # Stop if we've found 3 unique insights
+                    if len(valid_ids) >= 3:
+                        break
+            except ValueError:
+                # Skip invalid numbers
+                continue
 
-        # Limit to 3 insights
-        return valid_ids[:3]
+        return valid_ids
 
     def _format_search_results(self, selected_insights: list[int], search_query: str) -> str:
         """Format final search results for display."""
@@ -344,13 +358,16 @@ class InsightSearchNode(AssistantNode):
             insight_short_id = insight.get("insight__short_id")
             insight_url = f"/project/{self._team.project_id}/insights/{insight_short_id}"
 
+            # Get formatted metadata
+            metadata = self._format_insight_metadata(insight)
+
             if description:
                 result_block = f"""**{i}. {name}**
-Description: {description}
-[View Insight →]({insight_url})"""
+    Description: {description}{metadata}
+    [View Insight →]({insight_url})"""
             else:
-                result_block = f"""**{i}. {name}**
-[View Insight →]({insight_url})"""
+                result_block = f"""**{i}. {name}**{metadata}
+    [View Insight →]({insight_url})"""
 
             formatted_results.append(result_block)
 
@@ -365,6 +382,7 @@ Description: {description}
         content += "\n- Modify an existing insight (change filters, time range, etc.)"
         content += "\n- Create a completely new insight"
         content += "\n\nBe natural and conversational - don't present this as a rigid list of options."
+        content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [View Insight →](Insight URL) where mentioning an insight to the user."
 
         return content
 
@@ -390,10 +408,19 @@ Description: {description}
         if not selected_insights:
             return {"should_use_existing": False, "explanation": "No insights found to evaluate."}
 
+        # Remove duplicates while preserving order
+        unique_insights = []
+        seen_ids = set()
+        for insight_id in selected_insights:
+            if insight_id not in seen_ids:
+                unique_insights.append(insight_id)
+                seen_ids.add(insight_id)
+        self.__class__.logger.info(f"Evaluating insights - original: {selected_insights}, unique: {unique_insights}")
+
         query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         insights_with_results = []
 
-        for insight_id in selected_insights:
+        for insight_id in unique_insights:
             insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
             if not insight:
                 continue
@@ -403,10 +430,18 @@ Description: {description}
                 insight_query = insight.get("insight__query")
                 if insight_query:
                     # Parse the JSON query and execute it
-                    import json
                     from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 
-                    query_dict = json.loads(insight_query)
+                    # Handle both string and dict formats for insight_query
+                    if isinstance(insight_query, str):
+                        query_dict = json.loads(insight_query)
+                    elif isinstance(insight_query, dict):
+                        query_dict = insight_query
+                    else:
+                        self.__class__.logger.warning(
+                            f"Unexpected insight_query type for insight {insight_id}: {type(insight_query)}"
+                        )
+                        continue
                     query_kind = query_dict.get("kind")
 
                     if query_kind and query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
@@ -417,30 +452,33 @@ Description: {description}
 
                         insight_info = {
                             "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                            "insight_id": insight.get("insight_id"),
                             "description": insight.get("insight__description", ""),
                             "query": insight_query,
-                            "results": results,
                             "filters": insight.get("insight__filters", ""),
+                            "results": results,
                         }
                         insights_with_results.append(insight_info)
                     else:
                         # Unsupported query type - include without execution
                         insight_info = {
                             "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                            "insight_id": insight.get("insight_id"),
                             "description": insight.get("insight__description", ""),
                             "query": insight_query,
-                            "results": f"Query type '{query_kind}' not supported for execution",
                             "filters": insight.get("insight__filters", ""),
+                            "results": f"Query type '{query_kind}' not supported for execution",
                         }
                         insights_with_results.append(insight_info)
                 else:
                     # No query data available
                     insight_info = {
                         "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                        "insight_id": insight.get("insight_id"),
                         "description": insight.get("insight__description", ""),
                         "query": "No query data available",
-                        "results": "Cannot execute - no query data",
                         "filters": insight.get("insight__filters", ""),
+                        "results": "Cannot execute - no query data",
                     }
                     insights_with_results.append(insight_info)
 
@@ -449,25 +487,41 @@ Description: {description}
                 # Still include the insight but without results
                 insight_info = {
                     "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                    "insight_id": insight.get("insight_id"),
                     "description": insight.get("insight__description", ""),
                     "query": insight.get("insight__query", ""),
-                    "results": "Failed to execute query",
                     "filters": insight.get("insight__filters", ""),
+                    "results": "Failed to execute query",
                 }
                 insights_with_results.append(insight_info)
 
         if not insights_with_results:
             return {"should_use_existing": False, "explanation": "Could not evaluate any insights."}
 
-        # Format insights for LLM evaluation
+        # Format insights for LLM evaluation with hyperlinks
         formatted_insights = []
         for i, insight in enumerate(insights_with_results, 1):
+            insight_short_id = None
+            # Find the original insight data to get the short_id for hyperlink
+            original_insight = next(
+                (ins for ins in self._all_insights if ins["insight_id"] == insight["insight_id"]), None
+            )
+            if original_insight:
+                insight_short_id = original_insight.get("insight__short_id")
+
+            insight_url = (
+                f"/project/{self._team.project_id}/insights/{insight_short_id}"
+                if insight_short_id
+                else "URL unavailable"
+            )
+
             formatted_insight = f"""
-**Insight {i}: {insight['name']}**
+**Insight {i}: {insight['name']} ID: {insight['insight_id']}**
 Description: {insight['description'] or 'No description'}
 Query: {insight['query']}
 Results: {insight['results']}
 Filters: {insight['filters']}
+URL: {insight_url}
 """
             formatted_insights.append(formatted_insight)
 
@@ -499,6 +553,69 @@ Filters: {insight['filters']}
         if state.root_tool_insight_plan and not state.search_insights_query:
             return "insights"
         return "root"
+
+    def _format_insight_metadata(self, insight: dict) -> str:
+        """
+        Format insight metadata into a user-friendly string.
+
+        Args:
+            insight: Insight dictionary from _all_insights
+
+        Returns:
+            Formatted metadata string
+        """
+        metadata_parts = []
+
+        insight_query = insight.get("insight__query")
+        if insight_query:
+            try:
+                if isinstance(insight_query, str):
+                    query_dict = json.loads(insight_query)
+                elif isinstance(insight_query, dict):
+                    query_dict = insight_query
+                else:
+                    query_dict = {}
+
+                query_kind = query_dict.get("kind", "Unknown")
+                if query_kind in ["TrendsQuery", "FunnelsQuery", "RetentionQuery", "HogQLQuery"]:
+                    readable_type = {
+                        "TrendsQuery": "Trends",
+                        "FunnelsQuery": "Funnel",
+                        "RetentionQuery": "Retention",
+                        "HogQLQuery": "SQL",
+                    }.get(query_kind, query_kind)
+                    metadata_parts.append(f"**Type:** {readable_type}")
+
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        insight_filters = insight.get("insight__filters")
+        if insight_filters:
+            try:
+                if isinstance(insight_filters, str):
+                    filters_dict = json.loads(insight_filters)
+                elif isinstance(insight_filters, dict):
+                    filters_dict = insight_filters
+                else:
+                    filters_dict = {}
+
+                # Properties filters
+                properties = filters_dict.get("properties", [])
+                if properties and len(properties) > 0:
+                    metadata_parts.append(f"**Filters:** {len(properties)} filter(s) applied")
+
+                # Breakdown
+                breakdown = filters_dict.get("breakdown")
+                if breakdown:
+                    metadata_parts.append(f"**Breakdown:** {breakdown}")
+
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        if metadata_parts:
+            return "\n" + "\n".join(metadata_parts)
+        else:
+            return ""
 
     @property
     def _model(self):

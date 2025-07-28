@@ -13,6 +13,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
+from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
@@ -602,39 +603,22 @@ class RootNode(RootNodeUIContextMixin):
         logger.info(f"has_modification_intent: {has_modification_intent}")
 
         if has_modification_intent:
-            # Extract insight references (numbers, "first", "second", etc.)
-            import re
-
-            # Look for insight numbers or ordinals
-            insight_refs = []
-
-            # Find numbers that could be insight IDs
-            numbers = re.findall(r"\b\d+\b", user_content)
-            insight_refs.extend(numbers)
-
-            # Find ordinals (first, second, third)
-            ordinal_map = {"first": "1", "second": "2", "third": "3", "1st": "1", "2nd": "2", "3rd": "3"}
-            for ordinal, number in ordinal_map.items():
-                if ordinal in user_content:
-                    insight_refs.append(number)
-
             context = f"""
 <insight_modification_context>
-URGENT ACTION REQUIRED: The user has just seen insight search results and wants to modify an existing insight.
+The user has just seen insight search results and is interested in using an existing insight.
 
 User's exact request: "{last_human_message.content}"
 
-YOU MUST IMMEDIATELY CALL THE create_and_query_insight TOOL.
+Previous search results showed: {search_results_message.content[:200]}...
 
-Do NOT respond with explanatory text. Do NOT say what you're going to do.
-IMMEDIATELY call create_and_query_insight with a query_description that includes:
-1. The user's modification request
-2. Reference to the existing insight they want to modify
-3. The specific changes they want
+Respond naturally to the user about the existing insight they're interested in.
+ALWAYS include the relevant hyperlink in your response so they can access the insight.
+Be conversational and helpful, mentioning what the insight does and offering to help them view it or create modifications.
 
-The user is waiting for you to actually perform the modification, not just talk about it.
+Example response format:
+"I found an existing insight called [insight name] that already [does what they want]. You can [view the insight here](HYPERLINK) or let me know if you want to modify it..."
 
-CALL THE TOOL NOW.
+DO NOT call create_and_query_insight tool - just respond conversationally with the hyperlink included.
 </insight_modification_context>"""
 
             return context
@@ -813,3 +797,54 @@ class RootNodeTools(AssistantNode):
         ]
 
         return any(keyword in user_content for keyword in intent_keywords)
+
+    async def _detect_modification_intent(self, query_description: str) -> bool:
+        """
+        Determine if the query description is asking to modify an existing insight.
+        """
+        classification_prompt = f"""Analyze this query description and determine if it's asking to modify an existing insight or create a new one.
+
+Query: "{query_description}"
+
+INSTRUCTIONS:
+- Return "MODIFY" if the query is asking to modify/update/change an existing insight
+- Return "CREATE" if the query is asking to create a new insight from scratch
+
+Examples:
+- "Modify the existing Bills paid insight to show last 5 days" → MODIFY
+- "Update that insight to use different filters" → MODIFY
+- "Change the time range on the existing chart" → MODIFY
+- "Create a new insight showing user behavior" → CREATE
+- "Build a trends chart for tracking events" → CREATE
+- "Show me signup metrics over time" → CREATE
+
+Answer with just MODIFY or CREATE (one word only):"""
+
+        try:
+            classification_model = ChatOpenAI(
+                model="gpt-4o-mini",
+                temperature=0,
+                max_tokens=10,
+                timeout=5,
+            )
+
+            response = await classification_model.ainvoke([LangchainHumanMessage(content=classification_prompt)])
+
+            result = response.content.strip().upper()
+            logger.info(f"LLM classification response: '{result}'")
+
+            return "MODIFY" in result
+
+        except Exception as e:
+            logger.warning(f"LLM classification failed, falling back to pattern matching: {e}")
+            # Fallback
+            query_lower = query_description.lower()
+            fallback_patterns = [
+                "modify the existing",
+                "modify existing",
+                "update the existing",
+                "update existing",
+                "change the existing",
+                "change existing",
+            ]
+            return any(pattern in query_lower for pattern in fallback_patterns)
