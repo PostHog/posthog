@@ -86,7 +86,7 @@ interface PinnedColumnInfo {
  * @param allColumns - All the columns
  * @returns The pinned column info
  * example:
- * getPinnedColumnInfo(
+ * getStickyColumnInfo(
  *     'source',
  *     ['source', 'campaign'],
  *     [100, 200],

@@ -6,17 +6,15 @@ import { LemonTableColumn } from '../lemon-ui/LemonTable/types'
 interface UseColumnWidthsProps {
     columnKeys?: string[]
     columns: LemonTableColumn<any, any>[]
-    dataSource: any[]
 }
 
 /**
  * Hook to measure the width of columns in a table.
  * @param columnKeys - The keys of the columns to measure.
  * @param columns - The columns to measure.
- * @param dataSource - The data source of the table.
  * @returns The width of the columns and the table reference.
  */
-export function useColumnWidths({ columnKeys, columns, dataSource }: UseColumnWidthsProps): {
+export function useColumnWidths({ columnKeys, columns }: UseColumnWidthsProps): {
     columnWidths: number[]
     tableRef: React.RefObject<HTMLTableElement>
 } {
@@ -57,7 +55,7 @@ export function useColumnWidths({ columnKeys, columns, dataSource }: UseColumnWi
                 measureColumnWidths()
             })
         }
-    }, [measureColumnWidths, columnKeys, dataSource])
+    }, [measureColumnWidths, columnKeys])
 
     return {
         columnWidths,

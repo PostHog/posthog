@@ -166,7 +166,6 @@ export function LemonTable<T extends Record<string, any>>({
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
         columnKeys: pinnedColumns,
         columns,
-        dataSource,
     })
 
     /** Sorting. */
@@ -297,7 +296,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                     pinnedColumnWidths,
                                                     columns
                                                 )
-                                                const { isSticky, leftPosition } = stickyInfo
+                                                const { isSticky: isPinned, leftPosition } = stickyInfo
 
                                                 return (
                                                     <th
@@ -310,13 +309,13 @@ export function LemonTable<T extends Record<string, any>>({
                                                                 columnGroupIndex === 0 &&
                                                                 columnIndex === 0 &&
                                                                 'LemonTable__header--sticky',
-                                                            isSticky && 'LemonTable__header--pinned',
+                                                            isPinned && 'LemonTable__header--pinned',
                                                             column.className
                                                         )}
                                                         /* eslint-disable-next-line react/forbid-dom-props */
                                                         style={{
                                                             textAlign: column.align,
-                                                            ...(isSticky ? { left: `${leftPosition}px` } : {}),
+                                                            ...(isPinned ? { left: `${leftPosition}px` } : {}),
                                                         }}
                                                         onClick={
                                                             column.sorter && !column.more
@@ -451,7 +450,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             firstColumnSticky={firstColumnSticky}
                                             pinnedColumns={pinnedColumns}
                                             pinnedColumnWidths={pinnedColumnWidths}
-                                            allColumns={columns}
+                                            columns={columns}
                                         />
                                     )
                                 })

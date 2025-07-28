@@ -20,7 +20,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowCount: number
     pinnedColumns?: string[]
     pinnedColumnWidths?: number[]
-    allColumns?: LemonTableColumn<T, any>[]
+    columns?: LemonTableColumn<T, any>[]
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -37,7 +37,7 @@ function TableRowRaw<T extends Record<string, any>>({
     rowCount,
     pinnedColumns,
     pinnedColumnWidths,
-    allColumns,
+    columns,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -109,12 +109,11 @@ function TableRowRaw<T extends Record<string, any>>({
                             const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
 
                             // Check if this column is pinned
-                            const columnKey = columnKeyRaw ? String(columnKeyRaw) : columnIndex.toString()
                             const { isSticky: isColumnSticky, leftPosition } = getStickyColumnInfo(
-                                columnKey,
+                                columnKeyOrIndex.toString(),
                                 pinnedColumns,
                                 pinnedColumnWidths,
-                                allColumns
+                                columns
                             )
 
                             const extraCellProps =
