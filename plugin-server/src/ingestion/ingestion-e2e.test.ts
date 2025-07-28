@@ -159,7 +159,7 @@ const testWithTeamIngesterBase = (
     pluginServerConfig: Partial<PluginsServerConfig> = {},
     teamOverrides: Partial<Team> = {}
 ) => {
-    test.concurrent(name, async () => {
+    test(name, async () => {
         const hub = await createHub({
             PLUGINS_DEFAULT_LOG_LEVEL: 0,
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
