@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="insight",
-            name="query_metadata",
+            name="insight_metadata",
             field=models.JSONField(blank=True, null=True),
         ),
     ]
