@@ -66,25 +66,19 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item && item.record?.type === 'draft') {
                     const draft = item.record.draft
 
-                    // Look for existing tab with this draft
                     const existingTab = allTabs.find((tab) => {
                         return tab.draftId === draft.id
                     })
 
                     if (existingTab) {
-                        // Focus existing tab
                         selectTab(existingTab)
                     } else {
-                        // Get the associated view if it exists
                         const associatedView = draft.saved_query_id
                             ? dataWarehouseSavedQueryMapById[draft.saved_query_id]
                             : undefined
 
-                        // Create new tab with draft content
                         createTab(draft.query.query, associatedView)
 
-                        // Associate the draft ID with the newly created tab
-                        // We need to wait a tick for the tab to be created
                         setTimeout(() => {
                             const newTab = allTabs[allTabs.length - 1] // Get the most recently created tab
                             if (newTab) {
