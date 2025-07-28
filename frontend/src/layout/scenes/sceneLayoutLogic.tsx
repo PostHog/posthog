@@ -7,7 +7,6 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),
         setScenePanelOpen: (open: boolean) => ({ open }),
-        setScenePanelIsOverlay: (isOverlay: boolean) => ({ isOverlay }),
     }),
     reducers({
         scenePanelElement: [
@@ -26,12 +25,6 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             false,
             {
                 setScenePanelOpen: (_, { open }) => open,
-            },
-        ],
-        scenePanelIsOverlay: [
-            true,
-            {
-                setScenePanelIsOverlay: (_, { isOverlay }) => isOverlay,
             },
         ],
     }),

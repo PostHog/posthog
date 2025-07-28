@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
@@ -34,7 +34,7 @@ common_filters = {
 }
 
 
-template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
+template_create_contact: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -44,7 +44,7 @@ template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     return false
 }
@@ -89,7 +89,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 )
 
 
-template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
+template_update_contact_list: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -99,7 +99,7 @@ template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
     code_language="hog",
-    hog="""
+    code="""
 if (empty(inputs.email)) {
     return false
 }
