@@ -94,6 +94,8 @@ def get_postgres_row_count(
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: row[1] for row in row_count_result}
         return row_counts
+    except:
+        return {}
     finally:
         connection.close()
 
