@@ -97,8 +97,13 @@ export class Clickhouse {
                         Math.round((performance.now() - timer) / 100) / 10
                     }s since start. Error: ${error}`
                 )
-                const res = await fetch('http://localhost:8123/ping')
-                console.log('ClickHouse ping', res.status, await res.text())
+                const res = await fetch('http://localhost:8123/ping').catch((e) => {
+                    console.log('ClickHouse ping failed', e)
+                    return null
+                })
+                if (res) {
+                    console.log('ClickHouse ping', res.status, await res.text())
+                }
 
                 await delay(delayMs)
             }
