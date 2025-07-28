@@ -12,7 +12,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
-    const pipelineErrorsEnabled = !user?.notification_settings?.plugin_disabled
+    const pipelineErrorsEnabled = user?.notification_settings?.plugin_disabled
 
     const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
         if (!user?.notification_settings) {
