@@ -10,6 +10,7 @@ from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import ClickhouseTestMixin
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
@@ -27,6 +28,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                 }
             ],
         )
+        HogFunctionTemplate.create_from_dataclass(template_zapier)
 
     def test_delete_hook(self):
         hook_id = "abc123"

@@ -3,8 +3,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.models import Team
 from posthog.schema import RecordingsQuery, PropertyGroupFilterValue, FilterLogicalOperator
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.utils import is_person_property, poe_is_active
+from posthog.session_recordings.queries_to_delete.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries_to_delete.utils import is_person_property, poe_is_active
 
 
 class PersonsPropertiesSubQuery(SessionRecordingsListingBaseQuery):

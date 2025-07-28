@@ -37,6 +37,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     extraDataTableQueryFeatures?: QueryFeature[]
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    /** Whether to format numbers in human friendly format. */
+    formatNumbers?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

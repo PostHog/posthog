@@ -77,39 +77,49 @@ describe('processEvent', () => {
     let clickhouse: Clickhouse
 
     beforeAll(async () => {
-        clickhouse = Clickhouse.create()
         await resetKafka(TEST_CONFIG)
     })
 
     beforeEach(async () => {
-        const testCode = `
+        try {
+            clickhouse = Clickhouse.create()
+            const testCode = `
                 function processEvent (event, meta) {
                     event.properties["somewhere"] = "over the rainbow";
                     return event
                 }
             `
-        await resetTestDatabase(testCode, TEST_CONFIG)
-        await clickhouse.resetTestDatabase()
+            console.log('beforeEach', 'resetTestDatabase')
+            await resetTestDatabase(testCode, TEST_CONFIG)
+            console.log('beforeEach', 'clickhouse.resetTestDatabase')
+            await clickhouse.resetTestDatabase()
+            console.log('beforeEach', 'createHub')
+            hub = await createHub({ ...TEST_CONFIG })
 
-        hub = await createHub({ ...TEST_CONFIG })
+            console.log('beforeEach', 'new EventsProcessor')
+            eventsProcessor = new EventsProcessor(hub)
+            processEventCounter = 0
+            mockClientEventCounter = 0
+            team = await getFirstTeam(hub)
+            now = DateTime.utc()
 
-        eventsProcessor = new EventsProcessor(hub)
-        processEventCounter = 0
-        mockClientEventCounter = 0
-        team = await getFirstTeam(hub)
-        now = DateTime.utc()
-
-        // clear the webhook redis cache
-        const redis = await createRedis(hub, 'ingestion')
-        const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-        await redis.del(hooksCacheKey)
-        await redis.quit()
-
-        // Always start with an anonymous state
-        state = { currentDistinctId: 'anonymous_id' }
+            // clear the webhook redis cache
+            console.log('beforeEach', 'createRedis')
+            const redis = await createRedis(hub, 'ingestion')
+            const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+            await redis.del(hooksCacheKey)
+            await redis.quit()
+            // Always start with an anonymous state
+            state = { currentDistinctId: 'anonymous_id' }
+            console.log('beforeEach', 'done')
+        } catch (e) {
+            console.error('beforeEach', 'error', e, e.stack)
+            throw e
+        }
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await closeHub(hub)
     })
 

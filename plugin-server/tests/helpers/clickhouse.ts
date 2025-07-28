@@ -9,7 +9,6 @@ import {
     ClickHousePersonDistinctId2,
     DeadLetterQueueEvent,
     InternalPerson,
-    PluginLogEntry,
     RawClickHouseEvent,
     RawSessionRecordingEvent,
 } from '~/types'
@@ -42,6 +41,7 @@ export class Clickhouse {
             username: CLICKHOUSE_USER,
             password: CLICKHOUSE_PASSWORD || undefined,
             database: CLICKHOUSE_DATABASE,
+            max_open_connections: 30,
         })
 
         return clickhouse
@@ -52,26 +52,55 @@ export class Clickhouse {
         return new Clickhouse(client)
     }
 
+    close(): void {
+        this.client.close()
+    }
+
     async truncate(table: string) {
         await this.exec(`TRUNCATE ${table}`)
     }
 
     async resetTestDatabase(): Promise<void> {
-        await Promise.all([
+        await this.waitForHealthy()
+        // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
+        await Promise.allSettled([
             this.truncate('sharded_events'),
             this.truncate('person'),
             this.truncate('person_distinct_id'),
             this.truncate('person_distinct_id2'),
             this.truncate('person_distinct_id_overrides'),
+        ])
+
+        await Promise.allSettled([
             this.truncate('person_static_cohort'),
             this.truncate('sharded_session_recording_events'),
-            this.truncate('plugin_log_entries'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
             this.truncate('ingestion_warnings'),
-            this.truncate('sharded_ingestion_warnings'),
-            this.truncate('sharded_app_metrics'),
         ])
+
+        await Promise.allSettled([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
+    }
+
+    async waitForHealthy(delayMs = 100, maxDelayCount = 100): Promise<void> {
+        const timer = performance.now()
+
+        for (let i = 0; i < maxDelayCount; i++) {
+            try {
+                await this.query('SELECT 1')
+                console.log(`ClickHouse healthy after ${Math.round((performance.now() - timer) / 100) / 10}s`)
+                return
+            } catch (error) {
+                console.log(
+                    `ClickHouse not healthy yet. ${
+                        Math.round((performance.now() - timer) / 100) / 10
+                    }s since start. Error: ${error}`
+                )
+                await delay(delayMs)
+            }
+        }
+
+        throw Error(`ClickHouse failed to become healthy after ${maxDelayCount * delayMs}ms`)
     }
 
     async delayUntilEventIngested<T extends any[] | number>(
@@ -102,9 +131,17 @@ export class Clickhouse {
     }
 
     async exec(query: string): Promise<ExecResult<Readable>> {
-        return await this.client.exec({
-            query,
-        })
+        try {
+            return await this.client.exec({
+                query,
+            })
+        } catch (e) {
+            console.error('Clickhouse exec failed', {
+                query,
+                error: e,
+            })
+            throw e
+        }
     }
 
     query<T>(query: string): Promise<T[]> {
@@ -195,13 +232,6 @@ export class Clickhouse {
                 snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
-    }
-
-    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
-
-    public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        const queryResult = await this.query<PluginLogEntry>(`SELECT * FROM plugin_log_entries`)
-        return queryResult
     }
 
     public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
