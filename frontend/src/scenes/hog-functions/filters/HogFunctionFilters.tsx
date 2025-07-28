@@ -95,6 +95,8 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
     const showSourcePicker = type === 'destination' && !useMapping
 
+    const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
+
     const mainContent = (
         <div
             className={clsx(
@@ -112,9 +114,9 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     { value: 'events', label: 'Events' },
                                     { value: 'person-updates', label: 'Person updates' },
                                 ]}
-                                value={value?.type ?? 'events'}
+                                value={value?.source ?? 'events'}
                                 onChange={(val) => {
-                                    onChange({ ...value, type: val })
+                                    onChange({ ...value, source: val })
                                 }}
                             />
                         )
@@ -172,7 +174,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
                             />
 
-                            {!useMapping ? (
+                            {showEventMatchers ? (
                                 <>
                                     <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
@@ -284,7 +286,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 }}
             </LemonField>
 
-            {filtersContainPersonProperties ? (
+            {filtersContainPersonProperties && showEventMatchers ? (
                 <LemonBanner type="warning">
                     You are filtering on Person properties. Be aware that this filtering applies at the time the event
                     is processed so if Person Profiles are not enabled or the person property has not been set by then
