@@ -1,5 +1,47 @@
 [
     {
+        "model": "aion-1.0",
+        "cost": {
+            "prompt_token": 0.000004,
+            "completion_token": 0.000008
+        }
+    },
+    {
+        "model": "aion-1.0-mini",
+        "cost": {
+            "prompt_token": 7e-7,
+            "completion_token": 0.0000014
+        }
+    },
+    {
+        "model": "aion-rp-llama-3.1-8b",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "anubis-70b-v1.1",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
+        "model": "anubis-pro-105b-v1",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "auto",
+        "cost": {
+            "prompt_token": -1,
+            "completion_token": -1
+        }
+    },
+    {
         "model": "chatgpt-4o-latest",
         "cost": {
             "prompt_token": 0.000005,
@@ -160,6 +202,20 @@
         }
     },
     {
+        "model": "codellama-7b-instruct-solidity",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "coder-large",
+        "cost": {
+            "prompt_token": 5e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
         "model": "codestral-2501",
         "cost": {
             "prompt_token": 3e-7,
@@ -235,6 +291,34 @@
         "cost": {
             "prompt_token": 3.75e-8,
             "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "deepcoder-14b-preview",
+        "cost": {
+            "prompt_token": 1.5e-8,
+            "completion_token": 1.5e-8
+        }
+    },
+    {
+        "model": "deepcoder-14b-preview:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deephermes-3-llama-3-8b-preview:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deephermes-3-mistral-24b-preview",
+        "cost": {
+            "prompt_token": 1.41e-7,
+            "completion_token": 1.41e-7
         }
     },
     {
@@ -364,6 +448,27 @@
         }
     },
     {
+        "model": "deepseek-r1t-chimera:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "deepseek-r1t2-chimera",
+        "cost": {
+            "prompt_token": 3.02e-7,
+            "completion_token": 3.02e-7
+        }
+    },
+    {
+        "model": "deepseek-r1t2-chimera:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "deepseek-v3-base",
         "cost": {
             "prompt_token": 3.02e-7,
@@ -396,6 +501,62 @@
         "cost": {
             "prompt_token": 0,
             "completion_token": 0
+        }
+    },
+    {
+        "model": "dolphin-mistral-24b-venice-edition:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "dolphin-mixtral-8x22b",
+        "cost": {
+            "prompt_token": 9e-7,
+            "completion_token": 9e-7
+        }
+    },
+    {
+        "model": "dolphin3.0-mistral-24b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "dolphin3.0-r1-mistral-24b",
+        "cost": {
+            "prompt_token": 1.3e-8,
+            "completion_token": 1.3e-8
+        }
+    },
+    {
+        "model": "dolphin3.0-r1-mistral-24b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "ernie-4.5-300b-a47b",
+        "cost": {
+            "prompt_token": 2.8e-7,
+            "completion_token": 0.0000011
+        }
+    },
+    {
+        "model": "eva-qwen-2.5-72b",
+        "cost": {
+            "prompt_token": 0.000004,
+            "completion_token": 0.000006
+        }
+    },
+    {
+        "model": "fimbulvetr-11b-v2",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
         }
     },
     {
@@ -592,6 +753,71 @@
         }
     },
     {
+        "model": "glm-4-32b",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "glm-4-32b",
+        "cost": {
+            "prompt_token": 2.4e-7,
+            "completion_token": 2.4e-7
+        }
+    },
+    {
+        "model": "glm-4-32b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "glm-4.1v-9b-thinking",
+        "cost": {
+            "prompt_token": 3.5e-8,
+            "completion_token": 1.38e-7
+        }
+    },
+    {
+        "model": "glm-4.5",
+        "cost": {
+            "prompt_token": 6e-7,
+            "completion_token": 0.0000022,
+            "cache_read_token": 1.1e-7
+        }
+    },
+    {
+        "model": "glm-4.5-air",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 0.0000011,
+            "cache_read_token": 3e-8
+        }
+    },
+    {
+        "model": "glm-z1-32b",
+        "cost": {
+            "prompt_token": 3e-8,
+            "completion_token": 3e-8
+        }
+    },
+    {
+        "model": "glm-z1-32b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "goliath-120b",
+        "cost": {
+            "prompt_token": 0.000009,
+            "completion_token": 0.000011
+        }
+    },
+    {
         "model": "gpt-3.5-turbo",
         "cost": {
             "prompt_token": 5e-7,
@@ -747,6 +973,221 @@
         }
     },
     {
+        "model": "grok-2-1212",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.00001
+        }
+    },
+    {
+        "model": "grok-2-vision-1212",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.00001
+        }
+    },
+    {
+        "model": "grok-3",
+        "cost": {
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
+        }
+    },
+    {
+        "model": "grok-3-beta",
+        "cost": {
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
+        }
+    },
+    {
+        "model": "grok-3-mini",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 5e-7,
+            "cache_read_token": 7.5e-8
+        }
+    },
+    {
+        "model": "grok-3-mini-beta",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 5e-7,
+            "cache_read_token": 7.5e-8
+        }
+    },
+    {
+        "model": "grok-4",
+        "cost": {
+            "prompt_token": 0.000003,
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
+        }
+    },
+    {
+        "model": "grok-vision-beta",
+        "cost": {
+            "prompt_token": 0.000005,
+            "completion_token": 0.000015
+        }
+    },
+    {
+        "model": "hermes-2-pro-llama-3-8b",
+        "cost": {
+            "prompt_token": 2.5e-8,
+            "completion_token": 4e-8
+        }
+    },
+    {
+        "model": "hermes-3-llama-3.1-405b",
+        "cost": {
+            "prompt_token": 7e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
+        "model": "hermes-3-llama-3.1-70b",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 2.8e-7
+        }
+    },
+    {
+        "model": "hunyuan-a13b-instruct",
+        "cost": {
+            "prompt_token": 3e-8,
+            "completion_token": 3e-8
+        }
+    },
+    {
+        "model": "hunyuan-a13b-instruct:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "inflection-3-pi",
+        "cost": {
+            "prompt_token": 0.0000025,
+            "completion_token": 0.00001
+        }
+    },
+    {
+        "model": "inflection-3-productivity",
+        "cost": {
+            "prompt_token": 0.0000025,
+            "completion_token": 0.00001
+        }
+    },
+    {
+        "model": "internvl3-14b",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "jamba-1.6-large",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008
+        }
+    },
+    {
+        "model": "jamba-1.6-mini",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "kimi-dev-72b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "kimi-k2",
+        "cost": {
+            "prompt_token": 1.3e-7,
+            "completion_token": 1.3e-7
+        }
+    },
+    {
+        "model": "kimi-k2:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "kimi-vl-a3b-thinking",
+        "cost": {
+            "prompt_token": 3.8e-8,
+            "completion_token": 3.8e-8
+        }
+    },
+    {
+        "model": "kimi-vl-a3b-thinking:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "l3-euryale-70b",
+        "cost": {
+            "prompt_token": 0.00000148,
+            "completion_token": 0.00000148
+        }
+    },
+    {
+        "model": "l3-lunaris-8b",
+        "cost": {
+            "prompt_token": 2e-8,
+            "completion_token": 5e-8
+        }
+    },
+    {
+        "model": "l3.1-euryale-70b",
+        "cost": {
+            "prompt_token": 6.5e-7,
+            "completion_token": 7.5e-7
+        }
+    },
+    {
+        "model": "l3.3-euryale-70b",
+        "cost": {
+            "prompt_token": 6.5e-7,
+            "completion_token": 7.5e-7
+        }
+    },
+    {
+        "model": "lfm-3b",
+        "cost": {
+            "prompt_token": 2e-8,
+            "completion_token": 2e-8
+        }
+    },
+    {
+        "model": "lfm-40b",
+        "cost": {
+            "prompt_token": 1.5e-7,
+            "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "lfm-7b",
+        "cost": {
+            "prompt_token": 1e-8,
+            "completion_token": 1e-8
+        }
+    },
+    {
         "model": "llama-3-70b-instruct",
         "cost": {
             "prompt_token": 3e-7,
@@ -758,6 +1199,13 @@
         "cost": {
             "prompt_token": 3e-8,
             "completion_token": 6e-8
+        }
+    },
+    {
+        "model": "llama-3-lumimaid-70b",
+        "cost": {
+            "prompt_token": 0.000004,
+            "completion_token": 0.000006
         }
     },
     {
@@ -793,6 +1241,34 @@
         "cost": {
             "prompt_token": 1.5e-8,
             "completion_token": 2e-8
+        }
+    },
+    {
+        "model": "llama-3.1-lumimaid-8b",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "llama-3.1-nemotron-70b-instruct",
+        "cost": {
+            "prompt_token": 1.2e-7,
+            "completion_token": 3e-7
+        }
+    },
+    {
+        "model": "llama-3.1-nemotron-ultra-253b-v1",
+        "cost": {
+            "prompt_token": 6e-7,
+            "completion_token": 0.0000018
+        }
+    },
+    {
+        "model": "llama-3.1-nemotron-ultra-253b-v1:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
@@ -852,6 +1328,13 @@
         }
     },
     {
+        "model": "llama-3.3-nemotron-super-49b-v1",
+        "cost": {
+            "prompt_token": 1.3e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
         "model": "llama-4-maverick",
         "cost": {
             "prompt_token": 1.5e-7,
@@ -887,6 +1370,27 @@
         }
     },
     {
+        "model": "llama3.1-typhoon2-70b-instruct",
+        "cost": {
+            "prompt_token": 8.8e-7,
+            "completion_token": 8.8e-7
+        }
+    },
+    {
+        "model": "llemma_7b",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "maestro-reasoning",
+        "cost": {
+            "prompt_token": 9e-7,
+            "completion_token": 0.0000033
+        }
+    },
+    {
         "model": "magistral-medium-2506",
         "cost": {
             "prompt_token": 0.000002,
@@ -905,6 +1409,69 @@
         "cost": {
             "prompt_token": 5e-7,
             "completion_token": 0.0000015
+        }
+    },
+    {
+        "model": "magnum-v2-72b",
+        "cost": {
+            "prompt_token": 0.000003,
+            "completion_token": 0.000003
+        }
+    },
+    {
+        "model": "magnum-v4-72b",
+        "cost": {
+            "prompt_token": 0.0000025,
+            "completion_token": 0.000003
+        }
+    },
+    {
+        "model": "mai-ds-r1",
+        "cost": {
+            "prompt_token": 3.02e-7,
+            "completion_token": 3.02e-7
+        }
+    },
+    {
+        "model": "mai-ds-r1:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "mercury",
+        "cost": {
+            "prompt_token": 2.5e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "mercury-coder",
+        "cost": {
+            "prompt_token": 2.5e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "midnight-rose-70b",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 8e-7
+        }
+    },
+    {
+        "model": "minimax-01",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 0.0000011
+        }
+    },
+    {
+        "model": "minimax-m1",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 0.00000165
         }
     },
     {
@@ -1076,6 +1643,90 @@
         }
     },
     {
+        "model": "mn-celeste-12b",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "mn-inferor-12b",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "morph-v2",
+        "cost": {
+            "prompt_token": 0.0000012,
+            "completion_token": 0.0000027
+        }
+    },
+    {
+        "model": "morph-v3-fast",
+        "cost": {
+            "prompt_token": 0.0000012,
+            "completion_token": 0.0000027
+        }
+    },
+    {
+        "model": "morph-v3-large",
+        "cost": {
+            "prompt_token": 0.0000012,
+            "completion_token": 0.0000027
+        }
+    },
+    {
+        "model": "mythalion-13b",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "mythomax-l2-13b",
+        "cost": {
+            "prompt_token": 6e-8,
+            "completion_token": 6e-8
+        }
+    },
+    {
+        "model": "noromaid-20b",
+        "cost": {
+            "prompt_token": 0.00000125,
+            "completion_token": 0.000002
+        }
+    },
+    {
+        "model": "nous-hermes-2-mixtral-8x7b-dpo",
+        "cost": {
+            "prompt_token": 6e-7,
+            "completion_token": 6e-7
+        }
+    },
+    {
+        "model": "nova-lite-v1",
+        "cost": {
+            "prompt_token": 6e-8,
+            "completion_token": 2.4e-7
+        }
+    },
+    {
+        "model": "nova-micro-v1",
+        "cost": {
+            "prompt_token": 3.5e-8,
+            "completion_token": 1.4e-7
+        }
+    },
+    {
+        "model": "nova-pro-v1",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000032
+        }
+    },
+    {
         "model": "o1",
         "cost": {
             "prompt_token": 0.000015,
@@ -1167,6 +1818,48 @@
             "prompt_token": 0.0000011,
             "completion_token": 0.0000044,
             "cache_read_token": 2.75e-7
+        }
+    },
+    {
+        "model": "phi-3-medium-128k-instruct",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "phi-3-mini-128k-instruct",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "phi-3.5-mini-128k-instruct",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "phi-4",
+        "cost": {
+            "prompt_token": 6e-8,
+            "completion_token": 1.4e-7
+        }
+    },
+    {
+        "model": "phi-4-multimodal-instruct",
+        "cost": {
+            "prompt_token": 5e-8,
+            "completion_token": 1e-7
+        }
+    },
+    {
+        "model": "phi-4-reasoning-plus",
+        "cost": {
+            "prompt_token": 7e-8,
+            "completion_token": 3.5e-7
         }
     },
     {
@@ -1404,10 +2097,31 @@
         }
     },
     {
+        "model": "qwerky-72b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
         "model": "qwq-32b",
         "cost": {
             "prompt_token": 7.5e-8,
             "completion_token": 1.5e-7
+        }
+    },
+    {
+        "model": "qwq-32b-arliai-rpr-v1",
+        "cost": {
+            "prompt_token": 1.5e-8,
+            "completion_token": 1.5e-8
+        }
+    },
+    {
+        "model": "qwq-32b-arliai-rpr-v1:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
@@ -1429,6 +2143,76 @@
         "cost": {
             "prompt_token": 0.000002,
             "completion_token": 0.000008
+        }
+    },
+    {
+        "model": "reka-flash-3",
+        "cost": {
+            "prompt_token": 1.3e-8,
+            "completion_token": 1.3e-8
+        }
+    },
+    {
+        "model": "reka-flash-3:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "remm-slerp-l2-13b",
+        "cost": {
+            "prompt_token": 7e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "rocinante-12b",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 5e-7
+        }
+    },
+    {
+        "model": "router",
+        "cost": {
+            "prompt_token": 8.5e-7,
+            "completion_token": 0.0000034
+        }
+    },
+    {
+        "model": "sarvam-m",
+        "cost": {
+            "prompt_token": 2.2e-8,
+            "completion_token": 2.2e-8
+        }
+    },
+    {
+        "model": "sarvam-m:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "shisa-v2-llama3.3-70b",
+        "cost": {
+            "prompt_token": 3e-8,
+            "completion_token": 3e-8
+        }
+    },
+    {
+        "model": "shisa-v2-llama3.3-70b:free",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
+        }
+    },
+    {
+        "model": "skyfall-36b-v2",
+        "cost": {
+            "prompt_token": 1.512e-8,
+            "completion_token": 1.512e-8
         }
     },
     {
@@ -1464,6 +2248,69 @@
         "cost": {
             "prompt_token": 0.000002,
             "completion_token": 0.000008
+        }
+    },
+    {
+        "model": "sorcererlm-8x22b",
+        "cost": {
+            "prompt_token": 0.0000045,
+            "completion_token": 0.0000045
+        }
+    },
+    {
+        "model": "spotlight",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 1.8e-7
+        }
+    },
+    {
+        "model": "toppy-m-7b",
+        "cost": {
+            "prompt_token": 8e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "ui-tars-1.5-7b",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 2e-7
+        }
+    },
+    {
+        "model": "unslopnemo-12b",
+        "cost": {
+            "prompt_token": 4e-7,
+            "completion_token": 4e-7
+        }
+    },
+    {
+        "model": "valkyrie-49b-v1",
+        "cost": {
+            "prompt_token": 6.5e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "virtuoso-large",
+        "cost": {
+            "prompt_token": 7.5e-7,
+            "completion_token": 0.0000012
+        }
+    },
+    {
+        "model": "weaver",
+        "cost": {
+            "prompt_token": 0.0000015,
+            "completion_token": 0.0000015
+        }
+    },
+    {
+        "model": "wizardlm-2-8x22b",
+        "cost": {
+            "prompt_token": 4.8e-7,
+            "completion_token": 4.8e-7
         }
     }
 ]
