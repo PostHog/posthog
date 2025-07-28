@@ -69,6 +69,7 @@ export const WebPropertyFilters = (): JSX.Element => {
                         propertyFilters={rawWebAnalyticsFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
+                        showOptimizedHints={true}
                     />
                 </div>
             }
