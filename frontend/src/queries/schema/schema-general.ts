@@ -102,6 +102,7 @@ export enum NodeKind {
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
+    StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
@@ -1069,6 +1070,8 @@ export type TrendsFilter = {
         | Record<numerical_key, ResultCustomizationByPosition>
     /** Goal Lines */
     goalLines?: GoalLine[]
+    showConfidenceIntervals?: boolean
+    confidenceLevel?: number
 }
 
 export type CalendarHeatmapFilter = {
@@ -1787,6 +1790,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     limit?: integer
+    offset?: integer
 }
 export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
     types?: unknown[]
@@ -2055,6 +2059,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     volumeResolution: integer
     withAggregations?: boolean
     withFirstEvent?: boolean
+    withLastEvent?: boolean
     limit?: integer
     offset?: integer
 }
@@ -2102,6 +2107,11 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
     last_seen: string
     first_event?: {
+        uuid: string
+        timestamp: string
+        properties: string
+    }
+    last_event?: {
         uuid: string
         timestamp: string
         properties: string
@@ -2454,7 +2464,7 @@ export interface ExperimentQueryResponse {
     credible_intervals?: Record<string, [number, number]>
 
     // New fields
-    baseline?: ExperimentStatsBase
+    baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
@@ -2472,11 +2482,6 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
-export interface NewExperimentQueryResponse {
-    baseline: ExperimentStatsBase
-    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
-}
-
 export interface ExperimentStatsBase {
     key: string
     number_of_samples: integer
@@ -2484,23 +2489,33 @@ export interface ExperimentStatsBase {
     sum_squares: number
 }
 
-export interface ExperimentVariantResultFrequentist extends ExperimentStatsBase {
+export enum ExperimentStatsValidationFailure {
+    NotEnoughExposures = 'not-enough-exposures',
+    BaselineMeanIsZero = 'baseline-mean-is-zero',
+    NotEnoughMetricData = 'not-enough-metric-data',
+}
+
+export interface ExperimentStatsBaseValidated extends ExperimentStatsBase {
+    validation_failures?: ExperimentStatsValidationFailure[]
+}
+
+export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseValidated {
     method: 'frequentist'
-    significant: boolean
-    p_value: number
-    confidence_interval: [number, number]
+    significant?: boolean
+    p_value?: number
+    confidence_interval?: [number, number]
 }
 
-export interface ExperimentVariantResultBayesian extends ExperimentStatsBase {
+export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseValidated {
     method: 'bayesian'
-    significant: boolean
-    chance_to_win: number
-    credible_interval: [number, number]
+    significant?: boolean
+    chance_to_win?: number
+    credible_interval?: [number, number]
 }
 
-export interface ExperimentMetricResult {
-    baseline: ExperimentStatsBase
-    variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+export interface NewExperimentQueryResponse {
+    baseline: ExperimentStatsBaseValidated
+    variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -2565,8 +2580,13 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
-export interface StickinessActorsQuery extends InsightActorsQuery {
+export interface StickinessActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.StickinessActorsQuery
+    source: StickinessQuery
     operator?: StickinessOperator
+    day?: string | Day
+    series?: integer
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
@@ -3347,8 +3367,8 @@ export interface MarketingAnalyticsTableQuery
     offset?: integer
     /** Filter test accounts */
     filterTestAccounts?: boolean
-    /** Dynamic conversion goal that can be set in the UI without saving */
-    dynamicConversionGoal?: ConversionGoalFilter | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter | null
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -3483,6 +3503,13 @@ export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
 }
+
+export interface SourceFieldSSHTunnelConfig {
+    type: 'ssh-tunnel'
+    label: string
+    name: string
+}
+
 export interface SourceFieldOauthConfig {
     type: 'oauth'
     name: string
@@ -3506,6 +3533,7 @@ export interface SourceFieldSelectConfig {
     required: boolean
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    converter?: 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -3517,11 +3545,16 @@ export interface SourceFieldSwitchGroupConfig {
     caption?: string
 }
 
+export interface SourceFieldFileUploadJsonFormatConfig {
+    format: '.json'
+    keys: '*' | string[]
+}
+
 export interface SourceFieldFileUploadConfig {
     type: 'file-upload'
     name: string
     label: string
-    fileFormat: string
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
     required: boolean
 }
 
@@ -3531,6 +3564,7 @@ export type SourceFieldConfig =
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
     | SourceFieldFileUploadConfig
+    | SourceFieldSSHTunnelConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType

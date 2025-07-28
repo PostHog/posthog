@@ -23,7 +23,6 @@ from posthog.constants import (
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.logger import configure_logger_async, get_logger
 from posthog.temporal.common.worker import create_worker
@@ -86,6 +85,10 @@ ACTIVITIES_DICT = {
     + SUBSCRIPTION_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
+}
+
+TASK_QUEUE_METRIC_PREFIXES = {
+    BATCH_EXPORTS_TASK_QUEUE: "batch_exports_",
 }
 
 LOGGER = get_logger(__name__)
@@ -177,8 +180,6 @@ class Command(BaseCommand):
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
 
-        initialize_otel()
-
         metrics_port = int(options["metrics_port"])
 
         shutdown_task = None
@@ -231,6 +232,7 @@ class Command(BaseCommand):
                     else None,
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
+                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                 )
             )
 

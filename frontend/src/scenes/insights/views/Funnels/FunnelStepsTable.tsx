@@ -29,7 +29,9 @@ export function FunnelStepsTable(): JSX.Element | null {
     const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
+    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSortOrder } = useActions(
+        funnelDataLogic(insightProps)
+    )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
@@ -374,6 +376,38 @@ export function FunnelStepsTable(): JSX.Element | null {
             rowRibbonColor={getFunnelsColor}
             firstColumnSticky
             useURLForSorting
+            onSort={(newSorting) => {
+                if (!newSorting) {
+                    return
+                }
+                // Find the column definition by key
+                const findColumnByKey = (
+                    columns: LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[],
+                    key: string
+                ): LemonTableColumn<
+                    FlattenedFunnelStepByBreakdown,
+                    keyof FlattenedFunnelStepByBreakdown | undefined
+                > | null => {
+                    for (const group of columns) {
+                        for (const col of group.children) {
+                            if (col.key === key || col.dataIndex === key) {
+                                return col
+                            }
+                        }
+                    }
+                    return null
+                }
+                const column = findColumnByKey(columnsGrouped, newSorting.columnKey)
+                const sorter = column?.sorter
+                if (typeof sorter === 'function') {
+                    const sorted = [...flattenedBreakdowns].sort((a, b) => newSorting.order * sorter(a, b))
+                    setBreakdownSortOrder(
+                        sorted
+                            .flatMap((b) => b.breakdown_value ?? [])
+                            .filter((v): v is string | number => v !== undefined)
+                    )
+                }
+            }}
         />
     )
 }

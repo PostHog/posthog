@@ -1,7 +1,12 @@
 import { convertHogToJS, ExecResult } from '@posthog/hogvm'
+import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersFetchSchema,
+} from '~/schema/cyclotron'
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
@@ -16,7 +21,6 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionQueueParametersFetchRequest,
     HogFunctionType,
     LogEntry,
     MinimalAppMetric,
@@ -27,6 +31,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
+import { EmailService } from './messaging/email.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -47,10 +52,14 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
 
     if (error) {
-        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+        if (
+            error instanceof SecureRequestError ||
+            error instanceof InvalidRequestError ||
+            error.name === 'ResponseContentLengthMismatchError'
+        ) {
             canRetry = false
         } else {
-            canRetry = true // Only retry on general errors, not security or validation errors
+            canRetry = true // Only retry on general errors, not security, validation, or response parsing errors
         }
     }
 
@@ -84,15 +93,21 @@ const hogFunctionStateMemory = new Histogram({
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
-    asyncFunctionsNames?: string[]
+    asyncFunctionsNames?: ('fetch' | 'sendEmail')[]
+}
+
+export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
+    maxAsyncFunctions?: number
 }
 
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
     private hogInputsService: HogInputsService
+    private emailService: EmailService
 
     constructor(private hub: Hub) {
         this.hogInputsService = new HogInputsService(hub)
+        this.emailService = new EmailService(hub)
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
@@ -226,9 +241,7 @@ export class HogExecutorService {
 
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
-        options?: HogExecutorExecuteOptions & {
-            maxAsyncFunctions?: number
-        }
+        options?: HogExecutorExecuteAsyncOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
@@ -240,7 +253,8 @@ export class HogExecutorService {
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
-            if (nextInvocation.queueParameters?.type === 'fetch') {
+            const queueParamsType = nextInvocation.queueParameters?.type
+            if (['fetch', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -248,7 +262,14 @@ export class HogExecutorService {
                     logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
                     break
                 }
-                result = await this.executeFetch(nextInvocation)
+
+                if (queueParamsType === 'fetch') {
+                    result = await this.executeFetch(nextInvocation)
+                } else if (queueParamsType === 'email') {
+                    result = await this.emailService.executeSendEmail(nextInvocation)
+                } else {
+                    throw new Error(`Unknown queue type: ${queueParamsType}`)
+                }
             } else {
                 result = await this.execute(nextInvocation, options)
             }
@@ -312,7 +333,7 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
-                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch']
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
                 const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
                     acc[fn] = async () => Promise.resolve()
                     return acc
@@ -431,14 +452,11 @@ export class HogExecutorService {
                             // Sanitize the args
                             const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
 
-                            if (typeof url !== 'string') {
-                                throw new Error('fetch: Invalid URL')
-                            }
-
                             const method = fetchOptions?.method || 'POST'
                             const headers = fetchOptions?.headers || {
                                 'Content-Type': 'application/json',
                             }
+
                             // Modify the body to ensure it is a string (we allow Hog to send an object to keep things simple)
                             const body: string | undefined = fetchOptions?.body
                                 ? typeof fetchOptions.body === 'string'
@@ -446,15 +464,22 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            const fetchQueueParameters: HogFunctionQueueParametersFetchRequest = {
+                            const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
-                                headers,
-                            }
+                                headers: pickBy(headers, (v) => typeof v == 'string'),
+                            })
 
                             result.invocation.queueParameters = fetchQueueParameters
+                            break
+                        }
+
+                        case 'sendEmail': {
+                            result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
+                                args[0]
+                            )
                             break
                         }
                         default:
@@ -580,14 +605,20 @@ export class HogExecutorService {
         // Reset the attempts as we are done
         result.invocation.state.attempts = 0
 
-        let body = await fetchResponse?.text()
+        let body: unknown = undefined
+        try {
+            body = await fetchResponse?.text()
 
-        if (typeof body === 'string') {
-            try {
-                body = parseJSON(body)
-            } catch (e) {
-                // Pass through the error
+            if (typeof body === 'string') {
+                try {
+                    body = parseJSON(body)
+                } catch (e) {
+                    // Pass through the error
+                }
             }
+        } catch (e) {
+            addLog('error', `Failed to parse response body: ${e.message}`)
+            body = undefined
         }
 
         const hogVmResponse: {
@@ -636,18 +667,5 @@ export class HogExecutorService {
 
         // We don't want to add "REDACTED" for empty strings
         return values.filter((v) => v.trim())
-    }
-
-    public enrichFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        // TRICKY: Some 3rd parties require developer tokens to be passed in the headers
-        // We don't want to expose these to the user so we add them here out of the custom code loop
-
-        request.headers = request.headers ?? {}
-
-        if (request.url.startsWith('https://googleads.googleapis.com/') && !request.headers['developer-token']) {
-            request.headers['developer-token'] = this.hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
-        }
-
-        return request
     }
 }
