@@ -37,11 +37,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                   }
                 : undefined,
         ])
-    }, [survey, nextNode.type.name, insertAfter, setActions])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [survey])
 
     useEffect(() => {
         setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
-    }, [survey.name, setTitlePlaceholder])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [survey.name])
 
     if (surveyMissing) {
         return <NotFound object="survey" />

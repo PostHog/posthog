@@ -46,7 +46,8 @@ export function NotebookScene(): JSX.Element {
             // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
             createNotebook(NotebookTarget.Scene)
         }
-    }, [notebookId, createNotebook])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [notebookId])
 
     if (accessDeniedToNotebook) {
         return <AccessDenied object="notebook" />

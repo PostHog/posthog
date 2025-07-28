@@ -45,7 +45,8 @@ export function Notebook({
         if (initialContent && mode === 'canvas') {
             setLocalContent(initialContent)
         }
-    }, [notebook, initialContent, setLocalContent, mode])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [notebook])
 
     useWhyDidIRender('Notebook', {
         notebook,
@@ -61,21 +62,25 @@ export function Notebook({
         if (!notebook && !notebookLoading) {
             loadNotebook()
         }
-    }, [notebook, loadNotebook, notebookLoading])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     useEffect(() => {
         setEditable(editable)
-    }, [editable, setEditable])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [editable])
 
     useEffect(() => {
         editor?.setEditable(isEditable)
-    }, [isEditable, editor])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [isEditable])
 
     useEffect(() => {
         if (editor) {
             editor.focus(initialAutofocus)
         }
-    }, [editor, initialAutofocus])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [editor])
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',

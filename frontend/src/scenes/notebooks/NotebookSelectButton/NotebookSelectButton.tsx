@@ -117,7 +117,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             loadNotebooksContainingResource()
         }
         loadAllNotebooks()
-    }, [loadAllNotebooks, loadNotebooksContainingResource, props.resource])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [loadAllNotebooks])
 
     return (
         <div className="flex flex-col flex-1 h-full overflow-hidden">
@@ -240,7 +241,8 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         if (!nodeLogic) {
             loadNotebooksContainingResource()
         }
-    }, [nodeLogic, loadNotebooksContainingResource])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [nodeLogic])
 
     const button = (
         <LemonButton

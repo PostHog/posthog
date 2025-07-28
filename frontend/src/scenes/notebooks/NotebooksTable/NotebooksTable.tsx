@@ -46,7 +46,8 @@ export function NotebooksTable(): JSX.Element {
 
     useEffect(() => {
         loadNotebooks()
-    }, [loadNotebooks])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,

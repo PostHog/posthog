@@ -25,7 +25,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
         const logicById = sourceNodeId ? findNodeLogicById(sourceNodeId) : null
 
         return logicById ?? findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
-    }, [findNodeLogic, sourceNodeId, findNodeLogicById, sessionRecordingId])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {
         // TODO: Figure out how to send this action info to the playlist OR the replay node...

@@ -95,23 +95,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                   }
                 : undefined,
         ])
-    }, [
-        featureFlag,
-        nextNode,
-        shouldDisableInsertEarlyAccessFeature,
-        setActions,
-        createSurvey,
-        id,
-        shouldDisableInsertSurvey,
-        hasEarlyAccessFeatures,
-        nextNode.type.name,
-        setTitlePlaceholder,
-        insertAfter,
-        canCreateEarlyAccessFeature,
-        createEarlyAccessFeature,
-        hasSurveys,
-        recordingFilterForFlag,
-    ])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [featureFlag])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />

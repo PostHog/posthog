@@ -22,6 +22,8 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         chain: () => editor.chain().focus(),
         destroy: () => editor.destroy(),
         getMarks: (type: string) => getMarks(editor, type),
+        setMark: (id: string) => editor.commands.setMark('comment', { id }),
+        isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
         insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
         insertContentAfterNode: (position: number, content: JSONContent) => {

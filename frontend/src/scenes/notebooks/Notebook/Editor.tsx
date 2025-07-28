@@ -5,7 +5,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { sampleOne } from 'lib/utils'
+import { sampleOne, uuid } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
@@ -42,8 +42,10 @@ import { textContent } from '../utils'
 import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { RichContentEditor } from 'lib/components/RichContentEditor'
 import posthog from 'posthog-js'
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { NotebookEditor, NotebookNodeType } from '../types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconComment } from '@posthog/icons'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -55,6 +57,7 @@ export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents } = useActions(notebookLogic)
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
@@ -231,7 +234,24 @@ export function Editor(): JSX.Element {
             }}
         >
             <FloatingSuggestions />
-            <InlineMenu allowComments />
+            <InlineMenu
+                extra={(editor) =>
+                    hasDiscussions && !editor.isActive('comment') ? (
+                        <>
+                            <LemonDivider vertical />
+                            <LemonButton
+                                onClick={() => {
+                                    const markId = uuid()
+                                    editor.setMark(markId)
+                                    mountedNotebookLogic.actions.insertComment({ type: 'mark', id: markId })
+                                }}
+                                icon={<IconComment className="w-4 h-4" />}
+                                size="small"
+                            />
+                        </>
+                    ) : null
+                }
+            />
         </RichContentEditor>
     )
 }

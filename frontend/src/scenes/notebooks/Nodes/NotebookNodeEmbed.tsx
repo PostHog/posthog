@@ -52,7 +52,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
         } else {
             setTitlePlaceholder('Embedded iframe')
         }
-    }, [validUrl, setTitlePlaceholder])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [validUrl])
 
     return (
         <>

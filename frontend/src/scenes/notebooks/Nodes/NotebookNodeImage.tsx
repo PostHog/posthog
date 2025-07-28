@@ -35,7 +35,8 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                     setUploading(false)
                 })
         }
-    }, [file, updateAttributes])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [file])
 
     const imageSource = useMemo(
         () => (src ? src : file && file.type ? URL.createObjectURL(file) : undefined),

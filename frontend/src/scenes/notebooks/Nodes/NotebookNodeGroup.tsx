@@ -56,7 +56,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                 },
             },
         ])
-    }, [groupData, setTitlePlaceholder, id, groupTypeIndex, groupTypeName, setActions, insertAfter, groupDisplay])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [groupData])
 
     if (!groupData && !groupDataLoading) {
         return <NotFound object="group" />

@@ -172,7 +172,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
             .catch((e) => {
                 console.error(e)
             })
-    }, [props.node.attrs.title, props, href, backLinkConfig])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [props.node.attrs.title])
 
     return (
         <NodeViewWrapper

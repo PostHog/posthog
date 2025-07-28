@@ -69,7 +69,8 @@ const Component = ({
         }
 
         setTitlePlaceholder(title)
-    }, [query, insightName, setTitlePlaceholder, summarizeInsight])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [query, insightName])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }

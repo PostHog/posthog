@@ -41,13 +41,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                   ]
                 : []
         )
-    }, [earlyAccessFeature, insertAfter, setActions])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [earlyAccessFeature])
 
     useEffect(() => {
         setTitlePlaceholder(
             earlyAccessFeature.name ? `Early Access Management: ${earlyAccessFeature.name}` : 'Early Access Management'
         )
-    }, [earlyAccessFeature?.name, setTitlePlaceholder])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [earlyAccessFeature?.name])
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />

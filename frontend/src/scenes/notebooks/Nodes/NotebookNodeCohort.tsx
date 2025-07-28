@@ -119,7 +119,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                   ]
                 : []
         )
-    }, [cohort, cohortMissing, setExpanded, id, setTitlePlaceholder, setActions, insertAfter])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [cohort, cohortMissing])
 
     if (cohortMissing) {
         return <NotFound object="cohort" />

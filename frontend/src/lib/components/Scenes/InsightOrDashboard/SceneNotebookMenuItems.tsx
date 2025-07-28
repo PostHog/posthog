@@ -76,7 +76,8 @@ export function SceneNotebookMenuItems({
             }
             loadAllNotebooks()
         }
-    }, [nodeLogic, resource, loadAllNotebooks, loadNotebooksContainingResource])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [nodeLogic, resource])
 
     return (
         <>

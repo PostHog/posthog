@@ -211,7 +211,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 })
         }
         return itemsArray
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size, featureFlags, isStandardMode])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

@@ -42,7 +42,8 @@ const Component = ({
                 })
             },
         }),
-        [playerKey, universalFilters, pinned, updateAttributes]
+        // oxlint-disable-next-line exhaustive-deps
+        [playerKey, universalFilters, pinned]
     )
 
     const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
@@ -90,7 +91,8 @@ const Component = ({
                   ]
                 : []
         )
-    }, [activeSessionRecording, getReplayLogic, setActions, insertAfter, insertReplayCommentByTimestamp])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [activeSessionRecording])
 
     useEffect(() => {
         setMessageListeners({
@@ -105,7 +107,8 @@ const Component = ({
                 }, 100)
             },
         })
-    }, [setMessageListeners, getReplayLogic, setSelectedRecordingId, scrollIntoView])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }

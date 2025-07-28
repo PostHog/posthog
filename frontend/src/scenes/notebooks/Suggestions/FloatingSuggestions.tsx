@@ -41,7 +41,8 @@ export function FloatingSuggestions(): JSX.Element | null {
 
     useEffect(() => {
         handleUpdate()
-    }, [height, handleUpdate])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [height])
 
     useEffect(() => {
         ttEditor.on('update', handleUpdate)
@@ -51,7 +52,8 @@ export function FloatingSuggestions(): JSX.Element | null {
             ttEditor.off('update', handleUpdate)
             ttEditor.off('selectionUpdate', handleUpdate)
         }
-    }, [handleUpdate, ttEditor, setRef, ttEditor.view.dom])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     return (
         // eslint-disable-next-line react/forbid-dom-props

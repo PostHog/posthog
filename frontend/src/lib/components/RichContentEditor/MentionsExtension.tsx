@@ -104,7 +104,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
 
             return false
         },
-        [selectedIndex, selectedHorizontalIndex, filteredMembers, onPressUp, onPressEnter, onPressDown]
+        // oxlint-disable-next-line exhaustive-deps
+        [selectedIndex, selectedHorizontalIndex, filteredMembers]
     )
 
     // Expose the keydown handler to the tiptap extension

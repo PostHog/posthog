@@ -59,7 +59,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                 },
             },
         ])
-    }, [person, setActions, insertAfter, setExpanded, setTitlePlaceholder])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [person])
 
     const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
     const iconProperties = person?.properties || {}

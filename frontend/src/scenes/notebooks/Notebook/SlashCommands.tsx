@@ -391,6 +391,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             keys: ['title', 'search'],
             threshold: 0.3,
         })
+        // oxlint-disable-next-line exhaustive-deps
     }, [allCommmands])
 
     const filteredCommands = useMemo(() => {
@@ -398,7 +399,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
-    }, [query, fuse, allCommmands])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
         () => filteredCommands.filter((item) => slashCommands.includes(item)),
@@ -467,16 +469,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             return false
         },
-        [
-            selectedIndex,
-            selectedHorizontalIndex,
-            filteredCommands,
-            onPressLeft,
-            onPressUp,
-            onPressEnter,
-            onPressRight,
-            onPressDown,
-        ]
+        // oxlint-disable-next-line exhaustive-deps
+        [selectedIndex, selectedHorizontalIndex, filteredCommands]
     )
 
     // Expose the keydown handler to the tiptap extension

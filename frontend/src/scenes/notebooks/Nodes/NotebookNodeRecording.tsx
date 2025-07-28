@@ -58,7 +58,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
 
     useEffect(() => {
         loadRecordingMeta()
-    }, [loadRecordingMeta])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
     // TODO Only load data when in view...
 
     useEffect(() => {
@@ -88,15 +89,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-    }, [
-        sessionPlayerMetaData?.person?.id,
-        recordingLogicProps,
-        insertAfter,
-        setActions,
-        id,
-        insertReplayCommentByTimestamp,
-        sessionPlayerMetaData.person,
-    ])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [sessionPlayerMetaData?.person?.id])
 
     useEffect(() => {
         setMessageListeners({
@@ -110,7 +104,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
-    }, [scrollIntoView, setExpanded, expanded, setMessageListeners, setPlay, seekToTime])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />

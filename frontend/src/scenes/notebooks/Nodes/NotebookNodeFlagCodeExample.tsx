@@ -19,7 +19,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExample
         setTitlePlaceholder(
             featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example'
         )
-    }, [featureFlag?.key, setTitlePlaceholder])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [featureFlag?.key])
 
     if (!featureFlagMissing) {
         return <NotFound object="feature flag" />

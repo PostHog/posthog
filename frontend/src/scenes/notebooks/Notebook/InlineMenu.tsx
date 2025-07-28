@@ -2,23 +2,23 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
-import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconBold, IconComment, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isURL, uuid } from 'lib/utils'
+import { useValues } from 'kea'
+import { IconBold, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isURL } from 'lib/utils'
 import { useRef } from 'react'
 
 import NotebookIconHeading from './NotebookIconHeading'
-import { notebookLogic } from './notebookLogic'
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
-export const InlineMenu = ({ allowComments = false }: { allowComments: boolean }): JSX.Element => {
-    const { ttEditor } = useValues(richContentEditorLogic)
-    const { insertComment } = useActions(notebookLogic)
+export const InlineMenu = ({
+    extra = () => null,
+}: {
+    extra: (editor: RichContentEditorType) => JSX.Element | null
+}): JSX.Element => {
+    const { ttEditor, richContentEditor } = useValues(richContentEditorLogic)
     const { href, target } = ttEditor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
-    const commentSelected = ttEditor.isActive('comment')
 
     const setLink = (href: string): void => {
         ttEditor.commands.setMark('link', { href: href })
@@ -108,22 +108,9 @@ export const InlineMenu = ({ allowComments = false }: { allowComments: boolean }
                             icon={<IconLink />}
                             size="small"
                         />
+                        {extra(richContentEditor)}
                     </>
                 )}
-                {hasDiscussions && !commentSelected && allowComments ? (
-                    <>
-                        <LemonDivider vertical />
-                        <LemonButton
-                            onClick={() => {
-                                const markId = uuid()
-                                ttEditor.commands.setMark('comment', { id: markId })
-                                insertComment({ type: 'mark', id: markId })
-                            }}
-                            icon={<IconComment className="w-4 h-4" />}
-                            size="small"
-                        />
-                    </>
-                ) : null}
             </div>
         </BubbleMenu>
     )

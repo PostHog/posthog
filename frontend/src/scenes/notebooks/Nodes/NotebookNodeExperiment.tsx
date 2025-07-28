@@ -34,7 +34,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         ])
 
         loadExperiment()
-    }, [id, loadExperiment, setActions, insertAfter, experiment.feature_flag.id])
+
+        // oxlint-disable-next-line exhaustive-deps
+    }, [id])
 
     if (experimentMissing) {
         return <NotFound object="experiment" />

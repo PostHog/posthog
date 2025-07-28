@@ -67,7 +67,8 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             clearTimeout(t)
             clearDebounceTimeout()
         }
-    }, [syncStatus, clearDebounceTimeout, shown])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [syncStatus])
 
     if (!debouncedSyncStatus) {
         return null

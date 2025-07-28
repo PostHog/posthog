@@ -87,13 +87,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             setRef(node)
             inViewRef(node)
         },
-        [inViewRef, setRef]
+        // oxlint-disable-next-line exhaustive-deps
+        [inViewRef]
     )
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
         return () => unregisterNodeLogic(nodeId)
-    }, [unregisterNodeLogic, nodeId])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     useWhyDidIRender('NodeWrapper.logicProps', {
         resizeable,
@@ -365,7 +367,8 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             if (props.node.attrs.nodeId === null) {
                 posthog.capture('notebook node added', { node_type: props.node.type.name })
             }
-        }, [props.node.attrs.nodeId, props.node.type.name])
+            // oxlint-disable-next-line exhaustive-deps
+        }, [props.node.attrs.nodeId])
 
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
             ...props,
@@ -466,7 +469,7 @@ export const NotebookNodeChildRenderer = ({
 
     // TODO: Allow deletion
 
-    return options ? (
+    return (
         <MemoizedNodeWrapper
             {...options}
             // parentNodeLogic={nodeLogic}
@@ -480,5 +483,5 @@ export const NotebookNodeChildRenderer = ({
             }}
             selected={false}
         />
-    ) : null
+    )
 }
