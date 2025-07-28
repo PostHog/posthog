@@ -85,7 +85,6 @@ def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
     assert cfg.token_uri == token_uri
     assert cfg.developer_token == developer_token
     assert cfg.customer_id == customer_id
-    assert cfg.resource_name == "campaign"
 
 
 def test_google_ads_source_config_handles_customer_id_with_dashes(developer_token: str):
@@ -115,7 +114,6 @@ def test_google_ads_source_config_handles_customer_id_with_dashes(developer_toke
     assert cfg.token_uri == token_uri
     assert cfg.developer_token == developer_token
     assert cfg.customer_id == "1111111111"
-    assert cfg.resource_name == "campaign"
 
 
 @SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
@@ -129,7 +127,7 @@ def test_get_schemas(customer_id: str, developer_token: str, service_account_con
     team = Team.objects.create(organization=org)
 
     cfg = GoogleAdsServiceAccountSourceConfig(
-        resource_name="campaign", customer_id=customer_id, developer_token=developer_token, **service_account_config
+        customer_id=customer_id, developer_token=developer_token, **service_account_config
     )
     schemas = get_schemas(cfg, team_id=team.id)
 
@@ -168,7 +166,7 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
     team = Team.objects.create(organization=org)
 
     cfg = GoogleAdsServiceAccountSourceConfig(
-        resource_name="", customer_id=customer_id, developer_token=developer_token, **service_account_config
+        customer_id=customer_id, developer_token=developer_token, **service_account_config
     )
     for resource in (
         "campaign",
