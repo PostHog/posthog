@@ -77,12 +77,12 @@ describe('processEvent', () => {
     let clickhouse: Clickhouse
 
     beforeAll(async () => {
-        clickhouse = Clickhouse.create()
         await resetKafka(TEST_CONFIG)
     })
 
     beforeEach(async () => {
         try {
+            clickhouse = Clickhouse.create()
             const testCode = `
                 function processEvent (event, meta) {
                     event.properties["somewhere"] = "over the rainbow";
@@ -119,6 +119,7 @@ describe('processEvent', () => {
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await closeHub(hub)
     })
 

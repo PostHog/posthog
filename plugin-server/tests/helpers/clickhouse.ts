@@ -52,6 +52,10 @@ export class Clickhouse {
         return new Clickhouse(client)
     }
 
+    close(): void {
+        this.client.close()
+    }
+
     async truncate(table: string) {
         await this.exec(`TRUNCATE ${table}`)
     }
