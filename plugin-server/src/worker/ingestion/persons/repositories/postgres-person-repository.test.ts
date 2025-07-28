@@ -1120,8 +1120,8 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
-    describe('properties size logging feature flag', () => {
-        it('should have identical output whether properties size logging is enabled or disabled', async () => {
+    describe('calculate properties size feature flag', () => {
+        it('should have identical output whether properties size calculation is enabled or disabled', async () => {
             const team = await getFirstTeam(hub)
 
             const person1 = await createTestPerson(team.id, 'test-distinct-1', {
@@ -1137,11 +1137,11 @@ describe('PostgresPersonRepository', () => {
                 largeProperty: 'x'.repeat(1000),
             })
 
-            const repositoryWithLogging = new PostgresPersonRepository(postgres, {
-                propertiesSizeLoggingPercentage: 100,
+            const repositoryWithCalculation = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 100,
             })
-            const repositoryWithoutLogging = new PostgresPersonRepository(postgres, {
-                propertiesSizeLoggingPercentage: 0,
+            const repositoryWithoutCalculation = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
             })
 
             const update = {
@@ -1153,12 +1153,12 @@ describe('PostgresPersonRepository', () => {
                 },
             }
 
-            const [updatedPerson1, messages1, versionDisparity1] = await repositoryWithLogging.updatePerson(
+            const [updatedPerson1, messages1, versionDisparity1] = await repositoryWithCalculation.updatePerson(
                 person1,
                 update,
                 'test-with-logging'
             )
-            const [updatedPerson2, messages2, versionDisparity2] = await repositoryWithoutLogging.updatePerson(
+            const [updatedPerson2, messages2, versionDisparity2] = await repositoryWithoutCalculation.updatePerson(
                 person2,
                 update,
                 'test-without-logging'
@@ -1170,8 +1170,8 @@ describe('PostgresPersonRepository', () => {
             expect(versionDisparity1).toEqual(versionDisparity2)
             expect(messages1).toHaveLength(messages2.length)
 
-            const fetchedPerson1 = await repositoryWithLogging.fetchPerson(team.id, 'test-distinct-1')
-            const fetchedPerson2 = await repositoryWithoutLogging.fetchPerson(team.id, 'test-distinct-2')
+            const fetchedPerson1 = await repositoryWithCalculation.fetchPerson(team.id, 'test-distinct-1')
+            const fetchedPerson2 = await repositoryWithoutCalculation.fetchPerson(team.id, 'test-distinct-2')
 
             expect(fetchedPerson1?.properties).toEqual(fetchedPerson2?.properties)
             expect(fetchedPerson1?.version).toEqual(fetchedPerson2?.version)
@@ -1183,11 +1183,11 @@ describe('PostgresPersonRepository', () => {
             const person1 = await createTestPerson(team.id, 'test-assert-1', { name: 'John', data: 'x'.repeat(2000) })
             const person2 = await createTestPerson(team.id, 'test-assert-2', { name: 'John', data: 'x'.repeat(2000) })
 
-            const repositoryWithLogging = new PostgresPersonRepository(postgres, {
-                propertiesSizeLoggingPercentage: 100,
+            const repositoryWithCalculation = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 100,
             })
-            const repositoryWithoutLogging = new PostgresPersonRepository(postgres, {
-                propertiesSizeLoggingPercentage: 0,
+            const repositoryWithoutCalculation = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
             })
 
             const createPersonUpdate = (person: InternalPerson, distinctId: string) => ({
@@ -1210,8 +1210,10 @@ describe('PostgresPersonRepository', () => {
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')
             const personUpdate2 = createPersonUpdate(person2, 'test-assert-2')
 
-            const [actualVersion1, messages1] = await repositoryWithLogging.updatePersonAssertVersion(personUpdate1)
-            const [actualVersion2, messages2] = await repositoryWithoutLogging.updatePersonAssertVersion(personUpdate2)
+            const [actualVersion1, messages1] = await repositoryWithCalculation.updatePersonAssertVersion(personUpdate1)
+            const [actualVersion2, messages2] = await repositoryWithoutCalculation.updatePersonAssertVersion(
+                personUpdate2
+            )
 
             expect(actualVersion1).toBeDefined()
             expect(actualVersion2).toBeDefined()
@@ -1219,8 +1221,8 @@ describe('PostgresPersonRepository', () => {
             expect(actualVersion2).toEqual(person2.version + 1)
             expect(messages1).toHaveLength(messages2.length)
 
-            const fetchedPerson1 = await repositoryWithLogging.fetchPerson(team.id, 'test-assert-1')
-            const fetchedPerson2 = await repositoryWithoutLogging.fetchPerson(team.id, 'test-assert-2')
+            const fetchedPerson1 = await repositoryWithCalculation.fetchPerson(team.id, 'test-assert-1')
+            const fetchedPerson2 = await repositoryWithoutCalculation.fetchPerson(team.id, 'test-assert-2')
 
             expect(fetchedPerson1?.properties).toEqual(fetchedPerson2?.properties)
             expect(fetchedPerson1?.version).toEqual(fetchedPerson2?.version)

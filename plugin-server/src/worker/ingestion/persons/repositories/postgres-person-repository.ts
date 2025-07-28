@@ -29,11 +29,11 @@ import { PostgresPersonRepositoryTransaction } from './postgres-person-repositor
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export interface PostgresPersonRepositoryOptions {
-    propertiesSizeLoggingPercentage: number
+    calculatePropertiesSize: number
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
-    propertiesSizeLoggingPercentage: 0,
+    calculatePropertiesSize: 0,
 }
 
 export class PostgresPersonRepository
@@ -439,7 +439,7 @@ export class PostgresPersonRepository
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
 
-        const propertiesSizeLoggingPercentage = this.options.propertiesSizeLoggingPercentage
+        const calculatePropertiesSize = this.options.calculatePropertiesSize
 
         /*
          * Temporarily have two different queries for updatePerson to evaluate the impact of calculating
@@ -462,10 +462,10 @@ export class PostgresPersonRepository
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
-        const shouldLogPropertiesSize =
-            propertiesSizeLoggingPercentage > 0 && Math.random() * 100 < propertiesSizeLoggingPercentage
+        const shouldCalculatePropertiesSize =
+            calculatePropertiesSize > 0 && Math.random() * 100 < calculatePropertiesSize
 
-        const selectedQueryString = shouldLogPropertiesSize ? queryStringWithPropertiesSize : queryString
+        const selectedQueryString = shouldCalculatePropertiesSize ? queryStringWithPropertiesSize : queryString
 
         const { rows } = await this.postgres.query<RawPerson & { properties_size_bytes?: string }>(
             tx ?? PostgresUse.PERSONS_WRITE,
@@ -481,7 +481,7 @@ export class PostgresPersonRepository
         const updatedPerson = this.toPerson(rows[0])
 
         // Record properties size metric if we used the properties size query
-        if (shouldLogPropertiesSize && rows[0].properties_size_bytes) {
+        if (shouldCalculatePropertiesSize && rows[0].properties_size_bytes) {
             const propertiesSizeBytes = Number(rows[0].properties_size_bytes)
             personPropertiesSizeHistogram.labels({ at: 'updatePerson' }).observe(propertiesSizeBytes)
         }

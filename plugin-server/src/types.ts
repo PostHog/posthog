@@ -178,7 +178,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to persons table per batch
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
-    PERSON_PROPERTIES_SIZE_LOGGING_PERCENTAGE: number // percentage (0-100) of person operations to log properties size metrics for
+    PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
     GROUP_BATCH_WRITING_ENABLED: boolean // whether to batch write groups Postgres updates/inserts
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update

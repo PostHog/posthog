@@ -153,7 +153,7 @@ export class IngestionConsumer {
 
         this.personStore = new BatchWritingPersonsStore(
             new PostgresPersonRepository(this.hub.db.postgres, {
-                propertiesSizeLoggingPercentage: this.hub.PERSON_PROPERTIES_SIZE_LOGGING_PERCENTAGE,
+                calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
             }),
             this.hub.db.kafkaProducer,
             {
