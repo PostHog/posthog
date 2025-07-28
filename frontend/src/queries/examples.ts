@@ -577,5 +577,5 @@ export const examples: Record<string, Node> = setLatestVersionsOnQuery({
 })
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
-    Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])
+    Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node, null, 4)])
 )

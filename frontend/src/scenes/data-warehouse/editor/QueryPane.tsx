@@ -15,6 +15,7 @@ import clsx from 'clsx'
 interface QueryPaneProps {
     className?: string
     queryInput: string
+    language?: string
     promptError: string | null
     codeEditorProps: Partial<CodeEditorProps>
     sourceQuery: HogQLQuery
@@ -47,7 +48,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         <AutoSizer>
                             {({ height, width }) => (
                                 <CodeEditor
-                                    language="hogQL"
+                                    language={props.language || 'hogQL'}
                                     value={props.queryInput}
                                     sourceQuery={props.sourceQuery}
                                     height={height}

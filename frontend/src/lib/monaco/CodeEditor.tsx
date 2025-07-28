@@ -39,25 +39,14 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
 }
+
 let codeEditorIndex = 0
 
 export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 }
 
-function initEditor(
-    monaco: Monaco,
-    editor: importedEditor.IStandaloneCodeEditor,
-    editorProps: Omit<CodeEditorProps, 'options' | 'onMount' | 'queryKey' | 'value'>,
-    options: editor.IStandaloneEditorConstructionOptions,
-    builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
-): void {
-    // This gives autocomplete access to the specific editor
-    const model = editor.getModel()
-    if (model) {
-        initModel(model, builtCodeEditorLogic)
-    }
-
+function initLanguages(editorProps: { language?: string }, monaco: Monaco): void {
     if (editorProps?.language === 'hog') {
         initHogLanguage(monaco)
     }
@@ -73,6 +62,22 @@ function initEditor(
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
     }
+}
+
+function initEditor(
+    monaco: Monaco,
+    editor: importedEditor.IStandaloneCodeEditor,
+    editorProps: Omit<CodeEditorProps, 'options' | 'onMount' | 'queryKey' | 'value'>,
+    options: editor.IStandaloneEditorConstructionOptions,
+    builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>
+): void {
+    // This gives autocomplete access to the specific editor
+    const model = editor.getModel()
+    if (model) {
+        initModel(model, builtCodeEditorLogic)
+    }
+    initLanguages(editorProps, monaco)
+
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
             if (options.tabFocusMode) {
@@ -170,7 +175,7 @@ export function CodeEditor({
         return () => {
             monacoRoot?.remove()
         }
-    }, [])
+    }, [monacoRoot])
 
     useEffect(() => {
         if (!monaco) {
@@ -209,6 +214,10 @@ export function CodeEditor({
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
     }, [])
+
+    useEffect(() => {
+        monaco && initLanguages(editorProps, monaco)
+    }, [editorProps.language, monaco, editorProps])
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {

@@ -131,7 +131,7 @@ export function ProjectTree({
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
             setSortMethod(sortMethod ?? 'folder')
         }
-    }, [sortMethod, projectSortMethod])
+    }, [sortMethod, projectSortMethod, setSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -160,7 +160,7 @@ export function ProjectTree({
 
         // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
         const productMenu =
-            showProductMenuItems && item.name === 'Product analytics' ? (
+            showProductMenuItems && item.name === 'Insights' ? (
                 <>
                     <ProductAnalyticsMenuItems
                         MenuItem={MenuItem}
@@ -507,7 +507,7 @@ export function ProjectTree({
                     (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
                 if (showProductMenuItems) {
-                    if (item.name === 'Product analytics') {
+                    if (item.name === 'Insights') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
                                 <IconPlusSmall className="text-tertiary" />

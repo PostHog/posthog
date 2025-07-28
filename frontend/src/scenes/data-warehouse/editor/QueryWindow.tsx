@@ -2,22 +2,33 @@ import { Monaco } from '@monaco-editor/react'
 import {
     IconBook,
     IconChevronRight,
+    IconCorrelationAnalysis,
     IconDatabase,
+    IconPullRequest,
     IconDownload,
+    IconDrag,
+    IconGanttChart,
     IconGear,
+    IconHogQL,
+    IconCode,
+    IconCode2,
+    IconCodeInsert,
+    IconNotebook,
     IconPencil,
     IconPlayFilled,
     IconSearch,
     IconSidebarClose,
+    IconSquareRoot,
+    IconPlus,
 } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconCancel, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, ReactNode } from 'react'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -56,7 +67,7 @@ const levelIcons: Record<EditorTabLevel, JSX.Element> = {
     editor: <IconPencil />,
     config: <IconGear />,
     source: <IconDatabase />,
-    // Program: <IconPullRequest />,
+    program: <IconPullRequest />,
 }
 
 const sampleQueries: Record<string, { input: string; level: EditorTabLevel }> = {
@@ -261,7 +272,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 </LemonButton>
                             </>
                         )}
-                        {!editingInsight && !editingView && (
+                        {!editingInsight && !editingView && activeLevel === 'source' && (
                             <>
                                 <LemonButton
                                     onClick={() => saveAsView()}
@@ -280,7 +291,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 </>
             )}
             <QueryPane
-                className={activeLevel === 'new' || !activeLevel ? 'hidden' : ''}
+                // Hide the Monaco editor on the "new" page.
+                // We need it around, as the tab navigation is directly tied to it.
+                className={activeLevel === 'new' || activeLevel === 'editor' || !activeLevel ? 'hidden' : ''}
+                language={activeLevel === 'source' || activeLevel === 'editor' ? 'hogQL' : 'json'}
                 originalValue={originalQueryInput}
                 queryInput={suggestedQueryInput}
                 sourceQuery={sourceQuery.source}
@@ -389,7 +403,7 @@ function QueryTypeSelector(): JSX.Element | null {
             </DropdownMenuTrigger>
 
             <DropdownMenuContent loop align="start">
-                <DropdownMenuLabel>Select query</DropdownMenuLabel>
+                <DropdownMenuLabel>Select program</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                     <Link
@@ -414,8 +428,8 @@ function QueryTypeSelector(): JSX.Element | null {
                 {treeItemsNew
                     .find(({ name }) => name === 'Insight')
                     ?.children?.sort((a, b) => (a.visualOrder ?? 0) - (b.visualOrder ?? 0))
-                    ?.map((child) => (
-                        <DropdownMenuItem asChild>
+                    ?.map((child, i) => (
+                        <DropdownMenuItem asChild key={i}>
                             <Link
                                 onClick={() => {
                                     const q = sampleQueries[child.name]
@@ -487,12 +501,12 @@ function QueryTypeSelector(): JSX.Element | null {
 }
 
 function QueryLevelSelector(): JSX.Element | null {
-    const { activeModelUri } = useValues(multitabEditorLogic)
+    const { activeModelUri, queryKind } = useValues(multitabEditorLogic)
     const { updateTab, createTab } = useActions(multitabEditorLogic)
 
     const activeLevel = activeModelUri?.level || 'new'
 
-    const availableLevels: EditorTabLevel[] = ['editor', 'config', 'source']
+    const availableLevels: EditorTabLevel[] = queryKind ? ['editor', 'config', 'source'] : ['source']
 
     return (
         <DropdownMenu>
@@ -552,7 +566,33 @@ function NewQuery(): JSX.Element {
         'bg-stone-500/10 text-stone-700 dark:bg-stone-500/20 dark:text-stone-100',
     ]
 
-    const allQueryTypes = [{ name: 'SQL', icon: <IconDatabase /> }, ...queryTypes]
+    const queryTree: { category: string; types: { name: string; icon?: ReactNode }[] }[] = [
+        {
+            category: 'Popular',
+            types: [{ name: 'SQL', icon: <IconDatabase /> }, ...queryTypes],
+        },
+        {
+            category: 'Custom',
+            types: [
+                { name: 'Pivot Table', icon: <IconTableChart /> },
+                { name: 'Correlation Analysis', icon: <IconCorrelationAnalysis /> },
+                { name: 'Scatterplot', icon: <IconDrag /> },
+                { name: 'Gantt chart', icon: <IconGanttChart /> },
+                { name: 'Formula', icon: <IconSquareRoot /> },
+                { name: 'Add your own', icon: <IconPlus /> },
+            ],
+        },
+        {
+            category: 'Advanced',
+            types: [
+                { name: 'Hog', icon: <IconHogQL /> },
+                { name: 'Python', icon: <IconCode /> },
+                { name: 'R', icon: <IconCode2 /> },
+                { name: 'Jupyter Notebook', icon: <IconNotebook /> },
+                { name: 'API Query', icon: <IconCodeInsert /> },
+            ],
+        },
+    ]
 
     const [question, setQuestion] = useState('')
     const handleSubmit = (): void => {}
@@ -560,7 +600,7 @@ function NewQuery(): JSX.Element {
     return (
         <div className="w-full py-24">
             <div className="w-full text-center pb-4 bg-white dark:bg-black text-sm font-medium">
-                Choose an analysis to run or just ask Max.
+                Choose a program to run or just ask Max.
             </div>
 
             <div className="flex gap-2 max-w-[800px] px-8 m-auto mt-2 mb-12">
@@ -586,45 +626,47 @@ function NewQuery(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <div className="w-full overflow-auto p-4 px-12 max-w-[1024px] m-auto">
-                {/* Fluid grid: auto-fit as many 7rem (112px) boxes as fit, with gap */}
-                <div
-                    className="grid gap-6"
-                    style={{
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(7rem, 1fr))',
-                    }}
-                >
-                    {allQueryTypes.map((qt, i) => (
-                        <div key={qt.name} className="text-center m-auto">
-                            <Link
-                                onClick={() => {
-                                    const query = sampleQueries[qt.name]
-                                    if (query) {
-                                        if (!activeModelUri) {
-                                            createTab(query.input, undefined, undefined, query.level)
-                                        } else {
-                                            setQueryAndLevel(query.input, query.level)
+            {queryTree.map(({ category, types }, catIndex) => (
+                <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto">
+                    <div className="px-2 py-8 text-center">{category}</div>
+                    <div
+                        className="grid gap-12"
+                        style={{
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(7rem, 1fr))',
+                        }}
+                    >
+                        {types.map((qt, i) => (
+                            <div key={qt.name} className="text-center m-auto">
+                                <Link
+                                    onClick={() => {
+                                        const query = sampleQueries[qt.name]
+                                        if (query) {
+                                            if (!activeModelUri) {
+                                                createTab(query.input, undefined, undefined, query.level)
+                                            } else {
+                                                setQueryAndLevel(query.input, query.level)
+                                            }
+                                            window.setTimeout(relabel, 10)
                                         }
-                                        window.setTimeout(relabel, 10)
-                                    }
-                                }}
-                                className="group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none"
-                            >
-                                <div
-                                    className={`flex items-center justify-center w-16 h-16 rounded-xl shadow-sm group-hover:shadow-md transition ${
-                                        swatches[i % swatches.length]
-                                    }`}
+                                    }}
+                                    className="group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none"
                                 >
-                                    <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>
-                                </div>
-                                <span className="mt-2 w-full text-xs font-medium truncate px-1 text-primary">
-                                    {qt.name}
-                                </span>
-                            </Link>
-                        </div>
-                    ))}
+                                    <div
+                                        className={`flex items-center justify-center w-16 h-16 rounded-xl shadow-sm group-hover:shadow-md transition ${
+                                            swatches[(i + catIndex * 4) % swatches.length]
+                                        }`}
+                                    >
+                                        <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>
+                                    </div>
+                                    <span className="mt-2 w-full text-xs font-medium truncate px-1 text-primary">
+                                        {qt.name}
+                                    </span>
+                                </Link>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            ))}
         </div>
     )
 }
