@@ -12,6 +12,7 @@ from posthog.models import (
     Project,
     EventDefinition,
     PropertyDefinition,
+    GroupTypeMapping,
 )
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
@@ -501,6 +502,75 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(staging_prop.project_id, staging_env.project_id)  # Follows team's new project
         self.assertEqual(person_prop.project_id, staging_env.project_id)  # Follows team's new project
         self.assertEqual(production_prop.project_id, production_env.project_id)
+
+        # Production team should stay in main project
+        self.assertEqual(production_env.project_id, main_project.id)
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_group_type_mapping_project_id_update(self, mock_get_client: MagicMock) -> None:
+        """Test that GroupTypeMapping project_ids are updated when teams move to new projects"""
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        # Create group type mappings in both environments
+        staging_org_group = GroupTypeMapping.objects.create(
+            team=staging_env,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+            project_id=main_project.id,
+        )
+        staging_company_group = GroupTypeMapping.objects.create(
+            team=staging_env,
+            group_type="company",
+            group_type_index=1,
+            name_singular="Company",
+            name_plural="Companies",
+            project_id=main_project.id,
+        )
+        production_workspace_group = GroupTypeMapping.objects.create(
+            team=production_env,
+            group_type="workspace",
+            group_type_index=2,  # Different index to avoid constraint violation
+            name_singular="Workspace",
+            name_plural="Workspaces",
+            project_id=main_project.id,
+        )
+
+        environments_rollback_migration(
+            organization_id=self.organization.id,
+            environment_mappings={str(staging_env.id): production_env.id},
+            user_id=self.user.id,
+        )
+
+        # Refresh all objects from database
+        staging_org_group.refresh_from_db()
+        staging_company_group.refresh_from_db()
+        production_workspace_group.refresh_from_db()
+        staging_env.refresh_from_db()
+        production_env.refresh_from_db()
+
+        # Verify GroupTypeMappings stay with their original teams but get correct project_ids
+        self.assertEqual(staging_org_group.team_id, staging_env.id)  # Stays with original team
+        self.assertEqual(staging_company_group.team_id, staging_env.id)  # Stays with original team
+        self.assertEqual(production_workspace_group.team_id, production_env.id)  # Stays with original team
+
+        # All GroupTypeMappings should have project_id matching their team's current project_id
+        self.assertEqual(staging_org_group.project_id, staging_env.project_id)  # Follows team's new project
+        self.assertEqual(staging_company_group.project_id, staging_env.project_id)  # Follows team's new project
+        self.assertEqual(production_workspace_group.project_id, production_env.project_id)
+
+        # Verify group type indices remain the same
+        self.assertEqual(staging_org_group.group_type_index, 0)
+        self.assertEqual(staging_company_group.group_type_index, 1)
+        self.assertEqual(production_workspace_group.group_type_index, 2)
 
         # Production team should stay in main project
         self.assertEqual(production_env.project_id, main_project.id)

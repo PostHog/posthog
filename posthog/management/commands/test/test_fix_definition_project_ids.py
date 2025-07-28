@@ -3,7 +3,7 @@ from django.test import TestCase
 from io import StringIO
 from unittest.mock import patch
 
-from posthog.models import Organization, Team, EventDefinition, PropertyDefinition
+from posthog.models import Organization, Team, EventDefinition, PropertyDefinition, GroupTypeMapping
 
 
 class TestFixDefinitionProjectIds(TestCase):
@@ -28,7 +28,6 @@ class TestFixDefinitionProjectIds(TestCase):
     def test_dry_run_mode(self, mock_get_rollback_orgs):
         """Test that dry run mode doesn't make changes but reports what would be changed."""
 
-        # Mock Redis to return our test organization
         mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create misaligned EventDefinition
@@ -43,6 +42,14 @@ class TestFixDefinitionProjectIds(TestCase):
             team=self.detached_team,
             name="test_property",
             type=PropertyDefinition.Type.EVENT,
+            project_id=self.main_project.id,  # Wrong project_id
+        )
+
+        # Create misaligned GroupTypeMapping
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.detached_team,
+            group_type="organization",
+            group_type_index=0,
             project_id=self.main_project.id,  # Wrong project_id
         )
 
@@ -55,23 +62,26 @@ class TestFixDefinitionProjectIds(TestCase):
         self.assertIn("DRY RUN MODE", output)
         self.assertIn("Found 1 EventDefinitions", output)
         self.assertIn("Found 1 PropertyDefinitions", output)
+        self.assertIn("Found 1 GroupTypeMappings", output)
         self.assertIn("Organization: Test Organization", output)
         self.assertIn("Team: Detached Team", output)
         self.assertIn("EventDefinitions to update", output)
         self.assertIn("PropertyDefinitions to update", output)
+        self.assertIn("GroupTypeMappings to update", output)
         self.assertIn("No changes were made", output)
 
         # Verify no actual changes were made
         event_def.refresh_from_db()
         property_def.refresh_from_db()
+        group_type_mapping.refresh_from_db()
         self.assertEqual(event_def.project_id, self.main_project.id)  # Should remain unchanged
         self.assertEqual(property_def.project_id, self.main_project.id)  # Should remain unchanged
+        self.assertEqual(group_type_mapping.project_id, self.main_project.id)  # Should remain unchanged
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_actual_update_mode(self, mock_get_rollback_orgs):
         """Test that actual update mode makes the expected changes."""
 
-        # Mock Redis to return our test organization
         mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create misaligned EventDefinition
@@ -89,10 +99,25 @@ class TestFixDefinitionProjectIds(TestCase):
             project_id=self.main_project.id,  # Wrong project_id
         )
 
+        # Create misaligned GroupTypeMapping
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.detached_team,
+            group_type="organization",
+            group_type_index=0,
+            project_id=self.main_project.id,  # Wrong project_id
+        )
+
         # Create correctly aligned definitions (should not be touched)
         correct_event_def = EventDefinition.objects.create(
             team=self.staging_env,
             name="correct_event",
+            project_id=self.main_project.id,  # Correct project_id
+        )
+
+        correct_group_type = GroupTypeMapping.objects.create(
+            team=self.staging_env,
+            group_type="company",
+            group_type_index=1,
             project_id=self.main_project.id,  # Correct project_id
         )
 
@@ -104,22 +129,26 @@ class TestFixDefinitionProjectIds(TestCase):
         # Verify output shows updates
         self.assertIn("Updated 1 EventDefinitions", output)
         self.assertIn("Updated 1 PropertyDefinitions", output)
-        self.assertIn("Successfully aligned 2 definition records", output)
+        self.assertIn("Updated 1 GroupTypeMappings", output)
+        self.assertIn("Successfully aligned 3 definition records", output)
 
         # Verify the changes were made
         event_def.refresh_from_db()
         property_def.refresh_from_db()
+        group_type_mapping.refresh_from_db()
         correct_event_def.refresh_from_db()
+        correct_group_type.refresh_from_db()
 
         self.assertEqual(event_def.project_id, self.detached_team.project_id)  # Should be updated
         self.assertEqual(property_def.project_id, self.detached_team.project_id)  # Should be updated
+        self.assertEqual(group_type_mapping.project_id, self.detached_team.project_id)  # Should be updated
         self.assertEqual(correct_event_def.project_id, self.main_project.id)  # Should remain unchanged
+        self.assertEqual(correct_group_type.project_id, self.main_project.id)  # Should remain unchanged
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_no_misaligned_records(self, mock_get_rollback_orgs):
         """Test behavior when all records are already correctly aligned."""
 
-        # Mock Redis to return our test organization
         mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create correctly aligned definitions
@@ -136,6 +165,13 @@ class TestFixDefinitionProjectIds(TestCase):
             project_id=self.main_project.id,  # Correct project_id
         )
 
+        GroupTypeMapping.objects.create(
+            team=self.staging_env,
+            group_type="organization",
+            group_type_index=0,
+            project_id=self.main_project.id,  # Correct project_id
+        )
+
         # Run the command
         out = StringIO()
         call_command("fix_definition_project_ids", stdout=out)
@@ -144,13 +180,13 @@ class TestFixDefinitionProjectIds(TestCase):
         # Verify output shows no updates needed
         self.assertIn("No EventDefinitions need project_id alignment", output)
         self.assertIn("No PropertyDefinitions need project_id alignment", output)
+        self.assertIn("No GroupTypeMappings need project_id alignment", output)
         self.assertIn("All definition records were already aligned", output)
 
     @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
     def test_mixed_property_definition_types(self, mock_get_rollback_orgs):
         """Test that the command handles different PropertyDefinition types correctly."""
 
-        # Mock Redis to return our test organization
         mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create misaligned PropertyDefinitions of different types
@@ -276,7 +312,6 @@ class TestFixDefinitionProjectIds(TestCase):
     def test_batch_size_option(self, mock_get_rollback_orgs):
         """Test that batch size option works correctly."""
 
-        # Mock Redis to return our test organization
         mock_get_rollback_orgs.return_value = {str(self.organization.id)}
 
         # Create multiple misaligned records
@@ -303,3 +338,70 @@ class TestFixDefinitionProjectIds(TestCase):
             team=self.detached_team, project_id=self.detached_team.project_id
         ).count()
         self.assertEqual(updated_count, 5)
+
+    @patch("posthog.management.commands.fix_definition_project_ids.get_all_rollback_organization_ids")
+    def test_group_type_mapping_with_unique_constraints(self, mock_get_rollback_orgs):
+        """Test that GroupTypeMapping alignment respects unique constraints."""
+
+        mock_get_rollback_orgs.return_value = {str(self.organization.id)}
+
+        # Create multiple teams with misaligned GroupTypeMappings
+        team1 = Team.objects.create(organization=self.organization, name="Team 1")
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        # Create misaligned GroupTypeMappings with same group_type and group_type_index
+        # but different teams (so different projects after alignment)
+        # We need to use different projects for the wrong project_id to avoid unique constraint violations
+        wrong_project1 = Team.objects.create(organization=self.organization, name="Wrong Project 1")
+        wrong_project2 = Team.objects.create(organization=self.organization, name="Wrong Project 2")
+
+        gtm1 = GroupTypeMapping.objects.create(
+            team=team1,
+            group_type="organization",
+            group_type_index=0,
+            project_id=wrong_project1.id,  # Wrong project_id
+        )
+
+        gtm2 = GroupTypeMapping.objects.create(
+            team=team2,
+            group_type="organization",
+            group_type_index=0,
+            project_id=wrong_project2.id,  # Wrong project_id
+        )
+
+        # Also create one with different group_type_index
+        gtm3 = GroupTypeMapping.objects.create(
+            team=team1,
+            group_type="company",
+            group_type_index=1,
+            project_id=wrong_project1.id,  # Wrong project_id
+        )
+
+        # Run the command
+        out = StringIO()
+        call_command("fix_definition_project_ids", stdout=out)
+        output = out.getvalue()
+
+        # Verify output shows updates
+        self.assertIn("Updated 3 GroupTypeMappings", output)
+
+        # Verify the changes were made correctly
+        gtm1.refresh_from_db()
+        gtm2.refresh_from_db()
+        gtm3.refresh_from_db()
+
+        self.assertEqual(gtm1.project_id, team1.project_id)
+        self.assertEqual(gtm2.project_id, team2.project_id)
+        self.assertEqual(gtm3.project_id, team1.project_id)
+
+        # Verify unique constraints are still respected
+        # Each team/project should have unique (project, group_type) and (project, group_type_index)
+        team1_mappings = GroupTypeMapping.objects.filter(project_id=team1.project_id)
+        team2_mappings = GroupTypeMapping.objects.filter(project_id=team2.project_id)
+
+        self.assertEqual(team1_mappings.count(), 2)  # gtm1 and gtm3
+        self.assertEqual(team2_mappings.count(), 1)  # gtm2
+
+        # Verify no duplicate group_type_index within same project
+        team1_indices = set(team1_mappings.values_list("group_type_index", flat=True))
+        self.assertEqual(len(team1_indices), 2)  # Should have 2 unique indices

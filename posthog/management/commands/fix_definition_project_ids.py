@@ -1,11 +1,12 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction, models
-from posthog.models import EventDefinition, PropertyDefinition
+from django.db.models import Count
+from posthog.models import EventDefinition, PropertyDefinition, GroupTypeMapping
 from posthog.storage.environments_rollback_storage import get_all_rollback_organization_ids
 
 
 class Command(BaseCommand):
-    help = "Fix project_id alignment for EventDefinition and PropertyDefinition records where team.project_id != definition.project_id (only for organizations that have triggered environment rollback)"
+    help = "Fix project_id alignment for EventDefinition, PropertyDefinition, and GroupTypeMapping records where team.project_id != definition.project_id (only for organizations that have triggered environment rollback)"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -43,8 +44,12 @@ class Command(BaseCommand):
             self.stdout.write("\n=== Processing PropertyDefinitions ===")
             property_def_stats = self.process_property_definitions()
 
+            # Process GroupTypeMappings
+            self.stdout.write("\n=== Processing GroupTypeMappings ===")
+            group_type_mapping_stats = self.process_group_type_mappings()
+
             # Summary
-            self.print_summary(event_def_stats, property_def_stats)
+            self.print_summary(event_def_stats, property_def_stats, group_type_mapping_stats)
 
             self.stdout.write(self.style.SUCCESS("Process completed successfully"))
 
@@ -72,9 +77,6 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {misaligned_count} EventDefinitions with misaligned project_id")
 
         if self.dry_run:
-            # Show summary by organization and team
-            from django.db.models import Count
-
             team_summary = (
                 misaligned_query.values("team_id", "team__name", "team__organization_id", "team__organization__name")
                 .annotate(count=Count("id"))
@@ -139,9 +141,6 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {misaligned_count} PropertyDefinitions with misaligned project_id")
 
         if self.dry_run:
-            # Show summary by organization and team
-            from django.db.models import Count
-
             team_summary = (
                 misaligned_query.values("team_id", "team__name", "team__organization_id", "team__organization__name")
                 .annotate(count=Count("id"))
@@ -186,11 +185,75 @@ class Command(BaseCommand):
 
         return {"total": misaligned_count, "updated": updated_count}
 
-    def print_summary(self, event_def_stats, property_def_stats):
+    def process_group_type_mappings(self):
+        """Process GroupTypeMapping records that need project_id alignment."""
+
+        # Find misaligned GroupTypeMappings
+        misaligned_query = GroupTypeMapping.objects.select_related("team").exclude(
+            project_id=models.F("team__project_id")
+        )
+
+        # Filter by rollback organizations
+        misaligned_query = misaligned_query.filter(team__organization_id__in=self.rollback_org_ids)
+
+        misaligned_count = misaligned_query.count()
+
+        if misaligned_count == 0:
+            self.stdout.write(self.style.SUCCESS("✓ No GroupTypeMappings need project_id alignment"))
+            return {"total": 0, "updated": 0}
+
+        self.stdout.write(f"Found {misaligned_count} GroupTypeMappings with misaligned project_id")
+
+        if self.dry_run:
+            team_summary = (
+                misaligned_query.values("team_id", "team__name", "team__organization_id", "team__organization__name")
+                .annotate(count=Count("id"))
+                .order_by("team__organization_id", "team_id")
+            )
+
+            current_org_id = None
+            for entry in team_summary:
+                if entry["team__organization_id"] != current_org_id:
+                    current_org_id = entry["team__organization_id"]
+                    self.stdout.write(f"\n  Organization: {entry['team__organization__name']} (ID: {current_org_id})")
+
+                self.stdout.write(
+                    f"    Team: {entry['team__name']} (ID: {entry['team_id']}) - "
+                    f"{entry['count']} GroupTypeMappings to update"
+                )
+
+            return {"total": misaligned_count, "updated": 0}
+
+        # Perform the update in batches to handle large datasets efficiently
+        updated_count = 0
+
+        # Simple but effective approach: process all records, updating in batches
+        all_misaligned_ids = list(misaligned_query.values_list("id", flat=True))
+
+        for i in range(0, len(all_misaligned_ids), self.batch_size):
+            batch_ids = all_misaligned_ids[i : i + self.batch_size]
+            batch_records = GroupTypeMapping.objects.filter(id__in=batch_ids).select_related("team")
+
+            with transaction.atomic():
+                for group_type_mapping in batch_records:
+                    group_type_mapping.project_id = group_type_mapping.team.project_id
+                    group_type_mapping.save(update_fields=["project_id"])
+                    updated_count += 1
+
+            if i + self.batch_size < len(all_misaligned_ids):
+                self.stdout.write(
+                    f"  Processed {min(i + self.batch_size, len(all_misaligned_ids))}/{len(all_misaligned_ids)} GroupTypeMappings..."
+                )
+
+        self.stdout.write(self.style.SUCCESS(f"✓ Updated {updated_count} GroupTypeMappings"))
+
+        return {"total": misaligned_count, "updated": updated_count}
+
+    def print_summary(self, event_def_stats, property_def_stats, group_type_mapping_stats):
         """Print summary of changes made or that would be made."""
 
-        total_found = event_def_stats["total"] + property_def_stats["total"]
-        total_updated = event_def_stats["updated"] + property_def_stats["updated"]
+        total_found = event_def_stats["total"] + property_def_stats["total"] + group_type_mapping_stats["total"]
+        total_updated = event_def_stats["updated"] + property_def_stats["updated"] + group_type_mapping_stats["updated"]
 
         self.stdout.write("\n" + "=" * 50)
         self.stdout.write("SUMMARY")
@@ -200,6 +263,7 @@ class Command(BaseCommand):
             self.stdout.write(f"Total definitions found with misaligned project_id: {total_found}")
             self.stdout.write(f"  - EventDefinitions: {event_def_stats['total']}")
             self.stdout.write(f"  - PropertyDefinitions: {property_def_stats['total']}")
+            self.stdout.write(f"  - GroupTypeMappings: {group_type_mapping_stats['total']}")
             self.stdout.write("\nNo changes were made (dry run mode)")
 
             if total_found > 0:
@@ -208,6 +272,7 @@ class Command(BaseCommand):
             self.stdout.write(f"Total definitions updated: {total_updated}")
             self.stdout.write(f"  - EventDefinitions: {event_def_stats['updated']}")
             self.stdout.write(f"  - PropertyDefinitions: {property_def_stats['updated']}")
+            self.stdout.write(f"  - GroupTypeMappings: {group_type_mapping_stats['updated']}")
 
             if total_updated > 0:
                 self.stdout.write(self.style.SUCCESS(f"\n✓ Successfully aligned {total_updated} definition records"))
