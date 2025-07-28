@@ -1,15 +1,10 @@
 from django.db import models
 from posthog.models.utils import UUIDModel
-from enum import Enum
 
 
-class MessageCategoryType(str, Enum):
+class MessageCategoryType(models.TextChoices):
     MARKETING = "marketing"
     TRANSACTIONAL = "transactional"
-
-    @classmethod
-    def choices(cls):
-        return [(status.value, status.name) for status in cls]
 
 
 class MessageCategory(UUIDModel):
@@ -23,7 +18,7 @@ class MessageCategory(UUIDModel):
     description = models.TextField(blank=True, default="")
     public_description = models.TextField(blank=True, default="")
     category_type = models.CharField(
-        max_length=32, choices=MessageCategoryType.choices(), default=MessageCategoryType.MARKETING.value
+        max_length=32, choices=MessageCategoryType.choices, default=MessageCategoryType.MARKETING.value
     )
 
     class Meta:
