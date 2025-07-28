@@ -72,11 +72,11 @@ export const inProgressViewEditStateKey = (key: string | number): string => `${k
 
 export const NEW_QUERY = 'Untitled'
 
-const getNextUntitledNumber = (tabs: QueryTab[]): number => {
+const getNextUntitledNumber = (tabs: QueryTab[], label: string = NEW_QUERY): number => {
     const untitledNumbers = tabs
-        .filter((tab) => tab.name?.startsWith(NEW_QUERY))
+        .filter((tab) => tab.name?.startsWith(label + ' '))
         .map((tab) => {
-            const match = tab.name?.match(/Untitled (\d+)/)
+            const match = tab.name?.match(new RegExp(label + ' (d+)'))
             return match ? parseInt(match[1]) : 0
         })
         .filter((num) => !isNaN(num))
@@ -155,6 +155,35 @@ export interface SuggestionPayload {
         values: multitabEditorLogicType['values'],
         props: multitabEditorLogicType['props']
     ) => void
+}
+
+export function getQueryKind(queryInput: string): string | null {
+    try {
+        const json = JSON.parse(queryInput)
+        if (json && json.kind) {
+            if (json.kind === 'InsightVizNode' || json.kind === 'DataVisualizationNode') {
+                return json.source?.kind || json.kind
+            }
+            return json.kind
+        }
+    } catch {
+        return null
+    }
+}
+
+export const kindToQuery: Record<string, string> = {
+    HogQLQuery: 'SQL',
+    TrendsQuery: 'Trends',
+    FunnelsQuery: 'Funnel',
+    RetentionQuery: 'Retention',
+    StickinessQuery: 'Stickiness',
+    LifecycleQuery: 'Lifecycle',
+    PathsQuery: 'User paths',
+    CalendarHeatmapQuery: 'Calendar heatmap',
+}
+
+export function getQueryLabel(queryKind: string): string | null {
+    return kindToQuery[queryKind]
 }
 
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
@@ -264,6 +293,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ) => ({ view }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
+        relabel: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -625,6 +655,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.createTab(query, undefined, insight)
             }
         },
+        relabel: () => {
+            const { activeModelUri } = values
+            const { view, insight } = activeModelUri ?? {}
+            const nextUntitledNumber = getNextUntitledNumber(values.allTabs, values.selectedLabel)
+            const tabName = view?.name || insight?.name || `${values.selectedLabel} ${nextUntitledNumber}`
+            if (activeModelUri) {
+                actions.renameTab(activeModelUri, tabName)
+            }
+        },
         createNewTab: () => {
             actions.createTab(undefined, undefined, undefined, 'new')
         },
@@ -643,8 +682,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 currentModelCount++
             }
 
-            const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
-            const tabName = view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
+            const queryKind = getQueryKind(query)
+            const label = getQueryLabel(queryKind) || 'Untitled'
+            const nextUntitledNumber = getNextUntitledNumber(values.allTabs, label)
+            const tabName = view?.name || insight?.name || `${label} ${nextUntitledNumber}`
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
@@ -1418,12 +1459,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 )
             },
         ],
-        localStorageResponse: [
-            (s) => [s.activeModelUri],
-            (activeModelUri) => {
-                return activeModelUri?.response
-            },
-        ],
+        localStorageResponse: [(s) => [s.activeModelUri], (activeModelUri) => activeModelUri?.response],
+        queryKind: [(s) => [s.queryInput], (queryInput) => getQueryKind(queryInput)],
+        selectedLabel: [(s) => [s.queryKind], (queryKind) => getQueryLabel(queryKind) || 'SQL'],
     }),
     urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {

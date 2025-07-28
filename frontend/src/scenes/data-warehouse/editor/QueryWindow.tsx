@@ -375,14 +375,15 @@ function InternalQueryWindow(): JSX.Element | null {
 
 function QueryTypeSelector(): JSX.Element | null {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
-    const { setQueryAndLevel } = useActions(multitabEditorLogic)
+    const { selectedLabel } = useValues(multitabEditorLogic)
+    const { setQueryAndLevel, relabel } = useActions(multitabEditorLogic)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive>
                     <IconSearch />
-                    <strong className="whitespace-nowrap">SQL Query</strong>
+                    <strong className="whitespace-nowrap">{selectedLabel}</strong>
                     <IconChevronRight className="rotate-90 group-data-[state=open]/button-root:rotate-270" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
@@ -396,14 +397,15 @@ function QueryTypeSelector(): JSX.Element | null {
                             const q = sampleQueries.SQL
                             if (q) {
                                 setQueryAndLevel(q.input, q.level)
+                                window.setTimeout(relabel, 10)
                             }
                         }}
                         buttonProps={{
                             menuItem: true,
-                            // active: selectedLabel === 'SQL query',
+                            active: selectedLabel === 'SQL',
                         }}
                     >
-                        <IconDatabase /> SQL query
+                        <IconDatabase /> SQL
                     </Link>
                 </DropdownMenuItem>
                 <DropdownMenuLabel>Insights</DropdownMenuLabel>
@@ -419,11 +421,12 @@ function QueryTypeSelector(): JSX.Element | null {
                                     const q = sampleQueries[child.name]
                                     if (q) {
                                         setQueryAndLevel(q.input, q.level)
+                                        window.setTimeout(relabel, 10)
                                     }
                                 }}
                                 buttonProps={{
                                     menuItem: true,
-                                    // active: selectedLabel === child.name,
+                                    active: selectedLabel === child.name,
                                 }}
                             >
                                 {child.icon}
@@ -489,7 +492,7 @@ function QueryLevelSelector(): JSX.Element | null {
 
     const activeLevel = activeModelUri?.level || 'new'
 
-    const availableLevels: EditorTabLevel[] = ['new', 'editor', 'source']
+    const availableLevels: EditorTabLevel[] = ['editor', 'config', 'source']
 
     return (
         <DropdownMenu>
@@ -533,7 +536,7 @@ function QueryLevelSelector(): JSX.Element | null {
 function NewQuery(): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
     const { activeModelUri } = useValues(multitabEditorLogic)
-    const { setQueryAndLevel, createTab } = useActions(multitabEditorLogic)
+    const { setQueryAndLevel, createTab, relabel } = useActions(multitabEditorLogic)
     const queryTypes =
         treeItemsNew
             .find(({ name }) => name === 'Insight')
@@ -602,6 +605,7 @@ function NewQuery(): JSX.Element {
                                         } else {
                                             setQueryAndLevel(query.input, query.level)
                                         }
+                                        window.setTimeout(relabel, 10)
                                     }
                                 }}
                                 className="group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none"
