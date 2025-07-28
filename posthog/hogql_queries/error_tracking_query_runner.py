@@ -47,8 +47,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
-        self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from)
-        self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to)
+        self.date_from = ErrorTrackingQueryRunner.parse_relative_date_from(self.query.dateRange.date_from)
+        self.date_to = ErrorTrackingQueryRunner.parse_relative_date_to(self.query.dateRange.date_to)
 
         if self.query.withAggregations is None:
             self.query.withAggregations = True
@@ -59,7 +59,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
 
-    def parse_relative_date_from(self, date: str | None) -> datetime.datetime:
+    @classmethod
+    def parse_relative_date_from(cls, date: str | None) -> datetime.datetime:
         """
         Parses a relative date string into a datetime object.
         This is used to convert the date range from the query into a datetime object.
@@ -69,7 +70,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
 
-    def parse_relative_date_to(self, date: str | None) -> datetime.datetime:
+    @classmethod
+    def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:
         """
         Parses a relative date string into a datetime object.
         This is used to convert the date range from the query into a datetime object.
@@ -79,7 +81,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if date == "all":
             raise ValueError("Invalid date range")
 
-        return relative_date_parse(date, ZoneInfo("UTC"))
+        return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(

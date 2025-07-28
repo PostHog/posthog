@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from unittest import TestCase
 from freezegun import freeze_time
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from posthog.models.utils import uuid7
+from zoneinfo import ZoneInfo
 
 from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
 from posthog.schema import (
@@ -214,6 +215,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "library",
             ],
         )
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_date_range_resolution(self):
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d")
+        date_to = ErrorTrackingQueryRunner.parse_relative_date_to("+1d")
+        self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+        self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
