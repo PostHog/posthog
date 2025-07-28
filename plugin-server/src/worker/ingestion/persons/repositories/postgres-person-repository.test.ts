@@ -299,11 +299,22 @@ describe('PostgresPersonRepository', () => {
             expect(kafkaMessages1).toHaveLength(2)
 
             // Try to create second person with same distinct ID - should fail
-            await expect(
-                repository.createPerson(TIMESTAMP, { name: 'Second Person' }, {}, {}, team.id, null, true, uuid2, [
-                    { distinctId },
-                ])
-            ).rejects.toThrow()
+            const createPersonResult = await repository.createPerson(
+                TIMESTAMP,
+                { name: 'Second Person' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid2,
+                [{ distinctId }]
+            )
+
+            expect(createPersonResult.success).toBe(false)
+            if (createPersonResult.success === false) {
+                expect(createPersonResult.error).toBe('CreationConflict')
+            }
 
             // Verify the first person still exists and can be fetched
             const fetchedPerson = await repository.fetchPerson(team.id, distinctId)

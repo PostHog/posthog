@@ -96,12 +96,10 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           "updateCacheMisses": 0,
         },
         "databaseOperationCountsPerDistinctId": {},
-        "db": {
-          "kafkaProducer": {},
-        },
         "distinctIdToPersonId": {},
         "fetchPromisesForChecking": {},
         "fetchPromisesForUpdate": {},
+        "kafkaProducer": {},
         "methodCountsPerDistinctId": {},
         "options": {
           "dbWriteMode": "NO_ASSERT",
@@ -110,10 +108,8 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           "optimisticUpdateRetryInterval": 50,
         },
         "personCheckCache": {},
+        "personRepository": {},
         "personUpdateCache": {},
-        "personRepository": {
-          "kafkaProducer": {},
-        },
         "updateLatencyPerDistinctIdSeconds": {},
       },
     ],
