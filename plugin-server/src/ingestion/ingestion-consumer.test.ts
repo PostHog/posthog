@@ -878,10 +878,10 @@ describe('IngestionConsumer', () => {
 
         beforeEach(async () => {
             // Create a transformation function using the geoip template as an example
-            const hogByteCode = await compileHog(geoipTemplate.hog)
+            const hogByteCode = await compileHog(geoipTemplate.code)
             transformationFunction = await insertHogFunction({
                 name: 'GeoIP Transformation',
-                hog: geoipTemplate.hog,
+                hog: geoipTemplate.code,
                 bytecode: hogByteCode,
             })
 
