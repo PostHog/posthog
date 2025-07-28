@@ -1785,6 +1785,10 @@ const api = {
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
+
+        async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
+        },
     },
 
     logs: {

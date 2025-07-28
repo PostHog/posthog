@@ -3,8 +3,6 @@ from posthog.settings.base_variables import DEBUG
 from typing import Optional
 from dagster import Backoff, Field, Array, Jitter, RetryPolicy
 
-# TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
-TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074, 12669, 1589, 117126]
 TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS", 1 if DEBUG else 2)
 
 INTRA_DAY_HOURLY_CRON_SCHEDULE = os.getenv("WEB_PREAGGREGATED_INTRA_DAY_HOURLY_CRON_SCHEDULE", "*/10 * * * *")
@@ -65,8 +63,8 @@ def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Opt
 WEB_ANALYTICS_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to process - if empty, processes all teams",
+        is_required=False,
+        description="List of team IDs to process - if not provided, uses ClickHouse dictionary configuration",
     ),
     "extra_clickhouse_settings": Field(
         str,
