@@ -142,16 +142,19 @@ services:
             - kafka
             - objectstorage
 
-    caddy:
-        image: caddy:2.6.1
-        restart: unless-stopped
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
         ports:
             - '80:80'
             - '443:443'
         volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile
             - caddy-data:/data
             - caddy-config:/config
+        environment:
+            CADDY_TLS_BLOCK: $TLS_BLOCK
+            CADDY_HOST: '$DOMAIN, http://, https://'
         depends_on:
             - web
     objectstorage:
@@ -283,13 +286,6 @@ services:
             - db
             - redis
 
-    cassandra:
-        extends:
-            file: docker-compose.base.yml
-            service: cassandra
-        volumes:
-            - cassandra-data:/var/lib/cassandra
-
 volumes:
     zookeeper-data:
     zookeeper-datalog:
@@ -302,4 +298,3 @@ volumes:
     redis-data:
     redis7-data:
     kafka-data:
-    cassandra-data:

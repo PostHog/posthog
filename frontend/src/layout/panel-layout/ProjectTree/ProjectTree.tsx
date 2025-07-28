@@ -635,7 +635,7 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    return <>View {nameNode}</>
+                    return <>{nameNode}</>
                 }
                 if (root === 'new://') {
                     if (item.children) {

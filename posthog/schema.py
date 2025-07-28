@@ -1742,6 +1742,7 @@ class NodeKind(StrEnum):
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
     STICKINESS_QUERY = "StickinessQuery"
+    STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
@@ -1790,6 +1791,7 @@ class PathCleaningFilter(BaseModel):
         extra="forbid",
     )
     alias: Optional[str] = None
+    order: Optional[float] = None
     regex: Optional[str] = None
 
 
@@ -2228,15 +2230,12 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
-class SourceFieldFileUploadConfig(BaseModel):
+class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fileFormat: str
-    label: str
-    name: str
-    required: bool
-    type: Literal["file-upload"] = "file-upload"
+    format: Literal[".json"] = ".json"
+    keys: Union[str, list[str]]
 
 
 class Type4(StrEnum):
@@ -2270,6 +2269,21 @@ class SourceFieldOauthConfig(BaseModel):
     name: str
     required: bool
     type: Literal["oauth"] = "oauth"
+
+
+class SourceFieldSSHTunnelConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    type: Literal["ssh-tunnel"] = "ssh-tunnel"
+
+
+class Converter(StrEnum):
+    STR_TO_INT = "str_to_int"
+    STR_TO_BOOL = "str_to_bool"
+    STR_TO_OPTIONAL_INT = "str_to_optional_int"
 
 
 class SourceMap(BaseModel):
@@ -4297,6 +4311,17 @@ class SessionsTimelineQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class SourceFieldFileUploadConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
+    label: str
+    name: str
+    required: bool
+    type: Literal["file-upload"] = "file-upload"
 
 
 class StickinessCriteria(BaseModel):
@@ -11935,6 +11960,25 @@ class RetentionQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class StickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    operator: Optional[StickinessOperator] = None
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: StickinessQuery
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12432,32 +12476,6 @@ class InsightVizNode(BaseModel):
     suppressSessionAnalysisWarning: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
-
-
-class StickinessActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, list[str], int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    operator: Optional[StickinessOperator] = None
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
-    ] = Field(..., discriminator="kind")
-    status: Optional[str] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class WebVitalsQuery(BaseModel):
@@ -13507,6 +13525,7 @@ class SourceConfig(BaseModel):
             SourceFieldSelectConfig,
             SourceFieldOauthConfig,
             SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
         ]
     ]
     label: Optional[str] = None
@@ -13526,6 +13545,7 @@ class Option(BaseModel):
                 SourceFieldSelectConfig,
                 SourceFieldOauthConfig,
                 SourceFieldFileUploadConfig,
+                SourceFieldSSHTunnelConfig,
             ]
         ]
     ] = None
@@ -13537,6 +13557,7 @@ class SourceFieldSelectConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    converter: Optional[Converter] = None
     defaultValue: str
     label: str
     name: str
@@ -13558,6 +13579,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
             SourceFieldSelectConfig,
             SourceFieldOauthConfig,
             SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
         ]
     ]
     label: str
