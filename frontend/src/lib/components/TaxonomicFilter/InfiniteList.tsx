@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
-import { IconArchive, IconPlus } from '@posthog/icons'
+import { IconArchive, IconBolt, IconPlus } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -79,6 +79,14 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
     )
 }
 
+const optimizedIndicator = (): JSX.Element => {
+    return (
+        <Tooltip title="This property is optimized for faster queries with the New Query Engine">
+            <IconBolt className="text-warning ml-1" />
+        </Tooltip>
+    )
+}
+
 const renderItemContents = ({
     item,
     listGroupType,
@@ -100,6 +108,11 @@ const renderItemContents = ({
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
         (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
+
+    const isOptimizedProperty =
+        (listGroupType === TaxonomicFilterGroupType.EventProperties ||
+            listGroupType === TaxonomicFilterGroupType.SessionProperties) &&
+        (item as PropertyDefinition).is_optimized
 
     const icon = itemGroup.getIcon ? (
         <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
@@ -129,6 +142,7 @@ const renderItemContents = ({
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
+            {isOptimizedProperty && optimizedIndicator()}
         </>
     ) : (
         <div className="taxonomic-list-row-contents">
