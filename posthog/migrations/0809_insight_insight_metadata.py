@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="dashboarditem",
+            model_name="insight",
             name="query_metadata",
             field=models.JSONField(null=True, blank=True),
         ),
