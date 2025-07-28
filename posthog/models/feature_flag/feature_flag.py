@@ -74,6 +74,20 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
     has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
 
+    evaluation_runtime_CHOICES = [
+        ("server", "Server"),
+        ("client", "Client"),
+        ("all", "All"),
+    ]
+    evaluation_runtime = models.CharField(
+        max_length=10,
+        choices=evaluation_runtime_CHOICES,
+        default="all",
+        null=True,
+        blank=True,
+        help_text="Specifies where this feature flag should be evaluated",
+    )
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
