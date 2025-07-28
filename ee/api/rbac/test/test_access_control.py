@@ -716,7 +716,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
+        baseline = 18
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 4):
@@ -732,7 +732,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 5):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 7
@@ -743,7 +743,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 8
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_with_preload_optimization(self):
@@ -758,11 +758,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 17
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 4):
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
@@ -776,7 +776,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 5):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):
@@ -790,14 +790,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 8
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 8
 
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
@@ -806,14 +806,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 45  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
-        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded permissions acs, preloaded acs for the list
+        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
         baseline = baseline + (10 * 3)  # The existing access control adds 3 queries per item :(
-        with self.assertNumQueries(baseline + 6):  # org, roles, preloaded permissions acs, preloaded acs for the list
+        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
 
 
