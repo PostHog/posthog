@@ -26,6 +26,7 @@ class create_and_query_insight(BaseModel):
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "
             "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
+            "If an existing insight has been used as a starting point, include that insight's filters and query in the description. "
             "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
             "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
         )
@@ -39,7 +40,8 @@ class search_insights(BaseModel):
     """
 
     search_query: str = Field(
-        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+        description="The user's query to search for insights. "
+        "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
     )
 
 

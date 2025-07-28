@@ -7,6 +7,8 @@ Each insight has:
 - ID: Unique numeric identifier
 - Name: The insight name
 - Description: Optional description of what the insight shows
+- Filters: Optional filters used to create the insight
+- Query: The query used to create the insight
 
 Guidelines:
 1. Focus on finding insights that directly relate to the user's search query
@@ -26,4 +28,26 @@ ITERATIVE_SEARCH_USER_PROMPT = """
 Find 3 insights matching this search query: {query}
 
 Return the insight IDs as a list of numbers.
+"""
+
+INSIGHT_EVALUATION_SYSTEM_PROMPT = """
+You are evaluating whether existing insights can be used as a starting point for the user's query: "{user_query}"
+
+Here are the insights found from the search with their query results:
+
+{insights_with_results}
+
+Your task is to determine if any of these existing insights can serve as a good starting point or base for the user's request.
+
+Consider:
+1. Do the insights address similar questions or metrics?
+2. Do they use relevant events, properties, or filters?
+3. Can they be easily modified to answer the user's specific question?
+4. Do the query results show relevant data patterns?
+
+Respond with either:
+- YES: If one or more insights can serve as a good starting point. Include which specific insights and explain why.
+- NO: If none of the insights are suitable and a new insight should be created from scratch.
+
+Your response MUST be clear and decisive.
 """

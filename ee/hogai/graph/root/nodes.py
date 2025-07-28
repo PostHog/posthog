@@ -1,4 +1,5 @@
 import math
+import structlog
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -71,6 +72,8 @@ RouteName = Literal["insights", "root", "end", "search_documentation", "insights
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
+
+logger = structlog.get_logger(__name__)
 
 
 class RootNodeUIContextMixin(AssistantNode):
@@ -296,30 +299,35 @@ class RootNode(RootNodeUIContextMixin):
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
 
-        prompt = (
-            ChatPromptTemplate.from_messages(
-                [
-                    ("system", ROOT_SYSTEM_PROMPT),
-                    (
-                        "system",
-                        CORE_MEMORY_PROMPT
-                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                        + " If users ask to save, update, or delete the core memory, say you have done it.",
-                    ),
-                    *[
-                        (
-                            "system",
-                            f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-                            f"</{tool_name}>",
-                        )
-                        for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if get_contextual_tool_class(tool_name) is not None
-                    ],
-                ],
-                template_format="mustache",
-            )
-            + history
+        # Check if we should detect insight modification intent
+        insight_modification_context = self._detect_insight_modification_intent(state)
+
+        prompt_messages = [
+            ("system", ROOT_SYSTEM_PROMPT),
+            (
+                "system",
+                CORE_MEMORY_PROMPT
+                + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                + " If users ask to save, update, or delete the core memory, say you have done it.",
+            ),
+        ]
+
+        # Add insight modification context if detected
+        if insight_modification_context:
+            prompt_messages.append(("system", insight_modification_context))
+
+        # Add contextual tools
+        prompt_messages.extend(
+            [
+                (
+                    "system",
+                    f"<{tool_name}>\n"
+                    f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                    f"</{tool_name}>",
+                )
+                for tool_name, tool_context in self._get_contextual_tools(config).items()
+                if get_contextual_tool_class(tool_name) is not None
+            ]
         )
 
         ui_context = self._format_ui_context(self._get_ui_context(state), config)
@@ -532,6 +540,107 @@ class RootNode(RootNodeUIContextMixin):
                 return messages[idx:]
         return messages
 
+    def _detect_insight_modification_intent(self, state: AssistantState) -> str | None:
+        """
+        Detect if the user wants to modify an existing insight after seeing search results.
+
+        Returns a system prompt addition if modification intent is detected.
+        """
+        if len(state.messages) < 2:
+            return None
+
+        # Look for recent search results followed by user intent to modify
+        recent_messages = state.messages[-10:]  # Check last 10 messages
+
+        # Check if we recently showed insight search results
+        search_results_message = None
+        for message in reversed(recent_messages):
+            if (
+                isinstance(message, AssistantToolCallMessage)
+                and "Found" in message.content
+                and "insight" in message.content
+                and "modify" in message.content
+            ):
+                search_results_message = message
+                break
+
+        if not search_results_message:
+            return None
+
+        # Check if the most recent human message indicates intent to modify
+        last_human_message = None
+        for message in reversed(recent_messages):
+            if isinstance(message, HumanMessage):
+                last_human_message = message
+                break
+
+        if not last_human_message:
+            return None
+
+        user_content = last_human_message.content.lower()
+
+        # Detect modification intent keywords
+        modification_keywords = [
+            "modify",
+            "edit",
+            "change",
+            "update",
+            "adjust",
+            "alter",
+            "i want to modify",
+            "i'd like to change",
+            "can you modify",
+            "use the first",
+            "use insight",
+            "start with",
+            "based on",
+        ]
+
+        has_modification_intent = any(keyword in user_content for keyword in modification_keywords)
+
+        logger.info(f"Checking modification intent for user content: '{user_content}'")
+        logger.info(f"has_modification_intent: {has_modification_intent}")
+
+        if has_modification_intent:
+            # Extract insight references (numbers, "first", "second", etc.)
+            import re
+
+            # Look for insight numbers or ordinals
+            insight_refs = []
+
+            # Find numbers that could be insight IDs
+            numbers = re.findall(r"\b\d+\b", user_content)
+            insight_refs.extend(numbers)
+
+            # Find ordinals (first, second, third)
+            ordinal_map = {"first": "1", "second": "2", "third": "3", "1st": "1", "2nd": "2", "3rd": "3"}
+            for ordinal, number in ordinal_map.items():
+                if ordinal in user_content:
+                    insight_refs.append(number)
+
+            context = f"""
+<insight_modification_context>
+URGENT ACTION REQUIRED: The user has just seen insight search results and wants to modify an existing insight.
+
+User's exact request: "{last_human_message.content}"
+
+YOU MUST IMMEDIATELY CALL THE create_and_query_insight TOOL.
+
+Do NOT respond with explanatory text. Do NOT say what you're going to do.
+IMMEDIATELY call create_and_query_insight with a query_description that includes:
+1. The user's modification request
+2. Reference to the existing insight they want to modify
+3. The specific changes they want
+
+The user is waiting for you to actually perform the modification, not just talk about it.
+
+CALL THE TOOL NOW.
+</insight_modification_context>"""
+
+            return context
+
+        return None
+
 
 class RootNodeTools(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -619,6 +728,7 @@ class RootNodeTools(AssistantNode):
         last_message = state.messages[-1]
 
         if isinstance(last_message, AssistantToolCallMessage):
+            logger.info("TOOL CALL MESSAGE, returning to root!!")
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
@@ -630,7 +740,76 @@ class RootNodeTools(AssistantNode):
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:
+                # TODO: Maybe not needed?
                 return "insights_search"
             else:
                 return "search_documentation"
+
+        # Check if user wants to modify insights after seeing search results
+        if self._detect_insight_modification_intent_for_routing(state):
+            logger.info("USER WANTS TO MODIFY INSIGHT, returning to root!!")
+            return "root"
+
+        logger.info("ENDING!!")
         return "end"
+
+    def _detect_insight_modification_intent_for_routing(self, state: AssistantState) -> bool:
+        """
+        Simplified version of insight modification detection for routing decisions.
+
+        Returns True if the user likely wants to modify an insight after seeing search results.
+        """
+        if len(state.messages) < 2:
+            return False
+
+        # Look for recent search results followed by user intent to modify
+        recent_messages = state.messages[-6:]  # Check last 6 messages
+
+        # Check if we recently showed insight search results
+        has_recent_search_results = False
+        for message in reversed(recent_messages):
+            if (
+                isinstance(message, AssistantToolCallMessage)
+                and "Found" in message.content
+                and "insight" in message.content
+                and ("modify" in message.content or "What would you like to do?" in message.content)
+            ):
+                has_recent_search_results = True
+                break
+
+        if not has_recent_search_results:
+            return False
+
+        # Check if the most recent human message indicates intent to modify/create
+        last_human_message = None
+        for message in reversed(recent_messages):
+            if isinstance(message, HumanMessage):
+                last_human_message = message
+                break
+
+        if not last_human_message:
+            return False
+
+        user_content = last_human_message.content.lower()
+
+        # Detect modification/creation intent keywords
+        intent_keywords = [
+            "modify",
+            "edit",
+            "change",
+            "update",
+            "adjust",
+            "alter",
+            "create new",
+            "i want to modify",
+            "i'd like to change",
+            "can you modify",
+            "make a new",
+            "use the first",
+            "use insight",
+            "start with",
+            "based on",
+            "first one",
+        ]
+
+        return any(keyword in user_content for keyword in intent_keywords)

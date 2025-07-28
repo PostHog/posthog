@@ -10,10 +10,11 @@ from langchain_openai import ChatOpenAI
 import structlog
 
 
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantToolCallMessage
 from ee.hogai.graph.base import AssistantNode
-from .prompts import ITERATIVE_SEARCH_SYSTEM_PROMPT, ITERATIVE_SEARCH_USER_PROMPT
+from .prompts import INSIGHT_EVALUATION_SYSTEM_PROMPT, ITERATIVE_SEARCH_SYSTEM_PROMPT, ITERATIVE_SEARCH_USER_PROMPT
 
 from posthog.models import InsightViewed
 
@@ -68,6 +69,7 @@ class InsightSearchNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
         search_query = state.search_insights_query
+        insight_plan = state.root_tool_insight_plan
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
 
         try:
@@ -79,32 +81,88 @@ class InsightSearchNode(AssistantNode):
 
             selected_insights = self._search_insights_iteratively(search_query or "")
 
-            formatted_content = self._format_search_results(selected_insights, search_query or "")
+            # If this is a create_and_query_insight request (both search_query and insight_plan are set),
+            # evaluate whether found insights can be used as a starting point
+            if insight_plan and search_query:
+                evaluation_result = self._evaluate_insights_for_creation(selected_insights, insight_plan)
 
-            execution_time = time.time() - start_time
-            self.logger.info(
-                f"Iterative insight search completed",
-                extra={
-                    "team_id": getattr(self._team, "id", "unknown"),
-                    "conversation_id": conversation_id,
-                    "query_length": len(search_query) if search_query else 0,
-                    "results_count": len(selected_insights),
-                    "execution_time_ms": round(execution_time * 1000, 2),
-                    "iterations": self._current_iteration,
-                },
-            )
+                if evaluation_result["should_use_existing"]:
+                    # Show the existing insights to the user
+                    formatted_content = self._format_search_results(selected_insights, search_query)
+                    formatted_content += f"\n\n**Evaluation Result**: {evaluation_result['explanation']}"
 
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=formatted_content,
-                        tool_call_id=state.root_tool_call_id or "unknown",
-                        id=str(uuid4()),
-                    ),
-                ],
-                search_insights_query=None,
-                root_tool_call_id=None,
-            )
+                    execution_time = time.time() - start_time
+                    self.__class__.logger.info(
+                        f"Insight search and evaluation completed - using existing insights",
+                        extra={
+                            "team_id": getattr(self._team, "id", "unknown"),
+                            "conversation_id": conversation_id,
+                            "query_length": len(search_query) if search_query else 0,
+                            "results_count": len(selected_insights),
+                            "execution_time_ms": round(execution_time * 1000, 2),
+                            "iterations": self._current_iteration,
+                        },
+                    )
+
+                    return PartialAssistantState(
+                        messages=[
+                            AssistantToolCallMessage(
+                                content=formatted_content,
+                                tool_call_id=state.root_tool_call_id or "unknown",
+                                id=str(uuid4()),
+                            ),
+                        ],
+                        search_insights_query=None,
+                        root_tool_call_id=None,
+                        root_tool_insight_plan=None,
+                    )
+                else:
+                    # No suitable insights found, continue with normal creation flow
+                    execution_time = time.time() - start_time
+                    self.__class__.logger.info(
+                        f"Insight search and evaluation completed - creating new insight",
+                        extra={
+                            "team_id": getattr(self._team, "id", "unknown"),
+                            "conversation_id": conversation_id,
+                            "query_length": len(search_query) if search_query else 0,
+                            "results_count": len(selected_insights),
+                            "execution_time_ms": round(execution_time * 1000, 2),
+                            "iterations": self._current_iteration,
+                        },
+                    )
+
+                    # Clear search_insights_query but keep root_tool_insight_plan to trigger creation
+                    return PartialAssistantState(
+                        search_insights_query=None,
+                    )
+
+            else:
+                formatted_content = self._format_search_results(selected_insights, search_query or "")
+
+                execution_time = time.time() - start_time
+                self.logger.info(
+                    f"Iterative insight search completed",
+                    extra={
+                        "team_id": getattr(self._team, "id", "unknown"),
+                        "conversation_id": conversation_id,
+                        "query_length": len(search_query) if search_query else 0,
+                        "results_count": len(selected_insights),
+                        "execution_time_ms": round(execution_time * 1000, 2),
+                        "iterations": self._current_iteration,
+                    },
+                )
+
+                return PartialAssistantState(
+                    messages=[
+                        AssistantToolCallMessage(
+                            content=formatted_content,
+                            tool_call_id=state.root_tool_call_id or "unknown",
+                            id=str(uuid4()),
+                        ),
+                    ],
+                    search_insights_query=None,
+                    root_tool_call_id=None,
+                )
 
         except Exception as e:
             execution_time = time.time() - start_time
@@ -135,6 +193,7 @@ class InsightSearchNode(AssistantNode):
                 "insight__team",
                 "insight__short_id",
                 "insight__query",
+                "insight__filters",
             )
             .order_by("insight_id", "-last_viewed_at")
             .distinct("insight_id")
@@ -148,6 +207,7 @@ class InsightSearchNode(AssistantNode):
                 "insight__derived_name",
                 "insight__query",
                 "insight__short_id",
+                "insight__filters",
             )
         )
 
@@ -295,7 +355,16 @@ Description: {description}
             formatted_results.append(result_block)
 
         content = header + "\n\n".join(formatted_results)
-        content += "\n\nINSTRUCTIONS: Ask the user if they want to modify one of these insights, or use them as a starting point for a new one."
+
+        # Add contextual guidance based on search results
+        content += f"\n\nYou found {len(insight_details)} existing insight{'s' if len(insight_details) != 1 else ''}"
+        if search_query:
+            content += f" related to '{search_query}'"
+        content += ". Present these results to the user and ask them how they'd like to proceed. They can:"
+        content += "\n- Use one of these insights as-is"
+        content += "\n- Modify an existing insight (change filters, time range, etc.)"
+        content += "\n- Create a completely new insight"
+        content += "\n\nBe natural and conversational - don't present this as a rigid list of options."
 
         return content
 
@@ -313,7 +382,122 @@ Description: {description}
             root_tool_call_id=None,
         )
 
-    def router(self, state: AssistantState) -> Literal["end", "root"]:
+    def _evaluate_insights_for_creation(self, selected_insights: list[int], user_query: str) -> dict:
+        """
+        Evaluate whether found insights can be used as a starting point for the user's query.
+        Executes the insights and provides results to LLM for evaluation.
+        """
+        if not selected_insights:
+            return {"should_use_existing": False, "explanation": "No insights found to evaluate."}
+
+        query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
+        insights_with_results = []
+
+        for insight_id in selected_insights:
+            insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
+            if not insight:
+                continue
+
+            try:
+                # Execute the insight query to get results
+                insight_query = insight.get("insight__query")
+                if insight_query:
+                    # Parse the JSON query and execute it
+                    import json
+                    from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
+
+                    query_dict = json.loads(insight_query)
+                    query_kind = query_dict.get("kind")
+
+                    if query_kind and query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+                        QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
+                        query_obj = QueryModel.model_validate(query_dict)
+
+                        results, _ = query_executor.run_and_format_query(query_obj)
+
+                        insight_info = {
+                            "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                            "description": insight.get("insight__description", ""),
+                            "query": insight_query,
+                            "results": results,
+                            "filters": insight.get("insight__filters", ""),
+                        }
+                        insights_with_results.append(insight_info)
+                    else:
+                        # Unsupported query type - include without execution
+                        insight_info = {
+                            "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                            "description": insight.get("insight__description", ""),
+                            "query": insight_query,
+                            "results": f"Query type '{query_kind}' not supported for execution",
+                            "filters": insight.get("insight__filters", ""),
+                        }
+                        insights_with_results.append(insight_info)
+                else:
+                    # No query data available
+                    insight_info = {
+                        "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                        "description": insight.get("insight__description", ""),
+                        "query": "No query data available",
+                        "results": "Cannot execute - no query data",
+                        "filters": insight.get("insight__filters", ""),
+                    }
+                    insights_with_results.append(insight_info)
+
+            except Exception as e:
+                self.__class__.logger.warning(f"Failed to execute insight {insight_id}: {e}")
+                # Still include the insight but without results
+                insight_info = {
+                    "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+                    "description": insight.get("insight__description", ""),
+                    "query": insight.get("insight__query", ""),
+                    "results": "Failed to execute query",
+                    "filters": insight.get("insight__filters", ""),
+                }
+                insights_with_results.append(insight_info)
+
+        if not insights_with_results:
+            return {"should_use_existing": False, "explanation": "Could not evaluate any insights."}
+
+        # Format insights for LLM evaluation
+        formatted_insights = []
+        for i, insight in enumerate(insights_with_results, 1):
+            formatted_insight = f"""
+**Insight {i}: {insight['name']}**
+Description: {insight['description'] or 'No description'}
+Query: {insight['query']}
+Results: {insight['results']}
+Filters: {insight['filters']}
+"""
+            formatted_insights.append(formatted_insight)
+
+        insights_text = "\n".join(formatted_insights)
+
+        # Use LLM to evaluate
+        evaluation_prompt = INSIGHT_EVALUATION_SYSTEM_PROMPT.format(
+            user_query=user_query, insights_with_results=insights_text
+        )
+
+        try:
+            messages = [SystemMessage(content=evaluation_prompt)]
+            response = self._model.invoke(messages)
+            response_text = response.content if isinstance(response.content, str) else str(response.content)
+
+            # Parse response to determine if we should use existing insights
+            should_use_existing = response_text.upper().startswith("YES")
+
+            self.__class__.logger.info(f"***USING EXISTING INSIGHT***")
+
+            return {"should_use_existing": should_use_existing, "explanation": response_text}
+
+        except Exception as e:
+            self.__class__.logger.warning(f"Failed to evaluate insights: {e}")
+            return {"should_use_existing": False, "explanation": "Could not evaluate insights due to an error."}
+
+    def router(self, state: AssistantState) -> Literal["end", "root", "insights"]:
+        # Check if we need to continue with insight creation after evaluation
+        if state.root_tool_insight_plan and not state.search_insights_query:
+            return "insights"
         return "root"
 
     @property
