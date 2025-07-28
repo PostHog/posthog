@@ -5,6 +5,9 @@ Rather than add tests here, consider improving event-pipeline-integration test s
 unit tests to appropriate classes/functions.
 */
 
+// eslint-disable-next-line simple-import-sort/imports
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
@@ -18,14 +21,14 @@ import { ClickHouseEvent, Hub, InternalPerson, LogLevel, Person, PluginsServerCo
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { Clickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
+import { KAFKA_GROUPS } from '~/config/kafka-topics'
+import { parseRawClickHouseEvent } from '~/utils/event'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
@@ -56,100 +59,16 @@ export async function createPerson(
     return person
 }
 
-type EventsByPerson = [string[], string[]]
-
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Info,
 }
 
-let processEventCounter = 0
-let mockClientEventCounter = 0
-let team: Team
-let hub: Hub
-let eventsProcessor: EventsProcessor
-
-let personRepository: PostgresPersonRepository
-let now = DateTime.utc()
-
-// Simple client used to simulate sending events
-// Use state object to simulate stateful clients that keep track of old
-// distinct id, starting with an anonymous one. I've taken posthog-js as
-// the reference implementation.
-let state = { currentDistinctId: 'anonymous_id' }
-
 describe('processEvent', () => {
-    let clickhouse: Clickhouse
-
-    beforeAll(async () => {
-        await resetKafka(TEST_CONFIG)
-    })
-
-    beforeEach(async () => {
-        try {
-            clickhouse = Clickhouse.create()
-            const testCode = `
-                function processEvent (event, meta) {
-                    event.properties["somewhere"] = "over the rainbow";
-                    return event
-                }
-            `
-            console.log('beforeEach', 'resetTestDatabase')
-            await resetTestDatabase(testCode, TEST_CONFIG)
-            console.log('beforeEach', 'clickhouse.resetTestDatabase')
-            await clickhouse.resetTestDatabase()
-            console.log('beforeEach', 'createHub')
-            hub = await createHub({ ...TEST_CONFIG })
-
-            console.log('beforeEach', 'new EventsProcessor')
-            personRepository = new PostgresPersonRepository(hub.db.postgres)
-            eventsProcessor = new EventsProcessor(hub)
-            processEventCounter = 0
-            mockClientEventCounter = 0
-            team = await getFirstTeam(hub)
-            now = DateTime.utc()
-
-            // clear the webhook redis cache
-            console.log('beforeEach', 'createRedis')
-            const redis = await createRedis(hub, 'ingestion')
-            const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
-            await redis.del(hooksCacheKey)
-            await redis.quit()
-            // Always start with an anonymous state
-            state = { currentDistinctId: 'anonymous_id' }
-            console.log('beforeEach', 'done')
-        } catch (e) {
-            console.error('beforeEach', 'error', e, e.stack)
-            throw e
-        }
-    })
-
-    afterEach(async () => {
-        clickhouse.close()
-        await closeHub(hub)
-    })
-
-    const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
-        // Helper function to retrieve events paired with their associated distinct
-        // ids
-        const persons = await hub.db.fetchPersons()
-        const events = await clickhouse.fetchEvents()
-
-        return await Promise.all(
-            persons
-                .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
-                .map(async (person) => {
-                    const distinctIds = await hub.db.fetchDistinctIdValues(person)
-
-                    return [
-                        distinctIds,
-                        (events as ClickHouseEvent[])
-                            .filter((event) => distinctIds.includes(event.distinct_id))
-                            .sort((e1, e2) => e1.timestamp.diff(e2.timestamp).toMillis())
-                            .map((event) => event.event),
-                    ] as EventsByPerson
-                })
-        )
-    }
+    let team: Team
+    let hub: Hub
+    let personRepository: PostgresPersonRepository
+    let eventsProcessor: EventsProcessor
+    let now = DateTime.utc()
 
     async function processEvent(
         distinctId: string,
@@ -174,11 +93,87 @@ describe('processEvent', () => {
         const personsStoreForBatch = new MeasuringPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres))
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
-        await runner.runEventPipeline(pluginEvent, team)
+        const res = await runner.runEventPipeline(pluginEvent, team)
+        await Promise.all(res.ackPromises ?? [])
 
         await groupStoreForBatch.flush()
+    }
 
-        await clickhouse.delayUntilEventIngested(async () => await clickhouse.fetchEvents(), ++processEventCounter)
+    // Simple client used to simulate sending events
+    // Use state object to simulate stateful clients that keep track of old
+    // distinct id, starting with an anonymous one. I've taken posthog-js as
+    // the reference implementation.
+    let state = { currentDistinctId: 'anonymous_id' }
+
+    let mockProducerObserver: KafkaProducerObserver
+
+    beforeAll(async () => {
+        await resetKafka(TEST_CONFIG)
+    })
+
+    beforeEach(async () => {
+        const testCode = `
+                function processEvent (event, meta) {
+                    event.properties["somewhere"] = "over the rainbow";
+                    return event
+                }
+            `
+        await resetTestDatabase(testCode, TEST_CONFIG)
+        // await resetTestDatabaseClickhouse(TEST_CONFIG)
+
+        hub = await createHub({ ...TEST_CONFIG })
+        mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
+        mockProducerObserver.resetKafkaProducer()
+
+        const redis = await createRedis(hub, 'ingestion')
+            const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
+            await redis.del(hooksCacheKey)
+            await redis.quit()
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
+
+        eventsProcessor = new EventsProcessor(hub)
+        team = await getFirstTeam(hub)
+        now = DateTime.utc()
+
+        // Always start with an anonymous state
+        state = { currentDistinctId: 'anonymous_id' }
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    const getEventsFromKafka = (): Record<string, any>[] => {
+        const events = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC)
+            .map((x) => parseRawClickHouseEvent(x.value as any))
+
+        return events
+    }
+
+    type EventsByPerson = [string[], string[]]
+
+    const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => {
+        // Helper function to retrieve events paired with their associated distinct
+        // ids
+        const persons = await hub.db.fetchPersons()
+        const events = getEventsFromKafka()
+
+        return await Promise.all(
+            persons
+                .sort((p1, p2) => p1.created_at.diff(p2.created_at).toMillis())
+                .map(async (person) => {
+                    const distinctIds = await hub.db.fetchDistinctIdValues(person)
+
+                    return [
+                        distinctIds,
+                        (events as ClickHouseEvent[])
+                            .filter((event) => distinctIds.includes(event.distinct_id))
+                            .sort((e1, e2) => e1.timestamp.diff(e2.timestamp).toMillis())
+                            .map((event) => event.event),
+                    ] as EventsByPerson
+                })
+        )
     }
 
     const capture = async (
@@ -204,7 +199,6 @@ describe('processEvent', () => {
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
         await runner.runEventPipeline(event, team)
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchEvents(), ++mockClientEventCounter)
     }
 
     const identify = async (hub: Hub, distinctId: string, personRepository?: PostgresPersonRepository) => {
@@ -231,7 +225,6 @@ describe('processEvent', () => {
 
     test('merge people', async () => {
         const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(), 1)
 
         const [_person0, kafkaMessages0, _versionDisparity0] = await personRepository.updatePerson(p0, {
             created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
@@ -241,7 +234,6 @@ describe('processEvent', () => {
             $os: 'Chrome',
             $browser: 'Chrome',
         })) as InternalPerson
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(), 2)
         const [_person1, kafkaMessages1, _versionDisparity1] = await personRepository.updatePerson(p1, {
             created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
         })
@@ -263,10 +255,6 @@ describe('processEvent', () => {
 
         expect((await hub.db.fetchPersons()).length).toEqual(2)
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(), 2)
-        const chPeople = await clickhouse.fetchPersons()
-        expect(chPeople.length).toEqual(2)
-
         await processEvent(
             'person_0',
             '',
@@ -279,11 +267,6 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-
-        await clickhouse.delayUntilEventIngested(async () =>
-            (await clickhouse.fetchPersons()).length === 1 ? [1] : []
-        )
-        expect((await clickhouse.fetchPersons()).length).toEqual(1)
 
         const [person] = await hub.db.fetchPersons()
 
@@ -361,14 +344,8 @@ describe('processEvent', () => {
         }
         expect(persons[0].properties).toEqual(expectedProps)
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchEvents(), 1)
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(), 1)
-        const chPeople = await clickhouse.fetchPersons()
-        expect(chPeople.length).toEqual(1)
-        expect(parseJSON(chPeople[0].properties)).toEqual(expectedProps)
-        expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
+        let events = getEventsFromKafka()
 
-        let events = await clickhouse.fetchEvents()
         expect(events[0].properties).toEqual({
             $ip: '127.0.0.1',
             $os: 'Mac OS X',
@@ -436,7 +413,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        events = await clickhouse.fetchEvents()
+        events = getEventsFromKafka()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(2)
         expect(persons.length).toEqual(1)
@@ -464,12 +441,6 @@ describe('processEvent', () => {
             $referring_domain: 'https://google.com',
         }
         expect(persons[0].properties).toEqual(expectedProps)
-
-        const chPeople2 = await clickhouse.delayUntilEventIngested(async () =>
-            (await clickhouse.fetchPersons()).filter((p) => p && parseJSON(p.properties).utm_medium == 'instagram')
-        )
-        expect(chPeople2.length).toEqual(1)
-        expect(parseJSON(chPeople2[0].properties)).toEqual(expectedProps)
 
         expect(events[1].properties.$set).toEqual({
             x: 123,
@@ -527,7 +498,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        events = await clickhouse.fetchEvents()
+        events = getEventsFromKafka()
         persons = await hub.db.fetchPersons()
         expect(events.length).toEqual(3)
         expect(persons.length).toEqual(1)
@@ -549,10 +520,6 @@ describe('processEvent', () => {
         })
         // check that person properties didn't change
         expect(persons[0].properties).toEqual(expectedProps)
-
-        const chPeople3 = await clickhouse.fetchPersons()
-        expect(chPeople3.length).toEqual(1)
-        expect(parseJSON(chPeople3[0].properties)).toEqual(expectedProps)
 
         team = await getFirstTeam(hub)
     })
@@ -592,7 +559,7 @@ describe('processEvent', () => {
         )
 
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual(['asdfasdfasdf'])
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.event).toBe('$pageview')
     })
 
@@ -611,7 +578,7 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(Object.keys(event.properties)).not.toContain('$ip')
     })
 
@@ -630,7 +597,7 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$ip']).toBe('11.12.13.14')
     })
 
@@ -650,7 +617,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$ip']).toBe('1.0.0.1')
     })
 
@@ -676,7 +643,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$ip']).not.toBeTruthy()
     })
 
@@ -696,7 +663,6 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
@@ -719,7 +685,6 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
@@ -742,7 +707,6 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
@@ -766,7 +730,6 @@ describe('processEvent', () => {
         )
 
         expect((await hub.db.fetchPersons()).length).toBe(1)
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
@@ -787,7 +750,6 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(2)
         expect((await hub.db.fetchPersons()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'old_distinct_id',
@@ -810,7 +772,6 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect((await hub.db.fetchPersons()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'new_distinct_id',
@@ -835,7 +796,6 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect(await hub.db.fetchDistinctIdValues((await hub.db.fetchPersons())[0])).toEqual([
             'old_distinct_id',
             'new_distinct_id',
@@ -865,7 +825,6 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
         expect((await hub.db.fetchPersons()).length).toBe(1)
         const [person] = await hub.db.fetchPersons()
         expect((await hub.db.fetchDistinctIdValues(person)).sort()).toEqual(['new_distinct_id', 'old_distinct_id'])
@@ -903,7 +862,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         const [element] = event.elements_chain!
         expect(element.href?.length).toEqual(2048)
         expect(element.text?.length).toEqual(400)
@@ -919,6 +878,7 @@ describe('processEvent', () => {
             'testTag'
         )
 
+    test('long htext', async () => {
         await processEvent(
             '2',
             '',
@@ -946,7 +906,7 @@ describe('processEvent', () => {
         team = await getFirstTeam(hub)
         expect(team.ingested_event).toEqual(true)
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
 
         const elements = event.elements_chain!
         expect(elements.length).toEqual(1)
@@ -974,9 +934,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
         const [person] = await hub.db.fetchPersons()
@@ -1000,7 +958,6 @@ describe('processEvent', () => {
             ts_after,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(2)
         const [person2] = await hub.db.fetchPersons()
         expect(person2.properties).toEqual({ a_prop: 'test-2', b_prop: 'test-2b', c_prop: 'test-1' })
     })
@@ -1025,9 +982,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
         const [person] = await hub.db.fetchPersons()
@@ -1051,7 +1006,6 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(2)
         const [person2] = await hub.db.fetchPersons()
         expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
         expect(person2.is_identified).toEqual(false)
@@ -1154,8 +1108,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set']).toEqual({ a_prop: 'test' })
         const [person] = await hub.db.fetchPersons()
         expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
@@ -1489,6 +1442,7 @@ describe('processEvent', () => {
             // Let's first just make sure `updatePerson` was called, as a way of
             // checking that our mocking was actually invoked
             expect(personRepository.createPerson).toHaveBeenCalled()
+
             // Now make sure that we have one person in the db that has been
             // identified
             const persons = await hub.db.fetchPersons()
@@ -1643,7 +1597,7 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.event).toEqual('{"event name":"as object"}')
     })
 
@@ -1657,7 +1611,7 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.event).toEqual('["event name","a list"]')
     })
 
@@ -1672,7 +1626,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.event?.length).toBe(200)
     })
 
@@ -1696,9 +1650,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
         const [person] = await hub.db.fetchPersons()
@@ -1726,9 +1678,7 @@ describe('processEvent', () => {
             uuid
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
         const [person] = await hub.db.fetchPersons()
@@ -1756,9 +1706,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
 
         const [person] = await hub.db.fetchPersons()
@@ -1781,7 +1729,6 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(2)
         const [person2] = await hub.db.fetchPersons()
         expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
     })
@@ -1805,8 +1752,6 @@ describe('processEvent', () => {
             now,
             uuid
         )
-
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
 
         const [person] = await hub.db.fetchPersons()
         expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
@@ -1845,16 +1790,13 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchClickhouseGroups(), 1)
-
-        const [clickhouseGroup] = await clickhouse.fetchClickhouseGroups()
-        expect(clickhouseGroup).toEqual({
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_GROUPS)[0].value).toEqual({
             group_key: 'org::5',
             group_properties: JSON.stringify({ foo: 'bar' }),
             group_type_index: 0,
-            team_id: team.id.toString(),
+            team_id: team.id,
             created_at: expect.any(String),
+            version: 1,
         })
 
         const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
@@ -1893,8 +1835,6 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
     })
 
     test('$groupidentify updating properties', async () => {
@@ -1925,16 +1865,13 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchClickhouseGroups(), 1)
-
-        const [clickhouseGroup] = await clickhouse.fetchClickhouseGroups()
-        expect(clickhouseGroup).toEqual({
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_GROUPS)[0].value).toEqual({
             group_key: 'org::5',
             group_properties: JSON.stringify({ a: 3, b: 2, foo: 'bar' }),
             group_type_index: 0,
-            team_id: team.id.toString(),
+            team_id: team.id,
             created_at: expect.any(String),
+            version: 2,
         })
 
         const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
@@ -2013,7 +1950,7 @@ describe('processEvent', () => {
             new UUIDT().toString()
         )
 
-        const events = await clickhouse.fetchEvents()
+        const events = getEventsFromKafka()
         const event = [...events].find((e: any) => e['event'] === 'test event')
         expect(event?.person_properties).toEqual({ pineapple: 'on', pizza: 1, new: 5 })
         expect(event?.properties.$group_0).toEqual('org:5')
@@ -2042,9 +1979,8 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$set']).toEqual({ a_prop: 'test-set' })
         expect(event.properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
 
@@ -2072,9 +2008,8 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$unset']).toEqual(['a', 'c'])
 
         const [person] = await hub.db.fetchPersons()
@@ -2101,9 +2036,8 @@ describe('processEvent', () => {
             now,
             new UUIDT().toString()
         )
-        expect((await clickhouse.fetchEvents()).length).toBe(1)
 
-        const [event] = await clickhouse.fetchEvents()
+        const [event] = getEventsFromKafka()
         expect(event.properties['$unset']).toEqual({})
 
         const [person] = await hub.db.fetchPersons()
@@ -2134,8 +2068,6 @@ describe('processEvent', () => {
         })
 
         async function verifyPersonPropertiesSetCorrectly() {
-            expect((await clickhouse.fetchEvents()).length).toBe(4)
-
             const [person] = await hub.db.fetchPersons()
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
             expect(person.properties).toEqual({
