@@ -98,7 +98,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.Fix204Middleware",
+    "posthog.middleware.AdminCSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
@@ -220,6 +220,8 @@ IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SE
 IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
+# Disallow impersonating other staff
+CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 

@@ -88,7 +88,7 @@ export function SurveyContainerAppearance({
     onAppearanceChange,
     validationErrors,
     surveyType,
-}: CommonProps): JSX.Element {
+}: CommonProps): JSX.Element | null {
     const { surveysStylingAvailable } = useValues(surveysLogic)
 
     return (

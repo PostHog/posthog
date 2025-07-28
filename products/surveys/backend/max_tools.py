@@ -2,17 +2,19 @@
 MaxTool for AI-powered survey creation.
 """
 
-from typing import Any
+from typing import Any, cast
+
 import django.utils.timezone
-from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, Survey
+from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
-from posthog.schema import SurveyCreationSchema
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Survey, Team
+from posthog.schema import SurveyCreationSchema
+
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
 
 
@@ -57,7 +59,7 @@ class CreateSurveyTool(MaxTool):
             }
         )
 
-        return result
+        return cast(SurveyCreationSchema, result)
 
     async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
