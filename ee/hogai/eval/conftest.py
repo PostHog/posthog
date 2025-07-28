@@ -33,6 +33,7 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 
 
 def pytest_addoption(parser):
+    # Example: pytest ee/hogai/eval/eval_sql.py --case churn - to only run cases containing "churn" in input
     parser.addoption("--case", action="store")
 
 
@@ -41,8 +42,8 @@ async def MaxEval(
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
+    pytestconfig: pytest.Config,
     metadata: Metadata | None = None,
-    pytestconfig: pytest.Config | None = None,
 ):
     # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones

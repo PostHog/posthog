@@ -72,7 +72,7 @@ async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, met
 
 
 @pytest.mark.django_db
-async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema):
+async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_schema, pytestconfig):
     metadata = {"schema": database_schema}
 
     await MaxEval(
@@ -132,4 +132,5 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
                 metadata=metadata,
             ),
         ],
+        pytestconfig=pytestconfig,
     )
