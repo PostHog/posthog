@@ -23,6 +23,7 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
+from user_agents import parse
 
 import lzstring
 import posthoganalytics
@@ -611,6 +612,19 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = ip.split(":")[0]
 
     return ip
+
+
+def get_browser_info(request: HttpRequest) -> str:
+    """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
+    user_agent_str = request.META.get("HTTP_USER_AGENT")
+
+    user_agent = parse(user_agent_str)
+
+    # strip the last (patch/build) number from the version, it can change frequently
+    browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
+    os_version = ".".join(str(x) for x in user_agent.os.version[:2])
+
+    return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
 
 
 def dict_from_cursor_fetchall(cursor):

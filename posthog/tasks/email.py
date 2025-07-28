@@ -448,6 +448,20 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     message.send()
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_login_notification_email(user_id: int, login_time: str, ip_address: str, location: str, browser: str) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="login_notification",
+        subject="A new device logged into your account",
+        template_context={"login_time": login_time, "ip_address": ip_address, "location": location, "browser": browser},
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
