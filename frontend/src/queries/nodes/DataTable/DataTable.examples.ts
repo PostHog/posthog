@@ -99,60 +99,6 @@ const PersonsTable: DataTableNode = {
     showReload: true,
 }
 
-const MarketingAnalyticsTablePinnedColumnsAtTheBeginning: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.MarketingAnalyticsTableQuery,
-        select: [
-            'campaign',
-            'source',
-            'cost',
-            'impressions',
-            'clicks',
-            'extra table 1',
-            'extra table 2',
-            'extra table 3',
-            'extra table 4',
-            'extra table 5',
-            'extra table 6',
-            'extra table 7',
-            'extra table 8',
-            'extra table 9',
-            'extra table 10',
-        ],
-        properties: [],
-        limit: 100,
-    },
-    pinnedColumns: ['campaign', 'source', 'cost'],
-}
-
-const MarketingAnalyticsTablePinnedColumnsInTheMiddle: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.MarketingAnalyticsTableQuery,
-        select: [
-            'campaign',
-            'source',
-            'cost',
-            'impressions',
-            'clicks',
-            'extra table 1',
-            'extra table 2',
-            'extra table 3',
-            'extra table 4',
-            'extra table 5',
-            'extra table 6',
-            'extra table 7',
-            'extra table 8',
-            'extra table 9',
-            'extra table 10',
-        ],
-        properties: [],
-        limit: 100,
-    },
-    pinnedColumns: ['source', 'extra table 1'],
-}
-
 export const examples = {
     AllDefaults,
     Minimalist,
@@ -162,6 +108,4 @@ export const examples = {
     ShowAllTheThings,
     Persons,
     PersonsTable,
-    MarketingAnalyticsTablePinnedColumnsAtTheBeginning,
-    MarketingAnalyticsTablePinnedColumnsInTheMiddle,
 }
