@@ -11,7 +11,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/builder-hog-02.png',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 // Get the properties to hash from inputs and split by comma
 let propertiesToHash := []
 if (notEmpty(inputs.propertiesToHash)) {

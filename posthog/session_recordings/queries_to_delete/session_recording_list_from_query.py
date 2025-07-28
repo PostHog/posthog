@@ -18,12 +18,12 @@ from posthog.schema import (
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
-from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
-from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
-from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
-from posthog.session_recordings.queries.utils import (
+from posthog.session_recordings.queries_to_delete.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries_to_delete.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
+from posthog.session_recordings.queries_to_delete.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries_to_delete.sub_queries.person_ids_subquery import PersonsIdCompareOperation
+from posthog.session_recordings.queries_to_delete.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
+from posthog.session_recordings.queries_to_delete.utils import (
     SessionRecordingQueryResult,
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
