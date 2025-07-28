@@ -1071,7 +1071,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <div className="mb-8">
                                 <div className="inline-flex items-center gap-2 mb-3">
                                     <h3 className="l3 mb-0">Evaluation runtime</h3>
-                                    <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in an runtime where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
+                                    <Tooltip title="This setting controls where your feature flag can be evaluated. If you try to use a flag in a runtime where it's not allowed (e.g., using a server-only flag in client-side code), it won't evaluate.">
                                         <IconInfo className="text-secondary text-lg" />
                                     </Tooltip>
                                 </div>
