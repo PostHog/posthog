@@ -92,6 +92,9 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
         return <HogFunctionFiltersInternal />
     }
 
+    // NOTE: Mappings won't work for person updates currently as they are totally event based...
+    const showSourcePicker = type === 'destination' && !useMapping
+
     const mainContent = (
         <div
             className={clsx(
@@ -100,6 +103,24 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 embedded && 'p-2'
             )}
         >
+            {showSourcePicker && (
+                <LemonField name="filters" label="Source">
+                    {({ value, onChange }) => {
+                        return (
+                            <LemonSelect
+                                options={[
+                                    { value: 'events', label: 'Events' },
+                                    { value: 'person-updates', label: 'Person updates' },
+                                ]}
+                                value={value?.type ?? 'events'}
+                                onChange={(val) => {
+                                    onChange({ ...value, type: val })
+                                }}
+                            />
+                        )
+                    }}
+                </LemonField>
+            )}
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -109,9 +130,16 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                         : 'Filters applied to all events'
                 }
             >
-                {({ value, onChange }) => {
+                {({ value, onChange: _onChange }) => {
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
+
+                    const onChange = (newValue: CyclotronJobFiltersType): void => {
+                        if (oldFilters && newFilters) {
+                            clearFiltersDiff()
+                        }
+                        _onChange(newValue)
+                    }
 
                     return (
                         <>
@@ -126,9 +154,6 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     checked={currentFilters?.filter_test_accounts ?? false}
                                     onChange={(filter_test_accounts) => {
                                         const newValue = { ...currentFilters, filter_test_accounts }
-                                        if (oldFilters && newFilters) {
-                                            clearFiltersDiff()
-                                        }
                                         onChange(newValue)
                                     }}
                                     fullWidth
@@ -142,10 +167,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         ...currentFilters,
                                         properties,
                                     }
-                                    if (oldFilters && newFilters) {
-                                        clearFiltersDiff()
-                                    }
-                                    onChange(newValue)
+                                    onChange(newValue as CyclotronJobFiltersType)
                                 }}
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
                             />
@@ -164,14 +186,10 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         bordered
                                         filters={currentFilters ?? {} /* TODO: this is any */}
                                         setFilters={(payload) => {
-                                            const newValue = {
+                                            onChange({
                                                 ...currentFilters,
                                                 ...sanitizeActionFilters(payload),
-                                            }
-                                            if (oldFilters && newFilters) {
-                                                clearFiltersDiff()
-                                            }
-                                            onChange(newValue)
+                                            })
                                         }}
                                         typeKey="plugin-filters"
                                         mathAvailability={MathAvailability.None}
@@ -201,11 +219,10 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                                     <LemonSwitch
                                                         checked={currentFilters?.drop_events ?? false}
                                                         onChange={(drop_events) => {
-                                                            const newValue = { ...currentFilters, drop_events }
-                                                            if (oldFilters && newFilters) {
-                                                                clearFiltersDiff()
-                                                            }
-                                                            onChange(newValue)
+                                                            onChange({
+                                                                ...currentFilters,
+                                                                drop_events,
+                                                            })
                                                         }}
                                                     />
                                                 </span>

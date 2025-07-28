@@ -272,6 +272,7 @@ class InputsSerializer(serializers.DictField):
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["events", "person-updates"], required=False)
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
