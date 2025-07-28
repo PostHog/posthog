@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use metrics;
 use num_cpus;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, ColumnFamilyDescriptor,
@@ -144,18 +143,24 @@ impl RocksDbStore {
     pub fn put_batch(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
         let start_time = Instant::now();
         let batch_size = entries.len();
-        metrics::counter!(ROCKSDB_BATCH_WRITE_OPERATIONS_COUNTER).increment(1);
+        self.metrics
+            .counter(ROCKSDB_BATCH_WRITE_OPERATIONS_COUNTER)
+            .increment(1);
 
         let result = self.put_batch_internal(cf_name, entries);
 
         let duration = start_time.elapsed();
-        metrics::histogram!(ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM).record(duration.as_secs_f64());
+        self.metrics
+            .histogram(ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
 
         if result.is_ok() {
             // Track successful batch size
-            metrics::histogram!("rocksdb_batch_size").record(batch_size as f64);
+            self.metrics
+                .histogram(ROCKSDB_BATCH_SIZE_HISTOGRAM)
+                .record(batch_size as f64);
         } else {
-            metrics::counter!(ROCKSDB_ERRORS_COUNTER).increment(1);
+            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
@@ -202,11 +207,15 @@ impl RocksDbStore {
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
         // Update database size metric
         let db_size = self.get_db_size()?;
-        metrics::gauge!(ROCKSDB_SIZE_BYTES_GAUGE).set(db_size as f64);
+        self.metrics
+            .gauge(ROCKSDB_SIZE_BYTES_GAUGE)
+            .set(db_size as f64);
 
         // Update SST file count
         let sst_files = self.get_sst_file_names(cf_name)?;
-        metrics::gauge!(ROCKSDB_SST_FILES_COUNT_GAUGE).set(sst_files.len() as f64);
+        self.metrics
+            .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
+            .set(sst_files.len() as f64);
 
         Ok(())
     }
@@ -217,10 +226,12 @@ impl RocksDbStore {
         let result = self.flush_cf_internal(cf_name);
 
         let duration = start_time.elapsed();
-        metrics::histogram!(ROCKSDB_FLUSH_DURATION_HISTOGRAM).record(duration.as_secs_f64());
+        self.metrics
+            .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
 
         if result.is_err() {
-            metrics::counter!(ROCKSDB_ERRORS_COUNTER).increment(1);
+            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
@@ -241,7 +252,9 @@ impl RocksDbStore {
         let result = self.compact_cf_internal(cf_name);
 
         let duration = start_time.elapsed();
-        metrics::histogram!(ROCKSDB_COMPACTION_DURATION_HISTOGRAM).record(duration.as_secs_f64());
+        self.metrics
+            .histogram(ROCKSDB_COMPACTION_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
 
         result
     }
@@ -256,15 +269,19 @@ impl RocksDbStore {
     /// This creates a point-in-time snapshot that can be used for recovery
     pub fn create_checkpoint<P: AsRef<Path>>(&self, checkpoint_path: P) -> Result<()> {
         let start_time = Instant::now();
-        metrics::counter!(ROCKSDB_CHECKPOINT_OPERATIONS_COUNTER).increment(1);
+        self.metrics
+            .counter(ROCKSDB_CHECKPOINT_OPERATIONS_COUNTER)
+            .increment(1);
 
         let result = self.create_checkpoint_internal(checkpoint_path);
 
         let duration = start_time.elapsed();
-        metrics::histogram!(ROCKSDB_CHECKPOINT_DURATION_HISTOGRAM).record(duration.as_secs_f64());
+        self.metrics
+            .histogram(ROCKSDB_CHECKPOINT_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
 
         if result.is_err() {
-            metrics::counter!(ROCKSDB_ERRORS_COUNTER).increment(1);
+            self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
         }
 
         result
@@ -302,14 +319,19 @@ impl RocksDbStore {
         let old_set: std::collections::HashSet<&String> = old_files.iter().collect();
         let new_set: std::collections::HashSet<&String> = new_files.iter().collect();
 
-        let added_files: Vec<String> = new_set.difference(&old_set).map(|s| (*s).clone()).collect();
+        let added_files: Vec<String> = new_set
+            .difference(&old_set)
+            .map(|s| s.to_string())
+            .collect();
 
-        let removed_files: Vec<String> =
-            old_set.difference(&new_set).map(|s| (*s).clone()).collect();
+        let removed_files: Vec<String> = old_set
+            .difference(&new_set)
+            .map(|s| s.to_string())
+            .collect();
 
         let unchanged_files: Vec<String> = old_set
             .intersection(&new_set)
-            .map(|s| (*s).clone())
+            .map(|s| s.to_string())
             .collect();
 
         SstDelta {

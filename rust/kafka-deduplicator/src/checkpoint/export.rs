@@ -57,20 +57,16 @@ impl CheckpointExporter {
 
     /// Trigger a checkpoint if one is not already in progress
     pub async fn maybe_checkpoint(&self, store: &DeduplicationStore) -> Result<bool> {
-        // Check if checkpoint is already in progress
-        {
-            let is_checkpointing = self.is_checkpointing.lock().await;
-            if *is_checkpointing {
-                debug!("Checkpoint already in progress, skipping");
-                return Ok(false);
-            }
+        // Try to acquire the checkpoint lock - if already locked, skip
+        let mut is_checkpointing = self.is_checkpointing.lock().await;
+        if *is_checkpointing {
+            debug!("Checkpoint already in progress, skipping");
+            return Ok(false);
         }
 
         // Set checkpoint in progress flag
-        {
-            let mut is_checkpointing = self.is_checkpointing.lock().await;
-            *is_checkpointing = true;
-        }
+        *is_checkpointing = true;
+        drop(is_checkpointing); // Release lock early
 
         let result = self.perform_checkpoint(store).await;
 

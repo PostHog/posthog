@@ -19,15 +19,15 @@ pub enum VersionedMetadata {
 }
 
 impl VersionedMetadata {
-    pub fn serialize_metadata(value: &Self) -> Vec<u8> {
+    pub fn serialize_metadata(value: &Self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         match value {
             VersionedMetadata::V1(v1) => {
                 buf.push(1);
-                buf.extend(bincode::serialize(v1).unwrap());
+                buf.extend(bincode::serialize(v1)?);
             }
         }
-        buf
+        Ok(buf)
     }
 
     pub fn deserialize_metadata(bytes: &[u8]) -> Result<VersionedMetadata> {
@@ -53,9 +53,9 @@ impl From<&EventData> for VersionedMetadata {
 mod tests {
     use super::*;
 
-    fn create_test_event(source: u8, team_id: u32) -> EventData {
+    fn create_test_event(source: u8, team_id: u32, timestamp: u64) -> EventData {
         EventData {
-            timestamp: 1234567890,
+            timestamp,
             distinct_id: "test_user".to_string(),
             token: "test_token".to_string(),
             event_name: "test_event".to_string(),
@@ -73,7 +73,7 @@ mod tests {
         };
         let versioned = VersionedMetadata::V1(metadata);
 
-        let serialized = VersionedMetadata::serialize_metadata(&versioned);
+        let serialized = VersionedMetadata::serialize_metadata(&versioned).unwrap();
 
         // Check that version byte is present
         assert_eq!(serialized[0], 1);
@@ -89,13 +89,14 @@ mod tests {
         };
         let versioned = VersionedMetadata::V1(original_metadata);
 
-        let serialized = VersionedMetadata::serialize_metadata(&versioned);
+        let serialized = VersionedMetadata::serialize_metadata(&versioned).unwrap();
         let deserialized = VersionedMetadata::deserialize_metadata(&serialized).unwrap();
 
         match deserialized {
             VersionedMetadata::V1(metadata) => {
                 assert_eq!(metadata.source, 3);
                 assert_eq!(metadata.team, 98765);
+                assert_eq!(metadata.timestamp, 1234567890);
             }
         }
     }
@@ -117,13 +118,14 @@ mod tests {
             };
             let versioned = VersionedMetadata::V1(metadata);
 
-            let serialized = VersionedMetadata::serialize_metadata(&versioned);
+            let serialized = VersionedMetadata::serialize_metadata(&versioned).unwrap();
             let deserialized = VersionedMetadata::deserialize_metadata(&serialized).unwrap();
 
             match deserialized {
                 VersionedMetadata::V1(result) => {
                     assert_eq!(result.source, source);
                     assert_eq!(result.team, team);
+                    assert_eq!(result.timestamp, timestamp);
                 }
             }
         }
@@ -131,13 +133,14 @@ mod tests {
 
     #[test]
     fn test_from_event_data() {
-        let event = create_test_event(7, 54321);
+        let event = create_test_event(7, 54321, 1234567890);
         let metadata = VersionedMetadata::from(&event);
 
         match metadata {
             VersionedMetadata::V1(v1) => {
                 assert_eq!(v1.source, 7);
                 assert_eq!(v1.team, 54321);
+                assert_eq!(v1.timestamp, 1234567890);
             }
         }
     }

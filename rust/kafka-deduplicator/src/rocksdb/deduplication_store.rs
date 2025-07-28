@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use rocksdb::{ColumnFamilyDescriptor, Options};
 use std::time::Instant;
+use tracing::error;
 
 use crate::event::EventData;
 use crate::metrics::MetricsHelper;
@@ -197,34 +198,42 @@ impl DeduplicationStore {
             .histogram(BATCH_SIZE_HISTOGRAM)
             .record(batch_size as f64);
 
-        // Create map of DeduplicationKey -> serialized metadata
-        let key_metadata_map: HashMap<DeduplicationKey, Vec<u8>> = events
-            .iter()
-            .map(|event| {
-                let key = DeduplicationKey::from(event);
-                let metadata = VersionedMetadata::from(event);
-                let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata);
-                (key, serialized_metadata)
-            })
-            .collect();
+        // Create map of raw key bytes -> serialized metadata for O(1) lookup
+        let mut key_bytes_metadata_map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+        let mut key_bytes_list: Vec<Vec<u8>> = Vec::new();
 
-        // Extract keys for deduplication check
-        let key_bytes: Vec<&[u8]> = key_metadata_map.keys().map(|k| k.as_ref()).collect();
+        for event in events.iter() {
+            let key = DeduplicationKey::from(event);
+            let key_bytes = key.as_ref().to_vec(); // Convert to owned Vec<u8>
+            let metadata = VersionedMetadata::from(event);
+            let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata);
+            if let Ok(serialized_metadata) = serialized_metadata {
+                key_bytes_metadata_map.insert(key_bytes.clone(), serialized_metadata);
+                key_bytes_list.push(key_bytes);
+            } else {
+                error!(
+                    "Failed to serialize metadata for event metadata: {:?}",
+                    metadata
+                );
+            }
+        }
+
+        // Extract keys for deduplication check (now we can use references)
+        let key_bytes_refs: Vec<&[u8]> = key_bytes_list.iter().map(|k| k.as_slice()).collect();
 
         // Get only non-duplicated keys
-        let non_duplicated_key_bytes = self.get_non_duplicated_keys(key_bytes)?;
+        let non_duplicated_key_bytes = self.get_non_duplicated_keys(key_bytes_refs)?;
         let unique_count = non_duplicated_key_bytes.len();
         let duplicate_count = batch_size - unique_count;
 
-        // Build entries to store using the map
+        // Build entries to store using O(1) HashMap lookup
         let entries_to_store: Vec<(&[u8], &[u8])> = non_duplicated_key_bytes
             .into_iter()
             .filter_map(|key_bytes| {
-                // Find the matching key in our map
-                key_metadata_map
-                    .iter()
-                    .find(|(k, _)| k.as_ref() == key_bytes)
-                    .map(|(_, metadata)| (key_bytes, metadata.as_slice()))
+                // O(1) HashMap lookup using the raw bytes
+                key_bytes_metadata_map
+                    .get(key_bytes)
+                    .map(|metadata| (key_bytes, metadata.as_slice()))
             })
             .collect();
 
@@ -285,21 +294,30 @@ impl DeduplicationStore {
         let mut iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
 
         // Get the first key
-        let first_key = iter.next().unwrap().unwrap().0;
-        let first_key_bytes: DeduplicationKey = first_key.as_ref().try_into()?;
+        if let Some(Ok((first_key, _))) = iter.next() {
+            let first_key_bytes: DeduplicationKey = first_key.as_ref().try_into()?;
 
-        let first_key_timestamp = first_key_bytes.timestamp;
-        let last_key_timestamp = first_key_timestamp + (24 * 60 * 60); // Original timestamp + 1 day
+            let first_key_timestamp = first_key_bytes.timestamp;
+            let last_key_timestamp = first_key_timestamp + (24 * 60 * 60); // Original timestamp + 1 day
 
-        let first_key_bytes: Vec<u8> = first_key_bytes.into();
-        let last_key_bytes: Vec<u8> = last_key_timestamp.to_string().as_bytes().to_vec();
+            let first_key_bytes: Vec<u8> = first_key_bytes.into();
 
-        // Delete the first key
-        self.store.delete_range(
-            Self::RECORDS_CF,
-            first_key_bytes.as_ref(),
-            last_key_bytes.as_ref(),
-        )?;
+            // We want to delete all keys with timestamp < last_key_timestamp
+            // Since keys are formatted as "timestamp:distinct_id:token:event_name",
+            // we can create an exclusive upper bound by using the timestamp followed by ":"
+            // This ensures we delete all keys starting with timestamps less than last_key_timestamp
+            let last_key_bytes: Vec<u8> = format!("{}:", last_key_timestamp).as_bytes().to_vec();
+
+            // Delete the first key
+            self.store.delete_range(
+                Self::RECORDS_CF,
+                first_key_bytes.as_ref(),
+                last_key_bytes.as_ref(),
+            )?;
+        } else {
+            error!("No keys found in the database");
+            return Ok(0);
+        }
 
         let new_size = self.store.get_db_size()?;
         let bytes_freed = current_size.saturating_sub(new_size);

@@ -36,6 +36,9 @@ pub const ROCKSDB_MULTI_GET_DURATION_HISTOGRAM: &str = "rocksdb_multi_get_durati
 /// Histogram for RocksDB batch write operation duration
 pub const ROCKSDB_BATCH_WRITE_DURATION_HISTOGRAM: &str = "rocksdb_batch_write_duration_seconds";
 
+/// Histogram for RocksDB batch size
+pub const ROCKSDB_BATCH_SIZE_HISTOGRAM: &str = "rocksdb_batch_size";
+
 /// Gauge for current database size in bytes
 pub const ROCKSDB_SIZE_BYTES_GAUGE: &str = "rocksdb_size_bytes";
 
