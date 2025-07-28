@@ -1842,19 +1842,6 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.14
   '''
-  SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
-         "posthog_teamrevenueanalyticsconfig"."base_currency",
-         "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
-         "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
-         "posthog_teamrevenueanalyticsconfig"."events",
-         "posthog_teamrevenueanalyticsconfig"."goals"
-  FROM "posthog_teamrevenueanalyticsconfig"
-  WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
-  '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -1929,7 +1916,7 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.16
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
   '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
@@ -1949,7 +1936,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.17
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.16
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -1978,7 +1965,7 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.18
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.17
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -1988,7 +1975,7 @@
                                                                'at_base_time'))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.19
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.18
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
          "posthog_user"."email"
@@ -1998,6 +1985,30 @@
                                                            'at_base_time')
          AND "posthog_sessionrecordingviewed"."team_id" = 99999
          AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.19
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version",
+         "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_persondistinctid"
+  INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user_one_0')
+         AND "posthog_persondistinctid"."team_id" = 99999)
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.2
