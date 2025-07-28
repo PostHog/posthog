@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 from .utils import generate_random_token
+from .activity_logging.model_activity import ModelActivityMixin
 
 ModeType = Literal["sha256", "pbkdf2"]
 PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
@@ -35,7 +36,7 @@ def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[i
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
-class PersonalAPIKey(models.Model):
+class PersonalAPIKey(ModelActivityMixin, models.Model):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     label = models.CharField(max_length=40)

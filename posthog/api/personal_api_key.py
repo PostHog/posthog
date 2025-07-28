@@ -14,6 +14,9 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 
@@ -181,3 +184,28 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
+
+
+    @receiver(model_activity_signal, sender=PersonalAPIKey)
+    def handle_personal_api_key_change(
+        sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+    ):
+        from threading import current_thread
+
+        user = None
+        request = getattr(current_thread(), "request", None)
+        if request and hasattr(request, "user"):
+            user = request.user
+
+        log_activity(
+            organization_id=None, # Personal API Keys are not scoped to an organization
+            team_id=None,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=after_update.id,
+            scope=scope,
+            activity=activity,
+            detail=Detail(
+                changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.label
+            ),
+        )

@@ -59,6 +59,9 @@ from posthog.models import (
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     SUPPORTED_COMPRESSIONS,
@@ -810,3 +813,26 @@ class BatchExportBackfillViewSet(
             raise ValidationError(f"Cannot cancel a backfill that is in '{batch_export_backfill.status}' status")
 
         return response.Response({"cancelled": True})
+
+
+@receiver(model_activity_signal, sender=BatchExport)
+def handle_batch_export_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from threading import current_thread
+
+    user = None
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        user = request.user
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team.id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )

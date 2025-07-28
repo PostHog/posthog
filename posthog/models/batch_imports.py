@@ -4,6 +4,7 @@ from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 from typing import Self
 from enum import Enum
@@ -23,7 +24,7 @@ class ContentType(str, Enum):
         return {"type": self.value}
 
 
-class BatchImport(UUIDModel):
+class BatchImport(ModelActivityMixin, UUIDModel):
     class Status(models.TextChoices):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"

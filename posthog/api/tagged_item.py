@@ -6,6 +6,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
 from posthog.models.tag import tagify
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
@@ -117,3 +120,65 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return response.Response([], status=status.HTTP_402_PAYMENT_REQUIRED)
 
         return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
+
+
+@receiver(model_activity_signal, sender=Tag)
+def handle_tag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from threading import current_thread
+
+    user = None
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        user = request.user
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=TaggedItem)
+def handle_tagged_item_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from threading import current_thread
+
+    user = None
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        user = request.user
+
+    tagged_object = None
+    for field in [
+        "dashboard",
+        "insight",
+        "event_definition",
+        "property_definition",
+        "action",
+        "feature_flag",
+        "experiment_saved_metric",
+    ]:
+        obj = getattr(after_update, field, None)
+        if obj:
+            tagged_object = f"{field}: {getattr(obj, 'name', str(obj))}"
+            break
+
+    log_activity(
+        organization_id=after_update.tag.team.organization_id,
+        team_id=after_update.tag.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=f"Tag '{after_update.tag.name}' on {tagged_object or 'object'}",
+        ),
+    )

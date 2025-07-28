@@ -3,9 +3,10 @@ from typing import Optional
 from django.db import models
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 
-class Annotation(models.Model):
+class Annotation(ModelActivityMixin, models.Model):
     class Scope(models.TextChoices):
         INSIGHT = "dashboard_item", "insight"
         DASHBOARD = "dashboard", "dashboard"
