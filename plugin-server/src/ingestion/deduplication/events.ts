@@ -85,7 +85,7 @@ function extractDeduplicationKeysWithMapping(messages: IncomingEvent[]): {
         }
 
         // Create a composite key that matches ClickHouse deduplication logic
-        // Format: token:event_name:distinct_id:timestamp
+        // Format: token:timestamp:event_name:distinct_id:uuid
         const key = `${token}:${timestamp}:${eventName}:${distinct_id}:${uuid}`
         // Hash the key to prevent it from being too long
         const hashedKey = crypto.createHash('sha256').update(key).digest('hex')
