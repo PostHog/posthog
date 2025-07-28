@@ -70,7 +70,7 @@ class MessageRecipientPreference(UUIDModel):
         return PreferenceStatus(status)
 
     def get_all_preferences(self) -> dict[uuid.UUID, PreferenceStatus]:
-        """Get meta preference for all categories"""
+        """Get all preferences as a dictionary of UUID to PreferenceStatus"""
         return {uuid.UUID(category_id): PreferenceStatus(status) for category_id, status in self.preferences.items()}
 
     @classmethod
