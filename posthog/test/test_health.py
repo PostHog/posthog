@@ -10,7 +10,6 @@ import kombu.connection
 import kombu.exceptions
 import psycopg2
 import pytest
-from clickhouse_driver.errors import Error as ClickhouseError
 from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
@@ -18,8 +17,8 @@ from django.db import connections
 from django.http import HttpResponse
 from django.test import Client
 from kafka.errors import KafkaError
+import requests
 
-from posthog.clickhouse.client.connection import ch_pool
 from posthog.health import logger
 from posthog.kafka_client.client import KafkaProducerForTests
 
@@ -330,14 +329,16 @@ def simulate_kafka_cannot_connect():
 @contextmanager
 def simulate_clickhouse_cannot_connect():
     """
-    Causes the clickhouse client to raise a `ClickhouseError`
-
-    TODO: ideally we'd simulate an error in a way that doesn't depend on the
-    internal details of the service, i.e. we could actually bring clickhouse
-    down, fail dns etc.
+    Simulates ClickHouse being unreachable by returning a 500 error response
     """
-    with patch.object(ch_pool, "get_client") as pool_mock:
-        pool_mock.side_effect = return_given_error_or_random(ClickhouseError("failed to connect"))
+
+    def mock_response():
+        response = requests.Response()
+        response.status_code = 500
+        return response
+
+    with patch("requests.get") as requests_mock:
+        requests_mock.return_value = mock_response()
         yield
 
 
