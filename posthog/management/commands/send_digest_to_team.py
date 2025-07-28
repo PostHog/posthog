@@ -25,14 +25,6 @@ class Command(BaseCommand):
         self.stdout.write(f"Team: {team.name} (ID: {team_id})")
         self.stdout.write(f"Organization: {team.organization.name}")
 
-        # Show notification settings for all team members
-        members = team.organization.members.all()
-        self.stdout.write(f"\nTeam members ({len(members)} total):")
-        for member in members:
-            plugin_disabled = member.notification_settings.get("plugin_disabled", True)
-            will_receive = "YES" if plugin_disabled else "NO"
-            self.stdout.write(f"  {member.email}: plugin_disabled={plugin_disabled} → Will receive: {will_receive}")
-
         try:
             # Trigger the same logic as the daily digest for this specific team
             send_team_hog_functions_digest(team_id)
