@@ -15,7 +15,7 @@ export const AssigneeSelect = ({
 }: {
     assignee: ErrorTrackingIssue['assignee']
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
-    children: (assignee: Assignee) => JSX.Element
+    children: (assignee: Assignee, isOpen: boolean) => JSX.Element
 }): JSX.Element => {
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -40,7 +40,7 @@ export const AssigneeSelect = ({
         >
             <div>
                 <AssigneeResolver assignee={assignee}>
-                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee)}
+                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee, showPopover)}
                 </AssigneeResolver>
             </div>
         </LemonDropdown>
