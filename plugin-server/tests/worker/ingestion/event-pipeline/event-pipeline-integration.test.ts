@@ -4,6 +4,8 @@ import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -47,12 +49,13 @@ const team: Team = {
 describe('Event Pipeline integration test', () => {
     let hub: Hub
     let clickhouse: Clickhouse
+    let personRepository: PersonRepository
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(personRepository)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const runner = new EventPipelineRunner(
             hub,
@@ -73,6 +76,7 @@ describe('Event Pipeline integration test', () => {
         await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
@@ -85,11 +89,12 @@ describe('Event Pipeline integration test', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
 
-        jest.spyOn(hub.db, 'fetchPerson')
-        jest.spyOn(hub.db, 'createPerson')
+        jest.spyOn(personRepository, 'fetchPerson')
+        jest.spyOn(personRepository, 'createPerson')
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await closeHub(hub)
     })
 

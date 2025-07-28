@@ -260,6 +260,7 @@ describe('Event Pipeline E2E tests', () => {
     afterAll(async () => {
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
+        clickhouse.close()
     })
 
     testWithTeamIngester('should handle $$client_ingestion_warning events', {}, async (ingester, hub, team) => {
