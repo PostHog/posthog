@@ -1283,6 +1283,24 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     end=14,
                 ),
             )
+            self.assertEqual(
+                parse_order_expr("""COALESCE(
+        events.properties
+    ) -- How likely are you to recommend us to a friend? DESC"""),
+                ast.OrderExpr(
+                    expr=ast.Call(
+                        start=0,
+                        end=41,
+                        name="COALESCE",
+                        args=[
+                            ast.Field(chain=["events", "properties"], start=18, end=35),
+                        ],
+                    ),
+                    order="DESC",
+                    start=0,
+                    end=41,
+                ),
+            )
 
         def test_select_order_by(self):
             self.assertEqual(
