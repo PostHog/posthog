@@ -152,7 +152,9 @@ export class IngestionConsumer {
         this.hogTransformer = new HogTransformerService(hub)
 
         this.personStore = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(this.hub.db.postgres),
+            new PostgresPersonRepository(this.hub.db.postgres, {
+                propertiesSizeLoggingPercentage: this.hub.PERSON_PROPERTIES_SIZE_LOGGING_PERCENTAGE,
+            }),
             this.hub.db.kafkaProducer,
             {
                 dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,

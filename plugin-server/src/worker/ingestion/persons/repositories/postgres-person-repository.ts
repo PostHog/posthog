@@ -13,7 +13,11 @@ import {
     Team,
 } from '../../../../types'
 import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../../utils/db/db'
-import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter } from '../../../../utils/db/metrics'
+import {
+    moveDistinctIdsCountHistogram,
+    personPropertiesSizeHistogram,
+    personUpdateVersionMismatchCounter,
+} from '../../../../utils/db/metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../utils/db/postgres'
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../../utils/db/utils'
 import { logger } from '../../../../utils/logger'
@@ -24,10 +28,22 @@ import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
+export interface PostgresPersonRepositoryOptions {
+    propertiesSizeLoggingPercentage: number
+}
+
+const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
+    propertiesSizeLoggingPercentage: 0,
+}
+
 export class PostgresPersonRepository
     implements PersonRepository, RawPostgresPersonRepository, PersonRepositoryTransaction
 {
-    constructor(private postgres: PostgresRouter) {}
+    private options: PostgresPersonRepositoryOptions
+
+    constructor(private postgres: PostgresRouter, options?: Partial<PostgresPersonRepositoryOptions>) {
+        this.options = { ...DEFAULT_OPTIONS, ...options }
+    }
 
     private toPerson(row: RawPerson): InternalPerson {
         return {
@@ -423,6 +439,22 @@ export class PostgresPersonRepository
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
 
+        const propertiesSizeLoggingPercentage = this.options.propertiesSizeLoggingPercentage
+
+        /*
+         * Temporarily have two different queries for updatePerson to evaluate the impact of calculating
+         * the size of the properties field during an update. If this is successful, we'll add a constraint check to the table
+         * but we can't add that constraint check until we know the impact of adding that constraint check for every update/insert on Persons.
+         * Added benefit, we can get more observability into the sizes of properties field, if we can turn this up to 100%
+         */
+        const queryStringWithPropertiesSize = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(
+            update
+        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
+            Object.values(update).length + 1
+        }
+        RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
+        /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
+
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
@@ -430,9 +462,14 @@ export class PostgresPersonRepository
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
-        const { rows } = await this.postgres.query<RawPerson>(
+        const shouldLogPropertiesSize =
+            propertiesSizeLoggingPercentage > 0 && Math.random() * 100 < propertiesSizeLoggingPercentage
+
+        const selectedQueryString = shouldLogPropertiesSize ? queryStringWithPropertiesSize : queryString
+
+        const { rows } = await this.postgres.query<RawPerson & { properties_size_bytes?: string }>(
             tx ?? PostgresUse.PERSONS_WRITE,
-            queryString,
+            selectedQueryString,
             values,
             `updatePerson${tag ? `-${tag}` : ''}`
         )
@@ -442,6 +479,12 @@ export class PostgresPersonRepository
             )
         }
         const updatedPerson = this.toPerson(rows[0])
+
+        // Record properties size metric if we used the properties size query
+        if (shouldLogPropertiesSize && rows[0].properties_size_bytes) {
+            const propertiesSizeBytes = Number(rows[0].properties_size_bytes)
+            personPropertiesSizeHistogram.labels({ at: 'updatePerson' }).observe(propertiesSizeBytes)
+        }
 
         // Track the disparity between the version on the database and the version of the person we have in memory
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
