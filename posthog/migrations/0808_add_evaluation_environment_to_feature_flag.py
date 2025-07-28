@@ -30,7 +30,7 @@ def backfill_evaluation_runtime(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0806_scheduledchange_failure_count_and_more"),
+        ("posthog", "0807_dwh_source_refactor"),
     ]
 
     operations = [
