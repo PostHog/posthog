@@ -11,6 +11,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const OPITIMIZED_PROPERTIES_BY_GROUP = {
     [TaxonomicFilterGroupType.EventProperties]: [
@@ -40,6 +42,7 @@ export const OPITIMIZED_PROPERTIES_BY_GROUP = {
 
 export const WebPropertyFilters = (): JSX.Element => {
     const { rawWebAnalyticsFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
 
     const [displayFilters, setDisplayFilters] = useState(false)
@@ -49,6 +52,11 @@ export const WebPropertyFilters = (): JSX.Element => {
         TaxonomicFilterGroupType.SessionProperties,
         ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
     ]
+
+    // Enable optimized hints for optimized properties if the team has the flag.
+    // This is different from `preAggregatedEnabled` because it doesn't look at the query modifier,
+    // which can be toggled on/off. This puts us one step closer to removing the toggle.
+    const enableOptimizedHints = !!featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
 
     // Keep in sync with posthog/hogql_queries/web_analytics/stats_table_pre_aggregated.py
     const webAnalyticsPropertyAllowList = preAggregatedEnabled
@@ -97,7 +105,7 @@ export const WebPropertyFilters = (): JSX.Element => {
                         propertyFilters={rawWebAnalyticsFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
-                        enableOptimizedHints={true}
+                        enableOptimizedHints={enableOptimizedHints}
                     />
                 </div>
             }
