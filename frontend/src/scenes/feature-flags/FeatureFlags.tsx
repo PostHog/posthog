@@ -201,13 +201,16 @@ export function OverViewTab({
             dataIndex: 'evaluation_runtime',
             width: 120,
             render: function RenderFlagRuntime(_, featureFlag: FeatureFlagType) {
+                const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
                 return (
                     <LemonTag type="default" className="uppercase">
-                        {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL
+                        {runtime === FeatureFlagEvaluationRuntime.ALL
                             ? 'All'
-                            : featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.CLIENT
+                            : runtime === FeatureFlagEvaluationRuntime.CLIENT
                             ? 'Client'
-                            : 'Server'}
+                            : runtime === FeatureFlagEvaluationRuntime.SERVER
+                            ? 'Server'
+                            : 'All'}
                     </LemonTag>
                 )
             },
