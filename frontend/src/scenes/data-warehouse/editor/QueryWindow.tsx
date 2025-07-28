@@ -57,6 +57,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
+        saveDraft,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
@@ -159,16 +160,32 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
-                {editingView && (
+                {editingView && !isDraft && (
                     <LemonButton
-                        onClick={() => openHistoryModal()}
-                        icon={<IconBook />}
                         type="tertiary"
                         size="xsmall"
-                        id="sql-editor-query-window-history"
+                        id="sql-editor-query-window-save-draft"
+                        onClick={() => {
+                            if (activeModelUri) {
+                                saveDraft(activeModelUri.uri.toString(), queryInput, editingView.id)
+                            }
+                        }}
                     >
-                        History
+                        Save draft
                     </LemonButton>
+                )}
+                {editingView && (
+                    <>
+                        <LemonButton
+                            onClick={() => openHistoryModal()}
+                            icon={<IconBook />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-history"
+                        >
+                            History
+                        </LemonButton>
+                    </>
                 )}
                 {!editingInsight && !editingView && (
                     <>

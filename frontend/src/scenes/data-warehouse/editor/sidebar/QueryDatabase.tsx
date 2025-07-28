@@ -67,7 +67,7 @@ export const QueryDatabase = (): JSX.Element => {
                     const draft = item.record.draft
 
                     const existingTab = allTabs.find((tab) => {
-                        return tab.draftId === draft.id
+                        return tab.draft?.id === draft.id
                     })
 
                     if (existingTab) {

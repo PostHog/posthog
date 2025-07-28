@@ -270,6 +270,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
         }),
         deleteTabDraft: (tabUri: string) => ({ tabUri }),
+        saveDraft: (activeTabUri: string, queryInput: string, viewId: string) => ({
+            activeTabUri,
+            queryInput,
+            viewId,
+        }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -836,6 +841,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             name: model.name,
                             sourceQuery: existingTab?.sourceQuery,
                             response: model.response,
+                            draft: model.draft,
                         })
                         mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
                     }
@@ -863,10 +869,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.selectTab({
                             uri,
                             view: activeView,
-                            name: activeView?.name || activeInsight?.name || activeTab.name,
+                            name: activeTab.draft?.name || activeView?.name || activeInsight?.name || activeTab.name,
                             insight: activeInsight,
                             sourceQuery: activeTab.sourceQuery,
                             response: activeTab.response,
+                            draft: activeTab.draft,
                         })
                     }
                 } else if (newModels.length) {
@@ -877,6 +884,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         view: newModels[0].view,
                         insight: newModels[0].insight,
                         response: newModels[0].response,
+                        draft: newModels[0].draft,
                     })
                 }
             } else {
@@ -933,7 +941,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
         },
+        saveDraft: async ({ activeTabUri, queryInput, viewId }) => {
+            actions.saveAsDraft(
+                {
+                    kind: NodeKind.HogQLQuery,
+                    query: queryInput,
+                },
+                viewId,
+                (draft: DataWarehouseSavedQueryDraft) => {
+                    const newTabs = values.allTabs.map((tab) => {
+                        if (tab.uri.toString() === activeTabUri) {
+                            return { ...tab, name: draft.name, draft: draft }
+                        }
+                        return tab
+                    })
 
+                    actions.setTabs(newTabs)
+                }
+            )
+        },
         updateState: async ({ skipBreakpoint }, breakpoint) => {
             if (skipBreakpoint !== true) {
                 await breakpoint(100)
