@@ -26,7 +26,7 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     is_zero_decimal_in_stripe,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
 from posthog.hogql.database.schema.exchange_rate import (
