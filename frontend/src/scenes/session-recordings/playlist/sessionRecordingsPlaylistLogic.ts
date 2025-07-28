@@ -177,8 +177,7 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
 
     if (
         'order_direction' in filters &&
-        typeof filters.order_direction !== 'string' &&
-        !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC')
+        (typeof filters.order_direction !== 'string' || !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC'))
     ) {
         return false
     }
