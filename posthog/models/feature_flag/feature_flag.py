@@ -355,11 +355,17 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
         return list(cohort_ids)
 
-    def scheduled_changes_dispatcher(self, payload, user: Optional[AbstractBaseUser] = None):
+    def scheduled_changes_dispatcher(
+        self, payload, user: Optional[AbstractBaseUser] = None, scheduled_change_id: Optional[int] = None
+    ):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
+
+        # Store scheduled change context on the instance for activity logging
+        if scheduled_change_id is not None:
+            self._scheduled_change_context = {"scheduled_change_id": scheduled_change_id}
 
         http_request = HttpRequest()
         # We kind of cheat here set the request user to the user who created the scheduled change

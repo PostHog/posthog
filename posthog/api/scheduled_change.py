@@ -11,6 +11,7 @@ from posthog.models import ScheduledChange
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    failure_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = ScheduledChange
@@ -28,6 +29,12 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+
+    def get_failure_reason(self, obj: ScheduledChange) -> str | None:
+        """Return the safely formatted failure reason instead of raw data."""
+        if not obj.failure_reason:
+            return None
+        return obj.formatted_failure_reason
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]

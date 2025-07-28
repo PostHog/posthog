@@ -47,7 +47,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
 
             <ScenePanelDivider />
 
-            <ScenePanelCommonActions>
+            <ScenePanelCommonActions isFirst={false}>
                 <SceneCommonButtons
                     comment
                     share={{
