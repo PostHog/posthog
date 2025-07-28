@@ -104,9 +104,17 @@ export class Clickhouse {
     }
 
     async exec(query: string): Promise<ExecResult<Readable>> {
-        return await this.client.exec({
-            query,
-        })
+        try {
+            return await this.client.exec({
+                query,
+            })
+        } catch (e) {
+            console.error('Clickhouse exec failed', {
+                query,
+                error: e,
+            })
+            throw e
+        }
     }
 
     query<T>(query: string): Promise<T[]> {
