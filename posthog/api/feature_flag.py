@@ -780,6 +780,9 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(~Q(experiment__isnull=True))
                 elif type == "remote_config":
                     queryset = queryset.filter(is_remote_configuration=True)
+            elif key == "evaluation_runtime":
+                evaluation_runtime = request.GET["evaluation_runtime"]
+                queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
 
         return queryset
 
@@ -854,6 +857,14 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["boolean", "multivariant", "experiment"],
+            ),
+            OpenApiParameter(
+                "evaluation_runtime",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["server", "client", "both"],
+                description="Filter feature flags by their evaluation runtime.",
             ),
         ]
     )

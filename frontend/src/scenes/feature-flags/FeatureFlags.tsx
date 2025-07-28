@@ -36,6 +36,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
@@ -192,6 +193,25 @@ export function OverViewTab({
                             </Tooltip>
                         )}
                     </div>
+                )
+            },
+        },
+        {
+            title: 'Runtime',
+            dataIndex: 'evaluation_runtime',
+            width: 120,
+            render: function RenderFlagRuntime(_, featureFlag: FeatureFlagType) {
+                const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
+                return (
+                    <LemonTag type="default" className="uppercase">
+                        {runtime === FeatureFlagEvaluationRuntime.ALL
+                            ? 'All'
+                            : runtime === FeatureFlagEvaluationRuntime.CLIENT
+                            ? 'Client'
+                            : runtime === FeatureFlagEvaluationRuntime.SERVER
+                            ? 'Server'
+                            : 'All'}
+                    </LemonTag>
                 )
             },
         },
@@ -412,6 +432,29 @@ export function OverViewTab({
                         }
                     }}
                     data-attr="feature-flag-select-created-by"
+                />
+                <span className="ml-1">
+                    <b>Runtime</b>
+                </span>
+                <LemonSelect
+                    dropdownMatchSelectWidth={false}
+                    size="small"
+                    onChange={(runtime) => {
+                        const { evaluation_runtime, ...restFilters } = filters || {}
+                        if (runtime === 'any') {
+                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                        } else {
+                            setFeatureFlagsFilters({ ...restFilters, evaluation_runtime: runtime, page: 1 }, true)
+                        }
+                    }}
+                    options={[
+                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
+                        { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
+                        { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
+                        { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
+                    ]}
+                    value={filters.evaluation_runtime ?? 'any'}
+                    data-attr="feature-flag-select-runtime"
                 />
             </div>
         </div>
