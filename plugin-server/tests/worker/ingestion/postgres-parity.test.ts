@@ -76,7 +76,7 @@ describe('postgres parity', () => {
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
         const ts = DateTime.now().toString()
-        const [person, kafkaMessages] = await personRepository.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userPropOnce: 'propOnceValue', userProp: 'propValue' },
             { userProp: ts, userPropOnce: ts },
@@ -87,6 +87,12 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
+        const kafkaMessages = result.messages
+
         await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
@@ -170,7 +176,7 @@ describe('postgres parity', () => {
 
     test('updatePerson', async () => {
         const uuid = new UUIDT().toString()
-        const [person, kafkaMessages] = await personRepository.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -181,6 +187,12 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
+        const kafkaMessages = result.messages
+
         await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
@@ -246,7 +258,7 @@ describe('postgres parity', () => {
     test('addDistinctId', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const [person, personKafkaMessages] = await personRepository.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -257,9 +269,12 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }]
         )
-        await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
 
-        const [anotherPerson, anotherPersonKafkaMessages] = await personRepository.createPerson(
+        const result2 = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -270,6 +285,12 @@ describe('postgres parity', () => {
             uuid2,
             [{ distinctId: 'another_distinct_id' }]
         )
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const anotherPerson = result2.person
+        const anotherPersonKafkaMessages = result2.messages
+
         await hub.db.kafkaProducer.queueMessages(anotherPersonKafkaMessages)
 
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
@@ -334,7 +355,7 @@ describe('postgres parity', () => {
     test('moveDistinctIds & deletePerson', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const [person, kafkaMessagesPerson] = await personRepository.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -345,9 +366,12 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }]
         )
-        await hub.db.kafkaProducer.queueMessages(kafkaMessagesPerson)
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
 
-        const [anotherPerson, kafkaMessagesAnotherPerson] = await personRepository.createPerson(
+        const result2 = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -358,6 +382,12 @@ describe('postgres parity', () => {
             uuid2,
             [{ distinctId: 'another_distinct_id' }]
         )
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const anotherPerson = result2.person
+        const kafkaMessagesAnotherPerson = result2.messages
+
         await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnotherPerson)
 
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))

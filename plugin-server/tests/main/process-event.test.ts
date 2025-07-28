@@ -39,7 +39,7 @@ export async function createPerson(
     properties: Record<string, any> = {}
 ): Promise<Person> {
     const personRepository = new PostgresPersonRepository(server.db.postgres)
-    const [person, kafkaMessages] = await personRepository.createPerson(
+    const result = await personRepository.createPerson(
         DateTime.utc(),
         properties,
         {},
@@ -50,8 +50,11 @@ export async function createPerson(
         new UUIDT().toString(),
         distinctIds.map((distinctId) => ({ distinctId }))
     )
-    await server.db.kafkaProducer.queueMessages(kafkaMessages)
-    return person
+    if (!result.success) {
+        throw new Error('Failed to create person')
+    }
+    await server.db.kafkaProducer.queueMessages(result.messages)
+    return result.person
 }
 
 type EventsByPerson = [string[], string[]]
@@ -112,7 +115,10 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        new PostgresPersonRepository(hub.db.postgres),
+        hub.kafkaProducer
+    )
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     const result = await runner.runEventPipeline(pluginEvent, team)

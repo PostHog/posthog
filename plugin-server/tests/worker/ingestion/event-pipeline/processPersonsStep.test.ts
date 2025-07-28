@@ -64,7 +64,10 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(runner.hub.db.postgres), runner.hub.kafkaProducer)
+            new BatchWritingPersonsStoreForBatch(
+                new PostgresPersonRepository(runner.hub.db.postgres),
+                runner.hub.kafkaProducer
+            )
         )
 
         expect(resEvent).toEqual(pluginEvent)
@@ -103,7 +106,10 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(runner.hub.db.postgres), runner.hub.kafkaProducer)
+            new BatchWritingPersonsStoreForBatch(
+                new PostgresPersonRepository(runner.hub.db.postgres),
+                runner.hub.kafkaProducer
+            )
         )
 
         expect(resEvent).toEqual({

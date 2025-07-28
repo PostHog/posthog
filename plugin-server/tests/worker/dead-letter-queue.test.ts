@@ -68,7 +68,10 @@ describe('events dead letter queue', () => {
         const teamId = await createTeam(hub.postgres, orgId)
         const team = (await getTeam(hub, teamId))!
         const event = createEvent(team)
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const ingestResponse1 = await new EventPipelineRunner(
             hub,

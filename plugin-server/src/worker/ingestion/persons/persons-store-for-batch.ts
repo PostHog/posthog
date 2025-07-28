@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
@@ -49,7 +49,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, TopicMessage[]]>
+    ): Promise<CreatePersonResult>
 
     /**
      * Updates an existing person for merge operations

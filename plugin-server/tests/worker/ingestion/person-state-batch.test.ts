@@ -54,7 +54,7 @@ async function createPerson(
     distinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
     const personRepository = new PostgresPersonRepository(hub.db.postgres)
-    const [person, kafkaMessages] = await personRepository.createPerson(
+    const result = await personRepository.createPerson(
         createdAt,
         properties,
         propertiesLastUpdatedAt,
@@ -65,8 +65,11 @@ async function createPerson(
         uuid,
         distinctIds
     )
-    await hub.db.kafkaProducer.queueMessages(kafkaMessages)
-    return person
+    if (!result.success) {
+        throw new Error('Failed to create person')
+    }
+    await hub.db.kafkaProducer.queueMessages(result.messages)
+    return result.person
 }
 
 async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>) {

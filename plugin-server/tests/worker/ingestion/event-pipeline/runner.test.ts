@@ -163,7 +163,10 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+            new PostgresPersonRepository(hub.db.postgres),
+            hub.kafkaProducer
+        )
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         runner = new TestEventPipelineRunner(
             hub,
@@ -348,7 +351,10 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStoreForBatch(
+                    new PostgresPersonRepository(hub.db.postgres),
+                    hub.kafkaProducer
+                )
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
                 runner = new TestEventPipelineRunner(
                     hub,
@@ -394,7 +400,10 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStoreForBatch(new PostgresPersonRepository(hub.db.postgres), hub.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStoreForBatch(
+                    new PostgresPersonRepository(hub.db.postgres),
+                    hub.kafkaProducer
+                )
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
 
                 runner = new TestEventPipelineRunner(

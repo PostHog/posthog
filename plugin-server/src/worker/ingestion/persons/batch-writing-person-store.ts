@@ -12,7 +12,7 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { BatchWritingStore } from '../stores/batch-writing-store'
@@ -735,10 +735,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<CreatePersonResult> {
         this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
         this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
-        const [person, messages] = await (tx || this.personRepository).createPerson(
+        const result = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
             propertiesLastUpdatedAt,
@@ -749,21 +749,26 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             uuid,
             distinctIds
         )
-        this.setCheckCachedPerson(teamId, distinctIds?.[0]?.distinctId ?? '', person)
-        this.setCachedPersonForUpdate(
-            teamId,
-            distinctIds?.[0]?.distinctId ?? '',
-            fromInternalPerson(person, distinctIds?.[0]?.distinctId ?? '')
-        )
-        if (distinctIds?.[1]) {
-            this.setDistinctIdToPersonId(teamId, distinctIds[1].distinctId, person.id)
+
+        if (result.success) {
+            const { person } = result
+            this.setCheckCachedPerson(teamId, distinctIds?.[0]?.distinctId ?? '', person)
             this.setCachedPersonForUpdate(
                 teamId,
-                distinctIds[1].distinctId,
-                fromInternalPerson(person, distinctIds[1].distinctId)
+                distinctIds?.[0]?.distinctId ?? '',
+                fromInternalPerson(person, distinctIds?.[0]?.distinctId ?? '')
             )
+            if (distinctIds?.[1]) {
+                this.setDistinctIdToPersonId(teamId, distinctIds[1].distinctId, person.id)
+                this.setCachedPersonForUpdate(
+                    teamId,
+                    distinctIds[1].distinctId,
+                    fromInternalPerson(person, distinctIds[1].distinctId)
+                )
+            }
         }
-        return [person, messages]
+
+        return result
     }
 
     private addPersonUpdateToBatch(

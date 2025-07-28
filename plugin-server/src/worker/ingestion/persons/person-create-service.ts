@@ -7,7 +7,7 @@ import { PersonContext } from './person-context'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export class PersonCreateService {
-    constructor(private context: PersonContext) { }
+    constructor(private context: PersonContext) {}
 
     /**
      * @returns [Person, boolean that indicates if person was created or not, true if person was created by this call, false if found existing person from concurrent creation]
@@ -41,45 +41,42 @@ export class PersonCreateService {
             propertiesLastUpdatedAt[key] = createdAt.toISO()
         })
 
-        try {
-            const [person, kafkaMessages] = await (tx || this.context.personStore).createPerson(
-                createdAt,
-                props,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                distinctIds
-            )
+        const result = await (tx || this.context.personStore).createPerson(
+            createdAt,
+            props,
+            propertiesLastUpdatedAt,
+            propertiesLastOperation,
+            teamId,
+            isUserId,
+            isIdentified,
+            uuid,
+            distinctIds
+        )
 
-            await this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return [person, true]
-        } catch (error) {
-            // Handle constraint violation - another process created the person concurrently
-            if (error instanceof Error && error.message.includes('unique constraint')) {
-                // Try to fetch the person that was created concurrently
-                for (const distinctIdInfo of distinctIds) {
-                    const existingPerson = await this.context.personStore.fetchForUpdate(
-                        teamId,
-                        distinctIdInfo.distinctId
-                    )
-                    if (existingPerson) {
-                        return [existingPerson, false]
-                    }
+        if (result.success) {
+            await this.context.kafkaProducer.queueMessages(result.messages)
+            return [result.person, result.created]
+        }
+
+        // Handle creation conflict - another process created the person concurrently
+        if (result.error === 'CreationConflict') {
+            // Try to fetch the person that was created concurrently
+            for (const distinctIdInfo of distinctIds) {
+                const existingPerson = await this.context.personStore.fetchForUpdate(teamId, distinctIdInfo.distinctId)
+                if (existingPerson) {
+                    return [existingPerson, false]
                 }
-
-                // If we still can't find the person, something is wrong
-                throw new Error(
-                    `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${distinctIds
-                        .map((d) => d.distinctId)
-                        .join(', ')}`
-                )
             }
 
-            // Re-throw other errors
-            throw error
+            // If we still can't find the person, something is wrong
+            throw new Error(
+                `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(
+                    ', '
+                )}`
+            )
         }
+
+        // This should never happen due to the discriminated union, but TypeScript requires it
+        throw new Error('Unexpected CreatePersonResult state')
     }
 }
