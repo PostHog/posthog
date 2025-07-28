@@ -332,13 +332,10 @@ def simulate_clickhouse_cannot_connect():
     Simulates ClickHouse being unreachable by returning a 500 error response
     """
 
-    def mock_response():
+    with patch.object(requests, "get") as requests_mock:
         response = requests.Response()
         response.status_code = 500
-        return response
-
-    with patch("requests.get") as requests_mock:
-        requests_mock.return_value = mock_response()
+        requests_mock.return_value = response
         yield
 
 
