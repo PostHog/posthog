@@ -299,7 +299,12 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     if (tooltip || tooltipDocLink || disabledReasons) {
         buttonComponent = (
             <Tooltip
-                title={disabledReasons ? renderDisabledReasons(disabledReasons) : tooltip}
+                // If there are disabled reasons which are true, render them, otherwise render the tooltip
+                title={
+                    disabledReasons && Object.values(disabledReasons).some(Boolean)
+                        ? renderDisabledReasons(disabledReasons)
+                        : tooltip
+                }
                 placement={tooltipPlacement}
                 docLink={tooltipDocLink}
             >
