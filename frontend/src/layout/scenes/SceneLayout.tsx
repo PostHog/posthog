@@ -33,7 +33,7 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-px pt-4">{children}</div>, scenePanelElement)}
         </>
     )
 }
@@ -43,16 +43,10 @@ export function ScenePanelDivider(): JSX.Element {
 }
 
 // Should be first!
-export function ScenePanelCommonActions({
-    children,
-    isFirst = true,
-}: {
-    isFirst?: boolean
-    children: React.ReactNode
-}): JSX.Element {
+export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <>
-            <div className={cn('flex flex-col gap-2', { 'pt-2': isFirst })}>{children}</div>
+            <div className={cn('flex flex-col gap-2')}>{children}</div>
             <ScenePanelDivider />
         </>
     )
