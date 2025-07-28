@@ -11,6 +11,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconGoogleSheets from 'public/services/google-sheets.svg'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IntegrationKind } from '~/types'
@@ -23,6 +24,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-ads': IconGoogleAds,
+    'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
