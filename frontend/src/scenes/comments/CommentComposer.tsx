@@ -6,12 +6,12 @@ import { useEffect } from 'react'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
-import { EditorContent, useEditor } from '@tiptap/react'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionDocument from '@tiptap/extension-document'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentEditor } from 'lib/components/RichContentEditor'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     const { key, composedComment, replyingCommentId, itemContext } = useValues(commentsLogic(props))
@@ -56,27 +56,22 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
 }
 
 const Editor = ({ placeholder }: { placeholder: string }): JSX.Element => {
-    const _editor = useEditor({
-        extensions: [
-            ExtensionDocument,
-            StarterKit.configure({
-                document: false,
-                gapcursor: false,
-            }),
-            ExtensionPlaceholder.configure({
-                placeholder,
-            }),
-            RichContentNodeMention,
-            MentionsExtension,
-        ],
-    })
-
     return (
-        <>
-            <EditorContent editor={_editor} className="bg-bg-light border rounded mt-2">
-                {/* {_editor && <FloatingSuggestions editor={_editor} />}
-                {_editor && <InlineMenu editor={_editor} />} */}
-            </EditorContent>
-        </>
+        <RichContentEditor
+            logicKey="DiscussionsInput"
+            className="bg-bg-light border rounded mt-2"
+            extensions={[
+                ExtensionDocument,
+                StarterKit.configure({
+                    document: false,
+                    gapcursor: false,
+                }),
+                ExtensionPlaceholder.configure({
+                    placeholder,
+                }),
+                RichContentNodeMention,
+                MentionsExtension,
+            ]}
+        />
     )
 }

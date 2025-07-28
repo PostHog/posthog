@@ -19,7 +19,7 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
-import { EditorFocusPosition, JSONContent } from './utils'
+import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -45,7 +45,7 @@ export function Notebook({
         if (initialContent && mode === 'canvas') {
             setLocalContent(initialContent)
         }
-    }, [notebook])
+    }, [notebook, initialContent, setLocalContent, mode])
 
     useWhyDidIRender('Notebook', {
         notebook,
@@ -61,11 +61,11 @@ export function Notebook({
         if (!notebook && !notebookLoading) {
             loadNotebook()
         }
-    }, [])
+    }, [notebook, loadNotebook, notebookLoading])
 
     useEffect(() => {
         setEditable(editable)
-    }, [editable])
+    }, [editable, setEditable])
 
     useEffect(() => {
         editor?.setEditable(isEditable)
@@ -75,7 +75,7 @@ export function Notebook({
         if (editor) {
             editor.focus(initialAutofocus)
         }
-    }, [editor])
+    }, [editor, initialAutofocus])
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -84,7 +84,7 @@ export function Notebook({
 
     useEffect(() => {
         setContainerSize(size as 'small' | 'medium')
-    }, [size])
+    }, [size, setContainerSize])
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>

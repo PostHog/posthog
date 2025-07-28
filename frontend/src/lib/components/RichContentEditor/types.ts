@@ -1,28 +1,32 @@
-import { JSONContent } from '@tiptap/core'
+import { Node as PMNode } from '@tiptap/pm/model'
 
 import {
     ChainedCommands as EditorCommands,
     FocusPosition as EditorFocusPosition,
+    JSONContent as TTJSONContent,
     Range as EditorRange,
 } from '@tiptap/core'
+
+export interface RichContentNode extends PMNode {}
+export interface JSONContent extends TTJSONContent {}
 
 export type {
     ChainedCommands as EditorCommands,
     FocusPosition as EditorFocusPosition,
     Range as EditorRange,
+    Editor as TTEditor,
 } from '@tiptap/core'
 
 export enum RichContentNodeType {
     Mention = 'ph-mention',
 }
 
-export interface RichContentEditor {
+export interface RichContentEditorType {
     getJSON: () => JSONContent
-    getText: () => string
     getEndPosition: () => number
-    getSelectedNode: () => Node | null
+    getSelectedNode: () => RichContentNode | null
     getCurrentPosition: () => number
-    getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
+    getAdjacentNodes: (pos: number) => { previous: RichContentNode | null; next: RichContentNode | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void
@@ -35,10 +39,10 @@ export interface RichContentEditor {
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     pasteContent: (position: number, text: string) => void
-    findNode: (position: number) => Node | null
+    findNode: (position: number) => RichContentNode | null
     findNodePositionByAttrs: (attrs: Record<string, any>) => any
-    nextNode: (position: number) => { node: Node; position: number } | null
-    hasChildOfType: (node: Node, type: string) => boolean
+    nextNode: (position: number) => { node: RichContentNode; position: number } | null
+    hasChildOfType: (node: RichContentNode, type: string) => boolean
     scrollToSelection: () => void
     scrollToPosition: (position: number) => void
 }

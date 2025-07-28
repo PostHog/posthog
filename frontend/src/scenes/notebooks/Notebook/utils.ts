@@ -1,19 +1,11 @@
 // Helpers for Kea issue with double importing
 import { LemonButtonProps } from '@posthog/lemon-ui'
-import {
-    Attribute,
-    Editor as TTEditor,
-    ExtendedRegExpMatchArray,
-    getText,
-    JSONContent as TTJSONContent,
-    TextSerializer,
-} from '@tiptap/core'
-import { Node as PMNode } from '@tiptap/pm/model'
+import { Attribute, Editor as TTEditor, ExtendedRegExpMatchArray, getText, TextSerializer } from '@tiptap/core'
 
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
 import type { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
-import { RichContentEditor } from 'lib/components/RichContentEditor/types'
+import { JSONContent, RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
 // TODO: fix the typing of string to NotebookNodeType
 export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -48,9 +40,6 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         settingsIcon?: JSX.Element | 'filter' | 'gear'
     }
 
-export interface Node extends PMNode {}
-export interface JSONContent extends TTJSONContent {}
-
 export type CustomNotebookNodeAttributes = Record<string, any>
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
@@ -66,7 +55,7 @@ export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T &
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
-export type NotebookNode = Omit<PMNode, 'attrs'>
+export type NotebookNode = Omit<RichContentNode, 'attrs'>
 
 export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttributes> = {
     attributes: NotebookNodeAttributes<T>
@@ -84,9 +73,10 @@ export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
     onClick: () => void
 }
 
-export interface NotebookEditor extends RichContentEditor {
+export interface NotebookEditor extends RichContentEditorType {
     findCommentPosition: (markId: string) => number | null
     removeComment: (pos: number) => void
+    getText: () => string
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
@@ -121,26 +111,26 @@ export const textContent = (node: any): string => {
 
     // we want the type system to complain if we forget to add a custom serializer
     const customNodeTextSerializers: Record<NotebookNodeType, TextSerializer> = {
-        'ph-backlink': customOrTitleSerializer,
-        'ph-early-access-feature': customOrTitleSerializer,
-        'ph-experiment': customOrTitleSerializer,
-        'ph-feature-flag': customOrTitleSerializer,
-        'ph-feature-flag-code-example': customOrTitleSerializer,
-        'ph-image': customOrTitleSerializer,
-        'ph-person': customOrTitleSerializer,
-        'ph-query': customOrTitleSerializer,
-        'ph-recording': customOrTitleSerializer,
-        'ph-recording-playlist': customOrTitleSerializer,
-        'ph-replay-timestamp': customOrTitleSerializer,
-        'ph-survey': customOrTitleSerializer,
-        'ph-group': customOrTitleSerializer,
-        'ph-cohort': customOrTitleSerializer,
-        'ph-person-feed': customOrTitleSerializer,
-        'ph-properties': customOrTitleSerializer,
-        'ph-map': customOrTitleSerializer,
-        'ph-mention': customOrTitleSerializer,
-        'ph-embed': customOrTitleSerializer,
-        'ph-latex': customOrTitleSerializer,
+        [NotebookNodeType.Backlink]: customOrTitleSerializer,
+        [NotebookNodeType.EarlyAccessFeature]: customOrTitleSerializer,
+        [NotebookNodeType.Experiment]: customOrTitleSerializer,
+        [NotebookNodeType.FeatureFlag]: customOrTitleSerializer,
+        [NotebookNodeType.FeatureFlagCodeExample]: customOrTitleSerializer,
+        [NotebookNodeType.Image]: customOrTitleSerializer,
+        [NotebookNodeType.Person]: customOrTitleSerializer,
+        [NotebookNodeType.Query]: customOrTitleSerializer,
+        [NotebookNodeType.Recording]: customOrTitleSerializer,
+        [NotebookNodeType.RecordingPlaylist]: customOrTitleSerializer,
+        [NotebookNodeType.ReplayTimestamp]: customOrTitleSerializer,
+        [NotebookNodeType.Survey]: customOrTitleSerializer,
+        [NotebookNodeType.Group]: customOrTitleSerializer,
+        [NotebookNodeType.Cohort]: customOrTitleSerializer,
+        [NotebookNodeType.PersonFeed]: customOrTitleSerializer,
+        [NotebookNodeType.Properties]: customOrTitleSerializer,
+        [NotebookNodeType.Map]: customOrTitleSerializer,
+        [NotebookNodeType.Mention]: customOrTitleSerializer,
+        [NotebookNodeType.Embed]: customOrTitleSerializer,
+        [NotebookNodeType.Latex]: customOrTitleSerializer,
     }
 
     return getText(node, {

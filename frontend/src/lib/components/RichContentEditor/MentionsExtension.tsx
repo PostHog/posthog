@@ -1,7 +1,6 @@
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
-import { Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
-import { ReactRenderer } from '@tiptap/react'
+import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
@@ -11,7 +10,6 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'
 
-import { notebookLogic } from '../../../scenes/notebooks/Notebook/notebookLogic'
 import { EditorRange, RichContentNodeType } from './types'
 
 type MentionsProps = {
@@ -19,6 +17,7 @@ type MentionsProps = {
     query?: string
     decorationNode?: any
     onClose?: () => void
+    editor: Editor
 }
 
 type MentionsPopoverProps = MentionsProps & {
@@ -31,10 +30,9 @@ type MentionsRef = {
 }
 
 export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCommands(
-    { range, onClose, query }: MentionsProps,
+    { range, onClose, query, editor }: MentionsProps,
     ref
 ): JSX.Element | null {
-    const { editor } = useValues(notebookLogic)
     const { meFirstMembers } = useValues(membersLogic)
 
     // We start with 1 because the first item is the text controls
@@ -63,6 +61,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     const execute = async (member: OrganizationMemberType): Promise<void> => {
         if (editor) {
             editor
+                .chain()
+                .focus()
                 .deleteRange(range)
                 .insertContentAt(range.from, [
                     {

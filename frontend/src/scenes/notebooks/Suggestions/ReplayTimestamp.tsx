@@ -6,16 +6,16 @@ import { NotebookNodeType } from '~/types'
 
 import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
-import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
-import { Node, NotebookEditor } from '../Notebook/utils'
 import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
+import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
+import { firstChildOfType, hasChildOfType } from 'lib/components/RichContentEditor/utils'
 
 const insertTimestamp = ({
     editor,
     previousNode,
 }: {
-    editor: NotebookEditor | null
-    previousNode: Node | null
+    editor: RichContentEditorType | null
+    previousNode: RichContentNode | null
 }): void => {
     if (!!previousNode && !!editor) {
         const sessionRecordingId = getSessionRecordingId(previousNode)
@@ -55,12 +55,12 @@ export default InsertionSuggestion.create({
     Component,
 })
 
-function getSessionRecordingId(node: Node | null): string {
+function getSessionRecordingId(node: RichContentNode | null): string {
     return node?.type.name === NotebookNodeType.Recording
         ? node.attrs.id
         : getTimestampChildNode(node).attrs.sessionRecordingId
 }
 
-function getTimestampChildNode(node: Node | null): Node {
-    return firstChildOfType(node as Node, NotebookNodeType.ReplayTimestamp) as Node
+function getTimestampChildNode(node: RichContentNode | null): RichContentNode {
+    return firstChildOfType(node as RichContentNode, NotebookNodeType.ReplayTimestamp) as RichContentNode
 }
