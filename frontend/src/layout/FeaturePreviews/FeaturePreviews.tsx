@@ -159,7 +159,9 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     <Label className="flex items-center gap-2 cursor-pointer" htmlFor={`${feature.flagKey}-switch`}>
                         <LemonSwitch
                             checked={enabled}
-                            onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked, feature.stage)}
+                            onChange={(newChecked) =>
+                                updateEarlyAccessFeatureEnrollment(flagKey, newChecked, feature.stage)
+                            }
                             id={`${feature.flagKey}-switch`}
                         />
                         <h4 className="font-bold mb-0">{name}</h4>
@@ -202,7 +204,9 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         onChange={(value) => setFeedback(value)}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && e.metaKey) {
-                                updateEarlyAccessFeatureEnrollment(flagKey, enabled, feature.stage)
+                                void submitEarlyAccessFeatureFeedback(feedback).then(() => {
+                                    setFeedback('')
+                                })
                             } else if (e.key === 'Escape') {
                                 cancelEarlyAccessFeatureFeedback()
                                 setFeedback('')
