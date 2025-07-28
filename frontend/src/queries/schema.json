@@ -9505,6 +9505,23 @@
                         "type": "number"
                     },
                     "type": "array"
+                },
+                "volume_buckets": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "format": "date-time",
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["occurrences", "sessions", "users", "volumeRange"],

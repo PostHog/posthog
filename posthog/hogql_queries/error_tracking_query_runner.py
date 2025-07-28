@@ -65,7 +65,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         This is used to convert the date range from the query into a datetime object.
         """
         if date == "all" or date is None:
-            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52 * 5)  # 5 years ago
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52 * 4)  # 4 years ago
 
         return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
 
@@ -75,7 +75,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         This is used to convert the date range from the query into a datetime object.
         """
         if not date:
-            return datetime.datetime.now(tz=ZoneInfo("UTC")) + datetime.timedelta(minutes=5)
+            return datetime.datetime.now(tz=ZoneInfo("UTC"))
         if date == "all":
             raise ValueError("Invalid date range")
 
@@ -497,8 +497,21 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 "properties": event_tuple[2],
             }
 
+    def get_volume_buckets(self) -> list[datetime.datetime]:
+        total_ms = (self.date_to - self.date_from).total_seconds() * 1000
+        bin_size = int(total_ms / self.query.volumeResolution)
+        return [
+            self.date_from + datetime.timedelta(milliseconds=i * bin_size) for i in range(self.query.volumeResolution)
+        ]
+
     def extract_aggregations(self, result):
+        # TODO: Remove unused volumeRange. (keeping it for now because of cached values)
         aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeRange")}
+        histogram_bins = self.get_volume_buckets()
+        aggregations["volume_buckets"] = [
+            {"label": bin, "value": aggregations["volumeRange"][i] if aggregations["volumeRange"] else None}
+            for i, bin in enumerate(histogram_bins)
+        ]
         return aggregations
 
     @property

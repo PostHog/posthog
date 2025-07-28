@@ -1021,6 +1021,14 @@ class Status(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class VolumeBucket(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: datetime
+    value: float
+
+
 class ErrorTrackingIssueAggregations(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1029,6 +1037,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
     sessions: float
     users: float
     volumeRange: list[float]
+    volume_buckets: Optional[list[VolumeBucket]] = None
 
 
 class Type2(StrEnum):
