@@ -159,7 +159,7 @@ def reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0805_alter_survey_type"),
+        ("posthog", "0806_scheduledchange_failure_count_and_more"),
     ]
 
     operations = [migrations.RunPython(forwards, reverse)]

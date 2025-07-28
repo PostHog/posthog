@@ -14,6 +14,8 @@ import {
 
 import { mswDecorator } from '~/mocks/browser'
 import { CommentType } from '~/types'
+import { BindLogic } from 'kea'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 type Story = StoryObj<typeof ItemAnyComment>
 const meta: Meta<typeof ItemAnyComment> = {
@@ -87,47 +89,49 @@ const BasicTemplate: StoryFn<typeof ItemAnyComment> = (props: Partial<ItemCommen
     const propsToUse = props as ItemCommentProps
 
     return (
-        <div className="flex flex-col gap-2 min-w-96">
-            <h3>Collapsed</h3>
-            <ItemAnyComment {...propsToUse} />
-            <LemonDivider />
-            <h3>Expanded</h3>
-            <ItemAnyCommentDetail {...propsToUse} />
-            <LemonDivider />
-            <h3>Expanded with overflowing comment</h3>
-            <div className="w-52">
-                <ItemAnyCommentDetail
-                    {...propsToUse}
-                    item={
-                        {
-                            ...propsToUse.item,
-                            data: {
-                                ...propsToUse.item.data,
-                                comment:
-                                    'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
-                            },
-                        } as InspectorListItemNotebookComment
-                    }
-                />
+        <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
+            <div className="flex flex-col gap-2 min-w-96">
+                <h3>Collapsed</h3>
+                <ItemAnyComment {...propsToUse} />
+                <LemonDivider />
+                <h3>Expanded</h3>
+                <ItemAnyCommentDetail {...propsToUse} />
+                <LemonDivider />
+                <h3>Expanded with overflowing comment</h3>
+                <div className="w-52">
+                    <ItemAnyCommentDetail
+                        {...propsToUse}
+                        item={
+                            {
+                                ...propsToUse.item,
+                                data: {
+                                    ...propsToUse.item.data,
+                                    comment:
+                                        'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                                },
+                            } as InspectorListItemNotebookComment
+                        }
+                    />
+                </div>
+                <LemonDivider />
+                <h3>Collapsed with overflowing comment</h3>
+                <div className="w-52">
+                    <ItemAnyComment
+                        {...propsToUse}
+                        item={
+                            {
+                                ...propsToUse.item,
+                                data: {
+                                    ...propsToUse.item.data,
+                                    comment:
+                                        'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                                },
+                            } as InspectorListItemNotebookComment
+                        }
+                    />
+                </div>
             </div>
-            <LemonDivider />
-            <h3>Collapsed with overflowing comment</h3>
-            <div className="w-52">
-                <ItemAnyComment
-                    {...propsToUse}
-                    item={
-                        {
-                            ...propsToUse.item,
-                            data: {
-                                ...propsToUse.item.data,
-                                comment:
-                                    'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
-                            },
-                        } as InspectorListItemNotebookComment
-                    }
-                />
-            </div>
-        </div>
+        </BindLogic>
     )
 }
 

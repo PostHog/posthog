@@ -15,5 +15,5 @@ class TestTemplatesGeneral(BaseTest):
                 assert serializer.is_valid()
 
             if template.type not in TYPES_WITH_TRANSPILED_FILTERS:
-                bytecode = compile_hog(template.hog, template.type)
+                bytecode = compile_hog(template.code, template.type)
                 assert bytecode[0] == "_H"

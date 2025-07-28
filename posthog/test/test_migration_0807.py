@@ -14,8 +14,8 @@ from posthog.temporal.data_imports.sources.generated_configs import (
 
 
 class DWHSourceRefactorMigrationTest(NonAtomicTestMigrations):
-    migrate_from = "0805_alter_survey_type"
-    migrate_to = "0806_dwh_source_refactor"
+    migrate_from = "0806_scheduledchange_failure_count_and_more"
+    migrate_to = "0807_dwh_source_refactor"
 
     CLASS_DATA_LEVEL_SETUP = False
 
