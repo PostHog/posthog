@@ -416,8 +416,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
-    def test_optimized_properties_sorting_and_is_optimized_field(self):
-        """Test that optimized properties are sorted first and have is_optimized=True"""
+    def test_optimized_properties_sorting_and_is_optimized_field_with_hints_enabled(self):
+        """Test that optimized properties are sorted first and have is_optimized=True when enable_optimized_hints=true"""
         # Create some optimized properties (session properties)
         PropertyDefinition.objects.create(team=self.team, name="$entry_pathname", type=PropertyDefinition.Type.SESSION)
         PropertyDefinition.objects.create(team=self.team, name="$end_pathname", type=PropertyDefinition.Type.SESSION)
@@ -435,7 +435,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="another_custom", type=PropertyDefinition.Type.EVENT)
 
         # Test session properties
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=session")
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=session&enable_optimized_hints=true"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         results = response.json()["results"]
@@ -453,7 +455,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(len(found_optimized), 4, "All optimized session properties should be found")
 
         # Test event properties
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_optimized_hints=true"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         results = response.json()["results"]
@@ -531,6 +535,54 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
             if created:
                 prop.delete()  # Only clean up if we created it
+
+    def test_optimized_hints_parameter_controls_sorting(self):
+        """Test that enable_optimized_hints parameter controls whether optimized properties are sorted first"""
+        # Create some optimized and non-optimized properties
+        PropertyDefinition.objects.create(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT)
+        PropertyDefinition.objects.create(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT)
+
+        # Test without enable_optimized_hints parameter (default behavior)
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results_default = response.json()["results"]
+
+        # Test with enable_optimized_hints=true
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_optimized_hints=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results_optimized = response.json()["results"]
+
+        # Find indices of optimized and non-optimized properties in both results
+        def find_property_indices(results):
+            optimized_index = None
+            non_optimized_index = None
+            for i, result in enumerate(results):
+                if result["name"] == "$host":
+                    optimized_index = i
+                elif result["name"] == "custom_prop":
+                    non_optimized_index = i
+            return optimized_index, non_optimized_index
+
+        default_optimized, default_non_optimized = find_property_indices(results_default)
+        optimized_optimized, optimized_non_optimized = find_property_indices(results_optimized)
+
+        # With enable_optimized_hints=true, optimized properties should come first
+        if optimized_optimized is not None and optimized_non_optimized is not None:
+            self.assertLess(
+                optimized_optimized,
+                optimized_non_optimized,
+                "With enable_optimized_hints=true, optimized properties should be sorted first",
+            )
+
+        # Verify that both properties have correct is_optimized values
+        for results in [results_default, results_optimized]:
+            for result in results:
+                if result["name"] == "$host":
+                    self.assertTrue(result["is_optimized"], "Optimized property should have is_optimized=True")
+                elif result["name"] == "custom_prop":
+                    self.assertFalse(result["is_optimized"], "Non-optimized property should have is_optimized=False")
 
     def test_event_name_filter_json_contains_int(self):
         event_name_json = json.dumps([1])
