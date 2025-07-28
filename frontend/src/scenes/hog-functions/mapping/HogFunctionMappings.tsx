@@ -90,7 +90,7 @@ export function HogFunctionMapping({
     parentConfiguration: HogFunctionConfigurationType
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { showSource } = useValues(hogFunctionConfigurationLogic)
+    const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
     return (
         <>
@@ -153,6 +153,7 @@ export function HogFunctionMapping({
                             onChange({ ...mapping, inputs: { ...mapping.inputs, [key]: value } })
                         }}
                         showSource={showSource}
+                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />
                 </Group>
                 {showSource ? (
@@ -205,9 +206,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                 value,
                 onChange,
             }: {
-                value: HogFunctionMappingType[]
+                value: HogFunctionMappingType[] | undefined
                 onChange: (mappings: HogFunctionMappingType[]) => void
             }) => {
+                if (!value) {
+                    // Tricky there can be a race where this renders before the parent is un-rendered
+                    return <></>
+                }
+
                 const addMapping = (template: string): void => {
                     const mappingTemplate = mappingTemplates.find((t) => t.name === template)
                     if (mappingTemplate) {

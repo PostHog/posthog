@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
-use crate::types::FingerprintedErrProps;
+use crate::types::{FingerprintedErrProps, OutputErrProps};
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
@@ -269,13 +269,8 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(
-                &context,
-                &issue,
-                &event_properties.fingerprint.value,
-                assignment,
-            )
-            .await?;
+            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
+            send_issue_reopened_alert(&context, &issue, assignment, output_props).await?;
         }
         return Ok(issue);
     }
@@ -326,13 +321,8 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(
-                &context,
-                &issue,
-                &event_properties.fingerprint.value,
-                assignment,
-            )
-            .await?;
+            let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
+            send_issue_reopened_alert(&context, &issue, assignment, output_props).await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
@@ -343,13 +333,9 @@ pub async fn resolve_issue(
             event_properties.clone(),
         )
         .await?;
-        send_issue_created_alert(
-            &context,
-            &issue,
-            &event_properties.fingerprint.value,
-            assignment,
-        )
-        .await?;
+
+        let output_props = event_properties.clone().to_output(issue.id);
+        send_issue_created_alert(&context, &issue, assignment, output_props).await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     };
@@ -381,15 +367,15 @@ pub async fn process_assignment(
 async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
-    fingerprint: &String,
     assignment: Option<Assignment>,
+    output_props: OutputErrProps,
 ) -> Result<(), UnhandledError> {
     send_internal_event(
         context,
         "$error_tracking_issue_created",
         issue,
-        fingerprint,
         assignment,
+        output_props,
     )
     .await
 }
@@ -397,15 +383,15 @@ async fn send_issue_created_alert(
 async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
-    fingerprint: &String,
     assignment: Option<Assignment>,
+    output_props: OutputErrProps,
 ) -> Result<(), UnhandledError> {
     send_internal_event(
         context,
         "$error_tracking_issue_reopened",
         issue,
-        fingerprint,
         assignment,
+        output_props,
     )
     .await
 }
@@ -414,8 +400,8 @@ async fn send_internal_event(
     context: &AppContext,
     event: &str,
     issue: &Issue,
-    fingerprint: &String,
     new_assignment: Option<Assignment>,
+    output_props: OutputErrProps,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
     event
@@ -425,7 +411,8 @@ async fn send_internal_event(
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
     event.insert_prop("status", issue.status.as_str())?;
-    event.insert_prop("fingerprint", fingerprint)?;
+    event.insert_prop("fingerprint", &output_props.fingerprint)?;
+    event.insert_prop("exception_props", output_props)?;
 
     if let Some(assignment) = new_assignment {
         let assignee = Assignee::try_from(&assignment)?;

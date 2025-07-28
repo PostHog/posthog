@@ -167,19 +167,8 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
-    let event_router = Router::new()
-        .route(
-            "/i/v0/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/i/v0/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
+    let mut event_router = Router::new()
+        // only full /i/v0/e/ is supported; send these to default handler
         .route("/i/v0", get(index))
         .route("/i/v0/", get(index))
         // legacy endpoints registered here
@@ -232,6 +221,38 @@ pub fn router<
                 .options(v0_endpoint::options),
         )
         .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+
+    // conditionally allow legacy event handler to process /i/v0/e/
+    // (modern capture) events for observation in mirror deploy
+    event_router = if is_mirror_deploy {
+        event_router
+            .route(
+                "/i/v0/e",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/i/v0/e/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+    } else {
+        event_router
+            .route(
+                "/i/v0/e",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/i/v0/e/",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+    };
 
     let status_router = Router::new()
         .route("/", get(index))

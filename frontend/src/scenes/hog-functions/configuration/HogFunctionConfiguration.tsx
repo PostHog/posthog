@@ -1,4 +1,4 @@
-import { IconCheck, IconPlus, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -218,6 +218,37 @@ export function HogFunctionConfiguration({
 
     const showLeftPanel = showOverview || showExpectedVolume || showFilters
 
+    const templateOptionsOverlay = (
+        <div className="p-1 max-w-120">
+            <p>
+                This function was built from the template <b>{hogFunction?.template?.name}</b>.
+                {templateHasChanged ? (
+                    <>
+                        <br />
+                        It has different code to the latest version, either due to custom modifications or updates to
+                        the template.
+                    </>
+                ) : null}
+            </p>
+
+            <div className="flex flex-1 gap-2 items-center pt-2 border-t">
+                <div className="flex-1">
+                    <LemonButton>Close</LemonButton>
+                </div>
+
+                <LemonButton type="secondary" onClick={() => duplicateFromTemplate()}>
+                    New function from template
+                </LemonButton>
+
+                {templateHasChanged ? (
+                    <LemonButton type="primary" onClick={() => resetToTemplate()}>
+                        Reset to template
+                    </LemonButton>
+                ) : null}
+            </div>
+        </div>
+    )
+
     return (
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
@@ -328,50 +359,23 @@ export function HogFunctionConfiguration({
                                     {hogFunction?.template?.code_language === 'hog' &&
                                     hogFunction?.template &&
                                     !hogFunction.template.id.startsWith('template-blank-') ? (
-                                        <LemonDropdown
-                                            showArrow
-                                            overlay={
-                                                <div className="p-1 max-w-120">
-                                                    <p>
-                                                        This function was built from the template{' '}
-                                                        <b>{hogFunction.template.name}</b>. If the template is updated,
-                                                        this function is not affected unless you choose to update it.
-                                                    </p>
-
-                                                    <div className="flex flex-1 gap-2 items-center pt-2 border-t">
-                                                        <div className="flex-1">
-                                                            <LemonButton>Close</LemonButton>
-                                                        </div>
-
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={() => duplicateFromTemplate()}
-                                                        >
-                                                            New function from template
-                                                        </LemonButton>
-
-                                                        {templateHasChanged ? (
-                                                            <LemonButton
-                                                                type="primary"
-                                                                onClick={() => resetToTemplate()}
-                                                            >
-                                                                Update
-                                                            </LemonButton>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                            }
-                                        >
-                                            <div className="text-xs rounded border border-dashed text-secondary">
-                                                <Link subtle className="flex flex-wrap gap-1 items-center p-2">
+                                        <LemonDropdown showArrow overlay={templateOptionsOverlay}>
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="small"
+                                                className="border border-dashed"
+                                                fullWidth
+                                            >
+                                                <span className="flex flex-wrap flex-1 gap-1 items-center">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
                                                     <HogFunctionStatusTag status={hogFunction.template.status} />
+                                                    <div className="flex-1" />
                                                     {templateHasChanged ? (
-                                                        <LemonTag type="success">Update available!</LemonTag>
+                                                        <LemonTag type="success">Modified</LemonTag>
                                                     ) : null}
-                                                </Link>
-                                            </div>
+                                                </span>
+                                            </LemonButton>
                                         </LemonDropdown>
                                     ) : null}
                                 </div>
@@ -459,9 +463,10 @@ export function HogFunctionConfiguration({
                                                     setConfigurationValue(`inputs.${key}`, input)
                                                 }}
                                                 showSource={showSource}
+                                                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                             />
                                             {oldInputs && newInputs && (
-                                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
                                                     <div className="flex-1 text-center">
                                                         <span className="text-sm font-medium">Suggested by Max</span>
                                                     </div>
@@ -556,6 +561,7 @@ export function HogFunctionConfiguration({
                                                 setConfigurationValue(`inputs.${key}`, input)
                                             }}
                                             showSource={showSource}
+                                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                         />
                                         {showSource && canEditSource ? (
                                             <LemonButton
@@ -629,6 +635,18 @@ export function HogFunctionConfiguration({
                                                             <p>Click here to edit the function's source code</p>
                                                         ) : null}
                                                     </div>
+
+                                                    {templateHasChanged ? (
+                                                        <LemonDropdown showArrow overlay={templateOptionsOverlay}>
+                                                            <LemonButton
+                                                                type="tertiary"
+                                                                size={showSource ? 'xsmall' : 'small'}
+                                                                icon={<IconInfo />}
+                                                            >
+                                                                Modified code
+                                                            </LemonButton>
+                                                        </LemonDropdown>
+                                                    ) : null}
 
                                                     {!showSource ? (
                                                         <LemonButton

@@ -11,10 +11,10 @@ from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
-from ee.session_recordings.session_summary.input_data import add_context_and_filter_events, get_team
-from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
-from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
+from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
     SessionSummaryDBData,
@@ -25,7 +25,7 @@ from posthog import constants
 from posthog.models.team.team import Team
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,

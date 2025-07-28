@@ -817,9 +817,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
-        [playerCommentModel.actionTypes.startCommenting]: async ({ annotation }) => {
+        [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             actions.setIsCommenting(true)
-            if (annotation) {
+            if (comment) {
                 // and we need a short wait until the logic is mounted after calling setIsCommenting
                 const waitForLogic = async (): Promise<BuiltLogic<playerCommentOverlayLogicType> | null> => {
                     for (let attempts = 0; attempts < 5; attempts++) {
@@ -835,9 +835,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const theMountedLogic = await waitForLogic()
 
                 if (theMountedLogic) {
-                    theMountedLogic.actions.editAnnotation(annotation)
+                    theMountedLogic.actions.editComment(comment)
                 } else {
-                    lemonToast.error('Could not start editing annotation 😓, please refresh the page and try again.')
+                    lemonToast.error('Could not start editing that comment 😓, please refresh the page and try again.')
                 }
             }
         },

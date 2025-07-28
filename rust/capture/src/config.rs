@@ -93,6 +93,7 @@ pub struct Config {
     #[envconfig(default = "info")]
     pub log_level: Level,
 
+    // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
     pub verbose_sample_percent: f32,
 }

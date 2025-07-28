@@ -115,6 +115,8 @@ class TrendsQueryRunner(QueryRunner):
         query = convert_active_user_math_based_on_interval(query)
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+    def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
 
