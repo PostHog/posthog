@@ -77,7 +77,7 @@ export const QueryDatabase = (): JSX.Element => {
                             ? dataWarehouseSavedQueryMapById[draft.saved_query_id]
                             : undefined
 
-                        createTab(draft.query.query, associatedView)
+                        createTab(draft.query.query, associatedView, undefined, draft)
 
                         setTimeout(() => {
                             const newTab = allTabs[allTabs.length - 1] // Get the most recently created tab

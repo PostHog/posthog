@@ -13,7 +13,11 @@ export const draftsLogic = kea<draftsLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'draftsLogic']),
 
     actions({
-        saveAsDraft: (query: HogQLQuery, viewId: string, successCallback?: (draftId: string) => void) => ({
+        saveAsDraft: (
+            query: HogQLQuery,
+            viewId: string,
+            successCallback?: (draft: DataWarehouseSavedQueryDraft) => void
+        ) => ({
             query,
             viewId,
             successCallback,
@@ -50,7 +54,7 @@ export const draftsLogic = kea<draftsLogicType>([
                 saved_query_id: viewId,
             })
             lemonToast.success('Draft saved')
-            successCallback && successCallback(draft.id)
+            successCallback && successCallback(draft)
 
             const newDrafts = [...values.drafts, draft]
             actions.setDrafts(newDrafts)
@@ -58,6 +62,8 @@ export const draftsLogic = kea<draftsLogicType>([
         updateDraft: async ({ draft }) => {
             await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
             lemonToast.success('Draft updated')
+            const newDrafts = values.drafts.map((d) => (d.id === draft.id ? draft : d))
+            actions.setDrafts(newDrafts)
         },
         deleteDraft: async ({ draftId, successCallback }) => {
             try {
@@ -84,28 +90,24 @@ export const draftsLogic = kea<draftsLogicType>([
         }) => {
             try {
                 if (draftId) {
-                    // Update existing draft
                     await api.dataWarehouseSavedQueryDrafts.update(draftId, {
                         query,
                     })
                     lemonToast.success('Draft updated')
+                    const newDrafts = values.drafts.map((d) => (d.id === draftId ? { ...d, query } : d))
+                    actions.setDrafts(newDrafts)
                 } else {
-                    // Try to find existing draft first
                     const existingDrafts = await api.dataWarehouseSavedQueryDrafts.list()
                     const existingDraft = existingDrafts.results.find((draft) => draft.saved_query_id === viewId)
 
                     if (existingDraft) {
-                        // Update existing draft
-                        await api.dataWarehouseSavedQueryDrafts.update(existingDraft.id, {
+                        actions.updateDraft({
+                            ...existingDraft,
                             query,
                         })
                         lemonToast.success('Draft updated')
                     } else {
-                        // Create new draft
-                        await api.dataWarehouseSavedQueryDrafts.create({
-                            query,
-                            saved_query_id: viewId,
-                        })
+                        actions.saveAsDraft(query, viewId)
                         lemonToast.success('Draft saved')
                     }
                 }

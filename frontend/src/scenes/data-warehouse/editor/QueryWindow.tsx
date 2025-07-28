@@ -42,6 +42,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         isDraft,
         currentDraftId,
     } = useValues(multitabEditorLogic)
+
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
