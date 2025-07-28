@@ -1202,136 +1202,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             )}
                         </div>
                     </div>
-                    {!multivariateEnabled && (
-                        <div className="mb-6 flex flex-col gap-y-4">
-                            <div>
-                                <h3 className="l3">Payload</h3>
-                                {readOnly ? (
-                                    featureFlag.filters.payloads?.['true'] ? (
-                                        <JSONEditorInput
-                                            readOnly={readOnly}
-                                            value={featureFlag.filters.payloads?.['true']}
-                                        />
-                                    ) : (
-                                        <span className="text-secondary">No payload associated with this flag</span>
-                                    )
-                                ) : (
-                                    <div className="w-1/2">
-                                        <div className="text-secondary mb-4">
-                                            {featureFlag.is_remote_configuration ? (
-                                                <>
-                                                    Specify a valid JSON payload to be returned for the config flag.
-                                                    Read more in the{' '}
-                                                    <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads">
-                                                        payload documentation
-                                                    </Link>
-                                                    .
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Optionally specify a valid JSON payload to be returned when the
-                                                    served value is{' '}
-                                                    <strong>
-                                                        <code>true</code>
-                                                    </strong>
-                                                    . Read more in the{' '}
-                                                    <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads">
-                                                        payload documentation
-                                                    </Link>
-                                                    .
-                                                </>
-                                            )}
-                                        </div>
-                                        {featureFlag.is_remote_configuration && (
-                                            <LemonField name="has_encrypted_payloads">
-                                                {({ value, onChange }) => (
-                                                    <div className="border rounded mb-4 p-4">
-                                                        <LemonCheckbox
-                                                            id="flag-payload-encrypted-checkbox"
-                                                            label="Encrypt remote configuration payload"
-                                                            onChange={() => onChange(!value)}
-                                                            checked={value}
-                                                            dataAttr="feature-flag-payload-encrypted-checkbox"
-                                                            disabledReason={
-                                                                hasEncryptedPayloadBeenSaved &&
-                                                                'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
-                                                            }
-                                                        />
-                                                    </div>
-                                                )}
-                                            </LemonField>
-                                        )}
-                                        <div className="flex gap-2">
-                                            <Group name={['filters', 'payloads']}>
-                                                <LemonField name="true" className="grow">
-                                                    <JSONEditorInput
-                                                        readOnly={
-                                                            readOnly ||
-                                                            (featureFlag.has_encrypted_payloads &&
-                                                                Boolean(featureFlag.filters?.payloads?.['true']))
-                                                        }
-                                                        placeholder={'Examples: "A string", 2500, {"key": "value"}'}
-                                                    />
-                                                </LemonField>
-                                            </Group>
-                                            {featureFlag.has_encrypted_payloads && (
-                                                <LemonButton
-                                                    className="grow-0"
-                                                    icon={<IconTrash />}
-                                                    type="secondary"
-                                                    size="small"
-                                                    status="danger"
-                                                    onClick={confirmEncryptedPayloadReset}
-                                                >
-                                                    Reset
-                                                </LemonButton>
-                                            )}
-                                        </div>
-                                        {featureFlag.is_remote_configuration && (
-                                            <div className="text-sm text-secondary mt-4">
-                                                Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                                <span className="font-mono font-bold">
-                                                    {featureFlag.has_encrypted_payloads
-                                                        ? 'getRemoteConfigPayload'
-                                                        : 'getFeatureFlagPayload'}
-                                                </span>
-                                                . Using standard SDK methods such as{' '}
-                                                <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
-                                                <span className="font-mono font-bold">isFeatureEnabled</span> will
-                                                always return <span className="font-mono font-bold">true</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                            {readOnly && !featureFlag.is_remote_configuration && (
-                                <div>
-                                    <h3 className="l3">Recordings</h3>
-                                    <p>Watch recordings of people who have been exposed to the feature flag.</p>
-                                    <div className="inline-block">
-                                        <LemonButton
-                                            onClick={() => {
-                                                reportViewRecordingsClicked()
-                                                router.actions.push(
-                                                    urls.replay(ReplayTabs.Home, recordingFilterForFlag)
-                                                )
-                                                addProductIntentForCrossSell({
-                                                    from: ProductKey.FEATURE_FLAGS,
-                                                    to: ProductKey.SESSION_REPLAY,
-                                                    intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
-                                                })
-                                            }}
-                                            icon={<IconRewindPlay />}
-                                            type="secondary"
-                                            size="small"
-                                        >
-                                            View recordings
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
                     {!readOnly && multivariateEnabled && (
                         <div className="feature-flag-variants">
                             <h3 className="l4">Variant keys</h3>
@@ -1506,6 +1376,131 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                         </div>
                     )}
                 </>
+            )}
+            {!multivariateEnabled && (
+                <div className="mb-6 flex flex-col gap-y-4">
+                    <div>
+                        <h3 className="l3">Payload</h3>
+                        {readOnly ? (
+                            featureFlag.filters.payloads?.['true'] ? (
+                                <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
+                            ) : (
+                                <span className="text-secondary">No payload associated with this flag</span>
+                            )
+                        ) : (
+                            <div className="w-1/2">
+                                <div className="text-secondary mb-4">
+                                    {featureFlag.is_remote_configuration ? (
+                                        <>
+                                            Specify a valid JSON payload to be returned for the config flag. Read more
+                                            in the{' '}
+                                            <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads">
+                                                payload documentation
+                                            </Link>
+                                            .
+                                        </>
+                                    ) : (
+                                        <>
+                                            Optionally specify a valid JSON payload to be returned when the served value
+                                            is{' '}
+                                            <strong>
+                                                <code>true</code>
+                                            </strong>
+                                            . Read more in the{' '}
+                                            <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads">
+                                                payload documentation
+                                            </Link>
+                                            .
+                                        </>
+                                    )}
+                                </div>
+                                {featureFlag.is_remote_configuration && (
+                                    <LemonField name="has_encrypted_payloads">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded mb-4 p-4">
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                )}
+                                <div className="flex gap-2">
+                                    <Group name={['filters', 'payloads']}>
+                                        <LemonField name="true" className="grow">
+                                            <JSONEditorInput
+                                                readOnly={
+                                                    readOnly ||
+                                                    (featureFlag.has_encrypted_payloads &&
+                                                        Boolean(featureFlag.filters?.payloads?.['true']))
+                                                }
+                                                placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                            />
+                                        </LemonField>
+                                    </Group>
+                                    {featureFlag.has_encrypted_payloads && (
+                                        <LemonButton
+                                            className="grow-0"
+                                            icon={<IconTrash />}
+                                            type="secondary"
+                                            size="small"
+                                            status="danger"
+                                            onClick={confirmEncryptedPayloadReset}
+                                        >
+                                            Reset
+                                        </LemonButton>
+                                    )}
+                                </div>
+                                {featureFlag.is_remote_configuration && (
+                                    <div className="text-sm text-secondary mt-4">
+                                        Note: remote config flags must be accessed through payloads, e.g.{' '}
+                                        <span className="font-mono font-bold">
+                                            {featureFlag.has_encrypted_payloads
+                                                ? 'getRemoteConfigPayload'
+                                                : 'getFeatureFlagPayload'}
+                                        </span>
+                                        . Using standard SDK methods such as{' '}
+                                        <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
+                                        <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
+                                        <span className="font-mono font-bold">true</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {readOnly && !featureFlag.is_remote_configuration && (
+                        <div>
+                            <h3 className="l3">Recordings</h3>
+                            <p>Watch recordings of people who have been exposed to the feature flag.</p>
+                            <div className="inline-block">
+                                <LemonButton
+                                    onClick={() => {
+                                        reportViewRecordingsClicked()
+                                        router.actions.push(urls.replay(ReplayTabs.Home, recordingFilterForFlag))
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.FEATURE_FLAGS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
+                                        })
+                                    }}
+                                    icon={<IconRewindPlay />}
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    View recordings
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
+                </div>
             )}
         </>
     )
