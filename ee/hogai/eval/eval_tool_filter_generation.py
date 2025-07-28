@@ -123,7 +123,11 @@ class AskUserForHelp(Scorer):
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         if "generated_filter_options" not in output or output["generated_filter_options"] is None:
-            if "intermediate_steps" in output and output["intermediate_steps"][-1][0].tool == "ask_user_for_help":
+            if (
+                "intermediate_steps" in output
+                and len(output["intermediate_steps"]) > 0
+                and output["intermediate_steps"][-1][0].tool == "ask_user_for_help"
+            ):
                 return Score(
                     name=self._name(), score=1, metadata={"reason": "LLM returned valid ask_user_for_help response"}
                 )
