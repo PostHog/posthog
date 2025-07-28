@@ -55,9 +55,6 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
 export const createIntegration = (integration: Partial<IntegrationType>) => {
     const item: IntegrationType = {
         team_id: 1,
-        errors: '',
-        created_at: new Date().toISOString(),
-        created_by_id: 1001,
         id: integration.id ?? 1,
         kind: integration.kind ?? 'slack',
         config: {},
@@ -144,7 +141,7 @@ export const createHogFunctionTemplate = (
         name: 'Hog Function Template',
         description: 'Hog Function Template',
         code_language: 'hog',
-        hog: 'Hog Function Template',
+        code: 'Hog Function Template',
         inputs_schema: [],
         category: [],
         bytecode: [],
@@ -168,7 +165,7 @@ export const insertHogFunctionTemplate = async (
         sha: 'sha',
         name: template.name,
         description: template.description,
-        code: template.hog,
+        code: template.code,
         code_language: template.code_language,
         status: template.status,
         free: template.free,
@@ -191,14 +188,15 @@ export const insertIntegration = async (
     team_id: Team['id'],
     integration: Partial<IntegrationType> = {}
 ): Promise<IntegrationType> => {
-    const res = await insertRow(
-        postgres,
-        'posthog_integration',
-        createIntegration({
+    const res = await insertRow(postgres, 'posthog_integration', {
+        ...createIntegration({
             ...integration,
             team_id: team_id,
-        })
-    )
+        }),
+        errors: '',
+        created_at: new Date().toISOString(),
+        created_by_id: 1001,
+    })
     return res
 }
 

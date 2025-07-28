@@ -17,14 +17,16 @@ from langchain_perplexity import ChatPerplexity
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
+from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
 from posthog.schema import (
     AssistantForm,
     AssistantFormOption,
@@ -48,7 +50,6 @@ from .prompts import (
     MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
     MEMORY_ONBOARDING_ENQUIRY_PROMPT,
     ONBOARDING_COMPRESSION_PROMPT,
-    ONBOARDING_INITIAL_MESSAGE,
     SCRAPING_CONFIRMATION_MESSAGE,
     SCRAPING_INITIAL_MESSAGE,
     SCRAPING_MEMORY_SAVED_MESSAGE,
@@ -60,9 +61,7 @@ from .prompts import (
 )
 
 
-class MemoryInitializerContextMixin:
-    _team: Team
-
+class MemoryInitializerContextMixin(AssistantContextMixin):
     def _retrieve_context(self):
         # Retrieve the origin domain.
         runner = EventTaxonomyQueryRunner(
@@ -85,9 +84,9 @@ class MemoryInitializerContextMixin:
 class MemoryOnboardingShouldRunMixin(AssistantNode):
     def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
+        Only trigger memory onboarding when explicitly requested with /init command.
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If no messages are to be found in the AssistantState, do not run onboarding.
-        If the conversation starts with the onboarding initial message, start the onboarding process.
         """
         core_memory = self.core_memory
 
@@ -99,27 +98,13 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
             return "continue"
 
         last_message = state.messages[-1]
-        if isinstance(last_message, HumanMessage) and last_message.content == ONBOARDING_INITIAL_MESSAGE:
+        if isinstance(last_message, HumanMessage) and last_message.content.startswith("/"):
+            report_user_action(
+                self._user, "Max slash command used", {"slash_command": last_message.content}, team=self._team
+            )
+        if isinstance(last_message, HumanMessage) and last_message.content == SLASH_COMMAND_INIT:
             return "memory_onboarding"
         return "continue"
-
-
-def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> str:
-    """
-    If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
-    Otherwise, start the onboarding process.
-    """
-    try:
-        core_memory = CoreMemory.objects.get(team=team)
-    except CoreMemory.DoesNotExist:
-        core_memory = None
-    if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
-        # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
-        return "continue"
-
-    if core_memory is None or core_memory.initial_text == "":
-        return "memory_onboarding"
-    return "continue"
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
@@ -268,11 +253,11 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             raise ValueError("No human message found.")
 
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
-        if human_message.content not in [
-            SCRAPING_CONFIRMATION_MESSAGE,
-            SCRAPING_REJECTION_MESSAGE,
-            ONBOARDING_INITIAL_MESSAGE,
-        ] and core_memory.initial_text.endswith("Answer:"):
+        if (
+            human_message.content not in [SCRAPING_CONFIRMATION_MESSAGE, SCRAPING_REJECTION_MESSAGE]
+            and not human_message.content.startswith("/")  # Ignore slash commands
+            and core_memory.initial_text.endswith("Answer:")
+        ):
             # The user is answering to a question
             core_memory.append_answer_to_initial_text(human_message.content)
 
@@ -473,9 +458,7 @@ class MemoryCollectorToolsNode(AssistantNode):
         last_message = node_messages[-1]
         if not isinstance(last_message, LangchainAIMessage):
             raise ValueError("Last message must be an AI message.")
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
 
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
         try:
