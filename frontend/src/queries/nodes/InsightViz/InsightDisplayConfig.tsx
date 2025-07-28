@@ -173,6 +173,26 @@ export function InsightDisplayConfig(): JSX.Element {
                                     },
                                 ]
                               : []),
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Show trend lines"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={trendsFilter?.showTrendLines || false}
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  showTrendLines: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
                       ],
                   },
               ]

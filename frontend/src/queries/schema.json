@@ -22946,6 +22946,9 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showTrendLines": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "default": false,
                     "type": "boolean"

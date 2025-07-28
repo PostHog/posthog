@@ -4577,6 +4577,7 @@ class TrendsFilter(BaseModel):
     showLegend: Optional[bool] = False
     showMultipleYAxes: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
+    showTrendLines: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
     yAxisScaleType: Optional[YAxisScaleType] = YAxisScaleType.LINEAR

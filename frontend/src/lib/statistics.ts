@@ -1,4 +1,4 @@
-import { standardDeviation, probit } from 'simple-statistics'
+import { standardDeviation, probit, linearRegression } from 'simple-statistics'
 
 /**
  * Calculates the confidence interval ranges for a given set of values.
@@ -23,4 +23,16 @@ export function ciRanges(values: number[], ci: number = 0.95): [number[], number
     const upper = values.map((v) => v + h)
     const lower = values.map((v) => v - h)
     return [lower, upper]
+}
+
+export function trendLine(values: number[]): number[] {
+    const n = values.length
+    if (n < 2) {
+        return values
+    }
+
+    const coordinates: [number, number][] = values.map((y, x) => [x, y])
+    const { m, b } = linearRegression(coordinates)
+
+    return values.map((_, x) => m * x + b)
 }
