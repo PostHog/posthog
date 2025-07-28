@@ -1,4 +1,3 @@
-import { Editor as TTEditor } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
@@ -40,7 +39,7 @@ import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { createEditor } from 'lib/components/RichContentEditor/utils'
 import { NotebookEditor, textContent } from './utils'
-import { RichContentNode } from 'lib/components/RichContentEditor/types'
+import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { RichContentEditor } from 'lib/components/RichContentEditor'
 import posthog from 'posthog-js'
 import { NotebookNodeType } from '~/types'
