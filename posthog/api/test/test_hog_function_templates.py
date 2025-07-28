@@ -135,6 +135,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == "template-slack"
+        assert response.json()["type"] == "destination"
+
+    def test_retrieve_function_template_with_other_type(self):
+        response = self.client.get("/api/projects/@current/hog_function_templates/template-site-destination")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == "template-site-destination"
+        assert response.json()["type"] == "site_destination"
 
     def test_public_list_function_templates(self):
         self.client.logout()

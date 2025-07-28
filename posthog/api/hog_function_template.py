@@ -66,16 +66,16 @@ class PublicHogFunctionTemplateViewSet(
     # TODO
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
-        types = ["destination"]
-        if self.request.GET.get("type"):
-            types = [self.request.GET["type"]]
-        elif self.request.GET.get("types"):
-            types = self.request.GET["types"].split(",")
-
-        queryset = queryset.filter(type__in=types)
-
-        # Don't include deprecated templates when listing
         if self.action == "list":
+            types = ["destination"]
+            if self.request.GET.get("type"):
+                types = [self.request.GET["type"]]
+            elif self.request.GET.get("types"):
+                types = self.request.GET["types"].split(",")
+
+            queryset = queryset.filter(type__in=types)
+
+            # Don't include deprecated templates when listing
             queryset = queryset.exclude(status="deprecated")
 
         if self.request.path.startswith("/api/public_hog_function_templates"):
