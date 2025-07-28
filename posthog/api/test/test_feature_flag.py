@@ -460,6 +460,74 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):
+        # Test creating a feature flag with different evaluation_runtime values
+
+        # Test with "server"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "server-side-flag", "evaluation_runtime": "server"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], "server-side-flag")
+        self.assertEqual(response.json()["evaluation_runtime"], "server")
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.evaluation_runtime, "server")
+
+        # Test with "client"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "client-side-flag", "evaluation_runtime": "client"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_runtime"], "client")
+
+        # Test with "all"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "all-flag", "evaluation_runtime": "all"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_runtime"], "all")
+
+        # Test default value (should be "all")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "default-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_runtime"], "all")
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_feature_flag_evaluation_runtime(self, mock_capture):
+        # Create a flag with default evaluation_runtime
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "flag-to-update"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        self.assertEqual(response.json()["evaluation_runtime"], "all")
+
+        # Update to "server"
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {"evaluation_runtime": "server"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["evaluation_runtime"], "server")
+
+        # Verify in database
+        instance = FeatureFlag.objects.get(id=flag_id)
+        self.assertEqual(instance.evaluation_runtime, "server")
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",

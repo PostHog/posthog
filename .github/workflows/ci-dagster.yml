@@ -106,6 +106,14 @@ jobs:
             - name: Wait for Clickhouse & Kafka
               run: bin/check_kafka_clickhouse_up
 
+            - name: Run migrations
+              run: |
+                  python manage.py migrate
+
+            - name: Run clickhouse migrations
+              run: |
+                  python manage.py migrate_clickhouse
+
             - name: Run Dagster tests
               run: |
                   pytest dags

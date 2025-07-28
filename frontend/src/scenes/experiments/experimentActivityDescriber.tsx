@@ -1,18 +1,15 @@
 import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 import { match } from 'ts-pattern'
 import { ProgressStatus } from '~/types'
+import {
+    getExperimentChangeDescription,
+    getSharedMetricChangeDescription,
+    nameOrLinkToExperiment,
+    nameOrLinkToSharedMetric,
+} from './activity-descriptions'
 import { StatusTag } from './ExperimentView/components'
-
-function nameOrLinkToExperiment(id: string | undefined, name: string | null): JSX.Element | string {
-    if (id) {
-        return <Link to={urls.experiment(id)}>{name}</Link>
-    }
-    return name || '(unknown)'
-}
 
 //exporting so the linter doesn't complain about this not being used
 export const ExperimentDetails = ({
@@ -26,7 +23,7 @@ export const ExperimentDetails = ({
         <LemonCard className="flex items-center justify-between gap-3 p-4">
             <div className="flex flex-col gap-1">
                 <strong className="text-sm font-semibold">
-                    {nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                    {nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                 </strong>
                 <span className="text-xs text-muted">Experiment</span>
             </div>
@@ -40,44 +37,75 @@ const UnknownAction = ({ logItem }: { logItem: ActivityLogItem }): JSX.Element =
         <SentenceList
             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
             listParts={['performed an unknown action on']}
-            suffix={nameOrLinkToExperiment(logItem.item_id, logItem.detail.name)}
+            suffix={nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
         />
     )
 }
 
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
-    //bail for shared metrics
-    if (logItem.detail.type === 'shared_metric') {
-        return {
-            description: null,
-        }
-    }
+    /**
+     * we only have two item types, `shared_metric` or the `null` default for
+     * experiments.
+     */
+    const isSharedMetric = logItem.detail.type === 'shared_metric'
 
-    return match(logItem.activity)
-        .with('created', () => {
+    return match(logItem)
+        .with({ activity: 'created' }, () => {
             /**
-             * created experiments always have the draft status.
+             * we handle both experiments and shared metrics creation here.
              */
             return {
                 description: (
                     <SentenceList
                         prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         listParts={[
-                            <span>
-                                created a new <StatusTag status={ProgressStatus.Draft} /> experiment:
-                            </span>,
+                            isSharedMetric ? (
+                                <span>created a new shared metric:</span>
+                            ) : (
+                                <span>
+                                    created a new <StatusTag status={ProgressStatus.Draft} /> experiment:
+                                </span>
+                            ),
                         ]}
-                        suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                        suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
+                            logItem.detail.name,
+                            logItem.item_id
+                        )}
                     />
                 ),
             }
         })
-        .with('updated', () => {
+        .with({ activity: 'updated', detail: { changes: [{ field: 'deleted', before: false, after: true }] } }, () => {
             /**
-             * the experiment UI only allows for atomic updates of a single property at a time.
+             * Experiment deletion is a spacial case of `updated`. If `deleted` has been changed
+             * from false to true, the experiment has been deleted.
              */
-            const changes = logItem.detail?.changes || []
-
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted experiment:']}
+                        suffix={logItem.detail.name}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'deleted', detail: { type: 'shared_metric' } }, () => {
+            /**
+             * Shared metrics are not soft deleted.
+             */
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
+                        listParts={['deleted shared metric:']}
+                        suffix={logItem.detail.name}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'updated' }, () => {
+            const changes = logItem.detail.changes || []
             /**
              * if there are no changes, we don't need to describe the update.
              */
@@ -87,110 +115,37 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         <SentenceList
                             prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                             listParts={['updated']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
+                            suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
+                                logItem.detail.name,
+                                logItem.item_id
+                            )}
                         />
                     ),
                 }
             }
 
-            /**
-             * this needs to be refactored to handle multiple changes, for example,
-             * when an experiment stops and we set a conclusion.
-             */
-            const change = changes[0]
+            const listParts = changes
+                .map((change) =>
+                    (isSharedMetric ? getSharedMetricChangeDescription : getExperimentChangeDescription)(change)
+                )
+                .filter((part) => part !== null)
 
-            /**
-             * if a start date is created, the experiment has been launched.
-             */
-            if (
-                change.action === 'created' &&
-                change.field === 'start_date' &&
-                change.before === null &&
-                change.after !== null
-            ) {
-                return {
-                    description: (
-                        <SentenceList
-                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['launched experiment']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
-                        />
-                    ),
-                }
+            if (listParts.length === 0) {
+                return { description: null }
             }
 
             /**
-             * if an end date is created, the experiment has been completed.
-             */
-            if (
-                change.action === 'created' &&
-                change.field === 'end_date' &&
-                change.before === null &&
-                change.after !== null
-            ) {
-                return {
-                    description: (
-                        <SentenceList
-                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['stopped experiment']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
-                        />
-                    ),
-                }
-            }
-
-            /**
-             * if a metric is created, the user has added the first metric to the experiment.
-             */
-            if (
-                change.action === 'created' &&
-                change.field === 'metrics' &&
-                change.before === null &&
-                change.after !== null
-            ) {
-                return {
-                    description: (
-                        <SentenceList
-                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['added the first metric to']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
-                        />
-                    ),
-                }
-            }
-
-            /**
-             * soft deletes
-             */
-            if (change.action === 'changed' && change.field === 'deleted' && !change.before && change.after) {
-                return {
-                    description: (
-                        <SentenceList
-                            prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                            listParts={['deleted experiment']}
-                            suffix={nameOrLinkToExperiment(logItem?.item_id, logItem?.detail.name)}
-                        />
-                    ),
-                }
-            }
-
-            /**
-             * TODO: return null for now, until we cover all existing uses.
-             */
-            return {
-                description: null,
-            }
-        })
-        .with('deleted', () => {
-            /**
-             * today we do soft deletes, so we keep this for future proofing
+             * we always prefix with the user name, and suffix with a link to the resource
              */
             return {
                 description: (
                     <SentenceList
-                        listParts={['deleted experiment']}
                         prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                        suffix={logItem?.detail.name}
+                        listParts={listParts}
+                        suffix={(isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
+                            logItem.detail.name,
+                            logItem.item_id
+                        )}
                     />
                 ),
             }
