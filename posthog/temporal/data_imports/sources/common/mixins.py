@@ -1,5 +1,6 @@
-from contextlib import contextmanager
+from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
+from collections.abc import Callable
 from collections.abc import Generator
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
@@ -22,6 +23,25 @@ class SSHTunnelMixin:
                 yield tunnel.local_bind_host, tunnel.local_bind_port
         else:
             yield config.host, config.port
+
+    def make_ssh_tunnel_func(self, config) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
+        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+            ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+
+            @contextmanager
+            def with_ssh_func():
+                with ssh_tunnel.get_tunnel(config.host, config.port) as t:
+                    if t is None:
+                        raise Exception("Can't open tunnel to SSH server")
+                    yield t.local_bind_host, t.local_bind_port
+
+            return with_ssh_func
+
+        @contextmanager
+        def without_ssh_func():
+            yield config.host, config.port
+
+        return without_ssh_func
 
     def ssh_tunnel_is_valid(self, config) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
