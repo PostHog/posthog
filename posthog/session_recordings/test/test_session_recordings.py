@@ -75,9 +75,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             # originally for this table all order by was DESCENDING
-            ["descending (original)", "start_time"],
-            ["descending", "start_time DESC"],
-            ["ascending", "start_time ASC"],
+            ["descending (original)", "start_time", ["at_base_time_plus_20", "at_base_time_plus"]],
+            ["descending", "start_time DESC", ["at_base_time_plus_20", "at_base_time_plus"]],
+            ["ascending", "start_time ASC", ["at_base_time_plus", "at_base_time_plus_20"]],
         ]
     )
     @snapshot_postgres_queries
@@ -99,12 +99,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        session_id_one = f"test_get_session_recordings-1"
+
+        # first session runs from base time to base time + 30
+        session_id_one = "at_base_time"
         self.produce_replay_summary("user_one_0", session_id_one, base_time)
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
-        session_id_two = f"test_get_session_recordings-2"
+
+        # second session runs from base time + 20 to bae time + 30
+        session_id_two = "at_base_time_plus_20"
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
+        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_200_OK, response.json()
