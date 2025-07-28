@@ -1,7 +1,10 @@
 import os
+from datetime import timedelta
 from posthog.settings.base_variables import DEBUG
 from typing import Optional
-from dagster import Backoff, Field, Array, Jitter, RetryPolicy
+from dagster import Backoff, Field, Array, Jitter, RetryPolicy, AssetExecutionContext
+from posthog.clickhouse.client import sync_execute
+from posthog.models.web_preaggregated.sql import DROP_PARTITION_SQL
 
 # TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
 TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074, 12669, 1589, 117126]
@@ -43,12 +46,10 @@ if DEBUG:
 
 
 def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
-    """Convert a settings dictionary to ClickHouse settings string format."""
     return ",".join([f"{key}={value}" for key, value in settings_dict.items()])
 
 
 def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Optional[str] = None) -> str:
-    """Merge base settings with extra settings string and return formatted string."""
     settings = base_settings.copy()
 
     if extra_settings:
@@ -74,3 +75,29 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
         description="Additional ClickHouse execution settings to merge with defaults",
     ),
 }
+
+
+def drop_partitions_in_time_window(
+    context: AssetExecutionContext,
+    table_name: str,
+    start_datetime,
+    end_datetime,
+    granularity: str = "daily",
+) -> None:
+    current_date = start_datetime.date()
+    end_date = end_datetime.date()
+
+    # For time windows: start is inclusive, end is exclusive (except for single-day partitions)
+    while current_date < end_date or (current_date == start_datetime.date() == end_date):
+        partition_date_str = current_date.strftime("%Y-%m-%d")
+        drop_partition_query = DROP_PARTITION_SQL(table_name, partition_date_str, granularity=granularity)
+        context.log.info(f"Dropping partition for {partition_date_str}: {drop_partition_query}")
+
+        try:
+            sync_execute(drop_partition_query)
+            context.log.info(f"Successfully dropped partition for {partition_date_str}")
+        except Exception as drop_error:
+            # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
+            context.log.info(f"Partition for {partition_date_str} doesn't exist or couldn't be dropped: {drop_error}")
+
+        current_date += timedelta(days=1)

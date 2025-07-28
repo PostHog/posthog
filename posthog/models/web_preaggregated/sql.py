@@ -3,8 +3,15 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+def TABLE_TEMPLATE(table_name, columns, order_by, storage_policy=None):
+    policy = "s3_policy" if storage_policy == "s3" else None
+    engine = MergeTreeEngine(
+        table_name,
+        replication_scheme=ReplicationScheme.REPLICATED,
+    )
+
+    # Must add a SETTINGS clause after ORDER BY if storage policy is specified
+    settings_clause = f"SETTINGS storage_policy = '{policy}'" if policy else ""
 
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
@@ -17,13 +24,21 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     ) ENGINE = {engine}
     PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
+    {settings_clause}
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, storage_policy=None):
+    policy = "s3_policy" if storage_policy == "s3" else None
+    engine = MergeTreeEngine(
+        table_name,
+        replication_scheme=ReplicationScheme.REPLICATED,
+    )
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
+
+    # Must add a SETTINGS clause after ORDER BY if storage policy is specified
+    settings_clause = f"SETTINGS storage_policy = '{policy}'" if policy else ""
 
     return f"""
     CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
@@ -37,6 +52,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     ORDER BY {order_by}
     PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
     {ttl_clause}
+    {settings_clause}
     """
 
 
@@ -163,23 +179,35 @@ def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
 
 
-def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
-
-
-def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
-
-
-def WEB_STATS_HOURLY_SQL():
-    return HOURLY_TABLE_TEMPLATE(
-        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
+def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", storage_policy=None):
+    return TABLE_TEMPLATE(
+        table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), storage_policy=storage_policy
     )
 
 
-def WEB_BOUNCES_HOURLY_SQL():
+def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", storage_policy=None):
+    return TABLE_TEMPLATE(
+        table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), storage_policy=storage_policy
+    )
+
+
+def WEB_STATS_HOURLY_SQL(storage_policy=None):
     return HOURLY_TABLE_TEMPLATE(
-        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
+        "web_stats_hourly",
+        WEB_STATS_COLUMNS,
+        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
+        ttl="24 HOUR",
+        storage_policy=storage_policy,
+    )
+
+
+def WEB_BOUNCES_HOURLY_SQL(storage_policy=None):
+    return HOURLY_TABLE_TEMPLATE(
+        "web_bounces_hourly",
+        WEB_BOUNCES_COLUMNS,
+        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
+        ttl="24 HOUR",
+        storage_policy=storage_policy,
     )
 
 

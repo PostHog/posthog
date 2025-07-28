@@ -14,6 +14,7 @@ from dags.web_preaggregated_utils import (
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
+    drop_partitions_in_time_window,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -23,7 +24,6 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
-    DROP_PARTITION_SQL,
     get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
@@ -71,27 +71,7 @@ def pre_aggregate_web_analytics_data(
     date_end = end_datetime.strftime("%Y-%m-%d")
 
     try:
-        # Drop all partitions in the time window, ensuring a clean state before insertion
-        # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
-        current_date = start_datetime.date()
-        end_date = end_datetime.date()
-
-        # For time windows: start is inclusive, end is exclusive (except for single-day partitions)
-        while current_date < end_date or (current_date == start_datetime.date() == end_date):
-            partition_date_str = current_date.strftime("%Y-%m-%d")
-            drop_partition_query = DROP_PARTITION_SQL(table_name, partition_date_str, granularity="daily")
-            context.log.info(f"Dropping partition for {partition_date_str}: {drop_partition_query}")
-
-            try:
-                sync_execute(drop_partition_query)
-                context.log.info(f"Successfully dropped partition for {partition_date_str}")
-            except Exception as drop_error:
-                # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
-                context.log.info(
-                    f"Partition for {partition_date_str} doesn't exist or couldn't be dropped: {drop_error}"
-                )
-
-            current_date += timedelta(days=1)
+        drop_partitions_in_time_window(context, table_name, start_datetime, end_datetime, granularity="daily")
 
         insert_query = sql_generator(
             date_start=date_start,
