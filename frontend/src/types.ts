@@ -3723,6 +3723,7 @@ export interface PropertyDefinition {
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
+    is_optimized?: boolean // Whether the property is supported by the New Query Engine optimization for faster queries
     property_type?: PropertyType
     type?: PropertyDefinitionType
     created_at?: string // TODO: Implement

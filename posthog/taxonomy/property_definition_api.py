@@ -25,6 +25,40 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
 
+# Import optimized properties from web analytics module
+try:
+    from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+        OPTIMIZED_EVENT_PROPERTIES,
+        OPTIMIZED_SESSION_PROPERTIES,
+    )
+
+    OPTIMIZED_PROPERTIES = set(OPTIMIZED_EVENT_PROPERTIES + OPTIMIZED_SESSION_PROPERTIES)
+except ImportError:
+    # Fallback if the module doesn't exist or properties aren't defined
+    OPTIMIZED_PROPERTIES = {
+        # Event properties
+        "$host",
+        "$device_type",
+        "$browser",
+        "$os",
+        "$referring_domain",
+        "$geoip_country_code",
+        "$geoip_city_name",
+        "$geoip_subdivision_1_code",
+        "$geoip_subdivision_1_name",
+        "$geoip_time_zone",
+        "$pathname",
+        # Session properties
+        "$entry_pathname",
+        "$end_pathname",
+        "$entry_utm_source",
+        "$entry_utm_medium",
+        "$entry_utm_campaign",
+        "$entry_utm_term",
+        "$entry_utm_content",
+        "$channel_type",
+    }
+
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
     prop for prop in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys() if not prop.startswith("$")
@@ -313,6 +347,11 @@ class QueryContext:
 
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
+
+        # Add optimized properties to SQL for sorting
+        optimized_properties_list = list(OPTIMIZED_PROPERTIES)
+        self.params.update({"optimized_properties": optimized_properties_list})
+
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -323,7 +362,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY CASE WHEN {self.property_definition_table}.name = ANY(%(optimized_properties)s) THEN 0 ELSE 1 END, is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -421,6 +460,8 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    is_optimized = serializers.SerializerMethodField()
+
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -431,7 +472,11 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "tags",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
+            "is_optimized",
         )
+
+    def get_is_optimized(self, obj):
+        return obj.name in OPTIMIZED_PROPERTIES
 
     def validate(self, data):
         validated_data = super().validate(data)

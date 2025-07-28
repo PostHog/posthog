@@ -14,6 +14,7 @@ from ee.models.property_definition import EnterprisePropertyDefinition
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
+    is_optimized = serializers.SerializerMethodField()
 
     class Meta:
         model = EnterprisePropertyDefinition
@@ -31,6 +32,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "verified_at",
             "verified_by",
             "hidden",
+            "is_optimized",
         )
         read_only_fields = [
             "id",
@@ -39,7 +41,44 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "is_seen_on_filtered_events",
             "verified_at",
             "verified_by",
+            "is_optimized",
         ]
+
+    def get_is_optimized(self, obj):
+        # Import here to avoid circular imports
+        try:
+            from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+                OPTIMIZED_EVENT_PROPERTIES,
+                OPTIMIZED_SESSION_PROPERTIES,
+            )
+
+            optimized_properties = set(OPTIMIZED_EVENT_PROPERTIES + OPTIMIZED_SESSION_PROPERTIES)
+        except ImportError:
+            # Fallback if the module doesn't exist or properties aren't defined
+            optimized_properties = {
+                # Event properties
+                "$host",
+                "$device_type",
+                "$browser",
+                "$os",
+                "$referring_domain",
+                "$geoip_country_code",
+                "$geoip_city_name",
+                "$geoip_subdivision_1_code",
+                "$geoip_subdivision_1_name",
+                "$geoip_time_zone",
+                "$pathname",
+                # Session properties
+                "$entry_pathname",
+                "$end_pathname",
+                "$entry_utm_source",
+                "$entry_utm_medium",
+                "$entry_utm_campaign",
+                "$entry_utm_term",
+                "$entry_utm_content",
+                "$channel_type",
+            }
+        return obj.name in optimized_properties
 
     def validate(self, data):
         validated_data = super().validate(data)

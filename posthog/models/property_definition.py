@@ -51,6 +51,10 @@ class PropertyDefinition(UUIDTModel):
         default=False
     )  # whether the property can be interpreted as a number, and therefore used for math aggregation operations
 
+    is_optimized = models.BooleanField(
+        default=False
+    )  # whether the property is supported by the New Query Engine optimization for faster queries
+
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
     # :TRICKY: May be null for historical events
