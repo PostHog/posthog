@@ -9,17 +9,17 @@ import STPyV8
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
 from posthog.test.base import BaseTest, APIBaseTest
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 # TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
 class BaseHogFunctionTemplateTest(BaseTest):
-    template: HogFunctionTemplate
+    template: HogFunctionTemplateDC
     compiled_hog: Any
     mock_fetch = MagicMock()
     mock_print = MagicMock()
@@ -28,7 +28,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.compiled_hog = compile_hog(self.template.hog, self.template.type)
+        self.compiled_hog = compile_hog(self.template.code, self.template.type)
 
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output
@@ -104,14 +104,14 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
 
 class BaseSiteDestinationFunctionTest(APIBaseTest):
-    template: HogFunctionTemplate
+    template: HogFunctionTemplateDC
     track_fn: str
     inputs: dict
 
     def setUp(self):
         super().setUp()
         # Create the template in the DB
-        DBHogFunctionTemplate.create_from_dataclass(self.template)
+        HogFunctionTemplate.create_from_dataclass(self.template)
         self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
         self.organization.save()
 

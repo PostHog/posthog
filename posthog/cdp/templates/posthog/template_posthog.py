@@ -1,10 +1,10 @@
 import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 from posthog.hogql.escape_sql import escape_hogql_string
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     type="destination",
@@ -14,7 +14,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/posthog-icon.svg",
     category=["Custom", "Analytics"],
     code_language="hog",
-    hog="""
+    code="""
 let host := inputs.host
 let token := inputs.token
 let include_all_properties := inputs.include_all_properties
@@ -85,6 +85,8 @@ class TemplatePostHogMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("host", "")
         project_api_key = obj.config.get("project_api_key", "")

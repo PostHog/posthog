@@ -154,7 +154,10 @@ class CoreMemory(UUIDModel):
         self.save()
 
     def append_core_memory(self, text: str):
-        self.text = self.text + "\n" + text
+        if self.text == "":
+            self.text = text
+        else:
+            self.text = self.text + "\n" + text
         self.save()
 
     def replace_core_memory(self, original_fragment: str, new_fragment: str):
