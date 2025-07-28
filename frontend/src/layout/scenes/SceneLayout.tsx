@@ -33,7 +33,7 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-px pt-4">{children}</div>, scenePanelElement)}
         </>
     )
 }
@@ -43,7 +43,7 @@ export function ScenePanelDivider(): JSX.Element {
 }
 
 export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pt-4 flex flex-col gap-2">{children}</div>
+    return <div className="pl-1 flex flex-col gap-2">{children}</div>
 }
 
 export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
