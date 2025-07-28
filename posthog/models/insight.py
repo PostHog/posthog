@@ -47,7 +47,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     order = models.IntegerField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     saved = models.BooleanField(default=False)
-    insight_metadata = models.JSONField(null=True, blank=True)
+    insight_bool = models.BooleanField(default=False)
     created_at = models.DateTimeField(null=True, blank=True, auto_now_add=True)
     refreshing = models.BooleanField(default=False)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
