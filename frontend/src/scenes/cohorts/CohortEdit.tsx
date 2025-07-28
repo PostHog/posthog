@@ -162,7 +162,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
                     <ButtonPrimitive
                         onClick={() => duplicateCohort(false)}
-                        tooltip={!cohort.is_static ? 'Cohort must be static to duplicate' : undefined}
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
                             'Cohort must be static to duplicate': !cohort.is_static,
