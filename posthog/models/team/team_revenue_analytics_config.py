@@ -52,6 +52,12 @@ class TeamRevenueAnalyticsConfig(models.Model):
         except Exception as e:
             raise ValidationError(f"Invalid goals schema: {str(e)}")
 
+    def to_cache_key_dict(self) -> dict:
+        return {
+            "base_currency": self.base_currency,
+            "events": [event.model_dump() for event in self.events],
+        }
+
 
 # This is best effort, we always attempt to create the config manually
 # when accessing it via `Team.revenue_analytics_config`.

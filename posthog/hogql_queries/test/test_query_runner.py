@@ -12,6 +12,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.hogql.constants import LimitContext
 from posthog.schema import (
+    CurrencyCode,
     CacheMissResponse,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -25,6 +26,9 @@ from posthog.schema import (
     TestBasicQueryResponse as TheTestBasicQueryResponse,
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
     IntervalType,
+)
+from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
+    REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
 )
 from posthog.test.base import BaseTest
 
@@ -89,8 +93,14 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
+
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
+
+        # Basic RevAnalytics config``
+        team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
+        team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        team.revenue_analytics_config.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         cache_payload = runner.get_cache_payload()
@@ -112,6 +122,24 @@ class TestQueryRunner(BaseTest):
                 "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
                 "useMaterializedViews": True,
                 "usePresortedEventsTable": False,
+            },
+            "data_warehouse_config": {
+                "revenue_analytics": {
+                    "base_currency": "GBP",
+                    "events": [
+                        {
+                            "couponProperty": "coupon",
+                            "currencyAwareDecimal": False,
+                            "eventName": "purchase",
+                            "productProperty": "product",
+                            "revenueCurrencyProperty": {
+                                "property": "currency",
+                                "static": None,
+                            },
+                            "revenueProperty": "revenue",
+                        }
+                    ],
+                },
             },
             "limit_context": LimitContext.QUERY,
             "query": {"kind": "TestQuery", "some_attr": "bla"},
@@ -142,7 +170,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_7583c7c9c2ab66ba5ff7f55ccb617c9a"
+        assert cache_key == "cache_30442bd01d5b94064b86989f68ab0339"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -156,7 +184,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_c2e0cd9925f875dba6539dc1b82078bf"
+        assert cache_key == "cache_f27c08c9ae6ccd734c59aae40391eafc"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -167,7 +195,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_af770db18dddd01c5c5d6b8f37a36006"
+        assert cache_key == "cache_826d008a218cab5dfe02cc464165fd69"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
