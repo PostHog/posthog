@@ -426,7 +426,6 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
-        print(value)
         assert value == {
             "source": "events",
             "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
@@ -469,7 +468,6 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
-        print(value)
         assert value == {
             "source": "person-updates",
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
