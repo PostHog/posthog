@@ -3580,7 +3580,7 @@ const api = {
         },
         async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
             return await new ApiRequest()
-                .messsagingPreferencesOptOuts()
+                .messagingPreferencesOptOuts()
                 .withQueryString({
                     category_key: categoryKey,
                 })
