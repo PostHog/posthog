@@ -3,6 +3,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
 from posthog.models.action.action import Action
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import BaseTest
 
@@ -28,6 +29,8 @@ class TestMigrateHooks(BaseTest):
             resource_id=self.action.id,
             user_id=self.user.id,
         )
+
+        HogFunctionTemplate.create_from_dataclass(template_zapier)
 
     def test_dry_run(self):
         migrate_hooks(hook_ids=[], team_ids=[], dry_run=True)
@@ -57,7 +60,7 @@ class TestMigrateHooks(BaseTest):
             "actions": [{"id": f"{self.action.id}", "name": "", "type": "actions", "order": 0}],
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29, 3, 1, 4, 1],
         }
-        assert hog_function.hog == template_zapier.hog
+        assert hog_function.hog == template_zapier.code
         assert hog_function.description == f"{template_zapier.description} Migrated from legacy hook {self.hook.id}."
         assert hog_function.inputs_schema == template_zapier.inputs_schema
         assert hog_function.template_id == template_zapier.id

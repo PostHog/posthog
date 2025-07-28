@@ -3504,6 +3504,13 @@ export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
 }
+
+export interface SourceFieldSSHTunnelConfig {
+    type: 'ssh-tunnel'
+    label: string
+    name: string
+}
+
 export interface SourceFieldOauthConfig {
     type: 'oauth'
     name: string
@@ -3527,6 +3534,7 @@ export interface SourceFieldSelectConfig {
     required: boolean
     defaultValue: string
     options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+    converter?: 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -3538,11 +3546,16 @@ export interface SourceFieldSwitchGroupConfig {
     caption?: string
 }
 
+export interface SourceFieldFileUploadJsonFormatConfig {
+    format: '.json'
+    keys: '*' | string[]
+}
+
 export interface SourceFieldFileUploadConfig {
     type: 'file-upload'
     name: string
     label: string
-    fileFormat: string
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
     required: boolean
 }
 
@@ -3552,6 +3565,7 @@ export type SourceFieldConfig =
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
     | SourceFieldFileUploadConfig
+    | SourceFieldSSHTunnelConfig
 
 export interface SourceConfig {
     name: ExternalDataSourceType

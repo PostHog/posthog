@@ -14,7 +14,7 @@ export const propertyFilterPlugin: LegacyTransformationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/posthog/property-filter-plugin/dev/logo.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 templating: false,

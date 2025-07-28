@@ -6,7 +6,6 @@ from dagster import Field
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     INTRA_DAY_HOURLY_CRON_SCHEDULE,
-    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS_HOURLY,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
@@ -44,7 +43,8 @@ def pre_aggregate_web_analytics_hourly_data(
     cluster: ClickhouseCluster,
 ) -> None:
     config = context.op_config
-    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+    team_ids = config.get("team_ids")
+
     extra_settings = config.get("extra_clickhouse_settings", "")
     hours_back = config["hours_back"]
     clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
@@ -156,8 +156,8 @@ def web_pre_aggregate_current_day_hourly_schedule(context: dagster.ScheduleEvalu
     return dagster.RunRequest(
         run_config={
             "ops": {
-                "web_analytics_bounces_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
-                "web_analytics_stats_table_hourly": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
+                "web_analytics_bounces_hourly": {"config": {}},
+                "web_analytics_stats_table_hourly": {"config": {}},
             }
         },
     )
