@@ -9,8 +9,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { NotebookTarget } from '~/types'
-
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -20,6 +18,7 @@ import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { notebookSceneLogic, NotebookSceneLogicProps } from './notebookSceneLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
+import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -47,7 +46,7 @@ export function NotebookScene(): JSX.Element {
             // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
             createNotebook(NotebookTarget.Scene)
         }
-    }, [notebookId])
+    }, [notebookId, createNotebook])
 
     if (accessDeniedToNotebook) {
         return <AccessDenied object="notebook" />

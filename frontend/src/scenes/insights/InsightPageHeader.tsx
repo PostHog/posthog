@@ -81,11 +81,11 @@ import {
     InsightLogicProps,
     InsightShortId,
     ItemMode,
-    NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 const RESOURCE_TYPE = 'insight'
 

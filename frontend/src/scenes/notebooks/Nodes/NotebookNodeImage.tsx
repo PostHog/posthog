@@ -2,9 +2,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
-import { NotebookNodeProps } from '../utils'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const MAX_DEFAULT_HEIGHT = 1000
 

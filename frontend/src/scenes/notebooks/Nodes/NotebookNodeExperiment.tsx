@@ -11,11 +11,10 @@ import { Info } from 'scenes/experiments/ExperimentView/Info'
 import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
-import { NotebookNodeType } from '~/types'
-import { NotebookNodeProps } from '../utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
@@ -35,7 +34,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         ])
 
         loadExperiment()
-    }, [id, setActions, insertAfter, loadExperiment, experiment.feature_flag.id])
+    }, [id, loadExperiment, setActions, insertAfter, experiment.feature_flag.id])
 
     if (experimentMissing) {
         return <NotFound object="experiment" />

@@ -30,8 +30,7 @@ import {
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
-
-import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
+import type { featureFlagReleaseConditionsLogicType } from './FeatureFlagReleaseConditionsLogicType'
 
 // Helper function to move a condition set to a new index
 function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] {

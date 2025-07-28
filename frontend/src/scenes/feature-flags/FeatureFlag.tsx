@@ -60,7 +60,6 @@ import {
     EarlyAccessFeatureStage,
     FeatureFlagGroupType,
     FeatureFlagType,
-    NotebookNodeType,
     ProductKey,
     PropertyFilterType,
     PropertyOperator,
@@ -79,6 +78,7 @@ import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 export const scene: SceneExport = {
     component: FeatureFlag,

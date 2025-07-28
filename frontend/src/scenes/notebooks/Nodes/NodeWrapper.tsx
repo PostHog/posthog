@@ -15,17 +15,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    KNOWN_NODES,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    CreatePostHogWidgetNodeOptions,
-    NodeWrapperProps,
-} from '../utils'
+import { KNOWN_NODES } from '../utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
@@ -34,6 +27,13 @@ import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import {
+    CreatePostHogWidgetNodeOptions,
+    CustomNotebookNodeAttributes,
+    NodeWrapperProps,
+    NotebookNodeProps,
+    NotebookNodeResource,
+} from '../types'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {

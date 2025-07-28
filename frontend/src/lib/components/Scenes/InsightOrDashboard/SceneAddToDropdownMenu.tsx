@@ -11,9 +11,9 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'
-import { NotebookNodeType } from '~/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { SceneDataAttrKeyProps } from '../utils'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 type SceneAddToDropdownMenuProps = {
     onClick?: () => void

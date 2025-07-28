@@ -14,17 +14,18 @@ import {
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
+import posthog from 'posthog-js'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import {
     CustomNotebookNodeAttributes,
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
+    NotebookNodeResource,
     NotebookNodeSettings,
-} from '../utils'
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
-import posthog from 'posthog-js'
-import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
-import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+    NotebookNodeType,
+} from '../types'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType

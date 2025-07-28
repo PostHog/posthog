@@ -15,9 +15,8 @@ import {
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
-import { NotebookNodeType } from '~/types'
-
 import { PlayerMetaBreakpoints } from './PlayerMeta'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -212,7 +211,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 })
         }
         return itemsArray
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size])
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size, featureFlags, isStandardMode])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

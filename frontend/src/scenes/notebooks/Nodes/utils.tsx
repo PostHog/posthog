@@ -1,10 +1,10 @@
 import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
-import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../utils'
 import { useCallback, useMemo, useRef } from 'react'
 import { tryJsonParse, uuid } from 'lib/utils'
 import { TTEditor } from 'lib/components/RichContentEditor/types'
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
 
 export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
 export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'

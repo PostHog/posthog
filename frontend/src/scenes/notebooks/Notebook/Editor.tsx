@@ -38,12 +38,12 @@ import { SlashCommandsExtension } from './SlashCommands'
 import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { createEditor } from 'lib/components/RichContentEditor/utils'
-import { NotebookEditor, textContent } from '../utils'
+import { textContent } from '../utils'
 import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { RichContentEditor } from 'lib/components/RichContentEditor'
 import posthog from 'posthog-js'
-import { NotebookNodeType } from '~/types'
 import { lemonToast } from '@posthog/lemon-ui'
+import { NotebookEditor, NotebookNodeType } from '../types'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',

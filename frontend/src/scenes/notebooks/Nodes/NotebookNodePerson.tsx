@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, PropertyDefinitionType } from '~/types'
+import { PropertyDefinitionType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -9,13 +9,13 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { NotFound } from 'lib/components/NotFound'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = attributes

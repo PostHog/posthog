@@ -1,11 +1,11 @@
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
-import { NotebookNodeType } from '~/types'
 
 import type { notebookNodeFlagLogicType } from './NotebookNodeFlagLogicType'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeType } from '../types'
 
 export type NotebookNodeFlagLogicProps = {
     id: FeatureFlagLogicProps['id']

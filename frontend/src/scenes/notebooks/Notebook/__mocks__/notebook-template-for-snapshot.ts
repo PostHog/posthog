@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookType } from 'scenes/notebooks/types'
 
-import { AccessControlLevel, NotebookType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 export const notebookTestTemplate = (
     title: string = 'Notebook for snapshots',
