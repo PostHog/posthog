@@ -17,6 +17,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { parseJSON } from '~/utils/json-parse'
 import { instrumentQuery } from '~/utils/metrics'
+import { fetch } from '~/utils/request'
 
 import { logger } from '../../src/utils/logger'
 import { delay, escapeClickHouseString } from '../../src/utils/utils'
@@ -96,6 +97,9 @@ export class Clickhouse {
                         Math.round((performance.now() - timer) / 100) / 10
                     }s since start. Error: ${error}`
                 )
+                const res = await fetch('http://localhost:8123/ping')
+                console.log('ClickHouse ping', res.status, await res.text())
+
                 await delay(delayMs)
             }
         }
