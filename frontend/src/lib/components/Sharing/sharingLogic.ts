@@ -57,6 +57,7 @@ export const sharingLogic = kea<sharingLogicType>([
 
     actions({
         togglePreview: true,
+        saveConfigToState: true,
     }),
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
@@ -72,6 +73,9 @@ export const sharingLogic = kea<sharingLogicType>([
                 setIsEnabled: async (enabled: boolean) => {
                     return await api.sharing.update(await propsToApiParams(props), { enabled })
                 },
+                updateState: async (state: Record<string, any>) => {
+                    return await api.sharing.update(await propsToApiParams(props), { state })
+                },
             },
         ],
     })),
@@ -86,12 +90,36 @@ export const sharingLogic = kea<sharingLogicType>([
                 dashboardsModel.actions.loadDashboards()
             }
         },
-        setEmbedConfigValue: ({ name, value }) => {
+        setEmbedConfigValue: ({ name, value }, { actions, values }) => {
             if (name === 'whitelabel' && props.dashboardId) {
                 eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
             }
             if (name === 'whitelabel' && props.insightShortId) {
                 eventUsageLogic.actions.reportInsightWhitelabelToggled(value)
+            }
+            // Auto-save all embed config changes to state
+            if (values.sharingConfiguration) {
+                actions.updateState({
+                    ...values.sharingConfiguration.state,
+                    [name]: value,
+                })
+            }
+        },
+        saveConfigToState: async (_, { values, actions }) => {
+            const { embedConfig, sharingConfiguration } = values
+            if (sharingConfiguration) {
+                // Save all embed config options to state (excluding width/height which are iframe-specific)
+                const { width, height, ...stateConfig } = embedConfig
+                await actions.updateState({ ...sharingConfiguration.state, ...stateConfig })
+            }
+        },
+        loadSharingConfigurationSuccess: (sharingConfiguration, { actions }) => {
+            if (sharingConfiguration && sharingConfiguration.state) {
+                // Load all options from state
+                actions.setEmbedConfigValues({
+                    ...defaultEmbedConfig,
+                    ...sharingConfiguration.state,
+                })
             }
         },
     })),
@@ -107,13 +135,23 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
+        mergedEmbedConfig: [
+            (s) => [s.embedConfig, s.sharingConfiguration],
+            (embedConfig, sharingConfiguration) => ({
+                ...defaultEmbedConfig,
+                ...embedConfig,
+                // Merge all options from state
+                ...sharingConfiguration?.state,
+            }),
+        ],
 
         params: [
-            (s) => [s.embedConfig, (_, props) => props.additionalParams],
-            (embedConfig, additionalParams = {}) => {
-                const { width, height, ...params } = embedConfig
+            (s) => [s.mergedEmbedConfig, (_, props) => props.additionalParams],
+            (mergedEmbedConfig, additionalParams = {}) => {
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const { width, height, whitelabel, noHeader, showInspector, legend, detailed, ...params } =
+                    mergedEmbedConfig
                 return {
-                    ...params,
                     ...additionalParams,
                 }
             },
@@ -129,7 +167,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
         iframeProperties: [
-            (s) => [s.embedLink, s.embedConfig],
+            (s) => [s.embedLink, s.mergedEmbedConfig],
             (embedLink, { width, height }) => ({
                 width,
                 height,

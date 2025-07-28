@@ -44,6 +44,8 @@ class SharingConfiguration(models.Model):
         null=True, blank=True, help_text="When this sharing configuration expires (null = active)"
     )
 
+    state = models.JSONField(default=dict, blank=True, help_text="JSON state for storing configuration settings")
+
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
 
@@ -53,6 +55,7 @@ class SharingConfiguration(models.Model):
             insight=self.insight,
             recording=self.recording,
             enabled=self.enabled,
+            state=self.state,
         )
 
         # Expire current configuration

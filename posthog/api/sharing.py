@@ -87,7 +87,7 @@ def get_themes_for_team(team: Team):
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "state"]
         read_only_fields = ["created_at", "access_token"]
 
 
@@ -351,17 +351,31 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+        # Check both query params (legacy) and state for configuration options
+        state = getattr(resource, "state", {}) or {}
+
+        # Only check query params for configurations created before SHIP_DATE
+        # TODO: Replace SHIP_DATE with actual deployment date
+        SHIP_DATE = "2024-01-01"  # Placeholder date
+        created_before_ship = False
+        if isinstance(resource, SharingConfiguration):
+            created_before_ship = resource.created_at.strftime("%Y-%m-%d") < SHIP_DATE
+
+        # Whitelabel
+        whitelabel_from_query = "whitelabel" in request.GET and created_before_ship
+        if (whitelabel_from_query or state.get("whitelabel")) and resource.team.organization.is_feature_available(
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
-        if "noHeader" in request.GET:
+
+        # Other options: only allow query params for old configurations
+        if ("noHeader" in request.GET and created_before_ship) or state.get("noHeader"):
             exported_data.update({"noHeader": True})
-        if "showInspector" in request.GET:
+        if ("showInspector" in request.GET and created_before_ship) or state.get("showInspector"):
             exported_data.update({"showInspector": True})
-        if "legend" in request.GET:
+        if ("legend" in request.GET and created_before_ship) or state.get("legend"):
             exported_data.update({"legend": True})
-        if "detailed" in request.GET:
+        if ("detailed" in request.GET and created_before_ship) or state.get("detailed"):
             exported_data.update({"detailed": True})
 
         if request.path.endswith(f".json"):

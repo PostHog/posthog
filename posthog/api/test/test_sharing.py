@@ -504,3 +504,197 @@ class TestSharing(APIBaseTest):
         original_config.refresh_from_db()
         assert original_config.expires_at is not None
         assert original_config.expires_at > timezone.now()  # Should be in the future
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_sharing_configuration_state_field_defaults(self, patched_exporter_task: Mock):
+        """Test that state field defaults to empty dict"""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "state" in data
+        assert data["state"] == {}
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_update_state_field(self, patched_exporter_task: Mock):
+        """Test that state field can be updated"""
+        # First enable sharing
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Update state
+        state_data = {"whitelabel": True, "customSetting": "value"}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"state": state_data},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["state"] == state_data
+
+        # Verify state persists
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
+        assert response.json()["state"] == state_data
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_state_preserved_on_token_rotation(self, patched_exporter_task: Mock):
+        """Test that state is preserved when rotating access tokens"""
+        # Enable sharing with comprehensive state
+        state_data = {
+            "whitelabel": True,
+            "noHeader": True,
+            "showInspector": False,
+            "legend": True,
+            "detailed": False,
+            "customOption": "test",
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "state": state_data},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Refresh the token
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
+        assert response.status_code == status.HTTP_200_OK
+
+        # State should be preserved
+        assert response.json()["state"] == state_data
+
+    @freeze_time("2023-12-15")  # Before ship date
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_all_query_params_work_for_old_configs(self, patched_exporter_task: Mock):
+        """Test that all query params work for configurations created before ship date"""
+        # Create sharing configuration before ship date
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        access_token = response.json()["access_token"]
+
+        # Test all options via query params work for old config
+        response = self.client.get(
+            f"/shared/{access_token}?whitelabel=true&noHeader=true&legend=true&detailed=true&showInspector=true"
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert '"whitelabel":true' in content
+        assert '"noHeader":true' in content
+        assert '"legend":true' in content
+        assert '"detailed":true' in content
+        assert '"showInspector":true' in content
+
+    @freeze_time("2024-06-15")  # After ship date
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_all_query_params_ignored_for_new_configs(self, patched_exporter_task: Mock):
+        """Test that all query params are ignored for configurations created after ship date"""
+        # Create sharing configuration after ship date
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        access_token = response.json()["access_token"]
+
+        # Test all options via query params are ignored for new config
+        response = self.client.get(f"/shared/{access_token}?whitelabel=true&noHeader=true&legend=true&detailed=true")
+        assert response.status_code == 200
+        content = response.content.decode()
+        # None of the options should be active since they're not in state
+        assert '"whitelabel":true' not in content
+        assert '"noHeader":true' not in content
+        assert '"legend":true' not in content
+        assert '"detailed":true' not in content
+
+    @freeze_time("2024-06-15")  # After ship date
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_all_options_from_state_work_for_new_configs(self, patched_exporter_task: Mock):
+        """Test that all options from state work for new configurations"""
+        # Create sharing configuration with all options in state
+        state_data = {"whitelabel": True, "noHeader": True, "legend": True, "detailed": True, "showInspector": True}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "state": state_data},
+        )
+        access_token = response.json()["access_token"]
+
+        # Test all options from state work
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert '"whitelabel":true' in content
+        assert '"noHeader":true' in content
+        assert '"legend":true' in content
+        assert '"detailed":true' in content
+        assert '"showInspector":true' in content
+
+    @parameterized.expand(["insights", "dashboards"])
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_state_field_works_for_both_insights_and_dashboards(self, type: str, patched_exporter_task: Mock):
+        """Test that state field works for both insights and dashboards"""
+        target = self.insight if type == "insights" else self.dashboard
+        state_data = {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": True,
+            "legend": False,
+            "detailed": True,
+            "customOption": "test",
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True, "state": state_data},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == state_data
+
+        # Verify state persists
+        response = self.client.get(f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing")
+        assert response.json()["state"] == state_data
+
+    def test_sharing_configuration_model_state_default(self):
+        """Test that the model's state field defaults to empty dict"""
+        from posthog.models.sharing_configuration import SharingConfiguration
+
+        config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+        )
+        assert config.state == {}
+
+        # Test with explicit state
+        config_with_state = SharingConfiguration.objects.create(
+            team=self.team, insight=self.insight, enabled=True, state={"whitelabel": True, "custom": "value"}
+        )
+        assert config_with_state.state == {"whitelabel": True, "custom": "value"}
+
+    def test_rotate_access_token_preserves_state(self):
+        """Test that rotating access token preserves the state"""
+        from posthog.models.sharing_configuration import SharingConfiguration
+
+        # Create config with comprehensive state
+        state_data = {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": True,
+            "legend": False,
+            "detailed": True,
+            "customSetting": "preserved",
+        }
+        original_config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, state=state_data
+        )
+
+        # Rotate token
+        new_config = original_config.rotate_access_token()
+
+        # State should be preserved
+        assert new_config.state == state_data
+        assert new_config.access_token != original_config.access_token
+        assert new_config.enabled == original_config.enabled
