@@ -508,8 +508,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        # Create user with notifications disabled to verify override bypasses settings
+        # Create users for testing
         self._create_user("test2@posthog.com")
+        self._create_user("override@posthog.com")
+
+        # Disable notifications for the main user to verify override bypasses settings
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
@@ -528,26 +531,34 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             ],
         }
 
-        # Test with email override - should bypass notification settings and send only to override email
-        send_hog_functions_digest_email(digest_data, test_email_override="override@example.com")
+        # Test with valid email override (user is member of org) - should send only to override email
+        send_hog_functions_digest_email(digest_data, test_email_override="override@posthog.com")
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
-        # Should only be sent to the override email, not to team members
+        # Should only be sent to the override email, not to other team members
         assert len(mocked_email_messages[0].to) == 1
-        assert mocked_email_messages[0].to[0]["raw_email"] == "override@example.com"
-        assert "override@example.com" in mocked_email_messages[0].to[0]["recipient"]
+        assert mocked_email_messages[0].to[0]["raw_email"] == "override@posthog.com"
         assert mocked_email_messages[0].html_body
 
         # Reset mocked messages
         mocked_email_messages.clear()
 
+        # Test with invalid email override (user not member of org) - should not send email
+        send_hog_functions_digest_email(digest_data, test_email_override="invalid@example.com")
+
+        # No email should be sent since invalid@example.com is not a member of the organization
+        assert len(mocked_email_messages) == 0
+
         # Test without email override - should follow normal notification settings
         send_hog_functions_digest_email(digest_data)
 
-        # Should only be sent to user2 since user1 has plugin_disabled: False (notifications disabled)
+        # Should be sent to test2 and override user (both have notifications enabled), but not to main user
         assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+        assert len(mocked_email_messages[0].to) == 2
+        sent_emails = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        assert "test2@posthog.com" in sent_emails
+        assert "override@posthog.com" in sent_emails
 
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2

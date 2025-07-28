@@ -522,6 +522,24 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     if not memberships_to_email:
         return
 
+    # If test email override is provided, validate it early
+    if test_email_override:
+        test_membership = None
+        for membership in memberships_to_email:
+            if membership.user.email == test_email_override:
+                test_membership = membership
+                break
+
+        if not test_membership:
+            logger.warning(
+                f"Test email override {test_email_override} not found in organization memberships for team {team_id}"
+            )
+            return
+
+        # For testing: use only the override recipient
+        memberships_to_email = [test_membership]
+        logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
+
     campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
 
     # Sort functions by failure rate descending (highest first)
@@ -540,14 +558,9 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
         },
     )
 
-    if test_email_override:
-        # For testing: send only to the specified email
-        message.add_recipient(email=test_email_override, name="Test User")
-        logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
-    else:
-        # Normal production flow: send to all qualified members
-        for membership in memberships_to_email:
-            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    # Add recipients (either filtered list for test override or full list for normal flow)
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
 
     message.send()
     logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
