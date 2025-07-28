@@ -43,7 +43,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
                     <QueryTabComponent
                         key={model.uri.path}
                         model={model}
-                        onClear={models.length > 1 ? onClear : undefined}
+                        onClear={onClear}
                         onClick={onClick}
                         active={activeModelUri?.uri.path === model.uri.path}
                         onRename={onRename}

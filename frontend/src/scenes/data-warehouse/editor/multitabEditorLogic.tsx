@@ -191,6 +191,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     actions(({ values }) => ({
         setQueryInput: (queryInput: string) => ({ queryInput }),
+        setQueryAndLevel: (query: string, level: EditorTabLevel) => ({ query, level }),
         updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
@@ -363,6 +364,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             return newObject
                         }
                     }
+                    if (!state && tab) {
+                        return tab
+                    }
+                    return state
+                },
+                _deleteTab: (state, { tab }) => {
+                    if (state && state.uri.toString() === tab.uri.toString()) {
+                        return null
+                    }
                     return state
                 },
             },
@@ -465,6 +475,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        setQueryAndLevel: ({ query, level }) => {
+            const { activeModelUri } = values
+            if (activeModelUri) {
+                if (level !== activeModelUri.level) {
+                    actions.updateTab({ ...activeModelUri, level })
+                }
+                actions.setQueryInput(query)
+            }
+        },
         fixErrorsSuccess: ({ response }) => {
             actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 
@@ -638,7 +657,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                 actions.addTab({
                     uri,
-                    level,
+                    level: level || 'editor',
                     view,
                     insight,
                     name: tabName,
@@ -646,7 +665,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
                 actions.selectTab({
                     uri,
-                    level,
+                    level: level || 'editor',
                     view,
                     insight,
                     name: tabName,
@@ -672,7 +691,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ...values.allTabs,
                     {
                         query,
-                        level: level,
+                        level: level || 'editor',
                         path: currentModelCount.toString(),
                         view,
                         insight,
@@ -680,6 +699,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     },
                 ]
+                // TODO: add tabs??
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
                 actions.setLocalState(activeModelStateKey(props.key), currentModelCount.toString())
             }
@@ -891,7 +911,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const model = props.editor?.getModel()
 
                 if (model) {
-                    actions.createTab()
+                    actions.createNewTab()
                 }
             }
             actions.setCacheLoading(false)
@@ -1230,7 +1250,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         activeModelUri: (activeModelUri) => {
-            if (props.monaco) {
+            if (props.monaco && activeModelUri) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
@@ -1436,7 +1456,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 } else if (searchParams.open_insight) {
                     if (searchParams.open_insight === 'new') {
                         // Add new blank tab
-                        actions.createTab()
+                        actions.createNewTab()
                         tabAdded = true
                         router.actions.replace(router.values.location.pathname)
                         return

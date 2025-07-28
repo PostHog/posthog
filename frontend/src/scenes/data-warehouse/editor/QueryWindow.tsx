@@ -45,6 +45,8 @@ import {
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { stringifiedExamples } from '~/queries/examples'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -56,6 +58,46 @@ const levelIcons: Record<EditorTabLevel, JSX.Element> = {
     config: <IconGear />,
     source: <IconDatabase />,
     // Program: <IconPullRequest />,
+}
+
+const sampleQueries: Record<string, { input: string; level: EditorTabLevel }> = {
+    SQL: {
+        input: `SELECT toDate(toStartOfDay(timestamp)) AS date,
+    concat(properties.$browser
+                     , ' '
+                     , properties.$browser_version) AS browser
+                     , count () AS count
+                FROM events`,
+        level: 'source',
+    },
+    Trends: {
+        input: stringifiedExamples['InsightTrendsQuery'],
+        level: 'editor',
+    },
+    Funnel: {
+        input: stringifiedExamples['InsightFunnelsQuery'],
+        level: 'editor',
+    },
+    Retention: {
+        input: stringifiedExamples['InsightRetentionQuery'],
+        level: 'editor',
+    },
+    Stickiness: {
+        input: stringifiedExamples['InsightStickinessQuery'],
+        level: 'editor',
+    },
+    Lifecycle: {
+        input: stringifiedExamples['InsightLifecycleQuery'],
+        level: 'editor',
+    },
+    'User paths': {
+        input: stringifiedExamples['InsightPathsQuery'],
+        level: 'editor',
+    },
+    'Calendar heatmap': {
+        input: stringifiedExamples['InsightLifecycleQuery'],
+        level: 'editor',
+    },
 }
 
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
@@ -142,7 +184,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
-    const activeLevel = activeModelUri?.level || 'editor'
+    const activeLevel = activeModelUri?.level || 'new'
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -177,6 +219,15 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             {activeLevel === 'new' || !activeLevel ? (
                 <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                     <NewQuery />
+                    <div className="hidden">
+                        {/* The multitabEditorLogic needs an instance of monaco to properly function */}
+                        <CodeEditor
+                            queryKey={codeEditorKey}
+                            onMount={(editor, monaco) => {
+                                onSetMonacoAndEditor(monaco, editor)
+                            }}
+                        />
+                    </div>
                 </div>
             ) : (
                 <>
@@ -333,14 +384,14 @@ function InternalQueryWindow(): JSX.Element | null {
 
 function QueryTypeSelector(): JSX.Element | null {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
+    const { setQueryAndLevel } = useActions(multitabEditorLogic)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive>
                     <IconSearch />
-                    {/*<strong>{selectedLabel}</strong>*/}
-                    <strong>SQL Query</strong>
+                    <strong className="whitespace-nowrap">SQL Query</strong>
                     <IconChevronRight className="rotate-90 group-data-[state=open]/button-root:rotate-270" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
@@ -351,7 +402,10 @@ function QueryTypeSelector(): JSX.Element | null {
                 <DropdownMenuItem asChild>
                     <Link
                         onClick={() => {
-                            // setQueryInput(sampleQueries['SQL query'])
+                            const q = sampleQueries.SQL
+                            if (q) {
+                                setQueryAndLevel(q.input, q.level)
+                            }
                         }}
                         buttonProps={{
                             menuItem: true,
@@ -371,7 +425,10 @@ function QueryTypeSelector(): JSX.Element | null {
                         <DropdownMenuItem asChild>
                             <Link
                                 onClick={() => {
-                                    // setQueryInput(sampleQueries[child.name] || '')
+                                    const q = sampleQueries[child.name]
+                                    if (q) {
+                                        setQueryAndLevel(q.input, q.level)
+                                    }
                                 }}
                                 buttonProps={{
                                     menuItem: true,
@@ -484,7 +541,8 @@ function QueryLevelSelector(): JSX.Element | null {
 
 function NewQuery(): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
-
+    const { activeModelUri } = useValues(multitabEditorLogic)
+    const { setQueryAndLevel, createTab } = useActions(multitabEditorLogic)
     const queryTypes =
         treeItemsNew
             .find(({ name }) => name === 'Insight')
@@ -546,7 +604,14 @@ function NewQuery(): JSX.Element {
                         <div key={qt.name} className="text-center m-auto">
                             <Link
                                 onClick={() => {
-                                    // setQueryInput(sampleQueries[qt.name] || '')
+                                    const query = sampleQueries[qt.name]
+                                    if (query) {
+                                        if (!activeModelUri) {
+                                            createTab(query.input, undefined, undefined, query.level)
+                                        } else {
+                                            setQueryAndLevel(query.input, query.level)
+                                        }
+                                    }
                                 }}
                                 className="group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none"
                             >
