@@ -505,6 +505,50 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should now be sent to both users
         assert len(mocked_email_messages[1].to) == 2
 
+    def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create user with notifications disabled to verify override bypasses settings
+        self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "test-hog-function-1",
+                    "name": "Test Function 1",
+                    "type": "destination",
+                    "succeeded": 95,
+                    "failed": 5,
+                    "failure_rate": 5.0,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+            ],
+        }
+
+        # Test with email override - should bypass notification settings and send only to override email
+        send_hog_functions_digest_email(digest_data, test_email_override="override@example.com")
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        # Should only be sent to the override email, not to team members
+        assert len(mocked_email_messages[0].to) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == "override@example.com"
+        assert "override@example.com" in mocked_email_messages[0].to[0]["recipient"]
+        assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test without email override - should follow normal notification settings
+        send_hog_functions_digest_email(digest_data)
+
+        # Should only be sent to user2 since user1 has plugin_disabled: False (notifications disabled)
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2
 

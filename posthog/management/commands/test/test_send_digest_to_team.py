@@ -9,8 +9,8 @@ class TestSendDigestToTeamCommand(BaseTest):
     def test_send_digest_to_existing_team(self):
         """Test that the command successfully calls send_team_hog_functions_digest for an existing team"""
         with patch("posthog.management.commands.send_digest_to_team.send_team_hog_functions_digest") as mock_send:
-            call_command("send_digest_to_team", self.team.id)
-            mock_send.assert_called_once_with(self.team.id)
+            call_command("send_digest_to_team", self.team.id, "--email", "test@example.com")
+            mock_send.assert_called_once_with(self.team.id, "test@example.com")
 
     def test_send_digest_to_nonexistent_team(self):
         """Test that the command raises CommandError for non-existent team"""
@@ -26,8 +26,8 @@ class TestSendDigestToTeamCommand(BaseTest):
         self.user.save()
 
         with patch("posthog.management.commands.send_digest_to_team.send_team_hog_functions_digest") as mock_send:
-            call_command("send_digest_to_team", self.team.id)
-            mock_send.assert_called_once_with(self.team.id)
+            call_command("send_digest_to_team", self.team.id, "--email", "test@example.com")
+            mock_send.assert_called_once_with(self.team.id, "test@example.com")
 
     def test_send_digest_handles_task_failure(self):
         """Test that the command properly handles when the digest task fails"""
@@ -35,6 +35,6 @@ class TestSendDigestToTeamCommand(BaseTest):
             mock_send.side_effect = Exception("Task failed")
 
             with self.assertRaises(CommandError) as cm:
-                call_command("send_digest_to_team", self.team.id)
+                call_command("send_digest_to_team", self.team.id, "--email", "test@example.com")
 
             self.assertIn("Failed to send digest: Task failed", str(cm.exception))

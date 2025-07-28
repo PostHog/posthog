@@ -505,7 +505,7 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_hog_functions_digest_email(digest_data: dict) -> None:
+def send_hog_functions_digest_email(digest_data: dict, test_email_override: str | None = None) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -540,8 +540,14 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         },
     )
 
-    for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    if test_email_override:
+        # For testing: send only to the specified email
+        message.add_recipient(email=test_email_override, name="Test User")
+        logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
+    else:
+        # Normal production flow: send to all qualified members
+        for membership in memberships_to_email:
+            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
 
     message.send()
     logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")

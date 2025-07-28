@@ -13,9 +13,15 @@ class Command(BaseCommand):
             type=int,
             help="Team ID that should receive the digest",
         )
+        parser.add_argument(
+            "--email",
+            type=str,
+            help="Optional: Send test email only to this email address",
+        )
 
     def handle(self, **options):
         team_id = options["team_id"]
+        test_email_override = options["email"]
 
         try:
             team = Team.objects.get(id=team_id)
@@ -27,7 +33,7 @@ class Command(BaseCommand):
 
         try:
             # Trigger the same logic as the daily digest for this specific team
-            send_team_hog_functions_digest(team_id)
+            send_team_hog_functions_digest(team_id, test_email_override)
             self.stdout.write(self.style.SUCCESS(f"Successfully triggered HogFunctions digest for team {team_id}"))
         except Exception as e:
             raise CommandError(f"Failed to send digest: {str(e)}")
