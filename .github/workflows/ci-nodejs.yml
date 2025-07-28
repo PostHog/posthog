@@ -254,6 +254,9 @@ jobs:
               if: failure()
               run: |
                   docker compose -f docker-compose.dev.yml logs clickhouse
+                  # Echo out the logs stored in the container
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.log
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     node_tests:
         needs: [tests, build, lint]
