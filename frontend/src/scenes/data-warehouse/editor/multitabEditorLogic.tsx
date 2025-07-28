@@ -70,15 +70,13 @@ export const deprecatedInProgressViewEditStateKey = (key: string | number): stri
     `data-warehouse.editor.multitabEditorLogic.${key}.inProgressViewEdits`
 export const inProgressViewEditStateKey = (key: string | number): string => `${key}/inProgressViewEdits`
 
-export const NEW_QUERY = 'Untitled'
+export const NEW_QUERY = 'New tab'
 
 const getNextUntitledNumber = (tabs: QueryTab[], label: string = NEW_QUERY): number => {
     const untitledNumbers = tabs
-        .filter((tab) => tab.name?.startsWith(label + ' '))
-        .map((tab) => {
-            const match = tab.name?.match(new RegExp(label + ' (d+)'))
-            return match ? parseInt(match[1]) : 0
-        })
+        .filter((tab) => tab.name?.startsWith(label + ' ') || tab.name === label)
+        .map((tab) => tab.name.substring(label.length).trim() || '1')
+        .map((num) => parseInt(num, 10))
         .filter((num) => !isNaN(num))
 
     if (untitledNumbers.length === 0) {
@@ -659,7 +657,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const { activeModelUri } = values
             const { view, insight } = activeModelUri ?? {}
             const nextUntitledNumber = getNextUntitledNumber(values.allTabs, values.selectedLabel)
-            const tabName = view?.name || insight?.name || `${values.selectedLabel} ${nextUntitledNumber}`
+            const tabName =
+                view?.name ||
+                insight?.name ||
+                (nextUntitledNumber > 1 ? `${values.selectedLabel} ${nextUntitledNumber}` : values.selectedLabel)
             if (activeModelUri) {
                 actions.renameTab(activeModelUri, tabName)
             }
@@ -683,9 +684,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const queryKind = getQueryKind(query)
-            const label = getQueryLabel(queryKind) || 'Untitled'
+            const label = queryKind ? getQueryLabel(queryKind) || NEW_QUERY : NEW_QUERY
             const nextUntitledNumber = getNextUntitledNumber(values.allTabs, label)
-            const tabName = view?.name || insight?.name || `${label} ${nextUntitledNumber}`
+            const tabName =
+                view?.name || insight?.name || (nextUntitledNumber > 1 ? `${label} ${nextUntitledNumber}` : label)
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
@@ -1461,7 +1463,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         localStorageResponse: [(s) => [s.activeModelUri], (activeModelUri) => activeModelUri?.response],
         queryKind: [(s) => [s.queryInput], (queryInput) => getQueryKind(queryInput)],
-        selectedLabel: [(s) => [s.queryKind], (queryKind) => getQueryLabel(queryKind) || 'SQL'],
+        selectedLabel: [(s) => [s.queryKind], (queryKind) => (queryKind ? getQueryLabel(queryKind) || 'SQL' : 'SQL')],
     }),
     urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {

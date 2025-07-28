@@ -558,12 +558,12 @@ function NewQuery(): JSX.Element {
     const handleSubmit = (): void => {}
 
     return (
-        <div className="w-full py-8">
+        <div className="w-full py-24">
             <div className="w-full text-center pb-4 bg-white dark:bg-black text-sm font-medium">
                 Choose an analysis to run or just ask Max.
             </div>
 
-            <div className="flex gap-2 max-w-[800px] m-auto mt-2 mb-4">
+            <div className="flex gap-2 max-w-[800px] px-8 m-auto mt-2 mb-12">
                 <input
                     type="text"
                     value={question}
@@ -586,7 +586,7 @@ function NewQuery(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <div className="w-full overflow-auto p-4 max-w-[1024px] m-auto">
+            <div className="w-full overflow-auto p-4 px-12 max-w-[1024px] m-auto">
                 {/* Fluid grid: auto-fit as many 7rem (112px) boxes as fit, with gap */}
                 <div
                     className="grid gap-6"
