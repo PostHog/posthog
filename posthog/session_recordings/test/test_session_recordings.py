@@ -182,7 +182,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response_data = response.json()
 
         results_ = response_data["results"]
-        assert results_ is not None
+
         assert [r["id"] for r in results_] == expected_id_order
 
     def test_can_list_recordings_even_when_the_person_has_multiple_distinct_ids(self):
