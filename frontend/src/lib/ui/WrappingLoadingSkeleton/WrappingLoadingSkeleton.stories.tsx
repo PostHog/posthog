@@ -15,7 +15,7 @@ export function Default(): JSX.Element {
         <div className="flex flex-col gap-4 max-w-lg">
             <p>
                 The wrapping loading skeleton will wrap around the children and take the size of the children, making it
-                easy to do loading states for any component (as along as you can wrap a copy of it or mimic it)
+                easy to do loading states for any component (as long as you can wrap a copy of it or mimic it)
             </p>
             <WrappingLoadingSkeleton>
                 <ButtonPrimitive inert aria-hidden>

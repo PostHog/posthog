@@ -53,9 +53,7 @@ export function SceneSaveCancelButtons({
             <ButtonPrimitive
                 type="button"
                 variant="outline"
-                onClick={() => {
-                    onCancel()
-                }}
+                onClick={onCancel}
                 tooltip="Cancel"
                 aria-label={`Cancel ${name}`}
                 data-attr={`${dataAttrKey}-${name}-cancel-button`}

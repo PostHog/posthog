@@ -166,6 +166,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
                             'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
                     >
@@ -177,6 +178,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         disabledReasons={{
                             'Save the cohort first': isNewCohort,
                             'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort is still calculating': cohort.is_calculating ?? false,
                         }}
                         menuItem
                     >

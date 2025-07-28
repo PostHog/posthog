@@ -37,10 +37,10 @@ export function SceneDescription({
     }, [localValue, defaultValue, optional])
 
     useEffect(() => {
-        if (!isLoading) {
+        if (!isLoading && !localIsEditing) {
             setLocalValue(defaultValue)
         }
-    }, [isLoading, defaultValue])
+    }, [isLoading, defaultValue, localIsEditing])
 
     if (isLoading) {
         return <SceneLoadingSkeleton />
