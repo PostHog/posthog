@@ -146,9 +146,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             # originally for this table all order by was DESCENDING
-            ["descending (original)", "start_time", None, ["at_base_time_plus_20", "at_base_time_plus"]],
-            ["descending", "start_time", "DESC", ["at_base_time_plus_20", "at_base_time_plus"]],
-            ["ascending", "start_time", "ASC", ["at_base_time_plus", "at_base_time_plus_20"]],
+            ["descending (original)", "start_time", None, ["at_base_time_plus_20", "at_base_time"]],
+            ["descending", "start_time", "DESC", ["at_base_time_plus_20", "at_base_time"]],
+            ["ascending", "start_time", "ASC", ["at_base_time", "at_base_time_plus_20"]],
         ]
     )
     @snapshot_postgres_queries
@@ -171,13 +171,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
 
-        params_string = urlencode(
-            {
-                "order": order_field,
-                "order_direction": order_direction,
-            }
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+        query_string = f"?order={order_field}"
+        if order_direction:
+            query_string += f"&order_direction={order_direction}"
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings{query_string}")
         assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
