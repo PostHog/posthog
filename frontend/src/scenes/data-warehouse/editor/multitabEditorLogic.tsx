@@ -265,11 +265,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
         setTabDraftId: (tabUri: string, draftId: string) => ({ tabUri, draftId }),
-        updateDrafts: (activeTabUri: string, viewId: string, queryInput: string) => ({
-            activeTabUri,
-            viewId,
-            queryInput,
-        }),
         saveDraft: (activeTabUri: string, queryInput: string, viewId: string) => ({
             activeTabUri,
             queryInput,
@@ -922,36 +917,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         values.activeModelUri.view.latest_history_id
                     )
                 }
-
-                // actions.updateDrafts(values.activeModelUri.uri.toString(), values.activeModelUri.view.id, queryInput)
             }
             actions.updateState()
-        },
-        updateDrafts: async ({ activeTabUri, viewId, queryInput }) => {
-            if (values.activeModelUri?.view) {
-                const currentTab = values.allTabs.find((tab) => tab.uri.toString() === activeTabUri)
-
-                // Create draft if this is the first edit for this tab
-                if (!currentTab?.draft) {
-                    actions.saveAsDraft(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: queryInput,
-                        },
-                        viewId,
-                        (draft: DataWarehouseSavedQueryDraft) => {
-                            const newTabs = values.allTabs.map((tab) => {
-                                if (tab.uri.toString() === activeTabUri) {
-                                    return { ...tab, name: draft.name, draft: draft }
-                                }
-                                return tab
-                            })
-
-                            actions.setTabs(newTabs)
-                        }
-                    )
-                }
-            }
         },
         saveDraft: async ({ activeTabUri, queryInput, viewId }) => {
             actions.saveAsDraft(
@@ -1253,9 +1220,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
                     diffShowRunButton: false,
-                    onAccept: () => {
+                    onAccept: async () => {
                         actions.setQueryInput(view.query?.query ?? '')
-                        actions.updateDataWarehouseSavedQuery({
+                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
                             ...view,
                             edited_history_id: latestView?.latest_history_id,
                         })
@@ -1265,7 +1232,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
                 lemonToast.error('View has been edited by another user. Review changes to update.')
             } else {
-                actions.updateDataWarehouseSavedQuery(view)
+                await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
                 successCallback && successCallback()
             }
         },
