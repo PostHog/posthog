@@ -12,26 +12,28 @@ export const template: NativeTemplate = {
     perform: async (request, { payload }) => {
         try {
             const { spreadsheet_id, spreadsheet_name, data_format, fields } = payload
-            
+
             const rowData = Object.values(fields)
-            
-            const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${spreadsheet_name}:append?valueInputOption=${data_format || 'RAW'}`
-            
+
+            const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${spreadsheet_name}:append?valueInputOption=${
+                data_format || 'RAW'
+            }`
+
             const response = await request(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${payload.oauth.access_token}`,
+                    Authorization: `Bearer ${payload.oauth.access_token}`,
                 },
                 json: {
-                    values: [rowData]
-                }
+                    values: [rowData],
+                },
             })
-            
+
             if (response.status >= 400) {
                 throw new Error(`Google Sheets API error: ${response.status} - ${response.content}`)
             }
-            
+
             return response
         } catch (error) {
             throw new Error(`Failed to write to Google Sheets: ${error.message}`)
@@ -43,17 +45,19 @@ export const template: NativeTemplate = {
             type: 'integration',
             integration: 'google-sheets',
             label: 'Google Sheets account',
-            requiredScopes: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
+            requiredScopes:
+                'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
             secret: false,
             required: true,
         },
         {
             key: 'spreadsheet_id',
-            type: 'string', 
+            type: 'string',
             label: 'Spreadsheet ID',
             secret: false,
             required: true,
-            description: 'The ID of the Google Sheet to update. In case of https://docs.google.com/spreadsheets/d/17EdJJMxC0ovhCqpSxK4oksVO-MNlL5U0gHn7vqxkXZE/edit?gid=0#gid=0, the ID is `17EdJJMxC0ovhCqpSxK4oksVO-MNlL5U0gHn7vqxkXZE`',
+            description:
+                'The ID of the Google Sheet to update. In case of https://docs.google.com/spreadsheets/d/17EdJJMxC0ovhCqpSxK4oksVO-MNlL5U0gHn7vqxkXZE/edit?gid=0#gid=0, the ID is `17EdJJMxC0ovhCqpSxK4oksVO-MNlL5U0gHn7vqxkXZE`',
         },
         {
             key: 'spreadsheet_name',
@@ -90,8 +94,8 @@ export const template: NativeTemplate = {
             secret: false,
             required: true,
             default: {
-                timestamp: "{event.timestamp}",
-                event_name: "{event.event}",
+                timestamp: '{event.timestamp}',
+                event_name: '{event.event}',
             },
             description: 'Dictionary defining the fields to be written to the sheet.',
         },
