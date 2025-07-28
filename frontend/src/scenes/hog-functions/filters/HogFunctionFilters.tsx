@@ -85,7 +85,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
         return types
     }, [isTransformation, groupsTaxonomicTypes])
 
-    const showMasking = type === 'destination' && !isLegacyPlugin
+    const showMasking = type === 'destination' && !isLegacyPlugin && !embedded
     const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
     if (type === 'internal_destination') {
