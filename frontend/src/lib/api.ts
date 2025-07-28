@@ -1341,7 +1341,7 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
     }
 
-    public messsagingPreferencesOptOuts(): ApiRequest {
+    public messagingPreferencesOptOuts(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
