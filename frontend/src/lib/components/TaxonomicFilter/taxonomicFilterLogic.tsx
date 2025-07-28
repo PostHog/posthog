@@ -58,6 +58,7 @@ import {
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import { NotebookType } from 'scenes/notebooks/types'
+import { OPITIMIZED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -224,6 +225,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
                 s.maxContextOptions,
+                s.enableOptimizedHints,
             ],
             (
                 currentTeam: TeamType,
@@ -236,7 +238,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters: { excludedProperties: any; propertyAllowList: any },
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextTaxonomicFilterOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                enableOptimizedHints: boolean | undefined
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -669,6 +672,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       (property: string) => ({
                                           name: property,
                                           value: property,
+                                          is_optimized: enableOptimizedHints
+                                              ? OPITIMIZED_PROPERTIES_BY_GROUP[
+                                                    TaxonomicFilterGroupType.SessionProperties
+                                                ].includes(property)
+                                              : false,
                                       })
                                   ),
                               }
