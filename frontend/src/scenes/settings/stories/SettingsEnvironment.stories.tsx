@@ -35,7 +35,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/billing/spend/': { results: [] },
                 '/api/billing/usage/': { results: [] },
-                '/api/billing/': { results: [] },
+                '/api/billing/': { products: [] },
                 '/api/projects/:id/core_memory': { results: [] },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
