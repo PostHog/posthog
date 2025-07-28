@@ -422,7 +422,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
 
                 actions.setCampaignInfo({ actions: newActions, edges: newEdges })
-                actions.setNewDraggingNode(null)
                 actions.setSelectedNodeId(newAction.id)
             }
 
@@ -433,31 +432,28 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
                 const { action: partialNewAction } = step.create()
                 // Get drop position from React Flow event
-                let position = { x: 0, y: 0 }
                 const flowPosition = values.reactFlowInstance?.screenToFlowPosition({
                     x: event.clientX,
                     y: event.clientY,
                 })
-                if (flowPosition) {
-                    position = flowPosition
-                }
+
                 const newAction = {
                     id: `action_${step.type}_${uuid()}`,
                     type: step.type,
                     created_at: Date.now(),
                     updated_at: Date.now(),
                     ...partialNewAction,
-                    position,
+                    position: flowPosition || { x: 0, y: 0 },
                 } as HogFlowAction
                 // Add new node to actions
                 const newActions = [...values.campaign.actions, newAction]
                 actions.setCampaignInfo({ actions: newActions, edges: values.campaign.edges })
-                actions.setNewDraggingNode(null)
                 actions.setSelectedNodeId(newAction.id)
             }
 
             // We can clear the dropzones now
             actions.setDropzoneNodes([])
+            actions.setNewDraggingNode(null)
         },
 
         onNodeDragStart: () => {

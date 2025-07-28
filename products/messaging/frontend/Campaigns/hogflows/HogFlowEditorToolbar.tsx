@@ -26,6 +26,21 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
         event.dataTransfer.effectAllowed = 'move'
     }
 
+    const onDrop = (event: React.DragEvent): void => {
+        // Check if the drop is within the bounds of HogFlowEditorToolbar
+        const toolbar = document.querySelector('.hog-flow-editor-toolbar')
+        if (toolbar) {
+            const rect = toolbar.getBoundingClientRect()
+            const { clientX, clientY } = event
+
+            if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+                // Stop propagation if dropped within toolbar bounds
+                event.preventDefault()
+                event.stopPropagation()
+            }
+        }
+    }
+
     const step = getHogFlowStep(type)
 
     if (!step) {
@@ -33,7 +48,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
     }
 
     return (
-        <div draggable onDragStart={onDragStart}>
+        <div draggable onDragStart={onDragStart} onDrop={onDrop}>
             <LemonButton icon={step.icon} sideIcon={<IconDrag />} fullWidth>
                 {step.name}
             </LemonButton>
@@ -43,7 +58,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-2 max-h-120">
+        <div className="hog-flow-editor-toolbar flex overflow-y-auto flex-col gap-px p-2 max-h-120">
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Actions <LemonDivider className="flex-1" />
             </span>

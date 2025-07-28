@@ -132,7 +132,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
             updateNodeInternals(props.id)
         }, 100)
         // oxlint-disable-next-line exhaustive-deps
-    }, [node.handles?.length, updateNodeInternals, props.id])
+    }, [node?.handles?.length, updateNodeInternals, props.id])
 
     return (
         <>
