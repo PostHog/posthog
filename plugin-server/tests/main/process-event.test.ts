@@ -205,7 +205,7 @@ const identify = async (hub: Hub, distinctId: string) => {
 }
 
 const alias = async (hub: Hub, alias: string, distinctId: string) => {
-    await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
+    await capture(hub, '$create_alias', { alias, distinct_id: distinctId })
 }
 
 test('capture bad team', async () => {
