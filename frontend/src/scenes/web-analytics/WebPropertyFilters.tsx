@@ -12,6 +12,32 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
+export const OPITIMIZED_PROPERTIES_BY_GROUP = {
+    [TaxonomicFilterGroupType.EventProperties]: [
+        '$host',
+        '$device_type',
+        '$browser',
+        '$os',
+        '$referring_domain',
+        '$geoip_country_code',
+        '$geoip_city_name',
+        '$geoip_subdivision_1_code',
+        '$geoip_subdivision_1_name',
+        '$geoip_time_zone',
+        '$pathname',
+    ],
+    [TaxonomicFilterGroupType.SessionProperties]: [
+        '$entry_pathname',
+        '$end_pathname',
+        '$entry_utm_source',
+        '$entry_utm_medium',
+        '$entry_utm_campaign',
+        '$entry_utm_term',
+        '$entry_utm_content',
+        '$channel_type',
+    ],
+}
+
 export const WebPropertyFilters = (): JSX.Element => {
     const { rawWebAnalyticsFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
