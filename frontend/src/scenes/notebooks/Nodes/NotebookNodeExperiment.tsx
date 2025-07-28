@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect } from 'react'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
 import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
@@ -34,7 +35,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         ])
 
         loadExperiment()
-    }, [id])
+    }, [id, setActions, insertAfter, loadExperiment, experiment.feature_flag.id])
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
@@ -54,7 +55,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag experiment={experiment} />
+                            <StatusTag status={getExperimentStatus(experiment)} />
                             <ResultsTag />
                         </>
                     )}

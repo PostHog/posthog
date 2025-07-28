@@ -1,5 +1,13 @@
+use std::time::Duration;
+
 use envconfig::Envconfig;
+use opentelemetry::{KeyValue, Value};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
+use opentelemetry_sdk::{runtime, Resource};
 use tokio::signal;
+use tracing::level_filters::LevelFilter;
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
@@ -26,17 +34,39 @@ async fn shutdown() {
     tracing::info!("Shutting down gracefully...");
 }
 
+fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
+    opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_trace_config(
+            opentelemetry_sdk::trace::Config::default()
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                    sampling_rate,
+                ))))
+                .with_id_generator(RandomIdGenerator::default())
+                .with_resource(Resource::new(vec![KeyValue::new(
+                    "service.name",
+                    Value::from(service_name.to_string()),
+                )])),
+        )
+        .with_batch_config(BatchConfig::default())
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(sink_url)
+                .with_timeout(Duration::from_secs(3)),
+        )
+        .install_batch(runtime::Tokio)
+        .expect("Failed to initialize OpenTelemetry tracer")
+}
+
 #[tokio::main]
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    // Configure logging format:
-    //   with_span_events: Log when spans are created/closed
-    //   with_target: Include module path (e.g. "feature_flags::api")
-    //   with_thread_ids: Include thread ID for concurrent debugging
-    //   with_level: Show log level (ERROR, INFO, etc)
-    //   with_filter: Use RUST_LOG env var to control verbosity
-    let fmt_layer = fmt::layer()
+    // Instantiate tracing outputs:
+    //   - stdout with a level configured by the RUST_LOG envvar
+    //   - OpenTelemetry if enabled, for levels INFO and higher
+    let log_layer = fmt::layer()
         .with_span_events(
             FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
         )
@@ -44,7 +74,24 @@ async fn main() {
         .with_thread_ids(true)
         .with_level(true)
         .with_filter(EnvFilter::from_default_env());
-    tracing_subscriber::registry().with(fmt_layer).init();
+
+    let otel_layer = if let Some(ref otel_url) = config.otel_url {
+        Some(
+            OpenTelemetryLayer::new(init_tracer(
+                otel_url,
+                config.otel_sampling_rate,
+                &config.otel_service_name,
+            ))
+            .with_filter(LevelFilter::from_level(config.otel_log_level)),
+        )
+    } else {
+        None
+    };
+
+    tracing_subscriber::registry()
+        .with(log_layer)
+        .with(otel_layer)
+        .init();
 
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)

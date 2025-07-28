@@ -258,6 +258,13 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
+    cassandra:
+        extends:
+            file: docker-compose.base.yml
+            service: cassandra
+        ports:
+            - '9042:9042'
+
 networks:
     otel_network:
         driver: bridge

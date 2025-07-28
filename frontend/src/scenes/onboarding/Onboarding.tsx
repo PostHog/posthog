@@ -105,7 +105,17 @@ const OnboardingWrapper = ({
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization])
+    }, [
+        children,
+        billingLoading,
+        minAdminRestrictionReason,
+        currentOrganization,
+        shouldShowBillingStep,
+        shouldShowDataWarehouseStep,
+        billing.products,
+        productKey,
+        shouldShowReverseProxyStep,
+    ])
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
@@ -113,7 +123,7 @@ const OnboardingWrapper = ({
         }
 
         setAllOnboardingSteps(allSteps)
-    }, [allSteps])
+    }, [allSteps, billingLoading, setAllOnboardingSteps, waitForBilling])
 
     if (!product || !children) {
         return <></>
@@ -215,6 +225,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                productKey={ProductKey.PRODUCT_ANALYTICS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -292,6 +303,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
+                productKey={ProductKey.WEB_ANALYTICS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
@@ -368,6 +380,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={SessionReplaySDKInstructions}
+                productKey={ProductKey.SESSION_REPLAY}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -384,6 +397,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
+                productKey={ProductKey.FEATURE_FLAGS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
@@ -393,7 +407,11 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ExperimentsSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ExperimentsSDKInstructions}
+                productKey={ProductKey.EXPERIMENTS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -401,7 +419,11 @@ const ExperimentsOnboarding = (): JSX.Element => {
 const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={SurveysSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
+            <OnboardingInstallStep
+                sdkInstructionMap={SurveysSDKInstructions}
+                productKey={ProductKey.SURVEYS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -427,6 +449,7 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
         >
             <OnboardingInstallStep
                 sdkInstructionMap={ErrorTrackingSDKInstructions}
+                productKey={ProductKey.ERROR_TRACKING}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingErrorTrackingSourceMapsStep stepKey={OnboardingStepKey.SOURCE_MAPS} />

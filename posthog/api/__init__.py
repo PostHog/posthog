@@ -7,7 +7,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
 from posthog.api.wizard import http as wizard
@@ -51,6 +51,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    flag_value,
     hog,
     hog_function,
     hog_function_template,
@@ -754,6 +755,13 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"messaging_categories",
+    MessageCategoryViewSet,
+    "environment_messaging_categories",
+    ["team_id"],
+)
+
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 
@@ -776,4 +784,11 @@ environments_router.register(
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
     "environment_revenue_analytics_taxonomy",
     ["team_id"],
+)
+
+projects_router.register(
+    r"flag_value",
+    flag_value.FlagValueViewSet,
+    "project_flag_value",
+    ["project_id"],
 )

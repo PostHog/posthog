@@ -52,6 +52,7 @@ class SetupWizardTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.http.OpenAI")
+    @patch("django.conf.settings.DEBUG", False)
     def test_query_endpoint_rate_limit(self, mock_openai):
         mock_openai_instance = mock_openai.return_value
         # Simulate an OpenAI response with JSON {"foo": "bar"}
@@ -205,6 +206,126 @@ class SetupWizardTests(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "model" in response.json()
         assert "not supported" in response.json()["model"][0]
+
+    @patch("django.conf.settings.DEBUG", True)
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_endpoint_mock_wizard_data_in_debug_with_fixture_header(self, mock_openai):
+        """Test that mock wizard data is used when DEBUG=True and X-PostHog-Wizard-Fixture-Generation header is present"""
+        mock_openai_instance = mock_openai.return_value
+        mock_openai_instance.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"result": "mocked"})))]
+        )
+
+        # Clear any existing cache data
+        cache.delete(self.cache_key)
+
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {
+                    "message": "test",
+                    "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}},
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            HTTP_X_POSTHOG_WIZARD_FIXTURE_GENERATION="true",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"data": {"result": "mocked"}}
+
+        # Verify that mock data was cached
+        cached_data = cache.get(self.cache_key)
+        assert cached_data is not None
+        assert cached_data["project_api_key"] == "mock-project-api-key"
+        assert cached_data["host"] == "http://localhost:8010"
+        assert cached_data["user_distinct_id"] == "mock-user-id"
+
+    @patch("django.conf.settings.DEBUG", True)
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_endpoint_mock_wizard_data_overrides_existing_cache(self, mock_openai):
+        """Test that mock wizard data overrides existing cache data when conditions are met"""
+        mock_openai_instance = mock_openai.return_value
+        mock_openai_instance.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"result": "overridden"})))]
+        )
+
+        # Set existing cache data
+        cache.set(
+            self.cache_key, {"project_api_key": "real-key", "host": "https://real-host.com"}, SETUP_WIZARD_CACHE_TIMEOUT
+        )
+
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {
+                    "message": "test",
+                    "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}},
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            HTTP_X_POSTHOG_WIZARD_FIXTURE_GENERATION="true",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"data": {"result": "overridden"}}
+
+        # Verify that cache was overridden with mock data
+        cached_data = cache.get(self.cache_key)
+        assert cached_data["project_api_key"] == "mock-project-api-key"
+        assert cached_data["host"] == "http://localhost:8010"
+        assert cached_data["user_distinct_id"] == "mock-user-id"
+
+    @patch("django.conf.settings.DEBUG", False)
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_endpoint_no_mock_when_debug_false(self, mock_openai):
+        """Test that mock wizard data is NOT used when DEBUG=False even with fixture header"""
+        # Clear any existing cache data
+        cache.delete(self.cache_key)
+
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {
+                    "message": "test",
+                    "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}},
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            HTTP_X_POSTHOG_WIZARD_FIXTURE_GENERATION="true",
+        )
+
+        # Should fail authentication because no cache data exists and mock is not used
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("django.conf.settings.DEBUG", True)
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_endpoint_no_mock_without_fixture_header(self, mock_openai):
+        """Test that mock wizard data is NOT used when DEBUG=True but fixture header is missing"""
+        # Clear any existing cache data
+        cache.delete(self.cache_key)
+
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {
+                    "message": "test",
+                    "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}},
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+        )
+
+        # Should fail authentication because no cache data exists and mock is not used
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @override_settings(
         CACHES={

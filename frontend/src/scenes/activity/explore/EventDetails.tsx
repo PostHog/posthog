@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 interface EventDetailsProps {
     event: EventType
@@ -146,6 +147,23 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         eventProperties={event.properties}
                         // fallback on timestamp as uuid is optional
                         eventId={event.uuid ?? event.timestamp ?? 'error'}
+                    />
+                </div>
+            ),
+        })
+        tabs.push({
+            key: 'event_properties',
+            label: 'Exception properties',
+            content: (
+                <div className="mx-3 -mt-4">
+                    <LemonBanner type="info" dismissKey="event-details-exception-properties-why-banner">
+                        These are the internal properties that PostHog uses to display information about exceptions.
+                    </LemonBanner>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={exceptionProperties}
+                        sortProperties
+                        tableProps={tableProps}
                     />
                 </div>
             ),

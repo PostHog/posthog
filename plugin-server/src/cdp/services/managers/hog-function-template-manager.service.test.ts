@@ -31,7 +31,7 @@ describe('HogFunctionTemplateManager', () => {
                         required: true,
                     },
                 ],
-                hog: 'fetch(inputs.url)',
+                code: 'fetch(inputs.url)',
                 bytecode: await compileHog('fetch(inputs.url)'),
             })
         )

@@ -328,7 +328,7 @@ export function LineGraph_({
     const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
@@ -488,7 +488,12 @@ export function LineGraph_({
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
-            yAxisID: type === GraphType.Line && showMultipleYAxes && index > 0 ? `y${index}` : 'y',
+            yAxisID:
+                type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
+                    ? `y${index}`
+                    : dataset.yAxisID
+                    ? dataset.yAxisID
+                    : 'y',
         }
     }
 
@@ -723,6 +728,10 @@ export function LineGraph_({
                             const dataset = datasets[referenceDataPoint.datasetIndex]
                             const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                if (tooltipConfig?.filter) {
+                                    return tooltipConfig.filter(dp)
+                                }
+
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
                                     dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
@@ -926,7 +935,7 @@ export function LineGraph_({
                     },
                 },
                 ...generateYaxesForLineGraph(
-                    datasets.length,
+                    (showMultipleYAxes && new Set(datasets.map((d) => d.yAxisID)).size) || datasets.length,
                     seriesNonZeroMin,
                     goalLines,
                     goalLinesY,
@@ -1027,16 +1036,46 @@ export function LineGraph_({
 
         return () => chart.destroy()
     }, [
-        datasets,
-        hiddenLegendIndexes,
-        isDarkModeOn,
         trendsFilter,
-        formula,
-        showValuesOnSeries,
-        showPercentStackView,
-        showMultipleYAxes,
+        labelGroupType,
+        colors.axisLabel,
+        breakdownFilter,
+        showPersonsModal,
         _goalLines,
-        theme,
+        hideYAxis,
+        tooltipConfig.filter,
+        generateYaxesForLineGraph,
+        legend,
+        inSurveyView,
+        showValuesOnSeries,
+        showPercentView,
+        aggregationLabel,
+        showMultipleYAxes,
+        isStacked,
+        interval,
+        datasets,
+        isBar,
+        formula,
+        colors.crosshair,
+        incompletenessOffsetFromEnd,
+        colors.axisLine,
+        isHorizontal,
+        timezone,
+        type,
+        tooltipConfig.renderCount,
+        onClick,
+        processDataset,
+        hiddenLegendIndexes.length,
+        originalDatasets,
+        tooltipConfig,
+        insightData.resolved_date_range,
+        insightProps.dashboardId,
+        hiddenLegendIndexes,
+        labels,
+        isPercentStackView,
+        _datasets.length,
+        datasets.length,
+        hideXAxis,
     ])
 
     return (

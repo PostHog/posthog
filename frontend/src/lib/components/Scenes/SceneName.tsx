@@ -5,14 +5,17 @@ import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { SceneInputProps } from './utils'
 
-type SceneNameProps = {
-    defaultValue: string
-    onSave: (value: string) => void
-    dataAttr?: string
-}
+type SceneNameProps = SceneInputProps
 
-export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): JSX.Element {
+export function SceneName({
+    defaultValue,
+    onSave,
+    dataAttrKey,
+    optional = false,
+    canEdit = true,
+}: SceneNameProps): JSX.Element {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
     const value = typeof lastBreadcrumb?.name === 'string' ? (lastBreadcrumb.name as string) : defaultValue
@@ -30,17 +33,17 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
 
     useEffect(() => {
         setHasChanged(localValue !== defaultValue)
-        if (localValue.length === 0) {
+        if (localValue.length === 0 && !optional) {
             setError('Name is required')
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue])
+    }, [localValue, defaultValue, optional])
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">
             <div className="flex flex-col gap-0">
-                <Label intent="menu" htmlFor="page-name-input">
+                <Label intent="menu" htmlFor="page-name-input" className="mx-2">
                     Name
                 </Label>
                 <TextareaPrimitive
@@ -48,12 +51,11 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     onChange={(e) => {
                         setLocalValue(e.target.value)
                     }}
-                    placeholder="Name (required)"
+                    placeholder={`Name ${optional ? '(optional)' : ''}`}
                     id="page-name-input"
-                    data-attr={`${dataAttr}-name-input`}
+                    data-attr={`${dataAttrKey}-name-input`}
                     autoFocus
                     error={!!error}
-                    className="-ml-1.5"
                 />
             </div>
             <div className="flex gap-1">
@@ -62,7 +64,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     variant="outline"
                     disabled={!hasChanged || !!error}
                     tooltip={error || (hasChanged ? 'Update name' : 'No changes to update')}
-                    data-attr={`${dataAttr}-name-update-button`}
+                    data-attr={`${dataAttrKey}-name-update-button`}
                 >
                     <IconCheck />
                 </ButtonPrimitive>
@@ -81,19 +83,24 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
         </form>
     ) : (
         <div className="flex flex-col gap-0">
-            <Label intent="menu">Name</Label>
-            <div className="-ml-1.5">
-                <ButtonPrimitive
-                    className="hyphens-auto flex gap-1 items-center"
-                    lang="en"
-                    onClick={() => setLocalIsEditing(true)}
-                    tooltip="Edit name"
-                    autoHeight
-                    menuItem
-                >
-                    {value || <span className="text-tertiary font-normal">No name</span>}
-                </ButtonPrimitive>
-            </div>
+            <Label intent="menu" className="mx-2">
+                Name
+            </Label>
+            <ButtonPrimitive
+                className="hyphens-auto flex gap-1 items-center"
+                lang="en"
+                onClick={() => setLocalIsEditing(true)}
+                tooltip={canEdit ? 'Edit name' : 'Name is read-only'}
+                autoHeight
+                menuItem
+                inert={!canEdit}
+            >
+                {value !== '' ? (
+                    value
+                ) : (
+                    <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
+                )}
+            </ButtonPrimitive>
         </div>
     )
 }

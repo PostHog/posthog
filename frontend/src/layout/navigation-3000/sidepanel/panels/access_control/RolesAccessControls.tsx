@@ -24,7 +24,7 @@ import { RoleType } from '~/types'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
-    const { roles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
+    const { sortedRoles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
@@ -53,11 +53,13 @@ export function RolesAccessControls(): JSX.Element {
                 return role ? (
                     role.members.length ? (
                         <ProfileBubbles
-                            people={role.members.map((member) => ({
-                                email: member.user.email,
-                                name: member.user.first_name,
-                                title: `${member.user.first_name} <${member.user.email}>`,
-                            }))}
+                            people={
+                                role?.members?.map((member) => ({
+                                    email: member.user.email,
+                                    name: fullName(member.user),
+                                    title: `${fullName(member.user)} <${member.user.email}>`,
+                                })) ?? []
+                            }
                             onClick={() => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))}
                         />
                     ) : (
@@ -80,7 +82,7 @@ export function RolesAccessControls(): JSX.Element {
             <div className="deprecated-space-y-2">
                 <LemonTable
                     columns={columns}
-                    dataSource={roles ?? []}
+                    dataSource={sortedRoles ?? []}
                     loading={rolesLoading}
                     expandable={{
                         isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,

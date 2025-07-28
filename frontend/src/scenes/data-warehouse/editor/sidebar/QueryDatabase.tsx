@@ -179,7 +179,7 @@ export const QueryDatabase = (): JSX.Element => {
                 }
 
                 // Show menu for views
-                if (item.record?.type === 'view') {
+                if (item.record?.type === 'view' || item.record?.type === 'managed-view') {
                     // Extract view ID from item.id (format: 'view-{id}' or 'search-view-{id}')
                     const viewId = item.id.startsWith('search-view-')
                         ? item.id.replace('search-view-', '')
