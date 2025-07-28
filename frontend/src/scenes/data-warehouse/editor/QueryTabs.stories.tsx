@@ -56,6 +56,7 @@ const mockModels: QueryTab[] = [
         },
         name: 'Query 1',
         view: undefined,
+        level: 'source',
     },
     {
         uri: {
@@ -86,6 +87,7 @@ const mockModels: QueryTab[] = [
             },
         },
         name: 'Query 2',
+        level: 'source',
     },
 ]
 

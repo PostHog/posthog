@@ -17,7 +17,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -490,36 +490,80 @@ function NewQuery(): JSX.Element {
             .find(({ name }) => name === 'Insight')
             ?.children?.sort((a, b) => (a.visualOrder ?? 0) - (b.visualOrder ?? 0)) ?? []
 
+    // pastel palette (cycle through)
     const swatches = [
-        'bg-blue-500/10 text-blue-800 dark:bg-blue-500/20 dark:text-blue-100',
-        'bg-emerald-500/10 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100',
-        'bg-violet-500/10 text-violet-800 dark:bg-violet-500/20 dark:text-violet-100',
-        'bg-amber-500/10 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100',
-        'bg-pink-500/10 text-pink-800 dark:bg-pink-500/20 dark:text-pink-100',
+        'bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-100',
+        'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-100',
+        'bg-violet-500/10 text-violet-700 dark:bg-violet-500/20 dark:text-violet-100',
+        'bg-amber-500/10 text-amber-700 dark:bg-amber-500/20 dark:text-amber-100',
+        'bg-pink-500/10 text-pink-700 dark:bg-pink-500/20 dark:text-pink-100',
+        'bg-stone-500/10 text-stone-700 dark:bg-stone-500/20 dark:text-stone-100',
     ]
 
+    const allQueryTypes = [{ name: 'SQL', icon: <IconDatabase /> }, ...queryTypes]
+
+    const [question, setQuestion] = useState('')
+    const handleSubmit = (): void => {}
+
     return (
-        <div className="w-full overflow-auto p-4 @container">
-            {/* 2 cols on tiny screens → up to 8 cols on xl */}
-            <div className="grid grid-cols-2 @md:grid-cols-3 @lg:grid-cols-4 @xl:grid-cols-5 gap-4">
-                {[{ name: 'SQL', icon: <IconDatabase /> }, ...queryTypes].map((qt, i) => (
-                    <div className="m-auto">
-                        <Link
-                            key={qt.name}
-                            onClick={() => {
-                                // setQueryInput(sampleQueries[qt.name] || '')
-                            }}
-                            className={`group flex flex-col items-center justify-center rounded-2xl h-24 shadow-sm hover:shadow-md transition ${
-                                swatches[i % swatches.length]
-                            } cursor-pointer select-none min-w-[120px]`}
-                        >
-                            <div className="text-xl font-semibold opacity-70 group-hover:opacity-100">
-                                {qt.icon ?? qt.name[0]}
-                            </div>
-                            <div className="mt-1 text-xs font-medium truncate px-2 text-center">{qt.name}</div>
-                        </Link>
-                    </div>
-                ))}
+        <div className="w-full py-8">
+            <div className="w-full text-center pb-4 bg-white dark:bg-black text-sm font-medium">
+                Choose an analysis to run or just ask Max.
+            </div>
+
+            <div className="flex gap-2 max-w-[800px] m-auto mt-2 mb-4">
+                <input
+                    type="text"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    onClick={() => setQuestion('')}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            handleSubmit()
+                        }
+                    }}
+                    placeholder="How much wood would a woodchuck chuck if a woodchuck could chuck wood?"
+                    className="flex-1 px-4 py-3 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-gray-900 text-primary dark:text-primary-dark text-base focus:ring-2 focus:ring-red dark:focus:ring-yellow focus:border-transparent transition-all"
+                />
+                <LemonButton
+                    type="primary"
+                    disabledReason={!question.trim() ? 'Please ask a question' : null}
+                    onClick={handleSubmit}
+                >
+                    Ask Max
+                </LemonButton>
+            </div>
+
+            <div className="w-full overflow-auto p-4 max-w-[1024px] m-auto">
+                {/* Fluid grid: auto-fit as many 7rem (112px) boxes as fit, with gap */}
+                <div
+                    className="grid gap-6"
+                    style={{
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(7rem, 1fr))',
+                    }}
+                >
+                    {allQueryTypes.map((qt, i) => (
+                        <div key={qt.name} className="text-center m-auto">
+                            <Link
+                                onClick={() => {
+                                    // setQueryInput(sampleQueries[qt.name] || '')
+                                }}
+                                className="group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none"
+                            >
+                                <div
+                                    className={`flex items-center justify-center w-16 h-16 rounded-xl shadow-sm group-hover:shadow-md transition ${
+                                        swatches[i % swatches.length]
+                                    }`}
+                                >
+                                    <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>
+                                </div>
+                                <span className="mt-2 w-full text-xs font-medium truncate px-1 text-primary">
+                                    {qt.name}
+                                </span>
+                            </Link>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     )

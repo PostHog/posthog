@@ -656,6 +656,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const queries = values.allTabs.map((tab) => {
                     return {
                         query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
+                        level: tab.level,
                         path: tab.uri.path.split('/').pop(),
                         view: uri.path === tab.uri.path ? view : tab.view,
                         insight: uri.path === tab.uri.path ? insight : tab.insight,
@@ -671,6 +672,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ...values.allTabs,
                     {
                         query,
+                        level: level,
                         path: currentModelCount.toString(),
                         view,
                         insight,
@@ -919,6 +921,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const queries = values.allTabs.map((model) => {
                 return {
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
+                    level: model.level,
                     path: model.uri.path.split('/').pop(),
                     name: model.view?.name || model.name,
                     view: model.view,
