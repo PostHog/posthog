@@ -8,7 +8,6 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
 import structlog
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
@@ -23,6 +22,7 @@ from posthog.plugins.plugin_server_api import (
 )
 from posthog.utils import absolute_uri
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -139,12 +139,16 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.api.hog_function_template import HogFunctionTemplates
+        if self.hog_function_template:
+            return self.hog_function_template
 
         if not self.template_id:
             return None
 
-        template = HogFunctionTemplates.template(self.template_id)
+        try:
+            template = HogFunctionTemplate.objects.get(template_id=self.template_id)
+        except HogFunctionTemplate.DoesNotExist:
+            return None
 
         if template:
             return template

@@ -16,17 +16,17 @@ from posthog.models import GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
-from posthog.session_recordings.queries.session_recording_list_from_query import (
+from posthog.session_recordings.queries_to_delete.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
 )
-from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
+from posthog.session_recordings.queries_to_delete.session_replay_events import ttl_days
+from posthog.session_recordings.queries_to_delete.test.listing_recordings.test_utils import (
     create_event,
     assert_query_matches_session_ids,
     filter_recordings_by,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_delete.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (

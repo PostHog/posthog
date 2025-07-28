@@ -206,9 +206,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                 value,
                 onChange,
             }: {
-                value: HogFunctionMappingType[]
+                value: HogFunctionMappingType[] | undefined
                 onChange: (mappings: HogFunctionMappingType[]) => void
             }) => {
+                if (!value) {
+                    // Tricky there can be a race where this renders before the parent is un-rendered
+                    return <></>
+                }
+
                 const addMapping = (template: string): void => {
                     const mappingTemplate = mappingTemplates.find((t) => t.name === template)
                     if (mappingTemplate) {
