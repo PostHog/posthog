@@ -10,16 +10,16 @@ export const RichContentEditor = ({
     extensions,
     className,
     children,
-    onUpdate,
-    onSelectionUpdate,
-    onCreate,
-    onDrop,
-    onPaste,
+    onCreate = () => {},
+    onUpdate = () => {},
+    onSelectionUpdate = () => {},
+    onDrop = () => {},
+    onPaste = () => {},
 }: PropsWithChildren<{
     logicKey: string
-    onUpdate?: () => void
-    onSelectionUpdate?: () => void
     onCreate?: (editor: TTEditor) => void
+    onUpdate?: (content: JSONContent) => void
+    onSelectionUpdate?: () => void
     extensions: Extensions
     className?: string
     onDrop?: (
@@ -33,36 +33,34 @@ export const RichContentEditor = ({
     const editor = useEditor({
         extensions,
         editorProps: {
-            handleDrop: onDrop
-                ? (view, event, _, moved) => {
-                      const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
+            handleDrop: (view, event, _, moved) => {
+                const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
 
-                      if (!editor) {
-                          return false
-                      }
+                if (!editor) {
+                    return false
+                }
 
-                      const insertContent = (position: number, content: JSONContent): boolean =>
-                          editor.chain().focus().setTextSelection(position).insertContent(content).run()
+                const insertContent = (position: number, content: JSONContent): boolean =>
+                    editor.chain().focus().setTextSelection(position).insertContent(content).run()
 
-                      return onDrop(event.dataTransfer, coordinates, moved, insertContent)
-                  }
-                : undefined,
-            handlePaste: onPaste
-                ? (_view, event) => {
-                      if (!editor) {
-                          return false
-                      }
+                return onDrop(event.dataTransfer, coordinates, moved, insertContent)
+            },
+            handlePaste: (_, event) => {
+                if (!editor) {
+                    return false
+                }
 
-                      const insertContent = (content: JSONContent): boolean =>
-                          editor.chain().focus().insertContent(content).run()
+                const insertContent = (content: JSONContent): boolean =>
+                    editor.chain().focus().insertContent(content).run()
 
-                      onPaste(event.clipboardData, insertContent)
-                  }
-                : undefined,
+                onPaste(event.clipboardData, insertContent)
+            },
         },
-        onUpdate,
-        onSelectionUpdate,
-        onCreate: ({ editor }) => onCreate?.(editor),
+        onUpdate: ({ editor }) => {
+            onUpdate(editor.getJSON())
+        },
+        onSelectionUpdate: onSelectionUpdate,
+        onCreate: ({ editor }) => onCreate(editor),
     })
 
     return (
