@@ -10,9 +10,9 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
+import { createRedis } from '~/utils/db/redis'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
@@ -78,7 +78,6 @@ describe('processEvent', () => {
     let team: Team
     let hub: Hub
     let personRepository: PostgresPersonRepository
-    let redis: IORedis.Redis
     let eventsProcessor: EventsProcessor
     let now = DateTime.utc()
 
@@ -133,29 +132,27 @@ describe('processEvent', () => {
                 }
             `
         await resetTestDatabase(testCode, TEST_CONFIG)
-        // await resetTestDatabaseClickhouse(TEST_CONFIG)
 
         hub = await createHub({ ...TEST_CONFIG })
         mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
         mockProducerObserver.resetKafkaProducer()
 
-        redis = await hub.redisPool.acquire()
         personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         eventsProcessor = new EventsProcessor(hub)
         team = await getFirstTeam(hub)
         now = DateTime.utc()
 
-        // clear the webhook redis cache
+        const redis = await createRedis(hub, 'ingestion')
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
         await redis.del(hooksCacheKey)
+        await redis.quit()
 
         // Always start with an anonymous state
         state = { currentDistinctId: 'anonymous_id' }
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
         await closeHub(hub)
     })
 
