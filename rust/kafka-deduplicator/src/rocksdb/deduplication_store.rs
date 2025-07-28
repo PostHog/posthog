@@ -47,9 +47,9 @@ impl AsRef<[u8]> for DeduplicationKey {
     }
 }
 
-impl Into<Vec<u8>> for DeduplicationKey {
-    fn into(self) -> Vec<u8> {
-        self.formatted_key.as_bytes().to_vec()
+impl From<DeduplicationKey> for Vec<u8> {
+    fn from(key: DeduplicationKey) -> Vec<u8> {
+        key.formatted_key.as_bytes().to_vec()
     }
 }
 

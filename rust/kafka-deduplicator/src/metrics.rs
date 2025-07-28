@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 /// Centralized metrics helper that provides consistent baseline labels
 /// across all metrics in the deduplication system
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MetricsHelper {
     baseline_labels: HashMap<String, String>,
 }
@@ -10,9 +10,7 @@ pub struct MetricsHelper {
 impl MetricsHelper {
     /// Create a new metrics helper with baseline labels
     pub fn new() -> Self {
-        Self {
-            baseline_labels: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Create a metrics helper with topic and partition labels
