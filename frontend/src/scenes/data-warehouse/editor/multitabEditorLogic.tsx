@@ -187,7 +187,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
-            ['saveAsDraft'],
+            ['saveAsDraft', 'deleteDraft'],
         ],
     })),
     actions(({ values }) => ({
@@ -259,8 +259,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 shouldRematerialize?: boolean
                 sync_frequency?: string
                 types: string[][]
-            }
-        ) => ({ view }),
+            },
+            successCallback?: () => void
+        ) => ({ view, successCallback }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
         setTabDraftId: (tabUri: string, draftId: string) => ({ tabUri, draftId }),
@@ -269,12 +270,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             viewId,
             queryInput,
         }),
-        deleteTabDraft: (tabUri: string) => ({ tabUri }),
         saveDraft: (activeTabUri: string, queryInput: string, viewId: string) => ({
             activeTabUri,
             queryInput,
             viewId,
         }),
+        publishDraft: (
+            draftId: string,
+            view: Partial<DatabaseSchemaViewTable> & {
+                edited_history_id?: string
+                id: string
+                lifecycle?: string
+                shouldRematerialize?: boolean
+                sync_frequency?: string
+                types: string[][]
+            },
+            successCallback?: () => void
+        ) => ({ draftId, view, successCallback }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -1230,7 +1242,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             actions.updateState()
         },
-        updateView: async ({ view }) => {
+        updateView: async ({ view, successCallback }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
             if (
                 view.edited_history_id !== latestView?.latest_history_id &&
@@ -1247,13 +1259,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             ...view,
                             edited_history_id: latestView?.latest_history_id,
                         })
+                        successCallback && successCallback()
                     },
                     onReject: () => {},
                 })
                 lemonToast.error('View has been edited by another user. Review changes to update.')
             } else {
                 actions.updateDataWarehouseSavedQuery(view)
+                successCallback && successCallback()
             }
+        },
+        publishDraft: async ({ draftId, view }) => {
+            actions.updateView(view, () => {
+                actions.deleteDraft(draftId)
+                // remove draft from all tabs
+                const newTabs = values.allTabs.map((tab) => ({
+                    ...tab,
+                    draft: tab.draft?.id === draftId ? undefined : tab.draft,
+                }))
+                actions.setTabs(newTabs)
+            })
         },
     })),
     subscriptions(({ props, actions, values }) => ({

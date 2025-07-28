@@ -41,6 +41,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         suggestedQueryInput,
         isDraft,
         currentDraftId,
+        inProgressViewEdits,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
@@ -58,10 +59,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
         saveDraft,
+        publishDraft,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
+    const { response } = useValues(dataNodeLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
 
@@ -154,7 +157,20 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             type="tertiary"
                             size="xsmall"
                             id="sql-editor-query-window-publish-draft"
-                            onClick={() => {}}
+                            onClick={() => {
+                                if (editingView && currentDraftId) {
+                                    publishDraft(currentDraftId, {
+                                        id: editingView.id,
+                                        query: {
+                                            ...sourceQuery.source,
+                                            query: queryInput,
+                                        },
+                                        types: response && 'types' in response ? response?.types ?? [] : [],
+                                        shouldRematerialize: isMaterializedView,
+                                        edited_history_id: inProgressViewEdits[editingView.id],
+                                    })
+                                }
+                            }}
                         >
                             Publish
                         </LemonButton>
