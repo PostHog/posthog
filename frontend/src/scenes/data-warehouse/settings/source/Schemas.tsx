@@ -104,7 +104,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
         if (initialLoad && !isLoading) {
             setInitialLoad(false)
         }
-    }, [isLoading])
+    }, [isLoading, initialLoad])
 
     return (
         <>
@@ -455,15 +455,15 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         schemaIncrementalFieldsLoading,
         saveButtonIsLoading,
     } = useValues(logic)
-    const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields } = useActions(logic)
-    const { updateSchema } = useActions(dataWarehouseSourceSettingsLogic)
+    const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } =
+        useActions(logic)
 
     useEffect(() => {
         if (currentSyncMethodModalSchema?.id) {
             resetSchemaIncrementalFields()
             loadSchemaIncrementalFields(currentSyncMethodModalSchema.id)
         }
-    }, [currentSyncMethodModalSchema?.id])
+    }, [currentSyncMethodModalSchema?.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
 
     const schemaLoading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
     const showForm = !schemaLoading && schemaIncrementalFields
@@ -534,11 +534,6 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         }
-                        // add a small delay so it doesn't feel jerky
-                        setTimeout(() => {
-                            closeSyncMethodModal()
-                            resetSchemaIncrementalFields()
-                        }, 150)
                     }}
                 />
             )}
