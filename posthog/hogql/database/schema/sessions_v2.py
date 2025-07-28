@@ -504,6 +504,26 @@ def join_events_table_to_sessions_table_v2(
 
 
 def get_lazy_session_table_properties_v2(search: Optional[str]):
+    # Import optimized properties from web analytics module
+    from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+        BASE_SUPPORTED_PROPERTIES,
+        PATH_PROPERTIES,
+        VIRTUAL_PROPERTIES,
+        STATS_TABLE_SPECIFIC_PROPERTIES,
+        EVENT_PROPERTY_TO_FIELD,
+        SESSION_PROPERTY_TO_FIELD,
+    )
+
+    # Combine all optimized properties from the web analytics module
+    optimized_properties = set(
+        list(BASE_SUPPORTED_PROPERTIES.keys())
+        + list(PATH_PROPERTIES.keys())
+        + list(VIRTUAL_PROPERTIES.keys())
+        + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
+        + list(EVENT_PROPERTY_TO_FIELD.keys())
+        + list(SESSION_PROPERTY_TO_FIELD.keys())
+    )
+
     # some fields shouldn't appear as properties
     hidden_fields = {
         "max_inserted_at",
@@ -556,10 +576,15 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
             "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
+            "is_optimized": field_name in optimized_properties,
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
         if is_match(field_name)
     ]
+
+    # Sort results so optimized properties come first
+    results.sort(key=lambda x: (not x["is_optimized"], x["name"]))
+
     return results
 
 

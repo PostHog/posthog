@@ -416,6 +416,122 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
+    def test_optimized_properties_sorting_and_is_optimized_field(self):
+        """Test that optimized properties are sorted first and have is_optimized=True"""
+        # Create some optimized properties (session properties)
+        PropertyDefinition.objects.create(team=self.team, name="$entry_pathname", type=PropertyDefinition.Type.SESSION)
+        PropertyDefinition.objects.create(team=self.team, name="$end_pathname", type=PropertyDefinition.Type.SESSION)
+        PropertyDefinition.objects.create(
+            team=self.team, name="$entry_utm_source", type=PropertyDefinition.Type.SESSION
+        )
+        PropertyDefinition.objects.create(team=self.team, name="$channel_type", type=PropertyDefinition.Type.SESSION)
+
+        # Create some optimized event properties
+        PropertyDefinition.objects.create(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT)
+        PropertyDefinition.objects.create(team=self.team, name="$device_type", type=PropertyDefinition.Type.EVENT)
+
+        # Create some non-optimized properties
+        PropertyDefinition.objects.create(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT)
+        PropertyDefinition.objects.create(team=self.team, name="another_custom", type=PropertyDefinition.Type.EVENT)
+
+        # Test session properties
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=session")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        self.assertGreater(len(results), 0)
+
+        # Check that all optimized session properties have is_optimized=True
+        optimized_session_props = ["$entry_pathname", "$end_pathname", "$entry_utm_source", "$channel_type"]
+        found_optimized = []
+
+        for result in results:
+            if result["name"] in optimized_session_props:
+                self.assertTrue(result["is_optimized"], f"Property {result['name']} should be optimized")
+                found_optimized.append(result["name"])
+
+        self.assertEqual(len(found_optimized), 4, "All optimized session properties should be found")
+
+        # Test event properties
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+
+        # Check that optimized event properties come first and have is_optimized=True
+        optimized_event_props = ["$host", "$device_type", "$browser"]  # $browser is from setUp
+        non_optimized_props = ["custom_prop", "another_custom"]
+
+        optimized_indices = []
+        non_optimized_indices = []
+
+        for i, result in enumerate(results):
+            if result["name"] in optimized_event_props:
+                self.assertTrue(result["is_optimized"], f"Property {result['name']} should be optimized")
+                optimized_indices.append(i)
+            elif result["name"] in non_optimized_props:
+                self.assertFalse(result["is_optimized"], f"Property {result['name']} should not be optimized")
+                non_optimized_indices.append(i)
+
+        # Verify optimized properties come before non-optimized ones
+        if optimized_indices and non_optimized_indices:
+            max_optimized_index = max(optimized_indices)
+            min_non_optimized_index = min(non_optimized_indices)
+            self.assertLess(
+                max_optimized_index,
+                min_non_optimized_index,
+                "Optimized properties should be sorted before non-optimized properties",
+            )
+
+    def test_serializer_is_optimized_method(self):
+        """Test the serializer's get_is_optimized method directly"""
+        from posthog.taxonomy.property_definition_api import PropertyDefinitionSerializer
+
+        serializer = PropertyDefinitionSerializer()
+
+        # Test optimized properties
+        optimized_props = [
+            "$entry_pathname",
+            "$end_pathname",
+            "$entry_utm_source",
+            "$channel_type",
+            "$host",
+            "$device_type",
+            "$browser",
+            "$pathname",
+        ]
+
+        for prop_name in optimized_props:
+            prop, created = PropertyDefinition.objects.get_or_create(
+                team=self.team,
+                name=prop_name,
+                defaults={
+                    "type": PropertyDefinition.Type.EVENT
+                    if not prop_name.startswith("$entry_") and prop_name != "$channel_type"
+                    else PropertyDefinition.Type.SESSION
+                },
+            )
+
+            is_optimized = serializer.get_is_optimized(prop)
+            self.assertTrue(is_optimized, f"Property {prop_name} should be detected as optimized")
+
+            if created:
+                prop.delete()  # Only clean up if we created it
+
+        # Test non-optimized properties
+        non_optimized_props = ["custom_prop", "another_prop", "$some_other_prop"]
+
+        for prop_name in non_optimized_props:
+            prop, created = PropertyDefinition.objects.get_or_create(
+                team=self.team, name=prop_name, defaults={"type": PropertyDefinition.Type.EVENT}
+            )
+
+            is_optimized = serializer.get_is_optimized(prop)
+            self.assertFalse(is_optimized, f"Property {prop_name} should not be detected as optimized")
+
+            if created:
+                prop.delete()  # Only clean up if we created it
+
     def test_event_name_filter_json_contains_int(self):
         event_name_json = json.dumps([1])
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?event_names={event_name_json}")

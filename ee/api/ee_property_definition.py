@@ -46,38 +46,24 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
 
     def get_is_optimized(self, obj):
         # Import here to avoid circular imports
-        try:
-            from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-                OPTIMIZED_EVENT_PROPERTIES,
-                OPTIMIZED_SESSION_PROPERTIES,
-            )
+        from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+            BASE_SUPPORTED_PROPERTIES,
+            PATH_PROPERTIES,
+            VIRTUAL_PROPERTIES,
+            STATS_TABLE_SPECIFIC_PROPERTIES,
+            EVENT_PROPERTY_TO_FIELD,
+            SESSION_PROPERTY_TO_FIELD,
+        )
 
-            optimized_properties = set(OPTIMIZED_EVENT_PROPERTIES + OPTIMIZED_SESSION_PROPERTIES)
-        except ImportError:
-            # Fallback if the module doesn't exist or properties aren't defined
-            optimized_properties = {
-                # Event properties
-                "$host",
-                "$device_type",
-                "$browser",
-                "$os",
-                "$referring_domain",
-                "$geoip_country_code",
-                "$geoip_city_name",
-                "$geoip_subdivision_1_code",
-                "$geoip_subdivision_1_name",
-                "$geoip_time_zone",
-                "$pathname",
-                # Session properties
-                "$entry_pathname",
-                "$end_pathname",
-                "$entry_utm_source",
-                "$entry_utm_medium",
-                "$entry_utm_campaign",
-                "$entry_utm_term",
-                "$entry_utm_content",
-                "$channel_type",
-            }
+        # Combine all optimized properties from the web analytics module
+        optimized_properties = set(
+            list(BASE_SUPPORTED_PROPERTIES.keys())
+            + list(PATH_PROPERTIES.keys())
+            + list(VIRTUAL_PROPERTIES.keys())
+            + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
+            + list(EVENT_PROPERTY_TO_FIELD.keys())
+            + list(SESSION_PROPERTY_TO_FIELD.keys())
+        )
         return obj.name in optimized_properties
 
     def validate(self, data):

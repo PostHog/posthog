@@ -24,40 +24,23 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    BASE_SUPPORTED_PROPERTIES,
+    PATH_PROPERTIES,
+    VIRTUAL_PROPERTIES,
+    STATS_TABLE_SPECIFIC_PROPERTIES,
+    EVENT_PROPERTY_TO_FIELD,
+    SESSION_PROPERTY_TO_FIELD,
+)
 
-# Import optimized properties from web analytics module
-try:
-    from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-        OPTIMIZED_EVENT_PROPERTIES,
-        OPTIMIZED_SESSION_PROPERTIES,
-    )
-
-    OPTIMIZED_PROPERTIES = set(OPTIMIZED_EVENT_PROPERTIES + OPTIMIZED_SESSION_PROPERTIES)
-except ImportError:
-    # Fallback if the module doesn't exist or properties aren't defined
-    OPTIMIZED_PROPERTIES = {
-        # Event properties
-        "$host",
-        "$device_type",
-        "$browser",
-        "$os",
-        "$referring_domain",
-        "$geoip_country_code",
-        "$geoip_city_name",
-        "$geoip_subdivision_1_code",
-        "$geoip_subdivision_1_name",
-        "$geoip_time_zone",
-        "$pathname",
-        # Session properties
-        "$entry_pathname",
-        "$end_pathname",
-        "$entry_utm_source",
-        "$entry_utm_medium",
-        "$entry_utm_campaign",
-        "$entry_utm_term",
-        "$entry_utm_content",
-        "$channel_type",
-    }
+OPTIMIZED_PROPERTIES = set(
+    list(BASE_SUPPORTED_PROPERTIES.keys())
+    + list(PATH_PROPERTIES.keys())
+    + list(VIRTUAL_PROPERTIES.keys())
+    + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
+    + list(EVENT_PROPERTY_TO_FIELD.keys())
+    + list(SESSION_PROPERTY_TO_FIELD.keys())
+)
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
