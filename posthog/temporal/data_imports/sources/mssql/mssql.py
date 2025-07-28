@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import collections
+from contextlib import _GeneratorContextManager
 import math
 import typing
 from collections.abc import Iterator
 from typing import Any
+from collections.abc import Callable
 
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -446,8 +448,7 @@ def _get_partition_settings(
 
 
 def mssql_source(
-    host: str,
-    port: int,
+    tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
     password: str,
     database: str,
@@ -465,55 +466,7 @@ def mssql_source(
     if not table_name:
         raise ValueError("Table name is missing")
 
-    with pymssql.connect(
-        server=host,
-        port=str(port),
-        database=database,
-        user=user,
-        password=password,
-        login_timeout=5,
-    ) as connection:
-        with connection.cursor() as cursor:
-            inner_query, inner_query_args = _build_query(
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-            )
-
-            primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table = _get_table(cursor, schema, table_name)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
-            chunk_size = _get_table_chunk_size(
-                cursor,
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-                logger,
-            )
-            try:
-                partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name, logger)
-                    if should_use_incremental_field
-                    else None
-                )
-            except Exception as e:
-                logger.debug(f"_get_partition_settings: Error: {e}. Skipping partitioning.")
-                capture_exception(e)
-                partition_settings = None
-
-            # Fallback on checking for an `id` field on the table
-            if primary_keys is None and "id" in table:
-                primary_keys = ["id"]
-
-    def get_rows() -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
-
+    with tunnel() as (host, port):
         with pymssql.connect(
             server=host,
             port=str(port),
@@ -523,7 +476,7 @@ def mssql_source(
             login_timeout=5,
         ) as connection:
             with connection.cursor() as cursor:
-                query, args = _build_query(
+                inner_query, inner_query_args = _build_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
@@ -531,18 +484,68 @@ def mssql_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                 )
-                logger.debug(f"MS SQL query: {query.format(args)}")
 
-                cursor.execute(query, args)
+                primary_keys = _get_primary_keys(cursor, schema, table_name)
+                table = _get_table(cursor, schema, table_name)
+                rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
+                chunk_size = _get_table_chunk_size(
+                    cursor,
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    logger,
+                )
+                try:
+                    partition_settings = (
+                        _get_partition_settings(cursor, schema, table_name, logger)
+                        if should_use_incremental_field
+                        else None
+                    )
+                except Exception as e:
+                    logger.debug(f"_get_partition_settings: Error: {e}. Skipping partitioning.")
+                    capture_exception(e)
+                    partition_settings = None
 
-                column_names = [column[0] for column in cursor.description or []]
+                # Fallback on checking for an `id` field on the table
+                if primary_keys is None and "id" in table:
+                    primary_keys = ["id"]
 
-                while True:
-                    rows = cursor.fetchmany(chunk_size)
-                    if not rows:
-                        break
+    def get_rows() -> Iterator[Any]:
+        arrow_schema = table.to_arrow_schema()
 
-                    yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+        with tunnel() as (host, port):
+            with pymssql.connect(
+                server=host,
+                port=str(port),
+                database=database,
+                user=user,
+                password=password,
+                login_timeout=5,
+            ) as connection:
+                with connection.cursor() as cursor:
+                    query, args = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+                    logger.debug(f"MS SQL query: {query.format(args)}")
+
+                    cursor.execute(query, args)
+
+                    column_names = [column[0] for column in cursor.description or []]
+
+                    while True:
+                        rows = cursor.fetchmany(chunk_size)
+                        if not rows:
+                            break
+
+                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
     name = NamingConvention().normalize_identifier(table_name)
 
