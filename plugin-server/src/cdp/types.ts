@@ -350,7 +350,7 @@ export type HogFunctionTemplate = {
     id: string
     name: string
     description: string
-    hog: string
+    code: string
     inputs_schema: HogFunctionInputSchemaType[]
     category: string[]
     filters?: HogFunctionFilters
@@ -399,7 +399,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'> & {
     perform: (
         request: (
             url: string,

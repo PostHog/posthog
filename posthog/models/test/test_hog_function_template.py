@@ -95,13 +95,13 @@ class TestHogFunctionTemplate(TestCase):
 
     def test_update_existing_template(self):
         """Test updating an existing template with new content"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as HogFunctionTemplateDTO
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as HogFunctionTemplateDTO
 
         # First create a simple template
         original_dto = HogFunctionTemplateDTO(
             id="update-test",
             name="Original Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[{"field": "value"}],
             status="alpha",
             type="destination",
@@ -119,7 +119,7 @@ class TestHogFunctionTemplate(TestCase):
         updated_dto = HogFunctionTemplateDTO(
             id="update-test",  # Same ID
             name="Updated Template",  # Changed
-            hog="return {...event, updated: true}",  # Changed
+            code="return {...event, updated: true}",  # Changed
             inputs_schema=[{"field": "value", "new_field": "new_value"}],  # Changed
             status="beta",  # Changed
             type="destination",
@@ -240,7 +240,7 @@ class TestHogFunctionTemplate(TestCase):
     def test_sha_versioning(self):
         """Test template sha versioning system including status and related fields"""
         from posthog.cdp.templates.hog_function_template import (
-            HogFunctionTemplate as HogFunctionTemplateDTO,
+            HogFunctionTemplateDC as HogFunctionTemplateDTO,
             HogFunctionMapping,
             HogFunctionMappingTemplate,
         )
@@ -269,7 +269,7 @@ class TestHogFunctionTemplate(TestCase):
         template_alpha = HogFunctionTemplateDTO(
             id="test-status-template",
             name="Test Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="alpha",
             type="destination",
@@ -281,7 +281,7 @@ class TestHogFunctionTemplate(TestCase):
         template_beta = HogFunctionTemplateDTO(
             id="test-status-template",
             name="Test Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="beta",
             type="destination",
@@ -307,7 +307,7 @@ class TestHogFunctionTemplate(TestCase):
         base_template = HogFunctionTemplateDTO(
             id="advanced-template",
             name="Advanced Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="stable",
             type="destination",
@@ -320,7 +320,7 @@ class TestHogFunctionTemplate(TestCase):
         template_with_mappings = HogFunctionTemplateDTO(
             id="advanced-template",
             name="Advanced Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="stable",
             type="destination",
@@ -347,7 +347,7 @@ class TestHogFunctionTemplate(TestCase):
         template_with_filters = HogFunctionTemplateDTO(
             id="advanced-template",
             name="Advanced Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="stable",
             type="destination",
@@ -366,7 +366,7 @@ class TestHogFunctionTemplate(TestCase):
         template_with_mapping_templates = HogFunctionTemplateDTO(
             id="advanced-template",
             name="Advanced Template",
-            hog="return event",
+            code="return event",
             inputs_schema=[],
             status="stable",
             type="destination",

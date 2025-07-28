@@ -15,7 +15,6 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
-import { SceneNotificationDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneNotificationDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -85,6 +84,8 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
+import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -581,6 +582,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <ScenePanel>
                 <>
+                    <ScenePanelCommonActions>
+                        <SceneCommonButtons
+                            dataAttrKey={RESOURCE_TYPE}
+                            duplicate={
+                                hasDashboardItemId
+                                    ? {
+                                          onClick: () => void handleDuplicateInsight(),
+                                      }
+                                    : undefined
+                            }
+                            favorite={{
+                                active: insight.favorited,
+                                onClick: () => {
+                                    setInsightMetadata({ favorited: !insight.favorited })
+                                },
+                            }}
+                        />
+                    </ScenePanelCommonActions>
                     <ScenePanelMetaInfo>
                         <SceneName
                             defaultValue={insight.name || insight.derived_name || ''}
@@ -618,25 +637,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                     <ScenePanelDivider />
 
-                    <ScenePanelCommonActions>
-                        <SceneCommonButtons
-                            dataAttrKey={RESOURCE_TYPE}
-                            duplicate={
-                                hasDashboardItemId
-                                    ? {
-                                          onClick: () => void handleDuplicateInsight(),
-                                      }
-                                    : undefined
-                            }
-                            favorite={{
-                                active: insight.favorited,
-                                onClick: () => {
-                                    setInsightMetadata({ favorited: !insight.favorited })
-                                },
-                            }}
-                        />
-                    </ScenePanelCommonActions>
-
                     <ScenePanelActions>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
@@ -655,9 +655,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             dataAttrKey={RESOURCE_TYPE}
                         />
 
-                        {hasDashboardItemId && (
-                            <SceneNotificationDropdownMenu
-                                insight={insight}
+                        {hasDashboardItemId && <SceneSubscribeButton insight={insight} dataAttrKey={RESOURCE_TYPE} />}
+                        {hasDashboardItemId && insight?.id && insight?.short_id && (
+                            <SceneAlertsButton
+                                insightId={insight?.id}
+                                insightShortId={insight.short_id as InsightShortId}
                                 insightLogicProps={insightLogicProps}
                                 dataAttrKey={RESOURCE_TYPE}
                             />
