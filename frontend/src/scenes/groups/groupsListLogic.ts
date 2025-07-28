@@ -61,6 +61,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
         ],
         groupFilters: [
             INITIAL_GROUPS_FILTER,
+            persistConfig(props.groupTypeIndex),
             {
                 setGroupFilters: (_, { filters }) => filters,
                 setQuery: (state, { query }) => {
