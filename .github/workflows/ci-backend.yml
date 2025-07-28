@@ -752,8 +752,17 @@ jobs:
         needs: [django]
         name: Django Tests Pass
         runs-on: ubuntu-latest
+        if: always()
         steps:
-            - run: exit 0
+            - name: Check matrix outcome
+              run: |
+                  # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
+                  # Otherwise, it will be 'failure'.
+                  if [[ "${{ needs.django.result }}" != "success" ]]; then
+                    echo "One or more jobs in the Django test matrix failed."
+                    exit 1
+                  fi
+                  echo "All jobs in the Django test matrix passed."
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
