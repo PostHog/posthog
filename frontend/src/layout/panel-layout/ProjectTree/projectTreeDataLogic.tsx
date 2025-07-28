@@ -777,6 +777,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.addLoadedResults(items as any as SearchResults)
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
+            if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+                actions.deleteShortcut(item?.id)
+                return
+            }
+
             if (!item.id) {
                 const response = await api.fileSystem.list({ type: 'folder', path: item.path })
                 const items = response.results ?? []

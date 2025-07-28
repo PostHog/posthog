@@ -45,7 +45,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { calculateMovePath, isGroupViewShortcut } from './utils'
+import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
@@ -120,7 +120,6 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
@@ -348,15 +347,7 @@ export function ProjectTree({
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            // Use deleteShortcut for saved views (group view shortcuts), deleteItem for others
-                            if (
-                                hasCrmIterationOneEnabled &&
-                                isGroupViewShortcut(item.record as unknown as FileSystemEntry)
-                            ) {
-                                item.record && deleteShortcut(item.record?.id)
-                            } else {
-                                deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
-                            }
+                            deleteItem(item.record as unknown as FileSystemEntry, logicKey ?? uniqueKey)
                         }}
                         data-attr="tree-item-menu-delete-shortcut-button"
                     >
