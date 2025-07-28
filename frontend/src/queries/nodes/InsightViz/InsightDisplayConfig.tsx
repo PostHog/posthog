@@ -36,11 +36,15 @@ import { useDebouncedCallback } from 'use-debounce'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { isTrendsQuery } from '~/queries/utils'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const {
+        querySource,
         isTrends,
         isFunnels,
         isRetention,
@@ -63,12 +67,11 @@ export function InsightDisplayConfig(): JSX.Element {
         compareFilter,
         supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
-
-    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -79,6 +82,9 @@ export function InsightDisplayConfig(): JSX.Element {
         isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
     const showMultipleYAxesConfig = isTrends || isStickiness
     const showAlertThresholdLinesConfig = isTrends
+    const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
+    const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+    const showConfidenceIntervals = isLineGraph && !!trendsFilter?.showConfidenceIntervals && isLinearScale
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -129,6 +135,45 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'Y-axis scale',
                       items: [{ label: () => <ScalePicker /> }],
+                  },
+                  {
+                      title: 'Statistical analysis',
+                      items: [
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Show confidence intervals"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={showConfidenceIntervals}
+                                      disabledReason={
+                                          !isLineGraph
+                                              ? 'Confidence intervals are only available for line graphs'
+                                              : !isLinearScale
+                                              ? 'Confidence intervals are only supported for linear scale.'
+                                              : undefined
+                                      }
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  showConfidenceIntervals: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                          ...(showConfidenceIntervals
+                              ? [
+                                    {
+                                        label: () => <ConfidenceLevelInput />,
+                                    },
+                                ]
+                              : []),
+                      ],
                   },
               ]
             : []),

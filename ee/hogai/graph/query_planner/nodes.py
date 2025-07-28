@@ -1,4 +1,3 @@
-import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
 from typing import Literal, cast
@@ -15,25 +14,19 @@ from pydantic import Field, ValidationError, create_model
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
-from ee.hogai.utils.helpers import dereference_schema, remove_line_breaks
+from ee.hogai.utils.helpers import dereference_schema, format_events_prompt
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    CachedTeamTaxonomyQueryResponse,
-    MaxEventContext,
-    TeamTaxonomyQuery,
     VisualizationMessage,
 )
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ..base import AssistantNode
 from .prompts import (
@@ -112,7 +105,7 @@ class QueryPlannerNode(AssistantNode):
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
-                "events": self._format_events_prompt(events_in_context),
+                "events": format_events_prompt(events_in_context, self._team),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
@@ -177,56 +170,6 @@ class QueryPlannerNode(AssistantNode):
             .format_messages(groups=self._team_group_types)[0]
             .content,
         )
-
-    def _format_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
-        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
-
-        if not isinstance(response, CachedTeamTaxonomyQueryResponse):
-            raise ValueError("Failed to generate events prompt.")
-
-        events: list[str] = [
-            # Add "All events" to the mapping
-            "All events",
-        ]
-        for item in response.results:
-            if len(response.results) > 25 and item.count <= 3:
-                continue
-            events.append(item.event)
-        event_to_description: dict[str, str] = {}
-        for event in events_in_context:
-            if event.name and event.name not in events:
-                events.append(event.name)
-                if event.description:
-                    event_to_description[event.name] = event.description
-
-        # Create a set of event names from context for efficient lookup
-        context_event_names = {event.name for event in events_in_context if event.name}
-
-        root = ET.Element("defined_events")
-        for event_name in events:
-            event_tag = ET.SubElement(root, "event")
-            name_tag = ET.SubElement(event_tag, "name")
-            name_tag.text = event_name
-
-            if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
-                if event_name not in context_event_names and (
-                    event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
-                ):
-                    continue  # Skip irrelevant events but keep events the user has added to the context
-                if description := event_core_definition.get("description"):
-                    desc_tag = ET.SubElement(event_tag, "description")
-                    if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
-                        desc_tag.text = f"{label}. {description}"
-                    else:
-                        desc_tag.text = description
-                    desc_tag.text = remove_line_breaks(desc_tag.text)
-            elif event_name in event_to_description:
-                desc_tag = ET.SubElement(event_tag, "description")
-                desc_tag.text = event_to_description[event_name]
-                desc_tag.text = remove_line_breaks(desc_tag.text)
-        return ET.tostring(root, encoding="unicode")
 
     @cached_property
     def _team_group_types(self) -> list[str]:

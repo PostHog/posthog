@@ -203,6 +203,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLICKHOUSE_CA: string | null // ClickHouse CA certs
     CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
+    CASSANDRA_HOST: string
+    CASSANDRA_PORT: number
+    CASSANDRA_KEYSPACE: string
+    CASSANDRA_USER: string | null
+    CASSANDRA_PASSWORD: string | null
+    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     // Redis url pretty much only used locally / self hosted
@@ -227,6 +233,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_MAX_BACKGROUND_TASKS: number
+    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
 
     // Kafka params - identical for client and producer
@@ -411,7 +418,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
-    eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub

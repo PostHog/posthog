@@ -9,7 +9,7 @@ import dataclasses
 from posthog.models.utils import UUIDModel
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionTemplateType,
-    HogFunctionTemplate as HogFunctionTemplateDTO,
+    HogFunctionTemplateDC as HogFunctionTemplateDTO,
     HogFunctionMapping,
     HogFunctionMappingTemplate,
 )
@@ -171,7 +171,7 @@ class HogFunctionTemplate(UUIDModel):
         return HogFunctionTemplateDTO(
             id=self.template_id,
             name=self.name,
-            hog=self.code,
+            code=self.code,
             inputs_schema=self.inputs_schema,
             free=self.free,
             type=cast(HogFunctionTemplateType, self.type),
@@ -219,18 +219,20 @@ class HogFunctionTemplate(UUIDModel):
         Returns:
             The saved database template instance
         """
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
         from posthog.cdp.validation import compile_hog
         import json
 
         # Verify the dataclass_template is the correct type
-        if not isinstance(dataclass_template, DataclassTemplate):
+        if not isinstance(dataclass_template, HogFunctionTemplateDC):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
+
+        code = dataclass_template.code.strip()
 
         # Calculate sha based on content hash
         template_dict = {
             "id": dataclass_template.id,
-            "code": dataclass_template.hog,
+            "code": code,
             "code_language": dataclass_template.code_language,
             "inputs_schema": dataclass_template.inputs_schema,
             "status": dataclass_template.status,
@@ -258,7 +260,7 @@ class HogFunctionTemplate(UUIDModel):
         # Compile bytecode only for hog
         if dataclass_template.code_language == "hog":
             try:
-                bytecode = compile_hog(dataclass_template.hog, dataclass_template.type)
+                bytecode = compile_hog(code, dataclass_template.type)
             except Exception as e:
                 logger.error(
                     "Failed to compile template bytecode during creation",
@@ -284,7 +286,7 @@ class HogFunctionTemplate(UUIDModel):
                 "sha": sha,
                 "name": dataclass_template.name,
                 "description": dataclass_template.description,
-                "code": dataclass_template.hog,  # still using hog for now
+                "code": code,
                 "code_language": dataclass_template.code_language,
                 "inputs_schema": dataclass_template.inputs_schema,
                 "bytecode": bytecode,

@@ -16,7 +16,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/posthog/customerio-plugin/main/logo.png',
         category: [],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 templating: false,

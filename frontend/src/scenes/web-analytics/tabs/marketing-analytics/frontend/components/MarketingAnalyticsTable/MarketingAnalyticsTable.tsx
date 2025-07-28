@@ -1,5 +1,5 @@
-import { IconEllipsis, IconSort } from '@posthog/icons'
-import { IconArrowUp, IconArrowDown } from 'lib/lemon-ui/icons'
+import { IconEllipsis, IconSort, IconPlus } from '@posthog/icons'
+import { IconArrowUp, IconArrowDown, IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
@@ -18,7 +18,8 @@ import { LemonMenu } from '@posthog/lemon-ui'
 
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
+import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
@@ -27,11 +28,11 @@ interface MarketingAnalyticsTableProps {
 
 const QUERY_ORDER_BY_START_INDEX = 1
 
-// TODO: refactor this component to support column actions (`...` button) to be more explicit on the different actions
-// Also we need to centralize the column names and orderBy fields whether in the backend or frontend
 export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
-    const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy } = useActions(marketingAnalyticsLogic)
-    const { marketingAnalyticsOrderBy, conversion_goals, dynamicConversionGoal } = useValues(marketingAnalyticsLogic)
+    const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy, saveDraftConversionGoal } =
+        useActions(marketingAnalyticsLogic)
+    const { marketingAnalyticsOrderBy, conversion_goals, draftConversionGoal } = useValues(marketingAnalyticsLogic)
+    const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
 
     // Create a new query object with the orderBy field when sorting state changes
     const queryWithOrderBy = useMemo(() => {
@@ -53,17 +54,17 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     // Combined conversion goals - static from settings + dynamic goal
     const allConversionGoals = useMemo(() => {
         const goals: ConversionGoalFilter[] = []
-        if (dynamicConversionGoal) {
-            goals.push(dynamicConversionGoal)
+        if (draftConversionGoal) {
+            goals.push(draftConversionGoal)
         }
         if (conversion_goals) {
             goals.push(...conversion_goals)
         }
         return goals
-    }, [conversion_goals, dynamicConversionGoal])
+    }, [conversion_goals, draftConversionGoal])
 
     const makeMarketingSortableCell = useCallback(
-        (name: string, index: number) => {
+        (name: string, index: number, isConversionGoal = false) => {
             return function MarketingSortableCellComponent() {
                 const [orderIndex, orderDirection] = marketingAnalyticsOrderBy || [null, null]
                 const isSortedByMyField = orderIndex === index
@@ -97,24 +98,46 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                                 : []),
                         ],
                     },
+                    // Add save option for conversion goal columns
+                    ...(isConversionGoal
+                        ? [
+                              {
+                                  title: 'Actions',
+                                  items: [
+                                      {
+                                          label: 'Save as conversion goal',
+                                          icon: <IconBookmarkBorder />,
+                                          onClick: () => {
+                                              if (draftConversionGoal) {
+                                                  addOrUpdateConversionGoal(draftConversionGoal)
+                                                  saveDraftConversionGoal()
+                                              }
+                                          },
+                                      },
+                                  ],
+                              },
+                          ]
+                        : []),
                 ]
+
+                const icon = isConversionGoal ? (
+                    <IconPlus className="ml-1 group-hover:hidden" />
+                ) : isSortedByMyField ? (
+                    isAscending ? (
+                        <IconArrowUp className="ml-1 group-hover:hidden" />
+                    ) : (
+                        <IconArrowDown className="ml-1 group-hover:hidden" />
+                    )
+                ) : null
 
                 return (
                     <LemonMenu items={menuItems}>
                         <span className="group cursor-pointer inline-flex items-center">
                             {name}
-                            {isSortedByMyField ? (
-                                isAscending ? (
-                                    <>
-                                        <IconArrowUp className="ml-1 group-hover:hidden" />
-                                        <IconEllipsis className="ml-1 hidden group-hover:inline" />
-                                    </>
-                                ) : (
-                                    <>
-                                        <IconArrowDown className="ml-1 group-hover:hidden" />
-                                        <IconEllipsis className="ml-1 hidden group-hover:inline" />
-                                    </>
-                                )
+                            {icon ? (
+                                <>
+                                    {icon} <IconEllipsis className="ml-1 hidden group-hover:inline" />
+                                </>
                             ) : (
                                 <IconEllipsis className="ml-1 opacity-0 group-hover:opacity-100" />
                             )}
@@ -123,7 +146,14 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 )
             }
         },
-        [marketingAnalyticsOrderBy, setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy]
+        [
+            marketingAnalyticsOrderBy,
+            setMarketingAnalyticsOrderBy,
+            clearMarketingAnalyticsOrderBy,
+            draftConversionGoal,
+            addOrUpdateConversionGoal,
+            saveDraftConversionGoal,
+        ]
     )
 
     const conversionGoalColumns = useMemo(() => {
@@ -139,21 +169,24 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             const costColumnIndex =
                 Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX + 1
 
+            // Check if this is the dynamic conversion goal (the one being created/edited)
+            const isDraftConversionGoal = goal === draftConversionGoal
+
             // Add conversion count column
             columns[goalName] = {
-                renderTitle: makeMarketingSortableCell(goalName, goalColumnIndex),
+                renderTitle: makeMarketingSortableCell(goalName, goalColumnIndex, isDraftConversionGoal),
                 align: 'right',
             }
 
             // Add cost per conversion column
             columns[costPerGoalName] = {
-                renderTitle: makeMarketingSortableCell(costPerGoalName, costColumnIndex),
+                renderTitle: makeMarketingSortableCell(costPerGoalName, costColumnIndex, isDraftConversionGoal),
                 align: 'right',
             }
         })
 
         return columns
-    }, [allConversionGoals, makeMarketingSortableCell])
+    }, [allConversionGoals, makeMarketingSortableCell, draftConversionGoal])
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -170,14 +203,17 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             }, {} as Record<string, QueryContextColumn>),
             ...conversionGoalColumns,
         },
+        formatNumbers: true,
     }
 
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <DynamicConversionGoalControls />
+                <DraftConversionGoalControls />
             </div>
-            <Query query={queryWithOrderBy} readOnly={false} context={marketingAnalyticsContext} />
+            <div className="relative marketing-analytics-table-container">
+                <Query query={queryWithOrderBy} readOnly={false} context={marketingAnalyticsContext} />
+            </div>
         </div>
     )
 }
