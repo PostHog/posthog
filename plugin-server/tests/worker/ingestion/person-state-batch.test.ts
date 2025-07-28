@@ -2775,16 +2775,20 @@ describe('PersonState.processEvent()', () => {
 
             // Mock moveDistinctIds to first move the distinct ID to person3 (simulating race condition), then succeed
             let moveDistinctIdsCalls = 0
-            const originalMoveDistinctIds = personRepository.moveDistinctIds
+            const originalMoveDistinctIds = batchStore.moveDistinctIds.bind(batchStore)
+
+            // Mock the batch store method which is what gets called through the transaction wrapper
             const moveDistinctIdsSpy = jest
-                .spyOn(personRepository, 'moveDistinctIds')
-                .mockImplementation(async (...args) => {
+                .spyOn(batchStore, 'moveDistinctIds')
+                .mockImplementation(async (source, target, distinctId, tx) => {
                     moveDistinctIdsCalls++
                     if (moveDistinctIdsCalls === 1) {
                         // Simulate the race condition: move firstUserDistinctId to person3
                         // This simulates another process moving the distinct ID during the merge
-                        await originalMoveDistinctIds.call(personRepository, person1, person3)
-                        await personRepository.deletePerson(person1)
+                        await personRepository.inRawTransaction('test', async (tx) => {
+                            await personRepository.moveDistinctIds(person1, person3, tx)
+                            await personRepository.deletePerson(person1, tx)
+                        })
 
                         // First call fails with SourcePersonNotFoundError (person1 no longer exists)
                         return Promise.resolve({
@@ -2794,7 +2798,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds.call(personRepository, ...args)
+                    return originalMoveDistinctIds(source, target, distinctId, tx)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
