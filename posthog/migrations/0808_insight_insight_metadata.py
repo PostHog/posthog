@@ -10,8 +10,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="notebook",
-            name="notebook_bool",
-            field=models.BooleanField(default=False),
+            model_name="insight",
+            name="query_metadata",
+            field=models.JSONField(null=True, blank=True),
         ),
     ]
