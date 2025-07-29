@@ -11,14 +11,14 @@ logger = structlog.get_logger(__name__)
 
 class HogFunctionMappingTemplateSerializer(serializers.Serializer):
     name = serializers.CharField()
-    include_by_default = serializers.BooleanField(required=False)
-    filters = serializers.JSONField(required=False)
-    inputs = serializers.JSONField(required=False)
-    inputs_schema = serializers.JSONField(required=False)
+    include_by_default = serializers.BooleanField(required=False, allow_null=True)
+    filters = serializers.JSONField(required=False, allow_null=True)
+    inputs = serializers.JSONField(required=False, allow_null=True)
+    inputs_schema = serializers.JSONField(required=False, allow_null=True)
 
 
 class HogFunctionTemplateSerializer(serializers.ModelSerializer):
-    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
+    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False, allow_null=True)
     id = serializers.CharField(source="template_id")
 
     class Meta:
