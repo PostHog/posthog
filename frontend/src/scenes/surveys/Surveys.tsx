@@ -138,7 +138,12 @@ function Surveys(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                        <LemonButton
+                            size="small"
+                            type={!newSceneLayout ? 'secondary' : undefined}
+                            id="surveys-page-feedback-button"
+                            tooltip={newSceneLayout ? 'Have any questions or feedback?' : undefined}
+                        >
                             {!newSceneLayout ? <>Have any questions or feedback?</> : <>Feedback</>}
                         </LemonButton>
                         <NewSurveyButton />

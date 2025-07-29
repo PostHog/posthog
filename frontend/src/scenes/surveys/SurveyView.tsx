@@ -80,7 +80,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
-                                <LemonButton size="small" id="surveys-page-feedback-button">
+                                <LemonButton
+                                    size="small"
+                                    type={!newSceneLayout ? 'secondary' : undefined}
+                                    id="surveys-page-feedback-button"
+                                    tooltip={newSceneLayout ? 'Have any questions or feedback?' : undefined}
+                                >
                                     {!newSceneLayout ? <>Have any questions or feedback?</> : <>Feedback</>}
                                 </LemonButton>
 
