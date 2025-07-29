@@ -132,14 +132,13 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
                     "query": "select event as updated_event from events LIMIT 100",
                 },
                 "saved_query_id": str(saved_query.id),
-                "name": "test_draft",
             },
         )
 
         self.assertEqual(response.status_code, 201, response.content)
         draft = response.json()
         self.assertEqual(draft["saved_query_id"], str(saved_query.id))
-        self.assertEqual(draft["name"], "(1) test_draft")
+        self.assertEqual(draft["name"], "(1) test_query")
         # Verify it was actually saved to the database
         draft_obj = DataWarehouseSavedQueryDraft.objects.get(id=draft["id"])
         self.assertIsNotNone(draft_obj.saved_query)
