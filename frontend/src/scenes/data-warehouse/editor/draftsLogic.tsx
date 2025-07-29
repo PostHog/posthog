@@ -1,5 +1,5 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
-import api from 'lib/api'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import api, { PaginatedResponse } from 'lib/api'
 
 import { DataWarehouseSavedQueryDraft } from '~/types'
 
@@ -36,17 +36,32 @@ export const draftsLogic = kea<draftsLogicType>([
         renameDraft: (draftId: string, name: string) => ({ draftId, name }),
     }),
 
-    loaders({
-        drafts: [
-            [] as DataWarehouseSavedQueryDraft[],
+    loaders(({ values }) => ({
+        draftsResponse: [
+            {} as PaginatedResponse<DataWarehouseSavedQueryDraft>,
             {
                 loadDrafts: async () => {
                     const drafts = await api.dataWarehouseSavedQueryDrafts.list()
-                    return drafts.results
+
+                    return drafts
+                },
+                loadMoreDrafts: async () => {
+                    if (values.draftsResponse.next) {
+                        const drafts = await api.get<PaginatedResponse<DataWarehouseSavedQueryDraft>>(
+                            values.draftsResponse.next
+                        )
+
+                        return {
+                            ...values.draftsResponse,
+                            results: [...values.draftsResponse.results, ...drafts.results],
+                            next: drafts.next,
+                        }
+                    }
+                    return values.draftsResponse
                 },
             },
         ],
-    }),
+    })),
     reducers({
         drafts: [
             [] as DataWarehouseSavedQueryDraft[],
@@ -55,7 +70,16 @@ export const draftsLogic = kea<draftsLogicType>([
             },
         ],
     }),
+    selectors({
+        hasMoreDrafts: [(s) => [s.draftsResponse], (draftsResponse) => draftsResponse.next !== null],
+    }),
     listeners(({ values, actions }) => ({
+        loadDraftsSuccess: ({ draftsResponse }) => {
+            actions.setDrafts(draftsResponse.results)
+        },
+        loadMoreDraftsSuccess: ({ draftsResponse }) => {
+            actions.setDrafts(draftsResponse.results)
+        },
         saveAsDraft: async ({ query, viewId, successCallback, editedHistoryId }) => {
             const draft = await api.dataWarehouseSavedQueryDrafts.create({
                 query,

@@ -1,4 +1,4 @@
-import { IconDatabase, IconDocument, IconPlug } from '@posthog/icons'
+import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
@@ -337,7 +337,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
             draftsLogic,
-            ['drafts', 'draftsLoading'],
+            ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
         ],
         actions: [
             viewLinkLogic,
@@ -347,7 +347,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             dataWarehouseJoinsLogic,
             ['loadJoins'],
             draftsLogic,
-            ['loadDrafts', 'renameDraft'],
+            ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
         ],
     })),
     reducers({
@@ -570,6 +570,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('managed-views', managedViewsChildren, true))
                 }
 
+                // TODO: this needs to moved to the backend
                 if (draftsChildren.length > 0) {
                     expandedIds.push('search-drafts')
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
@@ -594,7 +595,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
                 s.drafts,
-                s.draftsLoading,
+                s.draftsResponseLoading,
+                s.hasMoreDrafts,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -606,7 +608,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 databaseLoading: boolean,
                 dataWarehouseSavedQueriesLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
-                draftsLoading: boolean
+                draftsResponseLoading: boolean,
+                hasMoreDrafts: boolean
             ): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchTreeData
@@ -689,7 +692,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const draftsChildren: TreeDataItem[] = []
 
-                if (draftsLoading && drafts.length === 0) {
+                if (draftsResponseLoading && drafts.length === 0) {
                     draftsChildren.push({
                         id: 'drafts-loading/',
                         name: 'Loading...',
@@ -702,6 +705,27 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     drafts.forEach((draft) => {
                         draftsChildren.push(createDraftNode(draft))
                     })
+
+                    if (drafts.length > 0 && draftsResponseLoading) {
+                        draftsChildren.push({
+                            id: 'drafts-loading/',
+                            name: 'Loading...',
+                            displayName: <>Loading...</>,
+                            icon: <Spinner />,
+                            disableSelect: true,
+                            type: 'loading-indicator',
+                        })
+                    } else if (hasMoreDrafts) {
+                        draftsChildren.push({
+                            id: 'drafts-load-more/',
+                            name: 'Load more...',
+                            displayName: <>Load more...</>,
+                            icon: <IconPlus />,
+                            onClick: () => {
+                                actions.loadMoreDrafts()
+                            },
+                        })
+                    }
                 }
 
                 return [
