@@ -614,7 +614,7 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
-def get_browser_info(request: HttpRequest) -> str:
+def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
     user_agent_str = request.META.get("HTTP_USER_AGENT")
 

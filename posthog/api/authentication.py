@@ -1,5 +1,4 @@
 import datetime
-import hashlib
 import time
 from typing import Any, Optional, cast
 from uuid import uuid4
@@ -41,32 +40,10 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
-from posthog.redis import get_client
 from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup_code_used_email
 from posthog.utils import get_instance_available_sso_providers
-from posthog.tasks.email import send_login_notification_email
-from posthog.utils import get_ip_address, get_browser_info
-from posthog.geoip import get_geoip_properties
-
-
-def check_and_cache_login_device(user_id: int, ip_address: str, user_agent: str) -> bool:
-    """Check if the user has logged in with this device before and cache it for 30 days"""
-
-    # Create a unique device identifier based on ip + user agent
-    device_fingerprint = f"{ip_address}:{user_agent}"
-    device_hash = hashlib.md5(device_fingerprint.encode()).hexdigest()
-    cache_key = f"login_device:{user_id}:{device_hash}"
-
-    # Check if this device has logged in before
-    redis_client = get_client()
-    device_exists = redis_client.exists(cache_key)
-
-    if device_exists:
-        redis_client.expire(cache_key, 30 * 24 * 60 * 60)
-        return False
-    else:
-        redis_client.setex(cache_key, 30 * 24 * 60 * 60, "1")
-        return True
+from posthog.tasks.email import login_from_new_device_notification
+from posthog.utils import get_short_user_agent, get_ip_address
 
 
 @receiver(user_logged_in)
@@ -86,26 +63,14 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = current_time
 
-    # Treat as signup if user was created in the last 10s
-    is_signup = (timezone.now() - user.date_joined) < datetime.timedelta(seconds=10)
+    # Treat as signup if user was created in the last 30s
+    is_signup = (timezone.now() - user.date_joined) < datetime.timedelta(seconds=30)
+
+    short_user_agent = get_short_user_agent(request)
+    ip_address = get_ip_address(request)
 
     if not is_reauthentication and not is_signup:
-        ip_address = get_ip_address(request)
-        geoip_data = get_geoip_properties(ip_address)
-        browser_info = get_browser_info(request)
-        is_new_device = check_and_cache_login_device(user.id, ip_address, browser_info)
-
-        # Only send email if GeoIP lookup is successful
-        if geoip_data and is_new_device:
-            send_login_notification_email.delay(
-                user_id=user.id,
-                login_time=timezone.now().strftime("%B %-d, %Y at %H:%M UTC"),
-                ip_address=ip_address,
-                location=f"{geoip_data.get('$geoip_city_name')}, {geoip_data.get('$geoip_country_name')}",
-                browser=browser_info,
-            )
-        else:
-            capture_exception(Exception("GeoIP lookup failed"), additional_properties={"ip_address": ip_address})
+        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
 
 @csrf_protect
