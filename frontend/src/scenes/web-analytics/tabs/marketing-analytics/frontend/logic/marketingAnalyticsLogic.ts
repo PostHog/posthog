@@ -13,7 +13,14 @@ import {
     MarketingAnalyticsColumnsSchemaNames,
     CompareFilter,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType, PipelineNodeTab, PipelineStage } from '~/types'
+import {
+    ChartDisplayType,
+    DataWarehouseSettingsTab,
+    ExternalDataSource,
+    IntervalType,
+    PipelineNodeTab,
+    PipelineStage,
+} from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -29,6 +36,7 @@ import {
 } from './utils'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
 import { uuid } from 'lib/utils'
+import { actionToUrl, urlToAction } from 'kea-router'
 
 export type ExternalTable = {
     name: string
@@ -84,6 +92,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
+        setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
     }),
     reducers({
         draftConversionGoal: [
@@ -171,6 +180,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             {
                 showColumnConfigModal: () => true,
                 hideColumnConfigModal: () => false,
+            },
+        ],
+        chartDisplayType: [
+            ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+            persistConfig,
+            {
+                setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
             },
         ],
     }),
@@ -325,6 +341,21 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
     }),
+    actionToUrl(({ values }) => ({
+        setChartDisplayType: () => {
+            const searchParams = new URLSearchParams(window.location.search)
+            searchParams.set('chart_display_type', values.chartDisplayType)
+            return [window.location.pathname, searchParams.toString()]
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '*': (_, searchParams) => {
+            const chartDisplayType = searchParams.chart_display_type as ChartDisplayType | undefined
+            if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
+                actions.setChartDisplayType(chartDisplayType)
+            }
+        },
+    })),
     listeners(({ actions }) => ({
         saveDraftConversionGoal: () => {
             // Create a new local conversion goal with new id
