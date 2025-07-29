@@ -43,6 +43,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
@@ -304,6 +305,7 @@ def property_to_expr(
         | LogEntryPropertyFilter
         | GroupPropertyFilter
         | FeaturePropertyFilter
+        | FlagPropertyFilter
         | HogQLPropertyFilter
         | EmptyPropertyFilter
         | DataWarehousePropertyFilter

@@ -63,7 +63,7 @@ export class TemplateTester {
 
         this.template = {
             ...this._template,
-            bytecode: await compileHog(this._template.hog),
+            bytecode: await compileHog(this._template.code),
         }
 
         this.executor = new HogExecutorService(this.mockHub)
@@ -156,8 +156,10 @@ export class TemplateTester {
         const compiledInputs = await this.compileInputs(_inputs)
         const globals = this.createGlobals(_globals)
 
+        const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
-            ...this.template,
+            ...partialTemplate,
+            hog: code,
             inputs: compiledInputs,
             bytecode: this.template.bytecode,
             team_id: 1,
@@ -228,8 +230,10 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
+        const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
-            ...this.template,
+            ...partialTemplate,
+            hog: code,
             team_id: 1,
             enabled: true,
             created_at: '2024-01-01T00:00:00Z',

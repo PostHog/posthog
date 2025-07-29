@@ -506,4 +506,68 @@ describe('HogWatcher', () => {
             expect(await tokensUsed(id)).toBe(expectedTotalCost)
         })
     })
+
+    describe('zero cost timing configuration', () => {
+        it('should handle zero cost timing for hog functions without crashing', async () => {
+            const zeroHogCostHub = {
+                ...hub,
+                CDP_WATCHER_HOG_COST_TIMING: 0,
+            }
+            const watcherWithZeroHogCost = new HogWatcherService(zeroHogCostHub, redis)
+
+            await watcherWithZeroHogCost.observeResults([
+                createResult({ id: 'zero_hog_cost', duration: 1000, kind: 'hog' }),
+                createResult({ id: 'zero_hog_cost', duration: 5000, kind: 'hog' }),
+            ])
+
+            const state = await watcherWithZeroHogCost.getState('zero_hog_cost')
+
+            expect(state.tokens).toBe(hub.CDP_WATCHER_BUCKET_SIZE)
+            expect(state.state).toBe(HogWatcherState.healthy)
+            expect(state.rating).toBe(1)
+        })
+
+        it('should handle zero cost timing for async functions without crashing', async () => {
+            const zeroAsyncCostHub = {
+                ...hub,
+                CDP_WATCHER_ASYNC_COST_TIMING: 0,
+            }
+            const watcherWithZeroAsyncCost = new HogWatcherService(zeroAsyncCostHub, redis)
+
+            await watcherWithZeroAsyncCost.observeResults([
+                createResult({ id: 'zero_async_cost', duration: 1000, kind: 'async_function' }),
+                createResult({ id: 'zero_async_cost', duration: 10000, kind: 'async_function' }),
+            ])
+
+            const state = await watcherWithZeroAsyncCost.getState('zero_async_cost')
+
+            expect(state.tokens).toBe(hub.CDP_WATCHER_BUCKET_SIZE)
+            expect(state.state).toBe(HogWatcherState.healthy)
+            expect(state.rating).toBe(1)
+        })
+
+        it('should handle both zero cost timings without crashing', async () => {
+            const zeroCostHub = {
+                ...hub,
+                CDP_WATCHER_HOG_COST_TIMING: 0,
+                CDP_WATCHER_ASYNC_COST_TIMING: 0,
+            }
+            const watcherWithZeroCosts = new HogWatcherService(zeroCostHub, redis)
+
+            const result = createResult({ id: 'zero_all_costs', duration: 1000, kind: 'hog' })
+            result.invocation.state.timings = [
+                { kind: 'hog', duration_ms: 2000 },
+                { kind: 'async_function', duration_ms: 5000 },
+                { kind: 'hog', duration_ms: 1000 },
+            ]
+
+            await watcherWithZeroCosts.observeResults([result])
+
+            const state = await watcherWithZeroCosts.getState('zero_all_costs')
+
+            expect(state.tokens).toBe(hub.CDP_WATCHER_BUCKET_SIZE)
+            expect(state.state).toBe(HogWatcherState.healthy)
+            expect(state.rating).toBe(1)
+        })
+    })
 })

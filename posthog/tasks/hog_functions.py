@@ -91,7 +91,7 @@ def queue_sync_hog_function_templates() -> None:
         if r.setnx(lock_key, 1):
             r.expire(lock_key, 60 * 60)  # expire after 1 hour
             logger.info("Queuing sync_hog_function_templates celery task (redis lock)...")
-            sync_hog_function_templates_task.delay()
+            # sync_hog_function_templates_task.delay() # NOTE: Temp paused
         else:
             logger.info("Not queuing sync_hog_function_templates task: lock already set")
     except Exception as e:
