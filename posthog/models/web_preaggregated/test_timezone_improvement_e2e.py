@@ -6,7 +6,7 @@ vs hourly bucketing (new solution) for users in different timezones.
 """
 
 import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, UTC
 from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
     WEB_STATS_HOURLY_COMBINED_VIEW_SQL,
@@ -47,8 +47,8 @@ class TestTimezoneImprovementE2E:
         user_yesterday_end = datetime(2024, 1, 1, 23, 59, 59, tzinfo=pacific_tz)
 
         # Convert to UTC for queries
-        utc_start = user_yesterday_start.astimezone(timezone.utc)  # Jan 1, 08:00 UTC
-        utc_end = user_yesterday_end.astimezone(timezone.utc)  # Jan 2, 07:59 UTC
+        utc_start = user_yesterday_start.astimezone(UTC)  # Jan 1, 08:00 UTC
+        utc_end = user_yesterday_end.astimezone(UTC)  # Jan 2, 07:59 UTC
 
         # CURRENT APPROACH: Daily UTC buckets
         daily_sql = WEB_STATS_INSERT_SQL(
@@ -133,9 +133,9 @@ class TestTimezoneImprovementE2E:
         """
         Verify that despite hourly bucketing, we maintain efficient partitioning.
         """
-        from posthog.models.web_preaggregated.sql import WEB_STATS_HOURLY_HISTORICAL_SQL
+        from posthog.models.web_preaggregated.sql import WEB_STATS_SQL
 
-        create_sql = WEB_STATS_HOURLY_HISTORICAL_SQL()
+        create_sql = WEB_STATS_SQL()
 
         # Should still use daily partitions (not hourly partitions)
         # This maintains the same partition management overhead as daily tables

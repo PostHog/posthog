@@ -1,4 +1,8 @@
+from datetime import datetime, timedelta
 import os
+
+import dagster
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 from typing import Optional
 from dagster import Backoff, Field, Array, Jitter, RetryPolicy
@@ -41,12 +45,10 @@ if DEBUG:
 
 
 def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
-    """Convert a settings dictionary to ClickHouse settings string format."""
     return ",".join([f"{key}={value}" for key, value in settings_dict.items()])
 
 
 def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Optional[str] = None) -> str:
-    """Merge base settings with extra settings string and return formatted string."""
     settings = base_settings.copy()
 
     if extra_settings:
@@ -57,6 +59,46 @@ def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Opt
                 settings[key.strip()] = value.strip()
 
     return format_clickhouse_settings(settings)
+
+
+def get_partitions(context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, table_name: str) -> list[str]:
+    partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
+    partitions_result = cluster.any_host(lambda client: client.execute(partition_query)).result()
+    context.log.info(f"Found {len(partitions_result)} partitions for {table_name}: {partitions_result}")
+    return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
+
+
+def drop_partitions_for_date_range(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, table_name: str, start_date: str, end_date: str
+) -> None:
+    current_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    while current_date < end_date_obj:
+        partition_id = current_date.strftime("%Y%m%d")
+        try:
+            cluster.any_host(
+                lambda client, pid=partition_id: client.execute(f"ALTER TABLE {table_name} DROP PARTITION '{pid}'")
+            ).result()
+            context.log.info(f"Dropped partition {partition_id} from {table_name}")
+        except Exception as e:
+            context.log.info(f"Partition {partition_id} doesn't exist or couldn't be dropped: {e}")
+
+        current_date += timedelta(days=1)
+
+
+def swap_partitions_from_staging(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
+) -> None:
+    staging_partitions = get_partitions(context, cluster, staging_table)
+    context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
+
+    for partition_id in staging_partitions:
+        cluster.any_host(
+            lambda client, pid=partition_id: client.execute(
+                f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}"
+            )
+        ).result()
 
 
 # Shared config schema for daily processing
