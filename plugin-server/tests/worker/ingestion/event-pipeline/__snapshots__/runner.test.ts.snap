@@ -108,7 +108,11 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
           "optimisticUpdateRetryInterval": 50,
         },
         "personCheckCache": {},
-        "personRepository": {},
+        "personRepository": {
+          "options": {
+            "calculatePropertiesSize": 0,
+          },
+        },
         "personUpdateCache": {},
         "updateLatencyPerDistinctIdSeconds": {},
       },
