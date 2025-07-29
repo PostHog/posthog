@@ -201,7 +201,7 @@ export function formatPercentageChange(result: ExperimentVariantResult): Percent
     // Calculate the point estimate as the middle of the interval
     const [lower, upper] = interval
     const pointEstimate = (lower + upper) / 2
-    const pointEstimatePercent = (pointEstimate * 100).toFixed(1)
+    const pointEstimatePercent = (pointEstimate * 100).toFixed(2)
 
     return {
         text: `${pointEstimatePercent}%`,
