@@ -498,8 +498,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         # All matching paths should be grouped under the same alias pattern
         assert [
-            ["/item/<id>/detail/<detail_id>", (3.0, None), (3.0, None), ""],
-            ["/other/123/path", (1.0, None), (1.0, None), ""],
+            ["/item/<id>/detail/<detail_id>", (3.0, None), (3.0, None), 3 / 4, ""],
+            ["/other/123/path", (1.0, None), (1.0, None), 1 / 4, ""],
         ] == results
 
     def test_path_cleaning_filters_applied_in_order(self):
@@ -535,9 +535,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         # The actual results show that ALL rules are applied in sequence using the previous rule's result as input
         # That is why the general /admin/.* gets two results and we don't see a `/admin/settings/<page>`
         assert [
-            ["/admin/<section>", (2.0, None), (2.0, None), ""],  # Both admin paths matched this general rule
-            ["/user/<id>/<page>", (2.0, None), (2.0, None), ""],  # Both user paths
-            ["/other/path", (1.0, None), (1.0, None), ""],  # unchanged
+            ["/admin/<section>", (2.0, None), (2.0, None), 2 / 5, ""],  # Both admin paths matched this general rule
+            ["/user/<id>/<page>", (2.0, None), (2.0, None), 2 / 5, ""],  # Both user paths
+            ["/other/path", (1.0, None), (1.0, None), 1, ""],  # unchanged
         ] == results
 
     def test_path_cleaning_with_order_field_and_baseline_urls(self):
@@ -579,10 +579,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         expected_results = [
-            ["/item/<id>/detail1/<consultation>", (1.0, None), (1.0, None), ""],
-            ["/item/<id>/list/<list_id>/spp/insessionForm/<form>", (1.0, None), (1.0, None), ""],
-            ["/item/<id>/list/<list_id>/baseline", (1.0, None), (1.0, None), ""],
-            ["/item/<id>", (1.0, None), (1.0, None), ""],
+            ["/item/<id>/detail1/<consultation>", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/item/<id>/list/<list_id>/spp/insessionForm/<form>", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/item/<id>/list/<list_id>/baseline", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/item/<id>", (1.0, None), (1.0, None), 1 / 4, ""],
         ]
 
         assert sorted(results) == sorted(expected_results)
