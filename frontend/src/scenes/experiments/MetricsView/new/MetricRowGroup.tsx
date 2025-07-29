@@ -9,7 +9,29 @@ import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
 import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
+import { MetricHeader } from '../shared/MetricHeader'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { useState, useRef, useEffect } from 'react'
+import { humanFriendlyNumber } from 'lib/utils'
+import { useChartColors } from '../shared/colors'
+import { useAxisScale } from './useAxisScale'
+import { GridLines } from './GridLines'
 import { ChartCell } from './ChartCell'
+import { createPortal } from 'react-dom'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import {
+    formatChanceToWin,
+    formatPValue,
+    getIntervalLabel,
+    getVariantInterval,
+    isBayesianResult,
+    type ExperimentVariantResult,
+} from '../shared/utils'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { IconTrending } from '@posthog/icons'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     CELL_HEIGHT,
@@ -57,6 +79,16 @@ export function MetricRowGroup({
     hasMinimumExposureForResults = true,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [tooltipState, setTooltipState] = useState<{
+        isVisible: boolean
+        variantResult: ExperimentVariantResult | null
+        position: { x: number; y: number }
+    }>({
+        isVisible: false,
+        variantResult: null,
+        position: { x: 0, y: 0 },
+    })
+    const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
@@ -81,6 +113,53 @@ export function MetricRowGroup({
             ? 'Total value / exposures'
             : 'Total conversions / exposures'
     }
+
+    // Tooltip handlers
+    const handleTooltipMouseEnter = (variantResult: ExperimentVariantResult): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: true,
+            variantResult,
+        }))
+    }
+
+    const handleTooltipMouseLeave = (): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: false,
+            variantResult: null,
+        }))
+    }
+
+    const handleTooltipMouseMove = (e: React.MouseEvent, containerRect: DOMRect): void => {
+        if (tooltipRef.current) {
+            const tooltipRect = tooltipRef.current.getBoundingClientRect()
+
+            // Position tooltip horizontally at mouse cursor
+            let x = e.clientX - tooltipRect.width / 2
+            const y = containerRect.top - tooltipRect.height - 8
+
+            // Keep tooltip within viewport bounds
+            const padding = 8
+            if (x < padding) {
+                x = padding
+            } else if (x + tooltipRect.width > window.innerWidth - padding) {
+                x = window.innerWidth - tooltipRect.width - padding
+            }
+
+            setTooltipState((prev) => ({
+                ...prev,
+                position: { x, y },
+            }))
+        }
+    }
+
+    // Effect to handle initial tooltip positioning
+    useEffect(() => {
+        if (tooltipState.isVisible && tooltipState.variantResult && tooltipRef.current) {
+            // Initial positioning will be handled by mouse move
+        }
+    }, [tooltipState.isVisible, tooltipState.variantResult])
 
     // Handle loading or error states
     if (isLoading || error || !result || !hasMinimumExposureForResults) {
@@ -137,8 +216,110 @@ export function MetricRowGroup({
     const baselineResult = result.baseline
     const variantResults = result.variant_results || []
 
+    // Render tooltip content
+    const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {
+        const interval = getVariantInterval(variantResult)
+        const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
+        const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
+        const intervalLabel = getIntervalLabel(variantResult)
+
+        return (
+            <div className="flex flex-col gap-1">
+                <div className="flex justify-between items-center">
+                    <div className="font-semibold">{variantResult.key}</div>
+                    {variantResult.key !== 'control' && (
+                        <LemonTag
+                            type={
+                                !variantResult.significant
+                                    ? 'muted'
+                                    : (() => {
+                                          const interval = getVariantInterval(variantResult)
+                                          const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
+                                          return deltaPercent > 0 ? 'success' : 'danger'
+                                      })()
+                            }
+                            size="medium"
+                        >
+                            {!variantResult.significant
+                                ? 'Not significant'
+                                : (() => {
+                                      const interval = getVariantInterval(variantResult)
+                                      const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
+                                      return deltaPercent > 0 ? 'Won' : 'Lost'
+                                  })()}
+                        </LemonTag>
+                    )}
+                </div>
+
+                <div className="flex justify-between items-center">
+                    <span className="text-muted-alt font-semibold">Total value:</span>
+                    <span className="font-semibold">{variantResult.sum}</span>
+                </div>
+
+                <div className="flex justify-between items-center">
+                    <span className="text-muted-alt font-semibold">Exposures:</span>
+                    <span className="font-semibold">{variantResult.number_of_samples}</span>
+                </div>
+
+                {isBayesianResult(variantResult) ? (
+                    <div className="flex justify-between items-center">
+                        <span className="text-muted-alt font-semibold">Chance to win:</span>
+                        <span className="font-semibold">{formatChanceToWin(variantResult.chance_to_win)}</span>
+                    </div>
+                ) : (
+                    <div className="flex justify-between items-center">
+                        <span className="text-muted-alt font-semibold">P-value:</span>
+                        <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
+                    </div>
+                )}
+
+                <div className="flex justify-between items-center">
+                    <span className="text-muted-alt font-semibold">Delta:</span>
+                    <span className="font-semibold">
+                        {variantResult.key === 'control' ? (
+                            <em className="text-muted-alt">Baseline</em>
+                        ) : (
+                            (() => {
+                                const deltaPercent = interval ? ((lower + upper) / 2) * 100 : 0
+                                const isPositive = deltaPercent > 0
+                                return (
+                                    <span className={isPositive ? 'text-success' : 'text-danger'}>
+                                        {`${isPositive ? '+' : ''}${deltaPercent.toFixed(2)}%`}
+                                    </span>
+                                )
+                            })()
+                        )}
+                    </span>
+                </div>
+
+                <div className="flex justify-between items-center">
+                    <span className="text-muted-alt font-semibold">{intervalLabel}:</span>
+                    <span className="font-semibold">{intervalPercent}</span>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <>
+            {/* Tooltip portal */}
+            {tooltipState.isVisible &&
+                tooltipState.variantResult &&
+                createPortal(
+                    <div
+                        ref={tooltipRef}
+                        className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px]"
+                        style={{
+                            left: tooltipState.position.x,
+                            top: tooltipState.position.y,
+                            visibility: tooltipState.position.x === 0 ? 'hidden' : 'visible',
+                        }}
+                    >
+                        {renderTooltipContent(tooltipState.variantResult)}
+                    </div>,
+                    document.body
+                )}
+
             {/* Baseline row */}
             <tr
                 className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
@@ -271,6 +452,12 @@ export function MetricRowGroup({
                         key={`${metricIndex}-${variant.key}`}
                         className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                        onMouseEnter={() => handleTooltipMouseEnter(variant)}
+                        onMouseLeave={handleTooltipMouseLeave}
+                        onMouseMove={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            handleTooltipMouseMove(e, rect)
+                        }}
                     >
                         {/* Variant name */}
                         <td

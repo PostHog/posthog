@@ -8,7 +8,6 @@ import {
     getVariantInterval,
     isBayesianResult,
 } from '../shared/utils'
-import { humanFriendlyNumber } from 'lib/utils'
 
 interface ChartCellTooltipProps {
     variantResult: ExperimentVariantResult
@@ -26,12 +25,35 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
     const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
     const intervalLabel = getIntervalLabel(variantResult)
 
+    const handleMouseMove = (e: React.MouseEvent): void => {
+        if (tooltipRef.current) {
+            const tooltipRect = tooltipRef.current.getBoundingClientRect()
+            const containerRect = containerRef.current?.getBoundingClientRect()
+
+            if (containerRect) {
+                // Position tooltip horizontally at mouse cursor
+                let x = e.clientX - tooltipRect.width / 2
+                const y = containerRect.top - tooltipRect.height - 8
+
+                // Keep tooltip within viewport bounds
+                const padding = 8
+                if (x < padding) {
+                    x = padding
+                } else if (x + tooltipRect.width > window.innerWidth - padding) {
+                    x = window.innerWidth - tooltipRect.width - padding
+                }
+
+                setTooltipPosition({ x, y })
+            }
+        }
+    }
+
     useEffect(() => {
         if (isVisible && containerRef.current && tooltipRef.current) {
             const containerRect = containerRef.current.getBoundingClientRect()
             const tooltipRect = tooltipRef.current.getBoundingClientRect()
 
-            // Position tooltip centered above the container
+            // Initial position centered above the container
             let x = containerRect.left + containerRect.width / 2 - tooltipRect.width / 2
             const y = containerRect.top - tooltipRect.height - 8
 
@@ -53,6 +75,7 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
             className="relative block w-full h-full"
             onMouseEnter={() => setIsVisible(true)}
             onMouseLeave={() => setIsVisible(false)}
+            onMouseMove={handleMouseMove}
         >
             {children}
 
@@ -105,14 +128,6 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt font-semibold">Exposures:</span>
                             <span className="font-semibold">{variantResult.number_of_samples}</span>
-                        </div>
-
-                        <div className="flex justify-between items-center">
-                            <span className="text-muted-alt font-semibold">Value:</span>
-                            <span className="font-semibold">
-                                {' '}
-                                {humanFriendlyNumber(variantResult.sum / variantResult.number_of_samples)}{' '}
-                            </span>
                         </div>
 
                         {isBayesianResult(variantResult) ? (
