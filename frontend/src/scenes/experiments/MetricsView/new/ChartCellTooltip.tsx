@@ -81,7 +81,7 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                                                   return deltaPercent > 0 ? 'success' : 'danger'
                                               })()
                                     }
-                                    size="small"
+                                    size="medium"
                                 >
                                     {!variantResult.significant
                                         ? 'Not significant'
