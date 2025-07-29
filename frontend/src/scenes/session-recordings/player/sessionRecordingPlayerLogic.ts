@@ -823,7 +823,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // and we need a short wait until the logic is mounted after calling setIsCommenting
                 const waitForLogic = async (): Promise<BuiltLogic<playerCommentOverlayLogicType> | null> => {
                     for (let attempts = 0; attempts < 5; attempts++) {
-                        const theMountedLogic = playerCommentOverlayLogic.findMounted()
+                        const theMountedLogic = playerCommentOverlayLogic.findMounted({
+                            recordingId: props.sessionRecordingId,
+                        })
                         if (theMountedLogic) {
                             return theMountedLogic
                         }
