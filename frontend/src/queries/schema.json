@@ -9419,7 +9419,6 @@
                         "additionalProperties": false,
                         "properties": {
                             "label": {
-                                "format": "date-time",
                                 "type": "string"
                             },
                             "value": {
@@ -9432,7 +9431,7 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeRange"],
+            "required": ["occurrences", "sessions", "users", "volume_buckets"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
