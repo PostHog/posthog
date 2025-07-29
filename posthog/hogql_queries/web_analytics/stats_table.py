@@ -527,10 +527,7 @@ GROUP BY session_id, breakdown_value
         # use visitors as a fallback
         return ast.Alias(
             alias="context.columns.ui_fill_fraction",
-            expr=parse_expr(
-                """ "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()""",
-                placeholders={"col": ast.Field(chain=[col_name])},
-            ),
+            expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
     def _period_comparison_tuple(self, column, alias, function_name):
