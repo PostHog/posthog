@@ -10,10 +10,14 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.exceptions_capture import capture_exception
 
-# Salesforce query to get all accounts with websites
+from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
+from ee.billing.salesforce_enrichment.salesforce_client import SalesforceClient
+from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
+
 SALESFORCE_ACCOUNTS_QUERY = """
     SELECT Id, Name, Website, CreatedDate
     FROM Account
@@ -43,8 +47,6 @@ class EnrichChunkInputs:
 async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     """Activity to enrich a single chunk of Salesforce accounts with concurrent API calls."""
 
-    from posthog.temporal.common.heartbeat import Heartbeater
-
     async with Heartbeater():
         logger = get_internal_logger()
         close_old_connections()
@@ -56,10 +58,6 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
         )
 
         try:
-            # Import here to avoid circular imports
-            from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
-
-            # Call the async business logic - it returns dict with correct field names
             result = await enrich_accounts_chunked_async(
                 chunk_number=inputs.chunk_number,
                 chunk_size=inputs.chunk_size,
@@ -96,13 +94,9 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
     try:
         close_old_connections()
 
-        # Import here to avoid circular imports
-        from ee.billing.salesforce_enrichment.salesforce_client import SalesforceClient
-        from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
-
         logger.info("Starting to cache Salesforce accounts", workflow_id=workflow_id)
 
-        # Simple cache check - if cache exists, return the total count
+        # Exit early if cache exists
         cached_count = await get_cached_accounts_count()
         if cached_count is not None:
             logger.info("Cache exists, skipping Salesforce query", workflow_id=workflow_id, cached_total=cached_count)
@@ -151,24 +145,18 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
     async def run(self, inputs: SalesforceEnrichmentInputs) -> dict[str, typing.Any]:
         """Run the async Salesforce enrichment workflow with concurrent API calls."""
 
-        # Cache all accounts in Redis for fast chunk retrieval
+        # Cache all accounts in Redis (if not already cached)
         cache_result = await workflow.execute_activity(
             cache_all_accounts_activity,
-            start_to_close_timeout=dt.timedelta(minutes=10),  # Allow time for large query
+            start_to_close_timeout=dt.timedelta(minutes=2),  # should take 10-30s if querying Salesforce
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-        if not cache_result.get("success"):
-            # If caching fails, disable chunk estimation and process sequentially
-            total_accounts = 0
-        else:
-            # Use cached count
+        if cache_result.get("success"):
             total_accounts = cache_result.get("total_accounts", 0)
+        else:
+            total_accounts = 0
 
-        # Ensure total_accounts is always an integer
-        total_accounts = int(total_accounts) if total_accounts else 0
-
-        # Calculate estimated total chunks
         estimated_total_chunks = math.ceil(total_accounts / inputs.chunk_size) if total_accounts > 0 else None
 
         chunk_number = 0
@@ -182,24 +170,18 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
             if inputs.max_chunks is not None and chunk_number >= inputs.max_chunks:
                 break
 
-            # Prepare chunk inputs
             chunk_inputs = EnrichChunkInputs(
                 chunk_number=chunk_number,
                 chunk_size=inputs.chunk_size,
                 estimated_total_chunks=estimated_total_chunks,
             )
 
-            # Execute the chunk enrichment activity (with concurrent API calls)
             chunk_result = await workflow.execute_activity(
                 enrich_chunk_activity,
                 chunk_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=2),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["ValueError", "KeyError"],
-                ),
+                start_to_close_timeout=dt.timedelta(minutes=30),  # a chunk of 5000 should take ~8-15min
+                retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
+                heartbeat_timeout=dt.timedelta(minutes=5),
             )
 
             # Accumulate results
@@ -212,10 +194,8 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
             if chunk_result.get("total_accounts_in_chunk", 0) < inputs.chunk_size:
                 break
 
-            # Move to next chunk
             chunk_number += 1
 
-        # Return final results
         return {
             "chunks_processed": chunk_number,
             "total_processed": total_processed,
