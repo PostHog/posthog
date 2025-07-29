@@ -220,10 +220,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         query.order_by = [self._get_order_by()]
 
-        # use the same fill_fraction logic as the original query
-        from .stats_table import fill_fraction
-
-        fill_fraction_expr = fill_fraction(query.order_by)
+        fill_fraction_expr = self.runner._fill_fraction(query.order_by)
         if fill_fraction_expr:
             query.select.append(fill_fraction_expr)
 
