@@ -15,8 +15,8 @@ class TestFilterOptionsGraph(BaseTest):
 
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsNode")
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsToolsNode")
-    def test_add_filter_options_generator_default_next_node(self, mock_tools_class, mock_node_class):
-        """Test adding filter options generator with default next node."""
+    def test_add_taxonomy_generator_default_next_node(self, mock_tools_class, mock_node_class):
+        """Test adding taxonomy generator with default next node."""
         graph = FilterOptionsGraph(self.team, self.user)
 
         # Mock the instances
@@ -27,7 +27,7 @@ class TestFilterOptionsGraph(BaseTest):
         mock_node_instance = MagicMock()
         mock_node_class.return_value = mock_node_instance
 
-        result = graph.add_filter_options_generator()
+        result = graph.add_taxonomy_generator()
 
         # Verify the graph instance is returned for chaining
         self.assertIs(result, graph)
@@ -39,8 +39,8 @@ class TestFilterOptionsGraph(BaseTest):
 
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsNode")
     @patch("ee.hogai.graph.filter_options.graph.FilterOptionsToolsNode")
-    def test_add_filter_options_generator_custom_next_node(self, mock_tools_class, mock_node_class):
-        """Test adding filter options generator with custom next node."""
+    def test_add_taxonomy_generator_custom_next_node(self, mock_tools_class, mock_node_class):
+        """Test adding taxonomy generator with custom next node."""
         graph = FilterOptionsGraph(self.team, self.user)
         custom_next_node = AssistantNodeName.ROOT
 
@@ -52,18 +52,18 @@ class TestFilterOptionsGraph(BaseTest):
         mock_node_instance = MagicMock()
         mock_node_class.return_value = mock_node_instance
 
-        result = graph.add_filter_options_generator(next_node=custom_next_node)
+        result = graph.add_taxonomy_generator(next_node=custom_next_node)
 
         # Verify the graph instance is returned for chaining
         self.assertIs(result, graph)
         self.assertTrue(graph._has_start_node)
 
     def test_compile_full_graph(self):
-        """Test that compile_full_graph calls add_filter_options_generator and compile."""
+        """Test that compile_full_graph calls add_taxonomy_generator and compile."""
         graph = FilterOptionsGraph(self.team, self.user)
 
         with (
-            patch.object(graph, "add_filter_options_generator") as mock_add_generator,
+            patch.object(graph, "add_taxonomy_generator") as mock_add_generator,
             patch.object(graph, "compile") as mock_compile,
         ):
             mock_add_generator.return_value = graph
@@ -71,7 +71,7 @@ class TestFilterOptionsGraph(BaseTest):
 
             result = graph.compile_full_graph()
 
-            # Verify add_filter_options_generator was called
+            # Verify add_taxonomy_generator was called
             mock_add_generator.assert_called_once()
 
             # Verify compile was called
@@ -86,7 +86,7 @@ class TestFilterOptionsGraph(BaseTest):
         checkpointer = MagicMock()
 
         with (
-            patch.object(graph, "add_filter_options_generator") as mock_add_generator,
+            patch.object(graph, "add_taxonomy_generator") as mock_add_generator,
             patch.object(graph, "compile") as mock_compile,
         ):
             mock_add_generator.return_value = graph

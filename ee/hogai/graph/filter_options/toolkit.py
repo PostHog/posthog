@@ -1,16 +1,16 @@
 from enum import Enum
-from functools import cached_property
 from typing import Union, TypeVar
 from pydantic import BaseModel, Field
-from ee.hogai.graph.query_planner.toolkit import (
+from posthog.schema import MaxRecordingUniversalFilters
+import yaml
+from ee.hogai.graph.taxonomy_toolkit import (
     TaxonomyAgentToolkit,
     retrieve_entity_properties,
     retrieve_entity_property_values,
     retrieve_event_properties,
     retrieve_event_property_values,
+    ask_user_for_help,
 )
-from posthog.schema import MaxRecordingUniversalFilters
-import yaml
 
 
 class EntityType(str, Enum):
@@ -25,14 +25,6 @@ class EntityType(str, Enum):
     def values(cls) -> list[str]:
         """Get all entity type values as strings."""
         return [entity.value for entity in cls]
-
-
-class ask_user_for_help(BaseModel):
-    """
-    Use this tool to ask a clarifying question to the user. Your question must be concise and clear.
-    """
-
-    request: str = Field(..., description="The question you want to ask the user.")
 
 
 # Type variable for filter response types
@@ -75,11 +67,49 @@ class FilterOptionsTool(BaseModel):
     arguments: FilterOptionsToolUnion
 
 
-class FilterOptionsToolkit(TaxonomyAgentToolkit):
-    @cached_property
-    def _entity_names(self) -> list[str]:
-        """Override to use only actual entity types, not events."""
-        return super()._entity_names
+class FilterOptionsToolkit(TaxonomyAgentToolkit[MaxRecordingUniversalFilters, FilterOptionsTool]):
+    def __init__(self, team):
+        super().__init__(team=team)
+        self.output_schema_class = MaxRecordingUniversalFilters
+
+    def get_tools(self) -> list:
+        """Get all available tools for filter options."""
+        # Create dynamic final_answer tool based on output schema
+        dynamic_final_answer = create_final_answer_model(self.output_schema_class)
+
+        return [
+            retrieve_entity_properties,
+            retrieve_entity_property_values,
+            retrieve_event_properties,
+            retrieve_event_property_values,
+            ask_user_for_help,
+            dynamic_final_answer,
+        ]
+
+    def handle_tools(self, tool_name: str, tool_input: FilterOptionsTool) -> tuple[str, str]:
+        """Handle tool execution and return (tool_id, result)."""
+
+        if tool_name == "retrieve_entity_property_values":
+            result = self.retrieve_entity_property_values(
+                tool_input.arguments.entity, tool_input.arguments.property_name
+            )  # type: ignore
+        elif tool_name == "retrieve_entity_properties":
+            result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
+        elif tool_name == "retrieve_event_property_values":
+            result = self.retrieve_event_or_action_property_values(
+                tool_input.arguments.event_name,  # type: ignore
+                tool_input.arguments.property_name,  # type: ignore
+            )
+        elif tool_name == "retrieve_event_properties":
+            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
+        elif tool_name == "ask_user_for_help":
+            result = tool_input.arguments.request  # type: ignore
+        elif tool_name == "final_answer":
+            result = "Filter options finalized"
+        else:
+            result = self.handle_incorrect_response(tool_input)
+
+        return tool_name, result
 
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
@@ -106,19 +136,3 @@ class FilterOptionsToolkit(TaxonomyAgentToolkit):
 
         result = {"properties": properties_by_type}
         return yaml.dump(result, default_flow_style=False, sort_keys=True)
-
-    def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
-        """
-        Retrieve properties for an entity like person, session, or one of the groups.
-        Events should use retrieve_event_properties instead.
-        """
-        if entity not in self._entity_names:
-            return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
-
-        return super().retrieve_entity_properties(entity)
-
-    def handle_incorrect_response(self, response: BaseModel) -> str:
-        """
-        Override parent implementation to handle BaseModel responses.
-        """
-        return response.model_dump_json()

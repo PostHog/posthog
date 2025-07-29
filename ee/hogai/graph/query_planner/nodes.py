@@ -41,13 +41,7 @@ from .prompts import (
 )
 from .toolkit import (
     TaxonomyAgentTool,
-    TaxonomyAgentToolkit,
-    ask_user_for_help,
-    final_answer,
-    retrieve_action_properties,
-    retrieve_action_property_values,
-    retrieve_event_properties,
-    retrieve_event_property_values,
+    QueryPlannerTaxonomyAgentToolkit,
 )
 
 
@@ -137,7 +131,7 @@ class QueryPlannerNode(AssistantNode):
     def _get_model(self, state: AssistantState):
         # Get dynamic entity tools with correct types for this team
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
-
+        toolkit = QueryPlannerTaxonomyAgentToolkit(self._team)
         return ChatOpenAI(
             model="o4-mini",
             use_responses_api=True,
@@ -147,14 +141,15 @@ class QueryPlannerNode(AssistantNode):
             },
         ).bind_tools(
             [
-                retrieve_event_properties,
-                retrieve_action_properties,
-                dynamic_retrieve_entity_properties,
-                retrieve_event_property_values,
-                retrieve_action_property_values,
-                dynamic_retrieve_entity_property_values,
-                ask_user_for_help,
-                final_answer,
+                # retrieve_event_properties,
+                # retrieve_action_properties,
+                # retrieve_event_property_values,
+                # retrieve_action_property_values,
+                # ask_user_for_help,
+                # final_answer,
+                *toolkit.get_tools(),
+                # dynamic_retrieve_entity_properties,
+                # dynamic_retrieve_entity_property_values,
             ],
             tool_choice="required",
             parallel_tool_calls=False,
@@ -250,7 +245,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = TaxonomyAgentToolkit(self._team)
+        toolkit = QueryPlannerTaxonomyAgentToolkit(self._team)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
 
@@ -285,7 +280,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
             return self._get_reset_state(state, ITERATION_LIMIT_PROMPT)
 
         if input and not output:
-            output = self._handle_tool(input, toolkit)
+            tool_name, output = toolkit.handle_tools(input.name, input)
 
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
@@ -299,29 +294,6 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         if not state.root_tool_call_id:
             return "end"
         return "continue"
-
-    def _handle_tool(self, input: TaxonomyAgentTool, toolkit: TaxonomyAgentToolkit) -> str:
-        if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)  # type: ignore
-        elif input.name == "retrieve_action_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments.action_id)  # type: ignore
-        elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.event_name,  # type: ignore
-                input.arguments.property_name,  # type: ignore
-            )
-        elif input.name == "retrieve_action_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.action_id,  # type: ignore
-                input.arguments.property_name,  # type: ignore
-            )
-        elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
-        elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
-        else:
-            output = toolkit.handle_incorrect_response(input)
-        return output
 
     def _get_reset_state(self, state: AssistantState, output: str):
         reset_state = PartialAssistantState.get_reset_state()

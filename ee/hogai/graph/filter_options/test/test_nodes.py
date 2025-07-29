@@ -323,29 +323,6 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
                     "messages should contain the mocked event",
                 )
 
-    def test_missing_tool_name_raises_error(self):
-        """Test that missing tool_name raises appropriate error."""
-        node = FilterOptionsNode(self.team, self.user)
-        state = FilterOptionsState(change="test query")  # Missing tool_name
-
-        with self.assertRaises(ValueError) as context:
-            node.run(state, {})
-
-        self.assertIn("tool_name is required", str(context.exception))
-
-    def test_missing_filter_profile_raises_error(self):
-        """Test that missing filter profile raises appropriate error."""
-        node = FilterOptionsNode(self.team, self.user)
-        state = FilterOptionsState(
-            change="test query",
-            tool_name="nonexistent_tool",  # Tool that doesn't have a registered profile
-        )
-
-        with self.assertRaises(ValueError) as context:
-            node.run(state, {})
-
-        self.assertIn("No FilterProfile registered", str(context.exception))
-
 
 class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_with_generated_filter_options(self):

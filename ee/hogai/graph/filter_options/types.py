@@ -39,11 +39,6 @@ class PartialFilterOptionsState(BaseState):
     The messages with tool calls to collect tool progress.
     """
 
-    tool_name: Optional[str] = Field(default=None)
-    """
-    The name of the tool requesting filter generation.
-    """
-
 
 class FilterOptionsState(PartialFilterOptionsState):
     """

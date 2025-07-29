@@ -10,9 +10,7 @@ from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
 from ee.models.assistant import Conversation
 
 from .conftest import MaxEval
-from ee.hogai.tool import register_filter_profile
 from posthog.schema import AssistantContextualTool
-from products.replay.backend.max_tools import SESSION_RECORDINGS_FILTER_PROFILE
 
 from posthog.schema import (
     DurationType,
@@ -45,8 +43,6 @@ DUMMY_CURRENT_FILTERS = {
 
 @pytest.fixture
 def call_search_session_recordings(demo_org_team_user):
-    register_filter_profile(SESSION_RECORDINGS_FILTER_PROFILE)
-
     graph = FilterOptionsGraph(demo_org_team_user[1], demo_org_team_user[2]).compile_full_graph(
         checkpointer=DjangoCheckpointer()
     )
