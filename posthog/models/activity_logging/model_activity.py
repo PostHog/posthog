@@ -1,7 +1,8 @@
 from threading import local
 from typing import Any
 from django.db import models
-from posthog.models.signals import model_activity_signal, signal_exclusions, changes_between
+from posthog.models.signals import model_activity_signal
+from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between
 
 _thread_local = local()
 
