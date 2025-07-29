@@ -985,6 +985,11 @@ class S3TableVisitor(TraversingVisitor):
         super().__init__()
         self.tables = set()
 
+    def visit_join_expr(self, node):
+        # visit the join's subquery
+        self.visit(node.table)
+        super().visit_join_expr(node)
+
     def visit_table_type(self, node):
         if isinstance(node.table, S3Table):
             self.tables.add(node.table.name)
