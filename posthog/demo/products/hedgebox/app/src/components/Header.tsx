@@ -13,6 +13,23 @@ export default function Header() {
     setIsProfileOpen(false);
   };
 
+  const getAvatarUrl = () => 
+    user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user?.email}&backgroundColor=1e40af`;
+
+  const navLinks = user ? [
+    { href: '/files', icon: '📁', text: 'Files' },
+  ] : [
+    { href: '/pricing', icon: '📊', text: 'Pricing' },
+    { href: '/mariustechtips', icon: '📝', text: 'Blog' },
+    { href: '/login', icon: '🔑', text: 'Log in' },
+  ];
+
+  const userMenuItems = [
+    { href: '/account/settings', icon: '⚙️', text: 'Account Settings' },
+    { href: '/account/billing', icon: '💳', text: 'Billing' },
+    { href: '/account/team', icon: '👥', text: 'Team' },
+  ];
+
   return (
     <div className="navbar bg-base-100/95 backdrop-blur-md shadow-lg border-b border-base-200/50 sticky top-0 z-50">
       <div className="navbar-start">
@@ -24,22 +41,34 @@ export default function Header() {
             </svg>
           </div>
           <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 bg-base-100 rounded-box w-52 border border-base-200">
-            {!user ? (
+            {navLinks.map(link => (
+              <li key={link.href}>
+                <Link href={link.href} className="hover:bg-primary/10 rounded-lg">
+                  {link.icon} {link.text}
+                </Link>
+              </li>
+            ))}
+            {!user && (
+              <li className="pt-2">
+                <Link href="/signup" className="btn btn-primary btn-sm">
+                  ✨ Sign up
+                </Link>
+              </li>
+            )}
+            {user && (
               <>
-                <li><Link href="/pricing" className="hover:bg-primary/10 rounded-lg">📊 Pricing</Link></li>
-                <li><Link href="/mariustechtips" className="hover:bg-primary/10 rounded-lg">📝 Blog</Link></li>
-                <li><Link href="/login" className="hover:bg-primary/10 rounded-lg">🔑 Log in</Link></li>
-                <li className="pt-2">
-                  <Link href="/signup" className="btn btn-primary btn-sm">
-                    ✨ Sign up
-                  </Link>
+                {userMenuItems.map(item => (
+                  <li key={item.href}>
+                    <Link href={item.href} className="hover:bg-primary/10 rounded-lg">
+                      {item.icon} {item.text}
+                    </Link>
+                  </li>
+                ))}
+                <li>
+                  <button onClick={handleLogout} className="hover:bg-error/10 text-error rounded-lg">
+                    🚪 Log out
+                  </button>
                 </li>
-              </>
-            ) : (
-              <>
-                <li><Link href="/files" className="hover:bg-primary/10 rounded-lg">📁 Files</Link></li>
-                <li><Link href="/account/settings" className="hover:bg-primary/10 rounded-lg">⚙️ Settings</Link></li>
-                <li><button onClick={handleLogout} className="hover:bg-error/10 text-error rounded-lg">🚪 Log out</button></li>
               </>
             )}
           </ul>
@@ -60,28 +89,26 @@ export default function Header() {
       </div>
       
       <div className="navbar-end">
-        {!user ? (
-          <div className="hidden lg:flex items-center space-x-4">
-            <Link href="/pricing" className="btn btn-ghost hover:bg-primary/10 transition-colors">
-              📊 Pricing
+        <div className="hidden lg:flex items-center space-x-1">
+          {navLinks.map(link => (
+            <Link 
+              key={link.href}
+              href={link.href} 
+              className="btn btn-ghost hover:bg-primary/10 transition-colors"
+            >
+              {link.icon} {link.text}
             </Link>
-            <Link href="/mariustechtips" className="btn btn-ghost hover:bg-primary/10 transition-colors">
-              📝 Blog
-            </Link>
-            <Link href="/login" className="btn btn-ghost hover:bg-primary/10 transition-colors">
-              🔑 Log in
-            </Link>
+          ))}
+          {!user && (
             <Link href="/signup" className="btn btn-primary hover:scale-105 transition-transform">
               ✨ Sign up
             </Link>
-          </div>
-        ) : (
+          )}
+        </div>
+        {user && (
           <div className="hidden lg:flex items-center space-x-4">
-            <Link href="/files" className="btn btn-ghost hover:bg-primary/10 transition-colors">
-              📁 Files
-            </Link>
-            
-            {/* User Profile Dropdown */}
+                        {/* User Profile Dropdown */}
+
             <div className="dropdown dropdown-end">
               <div 
                 tabIndex={0} 
@@ -93,7 +120,7 @@ export default function Header() {
                   <div className="avatar">
                     <div className="w-8 h-8 rounded-full">
                       <img 
-                        src={user.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user.email}&backgroundColor=1e40af`}
+                        src={getAvatarUrl()}
                         alt={user.name}
                       />
                     </div>
@@ -111,7 +138,7 @@ export default function Header() {
                     <div className="avatar">
                       <div className="w-10 h-10 rounded-full">
                         <img 
-                          src={user.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=${user.email}&backgroundColor=1e40af`}
+                          src={getAvatarUrl()}
                           alt={user.name}
                         />
                       </div>
@@ -123,9 +150,13 @@ export default function Header() {
                     </div>
                   </div>
                 </li>
-                <li><Link href="/account/settings" className="hover:bg-primary/10 rounded-lg">⚙️ Account Settings</Link></li>
-                <li><Link href="/account/billing" className="hover:bg-primary/10 rounded-lg">💳 Billing</Link></li>
-                <li><Link href="/account/team" className="hover:bg-primary/10 rounded-lg">👥 Team</Link></li>
+                {userMenuItems.map(item => (
+                  <li key={item.href}>
+                    <Link href={item.href} className="hover:bg-primary/10 rounded-lg">
+                      {item.icon} {item.text}
+                    </Link>
+                  </li>
+                ))}
                 <div className="divider my-1"></div>
                 <li>
                   <button 

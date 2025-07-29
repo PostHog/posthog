@@ -1,28 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import Header from '@/components/Header';
-import { posthog } from '@/lib/posthog';
 import { pricingPlans } from '@/lib/data';
 
 export default function PricingPage() {
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      posthog.capture('$pageview', {
-        $current_url: window.location.href,
-        $host: window.location.host,
-        $pathname: window.location.pathname,
-      });
-    }
-  }, []);
-
-  const handlePlanSelect = (planName: string) => {
-    posthog.capture('$autocapture', {
-      $event_type: 'click',
-      plan_name: planName
-    });
-  };
 
   return (
     <div>
@@ -85,7 +67,6 @@ export default function PricingPage() {
                           ? 'btn-primary' 
                           : 'btn-outline'
                       }`}
-                      onClick={() => handlePlanSelect(plan.name)}
                     >
                       {plan.price === '$0' ? 'Start Free' : 'Get Started'}
                     </Link>
@@ -159,10 +140,6 @@ export default function PricingPage() {
             <Link 
               href="/signup" 
               className="btn btn-primary btn-lg"
-              onClick={() => posthog.capture('$autocapture', {
-                $event_type: 'click',
-                button_text: 'Start Your Free Trial'
-              })}
             >
               Start Your Free Trial
             </Link>

@@ -2,14 +2,12 @@ import posthog from 'posthog-js'
 
 export function initPostHog(): void {
     if (typeof window !== 'undefined') {
-        const demoApiToken = process.env.NEXT_PUBLIC_POSTHOG_DEMO_TOKEN
+        const demoApiToken = process.env.NEXT_PUBLIC_POSTHOG_KEY
         if (!demoApiToken) {
-            throw new Error('NEXT_PUBLIC_POSTHOG_DEMO_TOKEN is not set')
-        }
-        const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_API_HOST
-        if (!localApiHost) {
-            throw new Error('NEXT_PUBLIC_POSTHOG_API_HOST is not set')
-        }
+           console.warn('NEXT_PUBLIC_POSTHOG_KEY is not set, skipping PostHog initialization')
+           return
+        } 
+        const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'http://localhost:8000'
         posthog.init(demoApiToken, {
             api_host: localApiHost,
             disable_compression: true,
@@ -19,7 +17,7 @@ export function initPostHog(): void {
             opt_out_useragent_filter: true // We do want capture to work in a bot environment (Playwright)
         })
     }
-    window.posthog = posthog
+    (window as any).posthog = posthog
 }
 
 export { posthog }

@@ -1,87 +1,42 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import Header from '@/components/Header';
 import { posthog } from '@/lib/posthog';
 import { useAuth } from '@/lib/auth';
 import { sampleFiles } from '@/lib/data';
-
-interface FileItem {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  uploadedAt: Date;
-  sharedLink?: string;
-}
+import { formatFileSize, getFileIcon } from '@/lib/utils';
+import {  useAuthRedirect } from '@/lib/hooks';
+import { HedgeboxFile } from '@/types';
 
 export default function FilesPage() {
   const { user } = useAuth();
-  const router = useRouter();
-  const [files, setFiles] = useState<FileItem[]>(sampleFiles);
+  const [files, setFiles] = useState<HedgeboxFile[]>(sampleFiles);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isUploading, setIsUploading] = useState(false);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      posthog.capture('$pageview', {
-        $current_url: window.location.href,
-        $host: window.location.host,
-        $pathname: window.location.pathname,
-      });
-    }
-  }, []);
+  useAuthRedirect();
 
-  // Redirect if not logged in
-  useEffect(() => {
-    if (!user) {
-      router.push('/login');
-    }
-  }, [user, router]);
-
-  if (!user) {
-    return null; // or loading spinner
-  }
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const getFileIcon = (type: string) => {
-    if (type.startsWith('image/')) return '🖼️';
-    if (type.startsWith('video/')) return '🎥';
-    if (type.startsWith('audio/')) return '🎵';
-    if (type.includes('pdf')) return '📄';
-    if (type.includes('word')) return '📝';
-    if (type.includes('excel') || type.includes('spreadsheet')) return '📊';
-    if (type.includes('powerpoint') || type.includes('presentation')) return '📈';
-    if (type.includes('zip') || type.includes('rar')) return '🗜️';
-    return '📁';
-  };
+  if (!user) return null;
 
   const handleFileUpload = async () => {
     setIsUploading(true);
-    const fileSize = Math.floor(Math.random() * 10000000);
+    const fileSize = Math.floor(Math.random() * 5000000);
+    
     posthog.capture('uploaded_file', {
       file_type: 'image/jpeg',
       file_size_b: fileSize,
       used_mb: Math.floor((usedStorage + fileSize) / 1000000)
     });
 
-    // Simulate upload
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    const newFile: FileItem = {
+    const newFile: HedgeboxFile = {
       id: `file_${Date.now()}`,
       name: `hedgehog-adventure-${Date.now()}.jpg`,
       type: 'image/jpeg',
-      size: Math.floor(Math.random() * 5000000),
+      size: fileSize,
       uploadedAt: new Date(),
     };
 
@@ -89,43 +44,40 @@ export default function FilesPage() {
     setIsUploading(false);
   };
 
+  const trackFileAction = (action: string, file: HedgeboxFile) => {
+    posthog.capture(`${action}_file`, {
+      file_type: file.type,
+      file_size_b: file.size
+    });
+  };
+
   const handleFileDelete = (fileId: string) => {
     const file = files.find(f => f.id === fileId);
-    if (file) {
-      posthog.capture('deleted_file', {
-        file_type: file.type,
-        file_size_b: file.size
-      });
-      setFiles(prev => prev.filter(f => f.id !== fileId));
-      setSelectedFiles(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(fileId);
-        return newSet;
-      });
-    }
+    if (!file) return;
+    
+    trackFileAction('deleted', file);
+    setFiles(prev => prev.filter(f => f.id !== fileId));
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(fileId);
+      return newSet;
+    });
   };
 
   const handleFileShare = (fileId: string) => {
     const file = files.find(f => f.id === fileId);
-    if (file) {
-      posthog.capture('shared_file_link', {
-        file_type: file.type,
-        file_size_b: file.size
-      });
-      
-      setFiles(prev => prev.map(f => 
-        f.id === fileId 
-          ? { ...f, sharedLink: `https://hedgebox.net/files/${fileId}/shared` }
-          : f
-      ));
-    }
+    if (!file) return;
+    
+    trackFileAction('shared', file);
+    setFiles(prev => prev.map(f => 
+      f.id === fileId 
+        ? { ...f, sharedLink: `https://hedgebox.net/files/${fileId}/shared` }
+        : f
+    ));
   };
 
-  const handleFileDownload = (file: FileItem) => {
-    posthog.capture('downloaded_file', {
-      file_type: file.type,
-      file_size_b: file.size
-    });
+  const handleFileDownload = (file: HedgeboxFile) => {
+    trackFileAction('downloaded', file);
   };
 
   const toggleFileSelection = (fileId: string) => {
@@ -143,6 +95,12 @@ export default function FilesPage() {
   const usedStorage = files.reduce((total, file) => total + file.size, 0);
   const maxStorage = 1000000000; // 1GB
   const storagePercentage = (usedStorage / maxStorage) * 100;
+  
+  const getStorageProgressClass = () => {
+    if (storagePercentage > 90) return 'progress-error';
+    if (storagePercentage > 70) return 'progress-warning';
+    return 'progress-primary';
+  };
 
   return (
     <div>
@@ -180,14 +138,10 @@ export default function FilesPage() {
               <span className="text-sm text-base-content/70">{formatFileSize(usedStorage)} / 1GB</span>
             </div>
             <progress 
-              className={`progress w-full ${
-                storagePercentage > 90 ? 'progress-error' : 
-                storagePercentage > 70 ? 'progress-warning' : 
-                'progress-primary'
-              }`} 
+              className={`progress w-full ${getStorageProgressClass()}`} 
               value={storagePercentage} 
               max="100"
-            ></progress>
+            />
           </div>
         </div>
 

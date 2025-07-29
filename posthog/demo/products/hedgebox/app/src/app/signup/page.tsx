@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import { posthog } from '@/lib/posthog';
 import { useAuth } from '@/lib/auth';
+import {  useAuthRedirect } from '@/lib/hooks';
 
 export default function SignupPage(): JSX.Element {
   const [formData, setFormData] = useState({
@@ -15,18 +16,10 @@ export default function SignupPage(): JSX.Element {
     plan: 'personal/free'
   });
   const [error, setError] = useState('');
-  const { signup, isLoading, user } = useAuth();
+  const { signup, isLoading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      posthog.capture('$pageview', {
-        $current_url: window.location.href,
-        $host: window.location.host,
-        $pathname: window.location.pathname,
-      });
-    }
-  }, []);
+  useAuthRedirect();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
     const { name, value } = e.target;
@@ -35,13 +28,6 @@ export default function SignupPage(): JSX.Element {
       [name]: value
     }));
   };
-
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) {
-      router.push('/files');
-    }
-  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
