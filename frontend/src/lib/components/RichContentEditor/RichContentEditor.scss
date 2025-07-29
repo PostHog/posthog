@@ -1,4 +1,6 @@
-.RichContentEditorMention {
-    display: inline-flex;
-    max-height: 22px;
+.RichContentEditor {
+    .RichContentEditorMention {
+        display: inline-flex;
+        max-height: 22px;
+    }
 }

@@ -41,11 +41,11 @@ import { createEditor } from 'lib/components/RichContentEditor/utils'
 import { textContent } from '../utils'
 import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { RichContentEditor } from 'lib/components/RichContentEditor'
-import posthog from 'posthog-js'
-import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { NotebookEditor, NotebookNodeType } from '../types'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { NotebookEditor } from '../types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment } from '@posthog/icons'
+import { DropAndPasteHandlerExtension } from './DropAndPasteHandlerExtension'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -107,6 +107,7 @@ export function Editor(): JSX.Element {
                         resetSuggestions()
                     },
                 }),
+                DropAndPasteHandlerExtension,
                 TaskList,
                 TaskItem.configure({ nested: true }),
                 NotebookMarkLink,
@@ -149,88 +150,6 @@ export function Editor(): JSX.Element {
                 }
 
                 setEditor(notebookEditor)
-            }}
-            onDrop={(dataTransfer, coordinates, moved, insertContent) => {
-                if (!moved && dataTransfer) {
-                    const text = dataTransfer.getData('text/plain')
-                    const node = dataTransfer.getData('node')
-                    const properties = dataTransfer.getData('properties')
-
-                    if (text.indexOf(window.location.origin) === 0 || node) {
-                        // PostHog link - ensure this gets input as a proper link
-                        if (!coordinates) {
-                            return false
-                        }
-
-                        if (node) {
-                            insertContent(coordinates.pos, { type: node, attrs: JSON.parse(properties) })
-
-                            // We report this case, the pasted version is handled by the posthogNodePasteRule
-                            posthog.capture('notebook node dropped', { node_type: node })
-                        } else {
-                            insertContent(coordinates.pos, { type: 'paragraph', content: [{ type: 'text', text }] })
-                        }
-
-                        return true
-                    }
-
-                    if (!moved && dataTransfer.files && dataTransfer.files.length > 0) {
-                        if (!coordinates) {
-                            // TODO: Seek to end of document instead
-                            return true
-                        }
-
-                        // if dropping external files
-                        const fileList = Array.from(dataTransfer.files)
-                        const contentToAdd: any[] = []
-                        for (const file of fileList) {
-                            if (file.type.startsWith('image/')) {
-                                contentToAdd.push({
-                                    type: NotebookNodeType.Image,
-                                    attrs: { file },
-                                })
-                            } else {
-                                lemonToast.warning('Only images can be added to Notebooks at this time.')
-                            }
-                        }
-
-                        insertContent(coordinates.pos, contentToAdd)
-
-                        posthog.capture('notebook files dropped', {
-                            file_types: fileList.map((x) => x.type),
-                        })
-
-                        return true
-                    }
-                }
-
-                return false
-            }}
-            onPaste={(clipboardData, insertContent) => {
-                // Special handling for pasting files such as images
-                if (clipboardData && clipboardData.files?.length > 0) {
-                    // iterate over the clipboard files and add any supported file types
-                    const fileList = Array.from(clipboardData.files)
-                    const contentToAdd: any[] = []
-                    for (const file of fileList) {
-                        if (file.type.startsWith('image/')) {
-                            contentToAdd.push({
-                                type: NotebookNodeType.Image,
-                                attrs: { file },
-                            })
-                        } else {
-                            lemonToast.warning('Only images can be added to Notebooks at this time.')
-                        }
-                    }
-
-                    insertContent(contentToAdd)
-
-                    posthog.capture('notebook files pasted', {
-                        file_types: fileList.map((x) => x.type),
-                    })
-
-                    return true
-                }
             }}
         >
             <FloatingSuggestions />
