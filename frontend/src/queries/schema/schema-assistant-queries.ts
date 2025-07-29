@@ -121,8 +121,16 @@ export type AssistantBasePropertyFilter =
     | AssistantDateTimePropertyFilter
     | AssistantSetPropertyFilter
 
+// TRICKY: Keep this property as enum to avoid converting to a string.
+export enum AssistantGenericPropertyFilterType {
+    event = PropertyFilterType.Event,
+    person = PropertyFilterType.Person,
+    session = PropertyFilterType.Session,
+    feature = PropertyFilterType.Feature,
+}
+
 export type AssistantGenericPropertyFilter = AssistantBasePropertyFilter & {
-    type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session | PropertyFilterType.Feature
+    type: AssistantGenericPropertyFilterType
     /**
      * Use one of the properties the user has provided in the plan.
      */
@@ -175,7 +183,14 @@ export interface AssistantInsightsQueryBase {
 export interface AssistantTrendsEventsNode
     extends Omit<
         EventsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+        | 'fixedProperties'
+        | 'properties'
+        | 'math_hogql'
+        | 'limit'
+        | 'groupBy'
+        | 'orderBy'
+        | 'response'
+        | 'math_property_revenue_currency'
     > {
     properties?: AssistantPropertyFilter[]
 }
@@ -186,7 +201,15 @@ export interface AssistantTrendsEventsNode
 export interface AssistantTrendsActionsNode
     extends Omit<
         ActionsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response' | 'name'
+        | 'fixedProperties'
+        | 'properties'
+        | 'math_hogql'
+        | 'limit'
+        | 'groupBy'
+        | 'orderBy'
+        | 'response'
+        | 'name'
+        | 'math_property_revenue_currency'
     > {
     properties?: AssistantPropertyFilter[]
     /**
