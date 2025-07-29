@@ -553,6 +553,9 @@
                     "$ref": "#/definitions/FeaturePropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/FlagPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/HogQLPropertyFilter"
                 },
                 {
@@ -7276,6 +7279,13 @@
                     "const": "DataTableNode",
                     "type": "string"
                 },
+                "pinnedColumns": {
+                    "description": "Columns that are sticky when scrolling horizontally",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "propertiesViaUrl": {
                     "description": "Link properties via the URL (default: false)",
                     "type": "boolean"
@@ -11534,6 +11544,34 @@
             "enum": ["AND", "OR"],
             "type": "string"
         },
+        "FlagPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "The key should be the flag ID",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "const": "flag_evaluates_to",
+                    "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "flag",
+                    "description": "Feature flag dependency",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value can be true, false, or a variant name",
+                    "type": ["boolean", "string"]
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -14584,7 +14622,7 @@
         "MarketingAnalyticsOrderBy": {
             "items": [
                 {
-                    "type": "number"
+                    "type": "string"
                 },
                 {
                     "enum": ["ASC", "DESC"],
@@ -15194,6 +15232,9 @@
                 "alias": {
                     "type": "string"
                 },
+                "order": {
+                    "type": "number"
+                },
                 "regex": {
                     "type": "string"
                 }
@@ -15619,7 +15660,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -15639,6 +15680,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "flag",
                 "log"
             ],
             "type": "string"
@@ -15726,7 +15768,8 @@
                 "max",
                 "in",
                 "not_in",
-                "is_cleaned_path_exact"
+                "is_cleaned_path_exact",
+                "flag_evaluates_to"
             ],
             "type": "string"
         },
@@ -21667,6 +21710,9 @@
                 },
                 {
                     "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSSHTunnelConfig"
                 }
             ]
         },
@@ -21674,7 +21720,7 @@
             "additionalProperties": false,
             "properties": {
                 "fileFormat": {
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldFileUploadJsonFormatConfig"
                 },
                 "label": {
                     "type": "string"
@@ -21691,6 +21737,31 @@
                 }
             },
             "required": ["type", "name", "label", "fileFormat", "required"],
+            "type": "object"
+        },
+        "SourceFieldFileUploadJsonFormatConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "format": {
+                    "const": ".json",
+                    "type": "string"
+                },
+                "keys": {
+                    "anyOf": [
+                        {
+                            "const": "*",
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["format", "keys"],
             "type": "object"
         },
         "SourceFieldInputConfig": {
@@ -21739,9 +21810,30 @@
             "required": ["type", "name", "label", "required", "kind"],
             "type": "object"
         },
+        "SourceFieldSSHTunnelConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ssh-tunnel",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "label", "name"],
+            "type": "object"
+        },
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "converter": {
+                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+                    "type": "string"
+                },
                 "defaultValue": {
                     "type": "string"
                 },

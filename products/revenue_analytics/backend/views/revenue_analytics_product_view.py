@@ -14,7 +14,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
