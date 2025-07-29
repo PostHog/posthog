@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -169,9 +169,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         shouldRematerialize: isMaterializedView,
                                         edited_history_id: currentDraft.edited_history_id,
                                     })
+                                } else {
+                                    saveAsView(false, currentDraft?.id)
                                 }
                             }}
+                            tooltip="The view this draft is based on has been deleted. Publishing will create a new view."
                         >
+                            <IconInfo className="mr-1" color="var(--warning)" />
                             Publish
                         </LemonButton>
                     </>

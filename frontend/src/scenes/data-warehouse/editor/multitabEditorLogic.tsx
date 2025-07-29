@@ -220,8 +220,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
         initialize: true,
-        saveAsView: (materializeAfterSave = false) => ({ materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false) => ({ name, materializeAfterSave }),
+        saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
+        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string) => ({
+            fromDraft,
+            name,
+            materializeAfterSave,
+        }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         updateInsight: true,
@@ -284,9 +288,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 shouldRematerialize?: boolean
                 sync_frequency?: string
                 types: string[][]
-            },
-            successCallback?: () => void
-        ) => ({ draftId, view, successCallback }),
+            }
+        ) => ({ draftId, view }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -1016,7 +1019,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions.updateState()
         },
-        saveAsView: async ({ materializeAfterSave = false }) => {
+        saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
             LemonDialog.openForm({
                 title: 'Save as view',
                 initialValues: { viewName: values.activeModelUri?.name || '' },
@@ -1045,12 +1048,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave)
+                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft)
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false }) => {
+        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = {
@@ -1084,6 +1087,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         types: [[]],
                         lifecycle: 'create',
                     })
+                }
+
+                if (fromDraft) {
+                    actions.deleteDraft(fromDraft)
+                    // remove draft from all tabs
+                    const newTabs = values.allTabs.map((tab) => ({
+                        ...tab,
+                        draft: tab.draft?.id === fromDraft ? undefined : tab.draft,
+                    }))
+                    actions.setTabs(newTabs)
                 }
             } catch {
                 lemonToast.error('Failed to save view')
