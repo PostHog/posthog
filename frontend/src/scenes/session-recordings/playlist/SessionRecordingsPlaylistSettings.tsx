@@ -231,6 +231,8 @@ export function SessionRecordingsPlaylistTopSettings({
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
         setIsNewCollectionDialogOpen,
+        handleBulkMarkAsViewed,
+        handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
@@ -274,6 +276,18 @@ export function SessionRecordingsPlaylistTopSettings({
                 'data-attr': 'remove-from-collection',
             })
         }
+
+        menuItems.push({
+            label: 'Mark as viewed',
+            onClick: () => handleBulkMarkAsViewed(shortId),
+            'data-attr': 'mark-as-viewed',
+        })
+
+        menuItems.push({
+            label: 'Mark as not viewed',
+            onClick: () => handleBulkMarkAsNotViewed(shortId),
+            'data-attr': 'mark-as-not-viewed',
+        })
 
         if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_SELECTED_RECORDINGS]) {
             menuItems.push({

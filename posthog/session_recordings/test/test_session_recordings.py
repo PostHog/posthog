@@ -2043,3 +2043,147 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Should not delete anything since recording belongs to other team
         assert response_data["deleted_count"] == 0
         assert response_data["total_requested"] == 1
+
+    def test_bulk_viewed_session_recordings(self):
+        """Test successful bulk marking of session recordings as viewed"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1", "user2"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+
+        # Create test recordings
+        session_ids = ["bulk_viewed_test_1", "bulk_viewed_test_2", "bulk_viewed_test_3"]
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Bulk mark as viewed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        assert response_data["success"]
+        assert response_data["viewed_count"] == 3
+        assert response_data["total_requested"] == 3
+
+        # Verify recordings are marked as viewed in database
+        for session_id in session_ids:
+            viewed_record = SessionRecordingViewed.objects.get(team=self.team, user=self.user, session_id=session_id)
+            assert viewed_record is not None
+
+    def test_bulk_viewed_handles_duplicates(self):
+        """Test bulk viewed ignores already viewed recordings"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_viewed_dup_1", "bulk_viewed_dup_2", "bulk_viewed_dup_3"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Mark first two as already viewed
+        for session_id in session_ids[:2]:
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_id,
+            )
+
+        # Bulk mark all as viewed (including already viewed ones)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should only create 1 new viewed record (the third one)
+        assert response_data["viewed_count"] == 1
+        assert response_data["total_requested"] == 3
+
+    def test_bulk_not_viewed_session_recordings(self):
+        """Test successful bulk marking of session recordings as not viewed"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_not_viewed_test_1", "bulk_not_viewed_test_2", "bulk_not_viewed_test_3"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # First mark all as viewed
+        for session_id in session_ids:
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_id,
+            )
+
+        # Bulk mark as not viewed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_not_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        assert response_data["success"]
+        assert response_data["not_viewed_count"] == 3
+        assert response_data["total_requested"] == 3
+
+        # Verify viewed records are deleted
+        for session_id in session_ids:
+            assert not SessionRecordingViewed.objects.filter(
+                team=self.team, user=self.user, session_id=session_id
+            ).exists()
+
+    def test_bulk_not_viewed_handles_already_not_viewed(self):
+        """Test bulk not viewed handles recordings that aren't viewed"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_not_viewed_mixed_1", "bulk_not_viewed_mixed_2", "bulk_not_viewed_mixed_3"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Mark only first two as viewed
+        for session_id in session_ids[:2]:
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_id,
+            )
+
+        # Bulk mark all as not viewed (including one that wasn't viewed)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_not_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should only delete 2 viewed records
+        assert response_data["not_viewed_count"] == 2
+        assert response_data["total_requested"] == 3
