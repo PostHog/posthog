@@ -21,7 +21,7 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -452,19 +452,37 @@ function PersonalAPIKeysTable(): JSX.Element {
                     title: 'Last Used',
                     dataIndex: 'last_used_at',
                     key: 'lastUsedAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_used_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Created',
                     dataIndex: 'created_at',
                     key: 'createdAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.created_at),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.created_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.created_at)}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Last Rolled',
                     dataIndex: 'last_rolled_at',
                     key: 'lastRolledAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A'),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_rolled_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: '',
