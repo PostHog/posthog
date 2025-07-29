@@ -46,7 +46,6 @@ class TestHogFunctionTemplate(TestCase):
         # Create template with a specific sha
         template = HogFunctionTemplate.objects.create(
             template_id="test-template",
-            sha="1.0.0",
             name="Test Template",
             description="Template description",
             status="alpha",
@@ -126,100 +125,9 @@ class TestHogFunctionTemplate(TestCase):
             "SHA should not change when content is the same",
         )
 
-    def test_get_latest_templates(self):
-        """Test the get_latest_templates method with various filters and options"""
-        # Create templates with various statuses
-        HogFunctionTemplate.objects.create(
-            template_id="active-template",
-            sha="1.0.0",
-            name="Active Template",
-            status="stable",
-            code="return event",
-            code_language="hog",
-            inputs_schema=[],
-        )
-
-        HogFunctionTemplate.objects.create(
-            template_id="deprecated-template",
-            sha="1.0.0",
-            name="Deprecated Template",
-            status="deprecated",
-            code="return event",
-            code_language="hog",
-            inputs_schema=[],
-        )
-
-        # Create templates with different types
-        HogFunctionTemplate.objects.create(
-            template_id="template-a",
-            sha="1.0.0",
-            name="Template A",
-            status="alpha",
-            code="return event",
-            code_language="hog",
-            inputs_schema=[],
-        )
-
-        HogFunctionTemplate.objects.create(
-            template_id="template-b",
-            sha="1.0.0",
-            name="Template B",
-            status="beta",
-            code="return event",
-            code_language="hog",
-            inputs_schema=[],
-        )
-
-        # Create a different type template
-        HogFunctionTemplate.objects.create(
-            template_id="template-c",
-            sha="1.0.0",
-            name="Template C",
-            type="transformation",
-            status="stable",
-            code="return event",
-            code_language="hog",
-            inputs_schema=[],
-        )
-
-        # TEST 1: Excluding deprecated templates (default)
-        latest_templates = HogFunctionTemplate.get_latest_templates()
-        template_ids = [template.template_id for template in latest_templates]
-
-        # Active templates should be included, deprecated should not
-        self.assertIn("active-template", template_ids)
-        self.assertNotIn("deprecated-template", template_ids)
-
-        # TEST 2: Including deprecated templates
-        all_templates = HogFunctionTemplate.get_latest_templates(include_deprecated=True)
-        all_template_ids = [template.template_id for template in all_templates]
-
-        # Both active and deprecated templates should be included
-        self.assertIn("active-template", all_template_ids)
-        self.assertIn("deprecated-template", all_template_ids)
-
-        # TEST 3: Filtering by type
-        destination_templates = HogFunctionTemplate.get_latest_templates(template_type="destination")
-        transformation_templates = HogFunctionTemplate.get_latest_templates(template_type="transformation")
-
-        # Check correct counts by type
-        self.assertEqual(len(destination_templates), 3)  # active, template-a, template-b
-        self.assertEqual(len(transformation_templates), 1)  # template-c
-
-        # Check specific templates
-        destination_ids = [t.template_id for t in destination_templates]
-        self.assertIn("template-a", destination_ids)
-        self.assertIn("template-b", destination_ids)
-        self.assertNotIn("template-c", destination_ids)
-
-        transformation_ids = [t.template_id for t in transformation_templates]
-        self.assertIn("template-c", transformation_ids)
-        self.assertNotIn("template-a", transformation_ids)
-
     def test_sha_versioning(self):
         template = HogFunctionTemplate(
             template_id="template-c",
-            sha="1.0.0",
             name="Template C",
             type="transformation",
             status="stable",
@@ -227,8 +135,8 @@ class TestHogFunctionTemplate(TestCase):
             code_language="hog",
             inputs_schema=[],
         )
-        self.assertEqual(len(template._generate_sha_from_content()), 8)
-        original_sha = template.sha
+        original_sha = template._generate_sha_from_content()
+        self.assertEqual(len(original_sha), 8)
 
         template.code = "return event"
         assert template._generate_sha_from_content() == original_sha

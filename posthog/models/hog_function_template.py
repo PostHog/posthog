@@ -127,39 +127,6 @@ class HogFunctionTemplate(UUIDModel):
             )
             return None
 
-    @classmethod
-    def get_latest_templates(cls, template_type=None, include_deprecated=False):
-        """
-        Gets the latest sha of each template, optionally filtered by type.
-        This is more efficient than get_all_templates when you only need the latest sha
-        of each template.
-        Args:
-            template_type: Optional type to filter templates by
-            include_deprecated: Whether to include deprecated templates
-        Returns:
-            A list of template instances, one per template_id
-        """
-        # Build the filter conditions
-        filters = {}
-        if template_type:
-            filters["type"] = template_type
-
-        if not include_deprecated:
-            filters["status__in"] = ["alpha", "beta", "stable", "coming_soon", "hidden"]
-
-        # Get the max created_at for each template_id
-        latest_created_at = (
-            cls.objects.filter(template_id=OuterRef("template_id"))
-            .values("template_id")
-            .annotate(max_created=Max("created_at"))
-            .values("max_created")
-        )
-
-        # Query templates matching the max created_at for their template_id
-        latest_templates = cls.objects.filter(**filters, created_at=Subquery(latest_created_at)).order_by("template_id")
-
-        return latest_templates
-
     def compile_bytecode(self):
         """
         Compiles the Hog code_language code to bytecode and stores it in the bytecode field.
