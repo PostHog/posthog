@@ -64,7 +64,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -97,7 +97,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -126,6 +126,7 @@ jobs:
         name: Node.js Tests (${{matrix.shard}}/3)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
             fail-fast: false
@@ -205,7 +206,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
@@ -263,15 +264,3 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - run: exit 0
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.nodejs == 'true'
-        needs: [tests, build, lint] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}
