@@ -276,9 +276,9 @@ jobs:
                     echo "Node.js build failed."
                     exit 1
                   fi
-                  echo "All jobs in the Node.js test matrix passed."
+                  echo "Node.js build passed."
                   if [[ "${{ needs.lint.result }}" != "success" ]]; then
                     echo "Node.js lint failed."
                     exit 1
                   fi
-                  echo "All jobs in the Node.js test matrix passed."
+                  echo "Node.js lint passed."
