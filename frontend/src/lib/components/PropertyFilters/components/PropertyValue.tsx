@@ -145,6 +145,15 @@ export function PropertyValue({
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
+    // For flag dependencies, we need to preserve the original typed values
+    const typedValues = isFlagDependencyProperty
+        ? value === null || value === undefined
+            ? []
+            : Array.isArray(value)
+            ? value
+            : [value]
+        : formattedValues
+
     if (!editable) {
         return <>{formattedValues.join(' or ')}</>
     }
@@ -218,7 +227,7 @@ export function PropertyValue({
             className={inputClassName}
             data-attr="prop-val"
             loading={propertyOptions?.status === 'loading'}
-            value={formattedValues}
+            value={isFlagDependencyProperty ? typedValues : formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
