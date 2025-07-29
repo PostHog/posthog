@@ -24,14 +24,8 @@ import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import {
-    GeographyTab,
-    ProductTab,
-    TileId,
-    webAnalyticsLogic,
-    webStatsBreakdownToPropertyName,
-} from 'scenes/web-analytics/webAnalyticsLogic'
-import { TileId as MarketingTileId } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/utils'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
@@ -793,7 +787,7 @@ export const WebQuery = ({
         return <WebExternalClicksTile query={adjustedQuery} insightProps={insightProps} />
     }
 
-    if (query.kind === NodeKind.InsightVizNode && tileId === MarketingTileId.MARKETING) {
+    if (query.kind === NodeKind.InsightVizNode && tileId === TileId.MARKETING) {
         return (
             <MarketingAnalyticsTrendTile
                 query={query}

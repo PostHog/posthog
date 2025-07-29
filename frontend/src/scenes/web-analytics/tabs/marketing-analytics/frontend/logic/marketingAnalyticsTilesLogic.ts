@@ -11,24 +11,11 @@ import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 
 import { isDraftConversionGoalColumn, getSortedColumnsByArray, orderArrayByPreference, getOrderBy } from './utils'
 import { isNotNil } from 'lib/utils'
-import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/webAnalyticsLogic'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
-
-export enum TileId {
-    MARKETING = 'MARKETING',
-    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
-}
-
-const loadPriorityMap: Record<string, number> = {
-    [TileId.MARKETING]: 1,
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
-}
-
-const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
-    return `new-AdHoc.marketing-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
-}
+import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
+import { loadPriorityMap, MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId } from 'scenes/web-analytics/utils'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
 

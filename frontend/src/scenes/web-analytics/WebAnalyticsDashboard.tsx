@@ -29,9 +29,9 @@ import {
     TileId,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    webAnalyticsLogic,
     WebAnalyticsTile,
-} from 'scenes/web-analytics/webAnalyticsLogic'
+} from 'scenes/web-analytics/utils'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'

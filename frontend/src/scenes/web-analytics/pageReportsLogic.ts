@@ -30,11 +30,11 @@ import {
     TileId,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    webAnalyticsLogic,
     WebAnalyticsTile,
     WebTileLayout,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-} from './webAnalyticsLogic'
+} from './utils'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {
     url: string

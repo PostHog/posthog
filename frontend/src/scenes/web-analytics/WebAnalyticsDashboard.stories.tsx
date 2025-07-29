@@ -12,7 +12,8 @@ import browserMock from './tiles/__mocks__/Browser.json'
 import pathMock from './tiles/__mocks__/Path.json'
 import referringDomainMock from './tiles/__mocks__/ReferringDomain.json'
 import retentionMock from './tiles/__mocks__/Retention.json'
-import { DeviceTab, SourceTab, webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { DeviceTab, SourceTab } from './utils'
 
 const meta: Meta = {
     component: App,
