@@ -41,6 +41,7 @@ export const commentsLogic = kea<commentsLogicType>([
         loadComments: true,
         maybeLoadComments: true,
         setComposedComment: (content: string) => ({ content }),
+        setComposedRichContent: (richContent: any) => ({ richContent }),
         sendComposedContent: true,
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
@@ -82,6 +83,16 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 setComposedComment: (_, { content }) => content,
                 sendComposedContentSuccess: () => '',
+                clearItemContext: () => '',
+            },
+        ],
+        composedRichContent: [
+            null as any | null,
+            { persist: true },
+            {
+                setComposedRichContent: (_, { richContent }) => richContent,
+                sendComposedContentSuccess: () => null,
+                clearItemContext: () => null,
             },
         ],
         composerRef: [
@@ -116,6 +127,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const newComment = await api.comments.create({
                         content: values.composedComment,
+                        rich_content: values.composedRichContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
@@ -135,6 +147,7 @@ export const commentsLogic = kea<commentsLogicType>([
                     const existingComments = values.comments ?? []
                     const updatedComment = await api.comments.update(editedComment.id, {
                         content: editedComment.content,
+                        rich_content: editedComment.rich_content,
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
