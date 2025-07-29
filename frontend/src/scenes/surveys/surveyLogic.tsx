@@ -1374,8 +1374,8 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.survey],
-            (survey: Survey): Breadcrumb[] => [
+            (s) => [s.survey, s.enabledFlags],
+            (survey: Survey, enabledFlags: FeatureFlagsSet): Breadcrumb[] => [
                 {
                     key: Scene.Surveys,
                     name: 'Surveys',
@@ -1384,9 +1384,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 {
                     key: [Scene.Survey, survey?.id || 'new'],
                     name: survey.name,
-                    onRename: async (name: string) => {
-                        actions.updateSurvey({ id: survey.id, name })
-                    },
+                    onRename:
+                        enabledFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] && survey.id !== 'new'
+                            ? async (name: string) => {
+                                  actions.updateSurvey({ id: survey.id, name })
+                              }
+                            : undefined,
                 },
             ],
         ],
