@@ -1,7 +1,7 @@
 from threading import local
 from typing import Any
 from django.db import models
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, signal_exclusions, changes_between
 
 _thread_local = local()
 
@@ -42,16 +42,28 @@ class ModelActivityMixin(models.Model):
 
         change_type = "updated" if self.pk else "created"
 
+        # For updates, check if only signal-excluded fields changed
+        should_log = True
+        if change_type == "updated" and before_update:
+            signal_excluded_fields = signal_exclusions.get(self.__class__.__name__, [])
+            if signal_excluded_fields:
+                changes = changes_between(self.__class__.__name__, before_update, self)
+                changes_triggering_logging = [
+                    change for change in changes if change.field not in signal_excluded_fields
+                ]
+                should_log = len(changes_triggering_logging) > 0
+
         super().save(*args, **kwargs)
 
-        model_activity_signal.send(
-            sender=self.__class__,
-            scope=self.__class__.__name__,
-            before_update=before_update,
-            after_update=self,
-            activity=change_type,
-            was_impersonated=get_was_impersonated(),
-        )
+        if should_log:
+            model_activity_signal.send(
+                sender=self.__class__,
+                scope=self.__class__.__name__,
+                before_update=before_update,
+                after_update=self,
+                activity=change_type,
+                was_impersonated=get_was_impersonated(),
+            )
 
 
 class ImpersonatedContext:

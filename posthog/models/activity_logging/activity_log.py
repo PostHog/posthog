@@ -200,6 +200,13 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     },
 }
 
+# Fields that prevent activity signal triggering entirely when only these fields change
+signal_exclusions: dict[ActivityScope, list[str]] = {
+    "PersonalAPIKey": [
+        "last_used_at",
+    ],
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -334,6 +341,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "value",
         "secure_value",
+        "last_used_at",
     ],
     "User": [
         "password",
