@@ -2,13 +2,12 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { captureIngestionWarning } from '~/worker/ingestion/utils'
 import {
     COOKIELESS_MODE_BASE_HASH_PROPERTY,
     COOKIELESS_MODE_FLAG_PROPERTY,
 } from '~/ingestion/cookieless/cookieless-manager'
-import { PersonStoreManager } from '~/worker/ingestion/persons/person-store-manager'
+import { MessageSizeTooLarge } from '~/utils/db/error'
+import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
