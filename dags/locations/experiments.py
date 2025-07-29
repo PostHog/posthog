@@ -17,13 +17,13 @@ def _create_definitions():
     """
     
     jobs = [experiments.experiment_computation_job]
-
-    schedules = []
-    if experiments.daily_experiment_computation_schedule is not None:
-        schedules.append(experiments.daily_experiment_computation_schedule)
+    sensors = [experiments.experiment_discovery_sensor]
+    schedules = [experiments.daily_experiment_full_refresh_schedule]  # Optional full refresh
+    
     definitions = dagster.Definitions(
-        assets=experiments.experiment_assets,
+        assets=[experiments.experiment_metrics],
         jobs=jobs,
+        sensors=sensors,
         schedules=schedules,
         resources=resources,
     )
