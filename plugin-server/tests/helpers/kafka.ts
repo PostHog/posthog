@@ -62,6 +62,8 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
     const client = AdminClient.create(kafkaConfig)
     const timeout = 10000
 
+    await deleteAllTopics(kafkaConfig)
+
     for (const topic of topics) {
         await new Promise<void>((resolve, reject) => {
             client.createTopic(
@@ -70,7 +72,6 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
                 (error: LibrdKafkaError) => {
                     if (error) {
                         if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
-                            console.log(`Topic ${topic} already exists, skipping`)
                             resolve()
                         } else {
                             console.error(`Failed to create topic ${topic}:`, error)

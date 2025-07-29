@@ -32,15 +32,20 @@ describe('postgres parity', () => {
     let clickhouse: Clickhouse
     let teamId: number
 
-    beforeAll(async () => {
-        await resetKafka(extraServerConfig)
+    beforeAll(() => {
         clickhouse = Clickhouse.create()
-        await clickhouse.resetTestDatabase()
     })
 
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
+
+        // Generate unique teamId to avoid collisions across test files
         teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+
+        // Reset Kafka and ClickHouse for each test to ensure isolation
+        await resetKafka(extraServerConfig)
+        await clickhouse.resetTestDatabase()
+
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
