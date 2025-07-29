@@ -408,7 +408,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
                 config=config,
             )
         except MemoryCollectionCompleted:
-            return PartialAssistantState(memory_updated=len(node_messages) > 0, memory_collection_messages=None)
+            return PartialAssistantState(memory_collection_messages=None)
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
     def router(self, state: AssistantState) -> Literal["tools", "next"]:
