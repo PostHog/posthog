@@ -42,7 +42,13 @@ export class Clickhouse {
             username: CLICKHOUSE_USER,
             password: CLICKHOUSE_PASSWORD || undefined,
             database: CLICKHOUSE_DATABASE,
-            max_open_connections: 30,
+            max_open_connections: 50, // Increased from 30 for better concurrency
+            // Connection reliability improvements
+            request_timeout: 30000, // 30s minutes request timeout
+            keep_alive: {
+                enabled: true,
+                idle_socket_ttl: 30000, // 30 seconds idle timeout
+            },
         })
 
         return clickhouse

@@ -12,7 +12,7 @@ import {
     RawPerson,
     Team,
 } from '../../../../types'
-import { MoveDistinctIdsResult, PersonPropertiesSize } from '../../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '../../../../utils/db/db'
 import {
     moveDistinctIdsCountHistogram,
     personPropertiesSizeHistogram,
@@ -109,7 +109,7 @@ export class PostgresPersonRepository
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<CreatePersonResult> {
         distinctIds ||= []
 
         for (const distinctId of distinctIds) {
@@ -119,81 +119,100 @@ export class PostgresPersonRepository
         // The Person is being created, and so we can hardcode version 0!
         const personVersion = 0
 
-        const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            `WITH inserted_person AS (
-                    INSERT INTO posthog_person (
-                        created_at, properties, properties_last_updated_at,
-                        properties_last_operation, team_id, is_user_id, is_identified, uuid, version
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                    RETURNING *
-                )` +
-                distinctIds
-                    .map(
-                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctId`
-                        (_, index) => `, distinct_id_${index} AS (
-                        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                        VALUES (
-                            $${11 + index + distinctIds!.length - 1},
-                            (SELECT id FROM inserted_person),
-                            $5,
-                            $${10 + index})
-                        )`
-                    )
-                    .join('') +
-                `SELECT * FROM inserted_person;`,
-            [
-                createdAt.toISO(),
-                sanitizeJsonbValue(properties),
-                sanitizeJsonbValue(propertiesLastUpdatedAt),
-                sanitizeJsonbValue(propertiesLastOperation),
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                personVersion,
-                // The copy and reverse here is to maintain compatability with pre-existing code
-                // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
-                // CTEs above, so we need to reverse the distinctIds to match the old behavior where
-                // we would do a round trip for each INSERT. We shouldn't actually depend on the
-                // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
-                // the same and prove behavior is the same as before.
-                ...distinctIds
-                    .slice()
-                    .reverse()
-                    .map(({ version }) => version),
-                ...distinctIds
-                    .slice()
-                    .reverse()
-                    .map(({ distinctId }) => distinctId),
-            ],
-            'insertPerson',
-            'warn'
-        )
-        const person = this.toPerson(rows[0])
-
-        const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
-
-        for (const distinctId of distinctIds) {
-            kafkaMessages.push({
-                topic: KAFKA_PERSON_DISTINCT_ID,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            person_id: person.uuid,
-                            team_id: teamId,
-                            distinct_id: distinctId.distinctId,
-                            version: distinctId.version,
-                            is_deleted: 0,
-                        }),
-                    },
+        try {
+            const { rows } = await this.postgres.query<RawPerson>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                `WITH inserted_person AS (
+                        INSERT INTO posthog_person (
+                            created_at, properties, properties_last_updated_at,
+                            properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        RETURNING *
+                    )` +
+                    distinctIds
+                        .map(
+                            // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                            // `addDistinctId`
+                            (_, index) => `, distinct_id_${index} AS (
+                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                            VALUES (
+                                $${11 + index + distinctIds!.length - 1},
+                                (SELECT id FROM inserted_person),
+                                $5,
+                                $${10 + index})
+                            )`
+                        )
+                        .join('') +
+                    `SELECT * FROM inserted_person;`,
+                [
+                    createdAt.toISO(),
+                    sanitizeJsonbValue(properties),
+                    sanitizeJsonbValue(propertiesLastUpdatedAt),
+                    sanitizeJsonbValue(propertiesLastOperation),
+                    teamId,
+                    isUserId,
+                    isIdentified,
+                    uuid,
+                    personVersion,
+                    // The copy and reverse here is to maintain compatability with pre-existing code
+                    // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
+                    // CTEs above, so we need to reverse the distinctIds to match the old behavior where
+                    // we would do a round trip for each INSERT. We shouldn't actually depend on the
+                    // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
+                    // the same and prove behavior is the same as before.
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ version }) => version),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ distinctId }) => distinctId),
                 ],
-            })
-        }
+                'insertPerson',
+                'warn'
+            )
+            const person = this.toPerson(rows[0])
 
-        return [person, kafkaMessages]
+            const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
+
+            for (const distinctId of distinctIds) {
+                kafkaMessages.push({
+                    topic: KAFKA_PERSON_DISTINCT_ID,
+                    messages: [
+                        {
+                            value: JSON.stringify({
+                                person_id: person.uuid,
+                                team_id: teamId,
+                                distinct_id: distinctId.distinctId,
+                                version: distinctId.version,
+                                is_deleted: 0,
+                            }),
+                        },
+                    ],
+                })
+            }
+
+            return {
+                success: true,
+                person,
+                messages: kafkaMessages,
+                created: true,
+            }
+        } catch (error) {
+            // Handle constraint violation - another process created the person concurrently
+            if (error instanceof Error && error.message.includes('unique constraint')) {
+                return {
+                    success: false,
+                    error: 'CreationConflict',
+                    distinctIds: distinctIds.map((d) => d.distinctId),
+                }
+            }
+
+            // Re-throw other errors
+            throw error
+        }
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
@@ -335,7 +354,11 @@ export class PostgresPersonRepository
         // Track the number of distinct IDs moved in this merge operation
         moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
 
-        return { success: true, messages: kafkaMessages }
+        return {
+            success: true,
+            messages: kafkaMessages,
+            distinctIdsMoved: movedDistinctIdResult.rows.map((row) => row.distinct_id),
+        }
     }
 
     async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
