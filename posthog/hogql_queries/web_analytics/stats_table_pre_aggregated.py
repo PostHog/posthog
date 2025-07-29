@@ -119,12 +119,15 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
                         current_period_filter, previous_period_filter
                     ),
-                    "filters": self._get_filters(table_name="web_bounces_combined"),
+                    "filters": self._get_bounce_rate_filters(),
                 },
             ),
         )
 
         return query
+
+    def _get_bounce_rate_filters(self) -> ast.Expr:
+        return self._get_filters(table_name="web_bounces_combined", exclude_pathname=True)
 
     def _path_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_combined")

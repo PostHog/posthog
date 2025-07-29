@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertRow } from '~/tests/helpers/sql'
 
-import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
+import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
@@ -99,12 +100,27 @@ export const createInternalEvent = (teamId: number, data: Partial<CdpInternalEve
     return {
         team_id: teamId,
         event: {
-            timestamp: new Date().toISOString(),
+            timestamp: DateTime.now().toISO(),
             properties: {},
             uuid: randomUUID(),
             event: '$pageview',
             distinct_id: 'distinct_id',
         },
+        ...data,
+    }
+}
+
+export const createClickhousePerson = (teamId: number, data: Partial<ClickHousePerson>): ClickHousePerson => {
+    return {
+        team_id: teamId,
+        id: randomUUID(),
+        created_at: new Date().toISOString(),
+        properties: JSON.stringify({
+            email: 'test@posthog.com',
+        }),
+        is_identified: 1,
+        is_deleted: 0,
+        timestamp: new Date().toISOString(),
         ...data,
     }
 }
@@ -141,7 +157,7 @@ export const createHogFunctionTemplate = (
         name: 'Hog Function Template',
         description: 'Hog Function Template',
         code_language: 'hog',
-        hog: 'Hog Function Template',
+        code: 'Hog Function Template',
         inputs_schema: [],
         category: [],
         bytecode: [],
@@ -165,7 +181,7 @@ export const insertHogFunctionTemplate = async (
         sha: 'sha',
         name: template.name,
         description: template.description,
-        code: template.hog,
+        code: template.code,
         code_language: template.code_language,
         status: template.status,
         free: template.free,

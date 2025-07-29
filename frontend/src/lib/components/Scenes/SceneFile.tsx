@@ -25,17 +25,17 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
 
     return projectTreeRefEntry ? (
         <div className="flex flex-col">
-            <Label intent="menu">File</Label>
+            <Label intent="menu" className="mx-2">
+                File
+            </Label>
             <DropdownMenu>
-                <div className="-ml-1.5">
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
-                            <IconFolderOpen />
-                            {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
-                            <DropdownMenuOpenIndicator className="ml-auto" />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-                </div>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
+                        <IconFolderOpen />
+                        {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
+                        <DropdownMenuOpenIndicator className="ml-auto" />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" matchTriggerWidth>
                     <DropdownMenuItem className="w-full">
                         <ButtonPrimitive
