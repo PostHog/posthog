@@ -38,6 +38,8 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -128,15 +130,19 @@ function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
-                            Have any questions or feedback?
-                        </LemonButton>
+                        {!newSceneLayout && (
+                            <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                                Have any questions or feedback?
+                            </LemonButton>
+                        )}
                         <NewSurveyButton />
                     </>
                 }

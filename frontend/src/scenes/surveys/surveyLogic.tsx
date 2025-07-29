@@ -1228,7 +1228,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
@@ -1381,7 +1381,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
+                {
+                    key: [Scene.Survey, survey?.id || 'new'],
+                    name: survey.name,
+                    onRename: async (name: string) => {
+                        actions.updateSurvey({ id: survey.id, name })
+                    },
+                },
             ],
         ],
         projectTreeRef: [
@@ -1782,7 +1788,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return defaultRates
             },
         ],
-    }),
+    })),
     forms(({ actions, props, values }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
