@@ -83,10 +83,12 @@ export function MetricRowGroup({
         isVisible: boolean
         variantResult: ExperimentVariantResult | null
         position: { x: number; y: number }
+        isPositioned: boolean
     }>({
         isVisible: false,
         variantResult: null,
         position: { x: 0, y: 0 },
+        isPositioned: false,
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
@@ -120,6 +122,7 @@ export function MetricRowGroup({
             ...prev,
             isVisible: true,
             variantResult,
+            isPositioned: false,
         }))
     }
 
@@ -128,11 +131,13 @@ export function MetricRowGroup({
             ...prev,
             isVisible: false,
             variantResult: null,
+            isPositioned: false,
         }))
     }
 
     const handleTooltipMouseMove = (e: React.MouseEvent, containerRect: DOMRect): void => {
-        if (tooltipRef.current) {
+        // Only position the tooltip if it hasn't been positioned yet
+        if (tooltipRef.current && !tooltipState.isPositioned) {
             const tooltipRect = tooltipRef.current.getBoundingClientRect()
 
             // Position tooltip horizontally at mouse cursor
@@ -150,6 +155,7 @@ export function MetricRowGroup({
             setTooltipState((prev) => ({
                 ...prev,
                 position: { x, y },
+                isPositioned: true,
             }))
         }
     }
@@ -312,7 +318,7 @@ export function MetricRowGroup({
                         style={{
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
-                            visibility: tooltipState.position.x === 0 ? 'hidden' : 'visible',
+                            visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                     >
                         {renderTooltipContent(tooltipState.variantResult)}
