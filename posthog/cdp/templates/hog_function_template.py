@@ -63,7 +63,16 @@ class HogFunctionTemplateDC:
     icon_url: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        obj = dataclasses.asdict(self)
+
+        # Convert collections to JSON
+        if obj.get("mappings"):
+            obj["mappings"] = [dataclasses.asdict(mapping) for mapping in obj.get("mappings")]
+
+        if obj.get("mapping_templates"):
+            obj["mapping_templates"] = [dataclasses.asdict(template) for template in obj.get("mapping_templates")]
+
+        return obj
 
 
 class HogFunctionTemplateMigrator:

@@ -43,7 +43,7 @@ class HogFunctionTemplate(UUIDModel):
     # DEPRECATED: This was an idea that is no longer used
     kind = models.CharField(max_length=50, blank=True, null=True)
     free = models.BooleanField(default=False)
-    icon_url = models.URLField(blank=True, null=True)
+    icon_url = models.CharField(blank=True, null=True)
 
     # Additional Template Configuration
     filters = models.JSONField(blank=True, null=True)
@@ -96,7 +96,7 @@ class HogFunctionTemplate(UUIDModel):
         return content_hash[:8]
 
     @classmethod
-    def get_template(cls, template_id: str, sha: Optional[str] = None):
+    def get_template(cls, template_id: str, sha: Optional[str] = None) -> Optional["HogFunctionTemplate"]:
         """
         Gets a template by ID and optionally sha.
         Args:
@@ -189,53 +189,3 @@ class HogFunctionTemplate(UUIDModel):
         self.compile_bytecode()
         self.sha = self._generate_sha_from_content()
         super().save(*args, **kwargs)
-
-    @classmethod
-    def from_dataclass(cls, dataclass_template):
-        """
-        Creates and saves a HogFunctionTemplate database model from a dataclass template.
-        sha is always calculated based on content hash.
-        Args:
-            dataclass_template: The dataclass template to convert
-        Returns:
-            The saved database template instance
-        """
-
-        template: HogFunctionTemplate
-
-        try:
-            template = cls.objects.get(template_id=dataclass_template.id)
-        except HogFunctionTemplate.DoesNotExist:
-            template = cls()
-
-        # # Verify the dataclass_template is the correct type
-        # if not isinstance(dataclass_template, HogFunctionTemplateDC):
-        #     raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
-
-        # # Calculate sha based on content hash
-        # template_dict = {
-        #     "id": dataclass_template.id,
-        #     "code": code,
-        #     "code_language": dataclass_template.code_language,
-        #     "inputs_schema": dataclass_template.inputs_schema,
-        #     "status": dataclass_template.status,
-        #     "mappings": [dataclasses.asdict(m) for m in dataclass_template.mappings]
-        #     if dataclass_template.mappings
-        #     else None,
-        #     "mapping_templates": [dataclasses.asdict(mt) for mt in dataclass_template.mapping_templates]
-        #     if dataclass_template.mapping_templates
-        #     else None,
-        #     "filters": dataclass_template.filters,
-        #     "icon_url": dataclass_template.icon_url,
-        # }
-        # content_for_hash = json.dumps(template_dict, sort_keys=True)
-        # sha = cls.generate_sha_from_content(content_for_hash)
-
-        # # Convert collections to JSON
-        # mappings = None
-        # if dataclass_template.mappings:
-        #     mappings = [dataclasses.asdict(mapping) for mapping in dataclass_template.mappings]
-
-        # mapping_templates = None
-        # if dataclass_template.mapping_templates:
-        #     mapping_templates = [dataclasses.asdict(template) for template in dataclass_template.mapping_templates]

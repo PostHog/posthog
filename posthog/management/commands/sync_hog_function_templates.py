@@ -77,6 +77,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
 
         for template_data in all_templates:
+            print(template_data)
             serializer = HogFunctionTemplateSerializer(data=template_data)
             serializer.is_valid(raise_exception=True)
             try:
