@@ -29,15 +29,18 @@ describe('postgres parity', () => {
     let hub: Hub
     let server: PluginServer
     let personRepository: PostgresPersonRepository
-    let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
     let clickhouse: Clickhouse
+    let teamId: number
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
+        clickhouse = Clickhouse.create()
+        await clickhouse.resetTestDatabase()
     })
 
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
+        teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
@@ -46,14 +49,11 @@ describe('postgres parity', () => {
             }
         `)
 
-        clickhouse = Clickhouse.create()
-        await clickhouse.resetTestDatabase()
         server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
         await server.start()
         hub = server.hub!
-        teamId++
         await createUserTeamAndOrganization(
             hub.db.postgres,
             teamId,
@@ -63,11 +63,13 @@ describe('postgres parity', () => {
             new UUIDT().toString()
         )
         personRepository = new PostgresPersonRepository(hub.db.postgres)
-        console.log('[TEST] BeforeEach complete')
+    })
+
+    afterAll(() => {
+        clickhouse.close()
     })
 
     afterEach(async () => {
-        clickhouse.close()
         await server.stop()
     })
 
@@ -200,8 +202,8 @@ describe('postgres parity', () => {
         const clickHousePersons = await clickhouse.fetchPersons()
         const postgresPersons = await hub.db.fetchPersons()
 
-        expect(clickHousePersons.length).toEqual(1)
-        expect(postgresPersons.length).toEqual(1)
+        expect(clickHousePersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
+        expect(postgresPersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
 
         expect(postgresPersons[0].is_identified).toEqual(true)
         expect(postgresPersons[0].version).toEqual(1)
@@ -261,6 +263,9 @@ describe('postgres parity', () => {
             throw new Error('Failed to create person')
         }
         const person = result.person
+
+        await hub.db.kafkaProducer.queueMessages(result.messages)
+        await hub.db.kafkaProducer.flush()
 
         const result2 = await personRepository.createPerson(
             DateTime.utc(),
@@ -355,6 +360,8 @@ describe('postgres parity', () => {
             throw new Error('Failed to create person')
         }
         const person = result.person
+        await hub.db.kafkaProducer.queueMessages(result.messages)
+        await hub.db.kafkaProducer.flush()
 
         const result2 = await personRepository.createPerson(
             DateTime.utc(),
