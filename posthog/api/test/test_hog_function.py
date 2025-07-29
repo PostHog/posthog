@@ -1442,7 +1442,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         {"key": "message", "type": "string", "label": "Message", "required": True},
                     ],
                     "filters": {
-                        "source": "events",
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
                         "filter_test_accounts": True,
                     },
@@ -1511,6 +1510,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         }
                     },
                     "filters": {
+                        "source": "events",
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
                         "bytecode": [
                             "_H",
