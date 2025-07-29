@@ -505,7 +505,7 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_hog_functions_digest_email(digest_data: dict) -> None:
+def send_hog_functions_digest_email(digest_data: dict, test_email_override: str | None = None) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -521,6 +521,24 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
     memberships_to_email = get_members_to_notify(team, "plugin_disabled")
     if not memberships_to_email:
         return
+
+    # If test email override is provided, validate it early
+    if test_email_override:
+        test_membership = None
+        for membership in memberships_to_email:
+            if membership.user.email == test_email_override:
+                test_membership = membership
+                break
+
+        if not test_membership:
+            logger.warning(
+                f"Test email override {test_email_override} not found in organization memberships for team {team_id}"
+            )
+            return
+
+        # For testing: use only the override recipient
+        memberships_to_email = [test_membership]
+        logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
 
     campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
 
@@ -540,6 +558,7 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         },
     )
 
+    # Add recipients (either filtered list for test override or full list for normal flow)
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
 

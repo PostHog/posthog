@@ -131,7 +131,7 @@ export function ProjectTree({
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
             setSortMethod(sortMethod ?? 'folder')
         }
-    }, [sortMethod, projectSortMethod])
+    }, [sortMethod, projectSortMethod, setSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {

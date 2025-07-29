@@ -26,7 +26,7 @@ const persistConfig = (groupTypeIndex: GroupTypeIndex): { persist: boolean; pref
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
     key((props: GroupsListLogicProps) => props.groupTypeIndex),
-    path(['groups', 'groupsListLogic']),
+    path(['scenes', 'groups', 'groupsListLogic']),
     connect(() => ({
         values: [
             teamLogic,
