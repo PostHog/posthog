@@ -409,6 +409,27 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
+    def test_update_last_used_at_field(self):
+        value = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Test last_updated_at",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=[],
+        )
+        assert key.last_used_at is None
+
+        # use key
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # re-fetch from db
+        updated_key = PersonalAPIKey.objects.get(id=key.id)
+        assert updated_key.last_used_at is not None
+
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
 # It is however a good example of a range of cases
