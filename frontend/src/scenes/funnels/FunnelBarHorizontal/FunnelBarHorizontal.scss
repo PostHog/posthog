@@ -118,6 +118,9 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         background-color: var(--border-primary);
         border-radius: var(--radius);
 
+        // Enable container queries on wrapper for breakdown calculations
+        container-type: inline-size;
+
         .funnel-bar {
             // Enable container queries on individual bars
             container-type: inline-size;
@@ -158,11 +161,94 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             }
         }
 
-        // For breakdown funnels, always position labels outside
-        &.breakdown .funnel-bar .funnel-bar-percentage {
-            right: auto;
-            left: calc(100% + #{$label_position_offset});
-            color: var(--text-3000);
+        // For breakdown funnels, special handling
+        &.breakdown {
+            .funnel-bar {
+                // Hide labels for all bars except the last
+                &:not(.last) .funnel-bar-percentage {
+                    display: none;
+                }
+
+                // For the last bar with breakdown sum
+                &.last {
+                    // Position label outside
+                    .funnel-bar-percentage {
+                        right: auto;
+                        left: calc(100% + #{$label_position_offset});
+                        color: var(--text-3000);
+                    }
+
+                    // Hide label when remaining space is too small
+                    // For a given breakdown sum %, we need: container-width * (1 - sum) >= 60px
+                    // Which means: container-width >= 60px / (1 - sum)
+
+                    // For 50% breakdown sum: need 120px container minimum
+                    &[style*='--breakdown-sum: 0.5'] {
+                        @container (max-width: 119px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+
+                    // For 70% breakdown sum: need 200px container minimum
+                    &[style*='--breakdown-sum: 0.7'] {
+                        @container (max-width: 199px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+
+                    // For 80% breakdown sum: need 300px container minimum
+                    &[style*='--breakdown-sum: 0.8'] {
+                        @container (max-width: 299px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+
+                    // For 85% breakdown sum: need 400px container minimum
+                    &[style*='--breakdown-sum: 0.85'] {
+                        @container (max-width: 399px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+
+                    // For 90% breakdown sum: need 600px container minimum
+                    &[style*='--breakdown-sum: 0.9'] {
+                        @container (max-width: 599px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+
+                    // For 95% breakdown sum: need 1200px container minimum
+                    &[style*='--breakdown-sum: 0.95'] {
+                        @container (max-width: 1199px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+
+                    // For very high percentages (96%+), always hide on narrow containers
+                    &[style*='--breakdown-sum: 0.96'],
+                    &[style*='--breakdown-sum: 0.97'],
+                    &[style*='--breakdown-sum: 0.98'],
+                    &[style*='--breakdown-sum: 0.99'] {
+                        @container (max-width: 1499px) {
+                            .funnel-bar-percentage {
+                                display: none;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
