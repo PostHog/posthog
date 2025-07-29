@@ -2230,7 +2230,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2476,7 +2477,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2536,7 +2538,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
