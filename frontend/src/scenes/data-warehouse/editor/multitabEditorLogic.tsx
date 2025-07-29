@@ -1316,7 +1316,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         allTabs: (allTabs) => {
-            const activeTab = allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
+            const activeTab = allTabs.find((tab: QueryTab) => tab.uri.path === values.activeModelUri?.uri.path)
             if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
                 actions.selectTab(activeTab)
             }
