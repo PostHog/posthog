@@ -102,8 +102,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
     """
 
     _context: dict[str, Any]
-    _team: "Team"
-    _user: "User"
     _config: RunnableConfig
     _state: AssistantState
 
