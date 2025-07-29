@@ -9,7 +9,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { isFlagPropertyFilter, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
@@ -201,6 +201,17 @@ export function PropertyValue({
         )
     }
 
+    function formatLabelContent(value: any): JSX.Element {
+        const name = toString(value)
+        if (name === '') {
+            return <i>(empty string)</i>
+        }
+        if (isFlagPropertyFilter(value) && typeof value === 'boolean') {
+            return <code>{name}</code>
+        }
+        return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
+    }
+
     return (
         <LemonInputSelect
             className={inputClassName}
@@ -228,11 +239,7 @@ export function PropertyValue({
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? (
-                                <i>(empty string)</i>
-                            ) : (
-                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
-                            )}
+                            {formatLabelContent(name)}
                         </span>
                     ),
                 }
