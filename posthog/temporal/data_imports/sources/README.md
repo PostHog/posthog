@@ -130,7 +130,7 @@ We have several partitioning modes - `md5`, `numerical`, and `datetime`:
 
 `datetime` will bucket based on a datetime field. We truncate the datetime down to the `month`. This can be overridden to be partitioned by `day` for high volume tables though.
 
-For database source, we recommend setting `partition_count` and `partition_size`. For API backed sources, we recommend setting `partition_keys`, `partition_mode`, and `partition_format`.
+For database sources, we recommend setting `partition_count` and `partition_size`. For API backed sources, we recommend setting `partition_keys`, `partition_mode`, and `partition_format`.
 
 -   `partition_count` refers to how many partitions there should exist for the `md5` mode
 -   `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
