@@ -80,11 +80,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     <PageHeader
                         buttons={
                             <div className="flex gap-2 items-center">
-                                {!newSceneLayout && (
-                                    <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
-                                        Have any questions or feedback?
-                                    </LemonButton>
-                                )}
+                                <LemonButton size="small" id="surveys-page-feedback-button">
+                                    {!newSceneLayout ? <>Have any questions or feedback?</> : <>Feedback</>}
+                                </LemonButton>
 
                                 {!newSceneLayout && (
                                     <>
@@ -180,7 +178,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     </>
                                 )}
                                 {newSceneLayout && (
-                                    <LemonButton data-attr="edit-survey" onClick={() => editingSurvey(true)}>
+                                    <LemonButton
+                                        data-attr="edit-survey"
+                                        onClick={() => editingSurvey(true)}
+                                        type="secondary"
+                                    >
                                         Edit
                                     </LemonButton>
                                 )}
