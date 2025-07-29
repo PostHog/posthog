@@ -130,12 +130,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
-        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
-        STARTUP_PROFILE_CPU: false,
-        STARTUP_PROFILE_HEAP: false,
-        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
-        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
-
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,

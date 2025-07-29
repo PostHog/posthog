@@ -19,7 +19,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -89,7 +88,7 @@ export function HogFunctionConfiguration({
         newHogCode,
         oldInputs,
         newInputs,
-        featureFlags,
+        sourceUsesEvents,
     } = useValues(logic)
 
     const {
@@ -117,7 +116,7 @@ export function HogFunctionConfiguration({
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
-    const aiHogFunctionCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
+    const aiHogFunctionCreation = !!useFeatureFlag('AI_HOG_FUNCTION_CREATION')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     if (loading && !loaded) {
@@ -200,7 +199,8 @@ export function HogFunctionConfiguration({
         displayOptions.showFilters ??
         ['destination', 'internal_destination', 'site_destination', 'email', 'transformation'].includes(type)
     const showExpectedVolume =
-        displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
+        sourceUsesEvents &&
+        (displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type))
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =

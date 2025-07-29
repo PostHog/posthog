@@ -9515,6 +9515,23 @@
                         "type": "number"
                     },
                     "type": "array"
+                },
+                "volume_buckets": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "format": "date-time",
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["occurrences", "sessions", "users", "volumeRange"],
@@ -10580,6 +10597,9 @@
                     },
                     "type": "array"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10786,6 +10806,9 @@
                 "upper_bound_percentile": {
                     "type": "number"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10842,6 +10865,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
