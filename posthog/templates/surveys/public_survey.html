@@ -590,10 +590,8 @@
     <!-- PostHog JavaScript -->
     <script>
         // Project config from Django and helper functions
+        const survey = {{ survey_data | safe }};
         const projectConfig = {{ project_config_json | safe }};
-        const surveyName = "{{ name }}";
-        const surveyId = "{{ id }}";
-        const surveyAppearance = {{ appearance | safe }};
 
         const BLACK_TEXT_COLOR = '#020617'
 
@@ -883,8 +881,8 @@
         }
 
         // Apply survey appearance if available
-        if (surveyAppearance) {
-            applySurveyAppearance(surveyAppearance);
+        if (survey.appearance) {
+            applySurveyAppearance(survey.appearance);
         }
     </script>
     <script>
@@ -930,7 +928,7 @@
         posthog.init(projectConfig.token, config);
 
         posthog.onSurveysLoaded(() => {
-            posthog.surveys["_renderExternalSurvey"](surveyId, '#posthog-survey-container');
+            posthog.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
         });
     </script>
 </body>
