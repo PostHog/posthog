@@ -532,19 +532,13 @@ export function InsightValidationError({
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
-            <h2
-                data-attr="insight-loading-too-long"
-                className="text-xl font-bold leading-tight"
-                // TODO: Use an actual `text-warning` color once @adamleithp changes are live
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--warning)' }}
-            >
+            <h2 data-attr="insight-loading-too-long" className="text-xl font-bold leading-tight text-error">
                 There is a problem with this query
                 {/* Note that this phrasing above signals the issue is not intermittent, */}
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-center text-balance max-w-120 text-error">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
