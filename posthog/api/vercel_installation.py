@@ -13,6 +13,7 @@ from rest_framework import mixins
 from rest_framework.permissions import BasePermission
 from posthog.auth import VercelAuthentication
 from posthog.models.vercel_installation import VercelInstallation
+from rest_framework import decorators
 
 
 class VercelInstallationPermission(BasePermission):
@@ -116,6 +117,7 @@ class VercelInstallationViewSet(
         "retrieve": ["User", "System"],
         "update": ["User", "System"],
         "partial_update": ["User", "System"],
+        "plans": ["User", "System"],
     }
 
     def _validate_upsert_payload(self, request: Request) -> None:
@@ -125,15 +127,83 @@ class VercelInstallationViewSet(
             raise exceptions.ValidationError(detail=serializer.errors)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#upsert-installation
+        """
         self._validate_upsert_payload(request)
+        # Upsert requesting user
+        # Create organization
+        # Create team
+        # Create VercelInstallation (No resources yet.)
+
+        # If the provider is using installation-level billing plans, a default plan must be assigned in provider systems (default "free")
         return super().update(request, *args, **kwargs)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation
+        """
+        # Return active billing plan for the installation
         return super().retrieve(request, *args, **kwargs)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#update-installation
+        """
         self._validate_upsert_payload(request)
+
+        # Fail if not found, otherwise update the installation
+
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-installation
+        """
+        # Delete VercelInstallation
+        # Delete team
+        # Delete organization
+        # Delete user
         return super().destroy(request, *args, **kwargs)
+
+    @decorators.action(detail=True, methods=["get"])
+    def plans(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation-plans
+        """
+        # TODO: Make this actually reflective of PostHog's pricing
+        plans = [
+            {
+                "id": "free",
+                "type": "subscription",
+                "name": "Free",
+                "description": "Free tier with basic features",
+                "scope": "installation",
+                "paymentMethodRequired": False,
+                "details": [
+                    {"label": "Events per month", "value": "1M"},
+                    {"label": "Data retention", "value": "30 days"},
+                    {"label": "Support", "value": "Community"},
+                ],
+            },
+            {
+                "id": "pro",
+                "type": "subscription",
+                "name": "Pro",
+                "description": "Professional tier with advanced features",
+                "scope": "installation",
+                "paymentMethodRequired": True,
+                "preauthorizationAmount": 10.00,
+                "initialCharge": "25.00",
+                "cost": "$25.00/month",
+                "details": [
+                    {"label": "Events per month", "value": "10M"},
+                    {"label": "Data retention", "value": "1 year"},
+                    {"label": "Support", "value": "Email + Chat"},
+                    {"label": "Advanced features", "value": "Cohorts, Funnels, Experiments"},
+                ],
+                "highlightedDetails": [{"label": "Most popular", "value": "✓"}, {"label": "Best value", "value": "✓"}],
+            },
+        ]
+
+        return Response({"plans": plans})
