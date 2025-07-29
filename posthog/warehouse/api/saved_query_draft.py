@@ -13,6 +13,7 @@ class DataWarehouseSavedQueryDraftPagination(pagination.LimitOffsetPagination):
 
 class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
     saved_query_id = serializers.UUIDField(required=False, allow_null=True)
+    name = serializers.CharField(required=False, allow_null=True)
 
     class Meta:
         model = DataWarehouseSavedQueryDraft

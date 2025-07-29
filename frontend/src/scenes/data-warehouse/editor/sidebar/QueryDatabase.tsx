@@ -23,7 +23,7 @@ import api from 'lib/api'
 import { draftsLogic } from '../draftsLogic'
 
 export const QueryDatabase = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName } =
+    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName, editingDraftId } =
         useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -34,6 +34,8 @@ export const QueryDatabase = (): JSX.Element => {
         toggleEditJoinModal,
         loadDatabase,
         loadJoins,
+        setEditingDraft,
+        renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
@@ -60,6 +62,16 @@ export const QueryDatabase = (): JSX.Element => {
                 if (folder) {
                     toggleFolderOpen(folder.id, isExpanded)
                 }
+            }}
+            isItemEditing={(item) => {
+                return editingDraftId === item.record?.id
+            }}
+            onItemNameChange={(item, name) => {
+                if (item.name !== name) {
+                    renameDraft(item.record?.id, name)
+                }
+                // Clear the editing item id when the name changes
+                setEditingDraft('')
             }}
             onItemClick={(item) => {
                 // Handle draft clicks - focus existing tab or create new one
@@ -132,6 +144,15 @@ export const QueryDatabase = (): JSX.Element => {
                                 <ButtonPrimitive menuItem className="text-danger">
                                     Delete
                                 </ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )

@@ -33,6 +33,7 @@ export const draftsLogic = kea<draftsLogicType>([
         }),
         deleteDraft: (draftId: string, successCallback?: () => void) => ({ draftId, successCallback }),
         setDrafts: (drafts: DataWarehouseSavedQueryDraft[]) => ({ drafts }),
+        renameDraft: (draftId: string, name: string) => ({ draftId, name }),
     }),
 
     loaders({
@@ -86,7 +87,10 @@ export const draftsLogic = kea<draftsLogicType>([
                 posthog.captureException(e)
             }
         },
-
+        renameDraft: async ({ draftId, name }) => {
+            await api.dataWarehouseSavedQueryDrafts.update(draftId, { name })
+            actions.setDrafts(values.drafts.map((d) => (d.id === draftId ? { ...d, name } : d)))
+        },
         saveOrUpdateDraft: async ({
             query,
             viewId,

@@ -119,6 +119,7 @@ const createDraftNode = (draft: DataWarehouseSavedQueryDraft): TreeDataItem => {
         type: 'node',
         icon: <IconDocument />,
         record: {
+            id: draft.id,
             type: 'draft',
             draft: draft,
         },
@@ -312,6 +313,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         clearSearch: true,
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
+        setEditingDraft: (draftId: string) => ({ draftId }),
     }),
     connect(() => ({
         values: [
@@ -340,10 +342,16 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             dataWarehouseJoinsLogic,
             ['loadJoins'],
             draftsLogic,
-            ['loadDrafts'],
+            ['loadDrafts', 'renameDraft'],
         ],
     })),
     reducers({
+        editingDraftId: [
+            null as string | null,
+            {
+                setEditingDraft: (_, { draftId }) => draftId,
+            },
+        ],
         selectedSchema: [
             null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
             {

@@ -166,6 +166,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
             userLogic,
             ['user'],
+            draftsLogic,
+            ['drafts'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -1340,6 +1342,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.loadDataModelingJobs(editingView.id)
                 actions.loadUpstream(editingView.id)
             }
+        },
+        drafts: (drafts) => {
+            // update all drafts in all tabs
+            const newTabs = values.allTabs.map((tab) => ({
+                ...tab,
+                draft: drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id),
+                name: drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id)?.name ?? tab.name,
+            }))
+            actions.setTabs(newTabs)
         },
     })),
     selectors({
