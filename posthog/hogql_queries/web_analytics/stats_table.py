@@ -119,9 +119,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                     selects.append(self._period_comparison_tuple("is_bounce", "context.columns.bounce_rate", "avg"))
 
             order_by = self._order_by(columns=[select.alias for select in selects])
-            fill_fraction = self._fill_fraction(order_by)
-            if fill_fraction:
-                selects.append(fill_fraction)
+            fill_fraction_expr = fill_fraction(order_by)
+            if fill_fraction_expr:
+                selects.append(fill_fraction_expr)
 
             query = ast.SelectQuery(
                 select=selects,
@@ -483,53 +483,6 @@ GROUP BY session_id, breakdown_value
             if expr is not None
         ]
 
-    def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
-        # use whatever column we are sorting by to also visually fill the row by some fraction
-        col_name = (
-            order[0].expr.chain[0]
-            if order and isinstance(order[0].expr, ast.Field) and len(order[0].expr.chain) == 1
-            else None
-        )
-
-        if col_name:
-            # for these columns, use the fraction of the overall total belonging to this row
-            if col_name in [
-                "context.columns.visitors",
-                "context.columns.views",
-                "context.columns.clicks",
-                "context.columns.total_conversions",
-                "context.columns.unique_conversions",
-                "context.columns.rage_clicks",
-                "context.columns.dead_clicks",
-                "context.columns.errors",
-            ]:
-                return ast.Alias(
-                    alias="context.columns.ui_fill_fraction",
-                    expr=parse_expr(
-                        "{col}.1 / sum({col}.1) OVER ()",
-                        placeholders={"col": ast.Field(chain=[col_name])},
-                    ),
-                )
-            # these columns are fractions already, use them directly
-            if col_name in [
-                "context.columns.bounce_rate",
-                "context.columns.average_scroll_percentage",
-                "context.columns.scroll_gt80_percentage",
-                "context.columns.conversion_rate",
-            ]:
-                return ast.Alias(
-                    alias="context.columns.ui_fill_fraction",
-                    expr=parse_expr(
-                        "{col}.1",
-                        placeholders={"col": ast.Field(chain=[col_name])},
-                    ),
-                )
-        # use visitors as a fallback
-        return ast.Alias(
-            alias="context.columns.ui_fill_fraction",
-            expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
-        )
-
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
             alias=alias,
@@ -807,3 +760,51 @@ GROUP BY session_id, breakdown_value
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:
     return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_DISPLAY)])
+
+
+def fill_fraction(order: Optional[list[ast.OrderExpr]]):
+    # use whatever column we are sorting by to also visually fill the row by some fraction
+    col_name = (
+        order[0].expr.chain[0]
+        if order and isinstance(order[0].expr, ast.Field) and len(order[0].expr.chain) == 1
+        else None
+    )
+
+    if col_name:
+        # for these columns, use the fraction of the overall total belonging to this row
+        if col_name in [
+            "context.columns.visitors",
+            "context.columns.views",
+            "context.columns.clicks",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.rage_clicks",
+            "context.columns.dead_clicks",
+            "context.columns.errors",
+        ]:
+            return ast.Alias(
+                alias="context.columns.ui_fill_fraction",
+                expr=parse_expr(
+                    "{col}.1 / sum({col}.1) OVER ()",
+                    placeholders={"col": ast.Field(chain=[col_name])},
+                ),
+            )
+        # these columns are fractions already, use them directly
+        if col_name in [
+            "context.columns.bounce_rate",
+            "context.columns.average_scroll_percentage",
+            "context.columns.scroll_gt80_percentage",
+            "context.columns.conversion_rate",
+        ]:
+            return ast.Alias(
+                alias="context.columns.ui_fill_fraction",
+                expr=parse_expr(
+                    "{col}.1",
+                    placeholders={"col": ast.Field(chain=[col_name])},
+                ),
+            )
+    # use visitors as a fallback
+    return ast.Alias(
+        alias="context.columns.ui_fill_fraction",
+        expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
+    )
