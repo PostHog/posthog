@@ -2,7 +2,7 @@ from django.conf import settings
 from simple_salesforce import Salesforce
 
 
-def SalesforceClient() -> Salesforce:
+def get_salesforce_client() -> Salesforce:
     """Create and return a Salesforce client with validated credentials."""
     username = settings.SALESFORCE_USERNAME
     password = settings.SALESFORCE_PASSWORD

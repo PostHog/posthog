@@ -5,83 +5,12 @@ from django.conf import settings
 
 from posthog.exceptions_capture import capture_exception
 
-from .constants import HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS, HARMONIC_REQUEST_TIMEOUT_SECONDS
-
-HARMONIC_BASE_URL = "https://api.harmonic.ai"
-
-DOMAIN_VARIATIONS = ["", "www."]  # Try exact domain first, then with www prefix
-
-HARMONIC_COMPANY_ENRICHMENT_QUERY = """
-mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
-    enrichCompanyByIdentifiers(identifiers: $identifiers) {
-        companyFound
-        company {
-            name
-            companyType
-            website {
-                url
-                domain
-            }
-            headcount
-            description
-            location {
-                city
-                country
-                state
-            }
-            foundingDate {
-                date
-                granularity
-            }
-            funding {
-                fundingTotal
-                numFundingRounds
-                lastFundingAt
-                lastFundingType
-                lastFundingTotal
-                fundingStage
-            }
-            tractionMetrics {
-                webTraffic {
-                    latestMetricValue
-                    metrics {
-                        timestamp
-                        metricValue
-                    }
-                }
-                linkedinFollowerCount {
-                    latestMetricValue
-                    metrics {
-                        timestamp
-                        metricValue
-                    }
-                }
-                twitterFollowerCount {
-                    latestMetricValue
-                    metrics {
-                        timestamp
-                        metricValue
-                    }
-                }
-                headcount {
-                    latestMetricValue
-                    metrics {
-                        timestamp
-                        metricValue
-                    }
-                }
-                headcountEngineering {
-                    latestMetricValue
-                    metrics {
-                        timestamp
-                        metricValue
-                    }
-                }
-            }
-        }
-    }
-}
-"""
+from .constants import (
+    HARMONIC_BASE_URL,
+    HARMONIC_REQUEST_TIMEOUT_SECONDS,
+    HARMONIC_DOMAIN_VARIATIONS,
+    HARMONIC_COMPANY_ENRICHMENT_QUERY,
+)
 
 
 class AsyncHarmonicClient:
@@ -98,12 +27,11 @@ class AsyncHarmonicClient:
             data = await client.enrich_company_by_domain("posthog.com")
     """
 
-    def __init__(self, max_concurrent_requests: int = HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS):
+    def __init__(self):
         self.api_key = settings.HARMONIC_API_KEY
         if not self.api_key:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
 
-        self.semaphore = asyncio.Semaphore(max_concurrent_requests)
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
@@ -132,39 +60,41 @@ class AsyncHarmonicClient:
         Returns:
             Company data dict or None if not found
         """
-        async with self.semaphore:
-            domain = self._clean_domain(domain)
+        # Rate limiting: 5 requests per second
+        await asyncio.sleep(0.2)
+        domain = self._clean_domain(domain)
 
-            # Try domain variations
-            domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in DOMAIN_VARIATIONS]
+        # Try domain variations
+        domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
 
-            for domain_variation in domain_variations:
-                try:
-                    variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
+        for domain_variation in domain_variations:
+            try:
+                variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
 
-                    assert self.session is not None
-                    async with self.session.post(
-                        f"{HARMONIC_BASE_URL}/graphql",
-                        params={"apikey": self.api_key},
-                        json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
-                        headers={"Content-Type": "application/json"},
-                    ) as response:
-                        response.raise_for_status()
-                        data = await response.json()
+                if self.session is None:
+                    raise RuntimeError("HTTP session not initialized. Use async context manager.")
+                async with self.session.post(
+                    f"{HARMONIC_BASE_URL}/graphql",
+                    params={"apikey": self.api_key},
+                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
 
-                        if "errors" in data:
-                            continue
+                    if "errors" in data:
+                        continue
 
-                        result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
-                        if result.get("companyFound"):
-                            company_data = result.get("company")
-                            return company_data
+                    result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
+                    if result.get("companyFound"):
+                        company_data = result.get("company")
+                        return company_data
 
-                except Exception as e:
-                    capture_exception(e)
-                    continue
+            except Exception as e:
+                capture_exception(e)
+                continue
 
-            return None
+        return None
 
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.

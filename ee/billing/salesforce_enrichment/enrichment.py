@@ -4,6 +4,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import posthoganalytics
+from django.utils import timezone
 
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.exceptions_capture import capture_exception
@@ -11,13 +12,13 @@ from posthog.exceptions_capture import capture_exception
 from .constants import (
     HARMONIC_BATCH_SIZE,
     SALESFORCE_UPDATE_BATCH_SIZE,
-    HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS,
+    DEFAULT_CHUNK_SIZE,
     PERSONAL_EMAIL_DOMAINS,
     METRIC_PERIODS,
 )
 from .harmonic_client import AsyncHarmonicClient
 from .redis_cache import get_accounts_from_redis
-from .salesforce_client import SalesforceClient
+from .salesforce_client import get_salesforce_client
 
 
 def is_excluded_domain(domain: str | None) -> bool:
@@ -178,9 +179,11 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
-        "harmonic_last_update__c": datetime.now().strftime("%Y-%m-%d"),
+        "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         "Founded_year__c": (
-            int(company_info.get("founding_date", "").split("-")[0]) if company_info.get("founding_date") else None
+            int(company_info.get("founding_date", "").split("-")[0])
+            if company_info.get("founding_date") and "-" in company_info.get("founding_date", "")
+            else None
         ),
         # Funding Info
         "harmonic_last_funding__c": funding.get("lastFundingTotal"),
@@ -367,7 +370,7 @@ def _build_result(
 
 async def enrich_accounts_chunked_async(
     chunk_number: int = 0,
-    chunk_size: int = 5000,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
     estimated_total_chunks: int | None = None,
 ) -> dict[str, Any]:
     """Enrich Salesforce accounts with Harmonic data using concurrent API calls.
@@ -396,7 +399,7 @@ async def enrich_accounts_chunked_async(
 
     # Initialize Salesforce client
     try:
-        sf = SalesforceClient()
+        sf = get_salesforce_client()
     except Exception as e:
         logger.exception("Failed to connect to Salesforce", error=str(e))
         capture_exception(e)
@@ -411,8 +414,6 @@ async def enrich_accounts_chunked_async(
         logger.exception("Failed to query accounts", error=str(e))
         capture_exception(e)
         return _build_result(chunk_number, start_time, error=str(e))
-
-    enrichment_time = 0.0
 
     # Extract domains and prepare account info
     account_data = []
@@ -438,8 +439,8 @@ async def enrich_accounts_chunked_async(
     total_failed = 0
     update_records = []
 
-    # Process in batches with limited concurrent requests
-    async with AsyncHarmonicClient(max_concurrent_requests=HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS) as harmonic_client:
+    # Process in batches with rate limiting (5 req/sec)
+    async with AsyncHarmonicClient() as harmonic_client:
         for batch_start in range(0, len(account_data), HARMONIC_BATCH_SIZE):
             batch_end = min(batch_start + HARMONIC_BATCH_SIZE, len(account_data))
             batch = account_data[batch_start:batch_end]
@@ -448,10 +449,7 @@ async def enrich_accounts_chunked_async(
             batch_domains = [item["domain"] for item in batch]
 
             # Make concurrent Harmonic API calls
-            batch_start_time = time.time()
             harmonic_results = await harmonic_client.enrich_companies_batch(batch_domains)
-            batch_api_time = time.time() - batch_start_time
-            enrichment_time += batch_api_time
 
             for account_info, harmonic_result in zip(batch, harmonic_results):
                 account_id = account_info["account_id"]

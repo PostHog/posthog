@@ -15,23 +15,16 @@ from posthog.temporal.common.logger import get_internal_logger
 from posthog.exceptions_capture import capture_exception
 
 from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
-from ee.billing.salesforce_enrichment.salesforce_client import SalesforceClient
+from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
-
-
-SALESFORCE_ACCOUNTS_QUERY = """
-    SELECT Id, Name, Website, CreatedDate
-    FROM Account
-    WHERE Website != null
-    ORDER BY CreatedDate DESC
-"""
+from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
 
 
 @dataclasses.dataclass
 class SalesforceEnrichmentInputs:
     """Inputs for the Salesforce enrichment workflow."""
 
-    chunk_size: int = 1000
+    chunk_size: int = DEFAULT_CHUNK_SIZE
     max_chunks: int | None = None  # Optional limit for testing
 
 
@@ -97,7 +90,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
 
         # Query all accounts
         sf_start = time.time()
-        sf = SalesforceClient()
+        sf = get_salesforce_client()
 
         accounts_result = sf.query_all(SALESFORCE_ACCOUNTS_QUERY)
         all_accounts = accounts_result["records"]

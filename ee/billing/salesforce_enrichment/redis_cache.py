@@ -57,10 +57,6 @@ async def get_accounts_from_redis(
         all_accounts = json.loads(accounts_json)
 
         if offset >= len(all_accounts):
-            capture_exception(
-                ValueError("Offset is greater than the number of accounts"),
-                {"offset": offset, "limit": limit, "total_accounts": len(all_accounts)},
-            )
             return []
 
         return all_accounts[offset : offset + limit]

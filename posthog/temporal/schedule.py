@@ -23,6 +23,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingI
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
+from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 from django.conf import settings
 
 
@@ -118,12 +119,12 @@ async def create_upgrade_queries_schedule(client: Client):
 async def create_salesforce_enrichment_schedule(client: Client):
     """Create or update the schedule for the Salesforce enrichment workflow.
 
-    This schedule runs every Sunday at 2 AM UTC with chunk size of 5000.
+    This schedule runs every Sunday at 2 AM UTC with default chunk size.
     """
     salesforce_enrichment_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "salesforce-enrichment-async",
-            asdict(SalesforceEnrichmentInputs(chunk_size=5000)),
+            asdict(SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE)),
             id="salesforce-enrichment-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
