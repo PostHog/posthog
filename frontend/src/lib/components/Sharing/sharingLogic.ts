@@ -112,21 +112,25 @@ export const sharingLogic = kea<sharingLogicType>([
             // Reload iframe when settings are updated
             actions.reloadIframe()
         },
-        loadSharingConfigurationSuccess: (sharingConfiguration) => {
-            if (sharingConfiguration) {
-                // Load sharing settings and iframe config from settings
-                actions.setEmbedConfigValues({
+        loadSharingConfigurationSuccess: (result) => {
+            if (result) {
+                // Load sharing settings and iframe config from settings into the form
+                const formValues = {
                     ...defaultIframeConfig,
                     ...defaultSharingSettings,
-                    ...sharingConfiguration.settings,
-                })
+                    ...result.sharingConfiguration?.settings,
+                }
+                actions.setEmbedConfigValues(formValues)
             }
         },
     })),
 
     forms({
         embedConfig: {
-            defaults: defaultIframeConfig,
+            defaults: {
+                ...defaultIframeConfig,
+                ...defaultSharingSettings,
+            },
         },
     }),
     selectors({
