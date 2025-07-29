@@ -5,10 +5,8 @@ HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
 HARMONIC_BATCH_SIZE: int = 100
 SALESFORCE_UPDATE_BATCH_SIZE: int = 200  # Max records per sObject Collections API call
 
-# Metric time periods for historical data (in days)
 METRIC_PERIODS = {"90d": 90, "180d": 180}
 
-# Common personal email domains to filter out
 PERSONAL_EMAIL_DOMAINS = {
     "gmail.com",
     "yahoo.com",
@@ -24,7 +22,6 @@ PERSONAL_EMAIL_DOMAINS = {
     "me.com",
     "mac.com",
     "gmx.com",
-    # Additional yahoo domains
     "yahoo.co.uk",
     "yahoo.co.jp",
     "yahoo.co.in",
